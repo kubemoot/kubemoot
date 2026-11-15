@@ -42,22 +42,10 @@ discoverability as the surface grows.
 
 ### Binary releases
 
-Pre-built static binaries for Linux, macOS, and Windows (amd64 and arm64) are
-published to GitHub releases with every tagged version. Use the GitHub CLI to download:
-
-```bash
-gh release download \
-  -R kubemoot/kmctl \
-  --pattern 'kmctl_*_linux_amd64.tar.gz'
-tar -xzf kmctl_*_linux_amd64.tar.gz
-sudo install -m0755 kmctl /usr/local/bin/kmctl
-kmctl version
-```
-
-Substitute `linux_amd64` for your platform (`darwin_amd64`, `darwin_arm64`,
-`linux_arm64`, `windows_amd64`). Linux and macOS archives are `.tar.gz`; Windows archives are `.zip`.
-
-With Go installed, `go install github.com/kubemoot/kmctl@latest` also works.
+Install the latest release, with its checksum and signature checks, from the
+[kmctl README](https://github.com/kubemoot/kmctl#install). It covers Linux, macOS, and
+Windows on `amd64` and `arm64`; the commands live there so they are kept in one place.
+Then check the install with `kmctl version`.
 
 ### Homebrew (planned)
 

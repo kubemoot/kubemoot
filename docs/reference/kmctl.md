@@ -30,6 +30,7 @@ These flags apply to every command:
 | `--cluster` | | | Kubeconfig cluster override |
 | `--user` | | | Kubeconfig user override |
 | `--as` | | | Username to impersonate |
+| `--verbose` | `-v` | | Print the underlying error after the message of a failed command (`KMCTL_DEBUG=1` does the same) |
 | `--help` | `-h` | | Show help for the command |
 
 `-A` (`--all-namespaces`) and `-o` (`--output`) are not global. They belong to the commands that list or print resources, and their meaning varies by command (for example, `-o` is a directory for `kmctl create` and a file for `kmctl fitness download`).
@@ -695,6 +696,8 @@ Starts a turn and streams the discussion until the crew answers, then exits 0.
 | `--idle-timeout` | `5m` | Stop waiting when the crew shows no activity for this long; `0` waits while the stream is open |
 | `--timeout` | `0` | Overall cap on the wait, for scripts; `0` means no cap |
 
+`ask` sends this machine's IANA time zone and local date and time with each question (`timeZone` and `localDateTime` in the request to the crew's discussion gateway), so the crew's tools resolve "today", "recent", and "upcoming" to your date even when the cluster runs in another time zone. `kmctl` reads the zone from `TZ`, then `/etc/localtime`, then `/etc/timezone`. When none names a known zone it sends the local date and time alone, and a crew without either falls back to its configured default zone.
+
 **Example:**
 
 ```bash
@@ -1092,9 +1095,45 @@ kmctl memory export homelab-pilot -n crew-homelab-pilot -o ./pilot-memory --mark
 
 ---
 
+## Errors
+
+When a command fails, `kmctl` prints what went wrong and, on a second line, what to do
+next, and exits with status 1:
+
+```
+$ kmctl conversation ask homelab-pilot "List the pods in the system namespace."
+Error: no crew "homelab-pilot" in namespace "default"; found in "crew-homelab-pilot"
+Hint: Pass -n crew-homelab-pilot
+```
+
+| Failure | Message |
+|---|---|
+| No kubeconfig or no current context | `no Kubernetes cluster is configured (the kubeconfig has no current context)` |
+| `--context` not in the kubeconfig | `context "NAME" is not in the kubeconfig` |
+| API server unreachable | `cannot reach the Kubernetes API server (context "NAME")` |
+| Credentials rejected | `the Kubernetes API server did not accept your credentials (context "NAME")` |
+| Missing permission (RBAC) | `you are not allowed to VERB RESOURCE in namespace "NS"` |
+| Kubemoot not installed | `the cluster does not serve the Kubemoot API (kubemoot.ai)` |
+| `get` of a missing object | `no crew "NAME" in namespace "NS"` (and the same for the other nouns) |
+| Crew in another namespace | `no crew "NAME" in namespace "NS"; found in "OTHER"` |
+| Gateway missing, not ready, or failing | `the discussion gateway of crew "NAME" was not found in namespace "NS"`, `... is not ready`, `... answered HTTP CODE` |
+| Stream cut before the answer | `the discussion stream closed before the crew answered; the discussion may still finish` |
+| Bad flag or arguments | cobra's message, then the command's usage line |
+
+When a crew is not in the namespace, `kmctl` looks for a crew of that name in every
+namespace and names the ones it finds. Without permission to list crews across the
+cluster, it suggests `-n` and `kmctl crew list -A` instead. `-n` always decides the
+namespace; `kmctl` never switches it on its own.
+
+`-v` (`--verbose`) or `KMCTL_DEBUG=1` adds a third line, `Cause:`, with the error from
+the Kubernetes client underneath. The `Error:` and `Hint:` labels are colored only when
+stderr is a terminal, `NO_COLOR` is unset, and `TERM` is not `dumb`.
+
+---
+
 ## Related pages
 
 - [kmctl - the CLI](../../ecosystem/kmctl/) - overview and role in the ecosystem
-- [kmctl User Guide](../../user-guides/kmctl/) - install, quickstart, and shell completion
+- [kmctl User Guide](../../user-guides/kmctl/) - quickstart and shell completion; [install kmctl](https://github.com/kubemoot/kmctl#install) from the release
 - [Build a Crew](../../user-guides/build-a-crew/) - the resource-level workflow `kmctl` streamlines
 - [CrewForge](../../ecosystem/crewforge/) - the VS Code extension that runs `kmctl create --chart` for its Create Crew command
