@@ -110,9 +110,9 @@ export async function readDiscussionArtifact(objectKey: string): Promise<Uint8Ar
 	const nc = await getNatsConnection();
 	const js = nc.jetstream();
 	return firstBlob(DISCUSSION_READ_BUCKETS, async (bucket) => {
-		// views.os creates a bucket that is not there, with no TTL; the workspace bucket is created by
-		// its writers, so check it exists before opening it.
-		if (bucket === DISCUSSION_WORKSPACE_BUCKET && !(await bucketExists(nc, bucket))) {
+		// views.os creates a bucket that is not there, with no TTL; the buckets are created by their
+		// writers, so check each exists before opening it.
+		if (!(await bucketExists(nc, bucket))) {
 			throw new NatsBucketMissing(bucket);
 		}
 		const store = await js.views.os(bucket);

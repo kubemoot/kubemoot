@@ -153,7 +153,19 @@ describe('scoped dashboard', () => {
 			expect(res.status).toBe(308);
 			expect(res.headers.get('Location')).toBe('/api/kubemoot/discussions/workspace?key=team-a/crew/t1/agent/finding-1');
 			expect(res.headers.get('Deprecation')).toBe('true');
+			expect(res.headers.get('Cache-Control')).toBe('no-store');
 			expect(mocks.readDiscussionArtifact).not.toHaveBeenCalled();
+		});
+
+		it('logs the older route as deprecated once per process', async () => {
+			vi.resetModules();
+			const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+			const { GET: fresh } = await import('./kubemoot/discussions/artifact/+server');
+			const event = { url: urlOf('/api/kubemoot/discussions/artifact?key=team-a/crew/t1/agent/finding-1') };
+			await call(fresh, event);
+			await call(fresh, event);
+			expect(warn).toHaveBeenCalledTimes(1);
+			warn.mockRestore();
 		});
 
 		it('still reports a malformed key as 400 first', async () => {
