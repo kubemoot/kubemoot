@@ -16,7 +16,9 @@
 # not a failure. Any other API or git error is reported as "UNKNOWN" for that repository: the
 # check could not tell.
 # Exit status, as bits: 1 = a repository holds unpublished breaking changes; 2 = the check
-# failed for a repository (UNKNOWN); 3 = both; 0 = every repository reported cleanly.
+# failed for a repository (UNKNOWN); 3 = both; 0 = every repository reported cleanly. Any status
+# above 3 (64 for a bad RELEASE_STATUS_MIN_AGE_HOURS, anything else from a crash) means the check
+# itself did not run: callers must treat it as "could not check", never as clean.
 # Tested by test-release-status.sh.
 set -euo pipefail
 
@@ -41,11 +43,24 @@ count_user_facing() {
 }
 
 # The subjects that mark a breaking change (type!:, or a BREAKING CHANGE footer the compare
-# query appends to the subject), from subjects on stdin. A subject the compare query marked
-# "[WITHIN GRACE]" (committed less than RELEASE_STATUS_MIN_AGE_HOURS ago) is not reported.
+# query appends to the subject), from the compare query's commit lines on stdin. A commit
+# line is "<flag><TAB><subject>"; the flag is 1 for a commit younger than
+# RELEASE_STATUS_MIN_AGE_HOURS, which is not reported. The flag is its own field, so no
+# subject text can set or clear it.
 breaking_subjects() {
-  { grep -E '^[a-z]+(\([^)]*\))?!:|\[BREAKING CHANGE in the body\]$' || true; } \
-    | { grep -vF '[WITHIN GRACE]' || true; }
+  awk -F'\t' '$1 == "0" { print substr($0, 3) }' \
+    | { grep -E '^[a-z]+(\([^)]*\))?!:|\[BREAKING CHANGE in the body\]$' || true; }
+}
+
+# The jq program of the compare query: the number of commits ahead on the first line, then
+# one "<young flag><TAB><subject>" line per commit.
+compare_filter() {
+  cat <<JQ
+.ahead_by, (.commits[].commit
+  | [ (if ${GRACE_HOURS} > 0 and ((.committer.date | fromdateiso8601) > (now - ${GRACE_HOURS} * 3600)) then 1 else 0 end),
+      ((.message | split("\n")[0]) + (if (.message | test("(^|\n)BREAKING[ -]CHANGE")) then " [BREAKING CHANGE in the body]" else "" end)) ]
+  | @tsv)
+JQ
 }
 
 # The newest release candidate with the release's tag prefix, from `git ls-remote` output on
@@ -87,7 +102,7 @@ unknown() {
 # status_of REPO: prints the repository's line. Returns 1 for unpublished breaking changes,
 # 2 when the check could not read the repository, 0 otherwise.
 status_of() {
-  local repo="$1" latest compare ahead subjects user bang rc line err rc_status=0
+  local repo="$1" latest compare ahead commits subjects user bang rc line err rc_status=0
   latest="$(gh_read "repos/${OWNER}/${repo}/releases/latest" .tag_name 2>"${work}/err")" || rc_status=$?
   err="$(cat "${work}/err")"
   if [ "$rc_status" -eq 44 ]; then
@@ -97,15 +112,13 @@ status_of() {
     unknown "$repo" "the latest release" "${err:-empty answer}"
     return 2
   fi
-  compare="$(gh_read "repos/${OWNER}/${repo}/compare/${latest}...main" \
-    '[.ahead_by, ([.commits[].commit | (.message | split("\n")[0])
-      + (if '"${GRACE_HOURS}"' > 0 and ((.committer.date | fromdateiso8601) > (now - '"${GRACE_HOURS}"' * 3600)) then " [WITHIN GRACE]" else "" end)
-      + (if (.message | test("(^|\n)BREAKING[ -]CHANGE")) then " [BREAKING CHANGE in the body]" else "" end)] | join("\n"))] | @tsv' \
+  compare="$(gh_read "repos/${OWNER}/${repo}/compare/${latest}...main" "$(compare_filter)" \
     2>"${work}/err")" || { unknown "$repo" "the commits since ${latest}" "$(cat "${work}/err")"; return 2; }
-  ahead="${compare%%$'\t'*}"
-  subjects="$(printf '%s' "${compare#*$'\t'}" | sed 's/\\n/\n/g')"
+  ahead="$(head -n 1 <<<"$compare")"
+  commits="$(tail -n +2 <<<"$compare")"
+  subjects="$(cut -f2- <<<"$commits")"
   user="$(count_user_facing <<<"$subjects")"
-  bang="$(breaking_subjects <<<"$subjects")"
+  bang="$(breaking_subjects <<<"$commits")"
   rc="$(git ls-remote --tags --refs "https://github.com/${OWNER}/${repo}" 2>"${work}/err")" \
     || { unknown "$repo" "the tags" "$(head -n 1 "${work}/err")"; return 2; }
   rc="$(newest_candidate "$latest" <<<"$rc")"

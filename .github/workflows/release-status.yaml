@@ -6,6 +6,10 @@
 # does (.github/scripts/release-status-issue.sh). The public repositories are read with the
 # workflow's own token, which reads any public repository; no stored token is involved, and
 # the only write permission is issues, on this repository.
+#
+# GitHub disables a scheduled workflow after 60 days without activity in the repository.
+# Kubemoot merges to main daily, which keeps this one alive; if main goes quiet that long, the
+# check stops silently and needs enabling again (Actions tab, Release Status, Enable workflow).
 name: Release Status
 
 on:
@@ -49,8 +53,15 @@ jobs:
             cat "${RUNNER_TEMP}/report.md"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "status=${status}" >> "$GITHUB_OUTPUT"
+          # Above 3 the script itself did not run (a bad option, a crash): fail the job.
+          if [ "$status" -gt 3 ]; then
+            echo "::error title=Release status check did not run::release-status.sh exited ${status}."
+            exit 1
+          fi
 
+      # Runs after a failed check too: the script then leaves the issue alone and fails.
       - name: Keep the issue in step with the status
+        if: ${{ !cancelled() && steps.check.outputs.status != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           STATUS: ${{ steps.check.outputs.status }}
