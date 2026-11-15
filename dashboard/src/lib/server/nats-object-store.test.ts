@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('./nats-client.js', () => ({ getNatsConnection: vi.fn() }));
+const nats = vi.hoisted(() => ({ getNatsConnection: vi.fn() }));
+vi.mock('./nats-client.js', () => nats);
 
 import {
 	DISCUSSION_ARTIFACTS_BUCKET,
@@ -8,6 +9,7 @@ import {
 	DISCUSSION_WORKSPACE_BUCKET,
 	NatsBucketMissing,
 	firstBlob,
+	readDiscussionArtifact,
 	isStreamNotFound
 } from './nats-object-store.js';
 
@@ -56,5 +58,36 @@ describe('isStreamNotFound', () => {
 		expect(isStreamNotFound(new Error('stream not found'))).toBe(true);
 		expect(isStreamNotFound(new Error('connection closed'))).toBe(false);
 		expect(isStreamNotFound('stream not found')).toBe(false);
+	});
+});
+
+describe('readDiscussionArtifact', () => {
+	function connection(existing: string[], blobs: Record<string, Uint8Array | null>) {
+		const os = vi.fn(async (bucket: string) => ({ getBlob: async () => blobs[bucket] ?? null }));
+		nats.getNatsConnection.mockResolvedValue({
+			jetstream: () => ({ views: { os } }),
+			jetstreamManager: async () => ({
+				streams: {
+					info: async (stream: string) => {
+						if (!existing.includes(stream.replace('OBJ_', ''))) throw new Error('stream not found');
+						return {};
+					}
+				}
+			})
+		});
+		return os;
+	}
+
+	it('never opens (and so never creates) a bucket that does not exist', async () => {
+		const os = connection([DISCUSSION_ARTIFACTS_BUCKET], { [DISCUSSION_ARTIFACTS_BUCKET]: bytes('old') });
+		expect(new TextDecoder().decode((await readDiscussionArtifact('k'))!)).toBe('old');
+		expect(os).toHaveBeenCalledTimes(1);
+		expect(os).toHaveBeenCalledWith(DISCUSSION_ARTIFACTS_BUCKET);
+	});
+
+	it('does not create the older bucket either when it is missing too', async () => {
+		const os = connection([], {});
+		expect(await readDiscussionArtifact('k')).toBeNull();
+		expect(os).not.toHaveBeenCalled();
 	});
 });

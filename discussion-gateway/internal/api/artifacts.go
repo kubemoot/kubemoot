@@ -79,7 +79,7 @@ func openFrom(ctx context.Context, js jetstream.JetStream, bucket, key string) (
 // result's bytes. A key outside the crew's namespace and crew is answered as not found, the
 // same as a deleted one.
 func (h *Handler) getWorkspace(w http.ResponseWriter, r *http.Request) {
-	h.getArtifact(w, r)
+	h.getStoredResult(w, r)
 }
 
 // getArtifactDeprecated answers the old route, GET /api/v1/discussions/{crew}/artifact, as
@@ -91,11 +91,11 @@ func (h *Handler) getArtifactDeprecated(w http.ResponseWriter, r *http.Request) 
 	h.deprecatedRoute.Do(func() {
 		handlerLog.Info("The /artifact route is deprecated and is removed in the next release; use /workspace")
 	})
-	h.getArtifact(w, r)
+	h.getStoredResult(w, r)
 }
 
-// getArtifact serves a stored result; getWorkspace and getArtifactDeprecated both call it.
-func (h *Handler) getArtifact(w http.ResponseWriter, r *http.Request) {
+// getStoredResult serves a stored result; getWorkspace and getArtifactDeprecated both call it.
+func (h *Handler) getStoredResult(w http.ResponseWriter, r *http.Request) {
 	scope, ok := h.scopeFor(w, r.PathValue("crew"))
 	if !ok {
 		return
