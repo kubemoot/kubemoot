@@ -233,6 +233,19 @@ The conversion applies to every route into a tool server (the MCP endpoint and `
 
 The MCP Java SDK and the JSON Schema validator it uses (networknt) only validate arguments; the validator's loose-type mode accepts a mismatched type without changing the value that is sent, so the tool server would still reject it. The gateway keeps the conversion in `ToolArgumentCoercion`.
 
+## Tool Argument Rules
+
+A model sometimes sends an argument the tool server will always refuse, and a description alone does not stop it: the server rejects the call, the agent retries the same shape, and the question goes unanswered. A parameter override on the MCPServer can carry `rules`, each a regular expression and the message the model should get back (see [ToolOverride](../mcpserver-guide/#tooloverride)). Before the gateway forwards a `tools/call`, it searches the call's string argument for each rule of that parameter, in order. The first match ends the call: the gateway answers with a tool error (`isError: true`) whose text is the rule's message, and the tool server never sees the call.
+
+- A pattern is searched anywhere in the argument. Anchor it with `^` and `$` to match all of it.
+- Only a string argument is checked. An absent, empty, or non-string argument never matches; the tool server's own validation still answers for it.
+- The check runs on what the model sent, before [argument types](#tool-argument-types) are converted.
+- It runs where the gateway forwards the call, so every route into a tool server (the MCP endpoint and `POST /tools/{name}/call`) is covered by the one evaluator.
+- The operator rejects a pattern that is not valid RE2 when the MCPServer is written. A pattern the gateway cannot compile (for example RE2's `(?P<name>...)` form, which Java does not read) is logged as a warning and skipped, never a failure; the other rules and the server keep working.
+- The refusal is logged at info with the tool name, never the argument.
+
+Write the message in ADL and name the call that works instead, so the next attempt differs from the first.
+
 ## Request metadata (_meta)
 
 MCP's `tools/call` carries per-request metadata in `params._meta`. The gateway forwards only the four keys listed below, on every route into a tool server: the MCP endpoint reads them from the `_meta` the caller sent, and `POST /tools/{name}/call` takes an optional `_meta` object next to `arguments`. It re-validates each value (`timeZone` must be a known IANA zone id of at most 64 characters, `localDateTime` an ISO local date-time with a four-digit year and no offset, `requestDate` an ISO date, `workspacePrefix` three plain name parts and a closing slash of at most 512 characters) and drops every other key and every value that fails its check, so a caller cannot pass other fields to a tool through `_meta`. A call with nothing left to forward carries no `_meta`. The gateway does not add values.

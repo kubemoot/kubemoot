@@ -2402,6 +2402,43 @@ spec:
                             maxLength: 2000
                             minLength: 1
                             type: string
+                          rules:
+                            description: |-
+                              Rules reject a call whose value for this parameter the tool server would
+                              refuse, before the call: the gateway returns the rule's message as the tool
+                              error and does not call the server. Rules are checked in order and the first
+                              match answers.
+                            items:
+                              description: |-
+                                ToolArgumentRule rejects a tool call when a parameter's text matches a pattern.
+                                Only a string value is checked; an absent, empty, or non-string argument never
+                                matches, so the tool server's own validation still applies to it.
+                              properties:
+                                message:
+                                  description: |-
+                                    Message is what the model gets back as the tool error. Write it in ADL and name
+                                    the alternative call.
+                                  maxLength: 1000
+                                  minLength: 1
+                                  type: string
+                                reject:
+                                  description: |-
+                                    Reject is an RE2 regular expression searched anywhere in the argument text
+                                    (anchor with ^ and $ to match all of it). A pattern that does not compile is
+                                    rejected when the MCPServer is created or updated. Use the syntax RE2 and
+                                    Java share: named groups written (?P<name>...) are not portable.
+                                  maxLength: 200
+                                  minLength: 1
+                                  type: string
+                                  x-kubernetes-validations:
+                                  - message: reject must be a valid RE2 regular expression
+                                    rule: '''''.matches(self) in [true, false]'
+                              required:
+                              - message
+                              - reject
+                              type: object
+                            maxItems: 16
+                            type: array
                         required:
                         - description
                         type: object

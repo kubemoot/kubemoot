@@ -11,6 +11,8 @@ You may obtain a copy of the License at
 package controller
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -21,9 +23,9 @@ import (
 )
 
 // The MCPServer CRD rejects more than one of image, externalEndpoint, and
-// kubemootImage at the API server, so the rule holds even where the admission
-// webhook is not installed.
-var _ = Describe("MCPServer image selection validation", func() {
+// kubemootImage, and a tool argument rule whose pattern is not valid RE2, at the
+// API server, so the rules hold even where the admission webhook is not installed.
+var _ = Describe("MCPServer admission validation", func() {
 	create := func(name string, spec kubemootv1alpha1.MCPServerSpec) error {
 		ms := &kubemootv1alpha1.MCPServer{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
@@ -62,5 +64,43 @@ var _ = Describe("MCPServer image selection validation", func() {
 	It("rejects a kubemootImage name the operator does not know", func() {
 		err := create("cel-unknown-name", kubemootv1alpha1.MCPServerSpec{KubemootImage: unknownImage})
 		Expect(apierrors.IsInvalid(err)).To(BeTrue(), "got %v", err)
+	})
+
+	argumentRules := func(rules ...kubemootv1alpha1.ToolArgumentRule) kubemootv1alpha1.MCPServerSpec {
+		return kubemootv1alpha1.MCPServerSpec{
+			KubemootImage: kubemootv1alpha1.KubemootImageArtifactAccess,
+			ToolOverrides: []kubemootv1alpha1.ToolOverride{{
+				Name: "resources_list",
+				Parameters: map[string]kubemootv1alpha1.ToolParameterOverride{
+					"fieldSelector": {Description: "a selector", Rules: rules},
+				},
+			}},
+		}
+	}
+
+	It("accepts tool argument rules whose patterns are valid RE2", func() {
+		Expect(create("cel-rules-valid", argumentRules(
+			kubemootv1alpha1.ToolArgumentRule{Reject: "(^|,)[^=,]+(,|$)", Message: "m"},
+			kubemootv1alpha1.ToolArgumentRule{Reject: "(?i)=~|!~|[<>]", Message: "m"},
+		))).To(Succeed())
+	})
+
+	It("rejects a tool argument rule whose pattern does not compile", func() {
+		for i, bad := range []string{"(", "[a-", "*x", "a{2,1}", "a**", `\1`} {
+			err := create(fmt.Sprintf("cel-rules-bad-%d", i), argumentRules(
+				kubemootv1alpha1.ToolArgumentRule{Reject: bad, Message: "m"}))
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(), "pattern %q: %v", bad, err)
+			Expect(err.Error()).To(ContainSubstring("valid RE2"), "pattern %q", bad)
+		}
+	})
+
+	It("rejects an empty rule message and more than 16 rules on one parameter", func() {
+		Expect(create("cel-rules-nomsg", argumentRules(
+			kubemootv1alpha1.ToolArgumentRule{Reject: "x"}))).NotTo(Succeed())
+		many := make([]kubemootv1alpha1.ToolArgumentRule, 17)
+		for i := range many {
+			many[i] = kubemootv1alpha1.ToolArgumentRule{Reject: "x", Message: "m"}
+		}
+		Expect(create("cel-rules-many", argumentRules(many...))).NotTo(Succeed())
 	})
 })

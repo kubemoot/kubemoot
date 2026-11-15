@@ -86,3 +86,36 @@ func TestRegistrationPayloadSkipsOverridesForContextForge(t *testing.T) {
 		t.Errorf("ContextForge does not take overrides: %v", payload)
 	}
 }
+
+func TestRegistrationPayloadCarriesToolArgumentRules(t *testing.T) {
+	r := &MCPGatewayReconciler{}
+	mcp := toolOverrideServer(kubemootv1alpha1.ToolOverride{
+		Name: toolOverrideTool,
+		Parameters: map[string]kubemootv1alpha1.ToolParameterOverride{"fieldSelector": {
+			Description: "a selector",
+			Rules:       []kubemootv1alpha1.ToolArgumentRule{{Reject: "[<>]", Message: "no operators"}},
+		}},
+	})
+
+	raw, err := json.Marshal(r.buildRegistrationPayload(kubemootv1alpha1.ImplementationKubemoot, mcp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		ToolOverrides []struct {
+			Parameters map[string]struct {
+				Rules []struct {
+					Reject  string `json:"reject"`
+					Message string `json:"message"`
+				} `json:"rules"`
+			} `json:"parameters"`
+		} `json:"toolOverrides"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	rules := got.ToolOverrides[0].Parameters["fieldSelector"].Rules
+	if len(rules) != 1 || rules[0].Reject != "[<>]" || rules[0].Message != "no operators" {
+		t.Errorf("payload rules = %s", raw)
+	}
+}
