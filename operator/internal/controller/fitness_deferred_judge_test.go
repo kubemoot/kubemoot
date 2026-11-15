@@ -110,7 +110,7 @@ func TestBuildComparisonDoc(t *testing.T) {
 		pfx + "s1-i1.json": []byte(good), // different scenario, must be excluded
 	}}
 
-	doc, total, answers, err := buildComparisonDoc(store, pfx, 0, testVerdictReflects)
+	doc, total, answers, err := buildComparisonDoc(store, pfx, 0, testVerdictReflects, 0)
 	if err != nil {
 		t.Fatalf("buildComparisonDoc error: %v", err)
 	}

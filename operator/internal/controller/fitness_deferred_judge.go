@@ -229,14 +229,10 @@ func parseDeferredAssertion(raw string) (keyword, reference string, ok bool) {
 // resolveKeywordEndpoint finds the crew that declares the keyword and returns its
 // in-cluster discussion endpoint. No keyword/crew/endpoint is hardcoded.
 func resolveKeywordEndpoint(ctx context.Context, c client.Client, keyword string) (string, error) {
-	var crews kubemootv1alpha1.CrewList
-	if err := c.List(ctx, &crews, client.MatchingLabels{keywordCrewLabel: keyword}); err != nil {
-		return "", fmt.Errorf("list crews for keyword %q: %w", keyword, err)
+	crew, err := keywordCrew(ctx, c, keyword)
+	if err != nil {
+		return "", err
 	}
-	if len(crews.Items) == 0 {
-		return "", fmt.Errorf("no crew declares %s=%s", keywordCrewLabel, keyword)
-	}
-	crew := crews.Items[0]
 	return fmt.Sprintf("http://%s-discussion.%s.svc:80/api/v1/discussions/%s",
 		crew.Name, crew.Namespace, crew.Name), nil
 }
@@ -446,14 +442,17 @@ type judgeComparisonDoc struct {
 	Answers   []judgeAnswer `json:"answers"`
 	Gated     int           `json:"gated"` // consensus-failed or empty-synthesis runs (score 0)
 	Total     int           `json:"total"` // iterations found for the scenario
+	// EvidenceTrimmed is set when evidence was cut to fit the judge model's window.
+	EvidenceTrimmed *evidenceTrim `json:"evidenceTrimmed,omitempty"`
 }
 
 // buildComparisonDoc assembles the scoring context for one scenario from its
 // iteration transcripts (which the operator already has in the object store),
 // reproducing what the collect_scenario tool returned crew-side. Returns the
 // marshalled doc, the total iterations found, and the count of judgeable
-// (non-gated) answers.
-func buildComparisonDoc(store objectStore, prefix string, scriptIdx int, keyword string) (doc string, total, answers int, err error) {
+// (non-gated) answers. A windowTokens above zero is the judge model's context
+// window: the document's evidence is cut to fit it (see marshalFitted).
+func buildComparisonDoc(store objectStore, prefix string, scriptIdx int, keyword string, windowTokens int) (doc string, total, answers int, err error) {
 	scenarioPrefix := fmt.Sprintf("%ss%d-i", strings.TrimRight(prefix, "/")+"/", scriptIdx)
 	keys, lErr := store.ListObjects(FitnessArtifactsBucket, scenarioPrefix)
 	if lErr != nil {
@@ -468,11 +467,12 @@ func buildComparisonDoc(store objectStore, prefix string, scriptIdx int, keyword
 		}
 		addTranscriptToDoc(&cd, td, keyword)
 	}
-	out, mErr := json.Marshal(cd)
+	budget, _ := judgeDocBudgetChars(windowTokens)
+	out, mErr := marshalFitted(cd, budget)
 	if mErr != nil {
-		return "", 0, 0, fmt.Errorf("marshal comparison doc: %w", mErr)
+		return "", 0, 0, mErr
 	}
-	return string(out), cd.Total, len(cd.Answers), nil
+	return out, cd.Total, len(cd.Answers), nil
 }
 
 // loadTranscript reads and unmarshals one iteration transcript, skipping
@@ -699,6 +699,7 @@ type judgePass struct {
 	prefix    string
 	cache     deferredScoreCache
 	endpoints map[string]string // keyword -> endpoint (resolved once; "" = cached miss)
+	windows   map[string]int    // keyword -> judge model window in tokens (0 = unknown)
 	hc        *http.Client
 	log       logr.Logger
 }
@@ -812,7 +813,7 @@ func (p *judgePass) processScenario(ctx context.Context, idx int) scenarioOutcom
 	}
 	// Build the full comparison document operator-side (no collect_scenario
 	// tool round-trip) and hand it to the judge in the dispatch message.
-	comparisonDoc, total, answers, bErr := buildComparisonDoc(p.store, p.prefix, idx, keyword)
+	comparisonDoc, total, answers, bErr := buildComparisonDoc(p.store, p.prefix, idx, keyword, p.judgeWindow(ctx, keyword))
 	if bErr != nil {
 		p.log.Info("deferred judge: build comparison doc failed", "scenario", scenario, "err", bErr.Error())
 		p.beginAttempt(scenario)
@@ -869,6 +870,24 @@ func (p *judgePass) resolveEndpoint(ctx context.Context, keyword string) (string
 		}
 	}
 	return ep, ep != ""
+}
+
+// judgeWindow is the context window of the judge model for a keyword, found once and
+// kept. Zero when no model server declares one.
+func (p *judgePass) judgeWindow(ctx context.Context, keyword string) int {
+	if w, have := p.windows[keyword]; have {
+		return w
+	}
+	window := 0
+	if crew, err := keywordCrew(ctx, p.r.Client, keyword); err == nil {
+		window = judgeCrewWindow(ctx, p.r.Client, crew)
+	}
+	if p.windows == nil {
+		p.windows = map[string]int{}
+	}
+	p.windows[keyword] = window
+	p.log.Info("deferred judge: judge model window", "keyword", keyword, "tokens", window)
+	return window
 }
 
 // judgeAndRecord dispatches the comparison document to the judge (with bounded
