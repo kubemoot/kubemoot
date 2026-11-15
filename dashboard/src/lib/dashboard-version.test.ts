@@ -29,7 +29,11 @@ describe('versionLabel', () => {
 
 describe('releaseLabel', () => {
 	it('prefixes a release and says so when none is reported', () => {
-		expect(releaseLabel('1.2.3')).toBe('v1.2.3');
+		expect(releaseLabel('0.0.0-test')).toBe('v0.0.0-test');
 		expect(releaseLabel('')).toBe('not reported');
+	});
+
+	it('calls the 0.0.0 an unstamped build holds a development build', () => {
+		expect(releaseLabel('0.0.0')).toBe('development build');
 	});
 });

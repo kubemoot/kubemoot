@@ -52,7 +52,7 @@ describe('oldestRunningStart', () => {
 
 describe('kubemootRelease', () => {
 	it('reads the release from the KubemootConfig status', () => {
-		expect(kubemootRelease({ status: { release: '1.2.3-test' } })).toBe('1.2.3-test');
+		expect(kubemootRelease({ status: { release: '0.0.0-test' } })).toBe('0.0.0-test');
 	});
 
 	it('is empty when the status is not written yet', () => {

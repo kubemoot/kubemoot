@@ -26,9 +26,9 @@ const get = async () =>
 	(await (GET as unknown as (e: unknown) => Promise<Response>)({})).json();
 
 describe('GET /api/kubemoot/system-info release', () => {
-		it('carries the release from the KubemootConfig status', async () => {
-		mocks.config = () => Promise.resolve({ status: { release: '1.2.3-test' } });
-		expect((await get()).release).toBe('1.2.3-test');
+	it('carries the release from the KubemootConfig status', async () => {
+		mocks.config = () => Promise.resolve({ status: { release: '0.0.0-test' } });
+		expect((await get()).release).toBe('0.0.0-test');
 	});
 
 	it('is empty while the status is not written yet', async () => {

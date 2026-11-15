@@ -55,25 +55,35 @@ kmctl version [--client] [--short] [-o yaml|json|kyaml]
 Print `kmctl`'s own version and the Kubemoot release of the cluster it is connected to,
 as a client line and a server line like `kubectl version`. The release comes from
 `status.release` of the `KubemootConfig` the operator maintains, read through the
-Kubernetes API with the active kubeconfig context.
+Kubernetes API with the active kubeconfig context. A build that was never stamped with a
+release (a source build, or an unstamped chart) shows as `development build`.
 
-The server line says why it has no release instead of failing, and the client line is
-always printed:
+Unlike `kubectl version`, the command exits 0 when the cluster cannot be reached or
+reports no release. The client version is a complete answer on its own, so a script that
+asks for it on a machine with no cluster still gets it; the server line, or
+`serverMessage` with `-o`, says why there is no server version.
+
+The server line gives the reason in the words `kmctl` uses for every other failure (see
+[Errors](#errors)), and the client line is always printed:
 
 | Server line | Meaning |
 |---|---|
 | `Kubemoot <release>` | The operator reported its release |
-| `unavailable (cannot reach ...)` | No cluster could be reached with this kubeconfig and context |
-| `unavailable (Kubemoot is not installed ...)` | The cluster has no `KubemootConfig` named `default` |
-| `unavailable (not allowed to read ...)` | The credentials cannot read the `KubemootConfig` |
+| `unavailable (cannot reach the Kubernetes API server ...)` | No cluster could be reached with this kubeconfig and context |
+| `unavailable (no Kubernetes cluster is configured ...)` | The kubeconfig has no current context |
+| `unavailable (Kubemoot is not installed: no KubemootConfig named default)` | The cluster has no such `KubemootConfig` |
+| `unavailable (you are not allowed to get kubemootconfigs ...)` | The credentials cannot read the `KubemootConfig` |
 | `unavailable (the operator has not written its status yet)` | The operator has not reconciled the object |
-| `unavailable (this operator does not report a release ...)` | The operator is older than the release field; upgrade Kubemoot |
+| `unavailable (this operator does not report a release; upgrade Kubemoot to see it)` | The operator is older than the release field |
+
+With `-v` or `KMCTL_DEBUG=1` the server line also carries the underlying error
+(`; cause: ...`), and `serverCause` appears with `-o`.
 
 | Flag | Description |
 |---|---|
 | `--client` | Print only the client line; do not contact the cluster |
-| `--short` | Print only the `kmctl` version string, without contacting the cluster |
-| `-o`, `--output` | `yaml`, `json`, or `kyaml`: the structured form has `clientVersion` and, when reported, `serverVersion.release`; otherwise `serverMessage` says why not |
+| `--short` | Print only the `kmctl` version string, without contacting the cluster. Cannot be combined with `-o` |
+| `-o`, `--output` | `yaml`, `json`, or `kyaml`: `clientVersion` and either `serverVersion.release` or `serverMessage` |
 
 **Example:**
 
@@ -84,8 +94,23 @@ kmctl version
 
 kmctl version --short
 # <version>
+```
 
-kmctl version -o json
+`-o json` with a release, and without one (`serverMessage` appears only when there is no
+release):
+
+```json
+{
+  "clientVersion": { "version": "<version>", "commit": "<commit>", "date": "<date>" },
+  "serverVersion": { "release": "<release>" }
+}
+```
+
+```json
+{
+  "clientVersion": { "version": "<version>", "commit": "<commit>", "date": "<date>" },
+  "serverMessage": "cannot reach the Kubernetes API server (context \"<context>\")"
+}
 ```
 
 ---

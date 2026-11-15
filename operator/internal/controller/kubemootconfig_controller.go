@@ -24,11 +24,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
+
+// configLoadedMessage is the status message once the configuration is in the cache.
+const configLoadedMessage = "Configuration loaded successfully"
 
 // ReleaseEnv names the environment variable the operator chart fills from its own
 // stamped version; the operator reports it as the Kubemoot release.
@@ -85,11 +90,14 @@ func (r *KubemootConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// All other controllers will pick up changes on their next reconciliation
 	r.ConfigCache.Update(config)
 
-	r.markLoaded(config, metav1.Now())
-
-	if err := r.Status().Update(ctx, config); err != nil {
-		log.Error(err, "Failed to update KubemootConfig status")
-		return ctrl.Result{}, err
+	// Write the status only when something in it changes, so the write that follows
+	// a reconcile never leads to another one that rewrites the same values.
+	patch := client.MergeFrom(config.DeepCopy())
+	if r.markLoaded(config, metav1.Now()) {
+		if err := r.Status().Patch(ctx, config, patch); err != nil {
+			log.Error(err, "Failed to update KubemootConfig status")
+			return ctrl.Result{}, err
+		}
 	}
 
 	log.Info("KubemootConfig cache updated successfully")
@@ -97,28 +105,37 @@ func (r *KubemootConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 }
 
 // markLoaded records on the status that the configuration is loaded, and which
-// release the operator reports.
-func (r *KubemootConfigReconciler) markLoaded(config *kubemootv1alpha1.KubemootConfig, now metav1.Time) {
-	config.Status.Ready = true
-	config.Status.LastUpdated = &now
-	config.Status.Message = "Configuration loaded successfully"
+// release the operator reports. It reports whether the status changed; LastUpdated
+// moves only then.
+func (r *KubemootConfigReconciler) markLoaded(config *kubemootv1alpha1.KubemootConfig, now metav1.Time) bool {
+	st := &config.Status
+	changed := !st.Ready || st.Message != configLoadedMessage ||
+		(r.Release != "" && st.Release != r.Release)
+	st.Ready = true
+	st.Message = configLoadedMessage
 	if r.Release != "" {
-		config.Status.Release = r.Release
+		st.Release = r.Release
 	}
-
-	meta.SetStatusCondition(&config.Status.Conditions, metav1.Condition{
+	if meta.SetStatusCondition(&st.Conditions, metav1.Condition{
 		Type:               conditionTypeReady,
 		Status:             metav1.ConditionTrue,
 		Reason:             "ConfigLoaded",
 		Message:            "Configuration has been loaded into the operator",
 		LastTransitionTime: now,
-	})
+	}) {
+		changed = true
+	}
+	if changed {
+		st.LastUpdated = &now
+	}
+	return changed
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *KubemootConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kubemootv1alpha1.KubemootConfig{}).
+		// Status-only updates (the reconciler's own) do not queue another pass.
+		For(&kubemootv1alpha1.KubemootConfig{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("kubemootconfig").
 		Complete(r)
 }

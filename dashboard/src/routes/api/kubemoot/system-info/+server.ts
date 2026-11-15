@@ -95,9 +95,10 @@ export const GET: RequestHandler = async () => {
 	const { operatorVersion, operatorImage, podSelector } = await readDeploymentInfo(
 		kc.makeApiClient(k8s.AppsV1Api)
 	);
-	const operatorStartedAt = await readStartedAt(kc.makeApiClient(k8s.CoreV1Api), podSelector);
-
-	const release = await readRelease();
+	const [operatorStartedAt, release] = await Promise.all([
+		readStartedAt(kc.makeApiClient(k8s.CoreV1Api), podSelector),
+		readRelease()
+	]);
 
 	const info: SystemInfo = { release, operatorVersion, operatorImage, operatorStartedAt };
 	return Response.json(info);
