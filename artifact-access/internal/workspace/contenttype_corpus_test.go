@@ -29,7 +29,7 @@ var corpusFamilies = [][]string{
 	{"| a | b |", "|---|---|", "| :--- | ---: |", "|a|b|", "| 1 | 2 |"},
 	{"NAME   READY   STATUS", "NAME", "name   ready", "foo    1/1     Running", "bar    0/1     Pending"},
 	{"a,b", "1,2", "\"q,r\",3", "a,\"b", "x\"y,1", ",,", "a,b,c", "x,y"},
-	{`{"k": 1}`, `[1, 2]`, `[`, `{"a":`, `"s"`, "42", "null", "false", `{"items": []}`},
+	{`{"k": 1}`, `[1, 2]`, `[`, `{"a":`, `"s"`, "42", "[null]", "false", `{"items": []}`},
 	{"text with spaces", "Error: failed", "Error: failed: really", "\u00e9,\u00fc", "\u540d\u524d: \u5024", "a:b"},
 }
 

@@ -141,7 +141,7 @@ func TestDescribeNamesWithQuotesAreQuoted(t *testing.T) {
 }
 
 func TestDescribeMarksNestedJSONForEveryEnginesTextType(t *testing.T) {
-	if !isTextType("text") || !isTextType("varchar") || isTextType("integer") || isTextType("struct(a integer)") {
+	if !isTextType(textType) || !isTextType("varchar") || isTextType("integer") || isTextType("struct(a integer)") {
 		t.Fatal("isTextType")
 	}
 	eachEngine(t, map[string]string{"j": `[{"tags":"[\"x\"]"}]`}, func(t *testing.T, s *Service, _ dialect) {
@@ -201,17 +201,19 @@ func (c cannedEngine) Query(_ context.Context, _ []Relation, sql string, _ Limit
 
 func cannedService(t *testing.T, e cannedEngine) *Service {
 	t.Helper()
-	s := newService(t, engineSQLite, map[string]string{"t": `[{"a":1}]`})
+	s := newService(t, engineSQLite, map[string]string{"t": `[{"a":7}]`})
 	s.Engine = e
 	return s
 }
+
+const colHeader = "col"
 
 func TestDescribeCountsRowsFromTheFirstColumnByName(t *testing.T) {
 	s := cannedService(t, cannedEngine{
 		sample: Result{Columns: []string{"a", "b"}, Rows: [][]string{{"1", "x"}}},
 		// b's rows come first and are fewer: the row count must still be a's.
-		typed: Result{Columns: []string{"col", "ty", "n"}, Rows: [][]string{
-			{"b", "text", "1"}, {"a", "integer", "3"}, {"a", "null", "2"}, {"b", "null", "4"}}},
+		typed: Result{Columns: []string{colHeader, "ty", "n"}, Rows: [][]string{
+			{"b", textType, "1"}, {"a", "integer", "3"}, {"a", nullType, "2"}, {"b", nullType, "4"}}},
 	})
 
 	got := describe(t, s, map[string]string{"t": "t"})
@@ -228,7 +230,7 @@ func TestDescribeSaysWhenTheEngineReportedMoreTypesThanItAskedFor(t *testing.T) 
 	}
 	s := cannedService(t, cannedEngine{
 		sample: Result{Columns: []string{"a"}, Rows: [][]string{{"1"}}},
-		typed:  Result{Columns: []string{"col", "ty", "n"}, Rows: rows[:maxTypesPerColumn], Truncated: true},
+		typed:  Result{Columns: []string{colHeader, "ty", "n"}, Rows: rows[:maxTypesPerColumn], Truncated: true},
 	})
 
 	got := describe(t, s, map[string]string{"t": "t"})
@@ -241,8 +243,8 @@ func TestDescribeSaysWhenTheEngineReportedMoreTypesThanItAskedFor(t *testing.T) 
 func TestDescribeDescribesAColumnNameOnce(t *testing.T) {
 	s := cannedService(t, cannedEngine{
 		sample: Result{Columns: []string{"a", "b", "a"}, Rows: [][]string{{"1", "x", "9"}}},
-		typed: Result{Columns: []string{"col", "ty", "n"}, Rows: [][]string{
-			{"a", "integer", "1"}, {"b", "text", "1"}}},
+		typed: Result{Columns: []string{colHeader, "ty", "n"}, Rows: [][]string{
+			{"a", "integer", "1"}, {"b", textType, "1"}}},
 	})
 
 	got := describe(t, s, map[string]string{"t": "t"})

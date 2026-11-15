@@ -26,6 +26,7 @@ const (
 	// maxTypesPerColumn bounds the type rows one column adds to the type query.
 	maxTypesPerColumn = 8
 	nullType          = "null"
+	textType          = "text"
 	inferredNote      = "note: the types are the query engine's and the examples come from the first 50 rows; " +
 		"both are read from the data. No unit or meaning is recorded for these results except where a column says one."
 )
@@ -145,7 +146,8 @@ func columnsOf(names, sampleColumns []string, typeRows, sample [][]string) []col
 	out := make([]columnInfo, len(names))
 	for i, name := range names {
 		types, nulls := splitTypes(byColumn[name])
-		out[i] = columnInfo{name: name, types: types, nulls: nulls, examples: examplesOf(sample, indexOf(sampleColumns, name))}
+		examples := examplesOf(sample, indexOf(sampleColumns, name))
+		out[i] = columnInfo{name: name, types: types, nulls: nulls, examples: examples}
 		if jsonText(out[i].examples) && len(types) == 1 && isTextType(types[0]) {
 			out[i].types = []string{"text (JSON)"}
 		}
@@ -154,7 +156,7 @@ func columnsOf(names, sampleColumns []string, typeRows, sample [][]string) []col
 }
 
 // isTextType is true for the type name an engine gives a string column: SQLite's text, DuckDB's varchar.
-func isTextType(name string) bool { return name == "text" || name == "varchar" }
+func isTextType(name string) bool { return name == textType || name == "varchar" }
 
 // indexOf is the position of the first column called name.
 func indexOf(columns []string, name string) int {
