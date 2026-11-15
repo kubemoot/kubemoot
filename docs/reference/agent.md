@@ -73,6 +73,22 @@ A RAGSource's search tool is listed here as `<source>_search`, for example `kube
 
 Scheduling tools (`set_reminder`, `schedule_followup`, `list_scheduled`, `cancel_scheduled`) are provided by the `scheduling-mcp` MCP server, see [Agent Self-Scheduling](../architecture/scheduling.md). Add a dedicated Tooler Agent CR for them rather than enabling on every agent.
 
+### `spec.workspace.access`
+Optional. What the agent may do with the discussion's workspace, the scratch data the agents of one discussion share (see [Discussion artifact store](../../concepts/discussion-artifact-store/#workspace-access)). One of:
+
+| Value | Reads the workspace | Stores its tool results |
+|-------|---------------------|-------------------------|
+| `none` | no | no: a large result returns inline under the runtime's budget |
+| `read` | yes | no |
+| `write` | no | yes: for a tooler that fetches and hands off |
+| `readWrite` | yes | yes |
+
+Left out, the Crew's `spec.workspace.defaultAccess` applies, then the KubemootConfig's `workspace.defaultAccess`. With none of the three declared the access is implicit: the agent behaves as it always has. It stores every tool result, and it reads the workspace only through the tools its `enabledTools` names.
+
+A declared access is authoritative. The operator disables every workspace tool the access does not grant (the `workspace_*` tools and the older `artifact_*` names), even when `enabledTools` names it, and adds the tools a `read` or `readWrite` access grants to a non-empty `enabledTools`. A tool named in `disabledTools` stays denied. The operator sets `KUBEMOOT_WORKSPACE_ACCESS` on the agent runtime.
+
+Read is enforced through the agent's tool list. The workspace server scopes reads by discussion, not by agent, so access does not isolate two agents of one crew from each other. Write is enforced by the agent's NATS permissions: an agent without write holds no publish grant on the workspace bucket.
+
 ### `spec.ragSources[]`
 Optional. RAGSource references the runtime searches up front: before every model call it queries each listed source with the question and puts the top results in the system prompt.
 
@@ -248,7 +264,8 @@ The goose harness runs `goose run` for each request, so its default is larger th
 | `ready` | bool | True when the scheduler bound a Model and the agent is deployed |
 | `endpoint` | string | Internal service URL (`http://<name>.<namespace>.svc.cluster.local:<port>`, following `spec.deployment.port`) |
 | `availableReplicas` | int32 | Declared, not populated by the controller today |
-| `conditions[]` | Condition | `RuntimeClassAvailable` is present only when the pod asks for a RuntimeClass: `True` when the class exists, `False` (reason `RuntimeClassMissing`) when it does not. See [Isolation](../../concepts/isolation/). `ReplicasLimited` (`True`, reason `CoordinatorLeasesOff`) is present only on a coordinator whose `spec.deployment.replicas` asks for more than 1 while `coordinator.lease` is off: the operator ran one replica |
+| `conditions[]` | Condition | `RuntimeClassAvailable` is present only when the pod asks for a RuntimeClass: `True` when the class exists, `False` (reason `RuntimeClassMissing`) when it does not. See [Isolation](../../concepts/isolation/). `ReplicasLimited` (`True`, reason `CoordinatorLeasesOff`) is present only on a coordinator whose `spec.deployment.replicas` asks for more than 1 while `coordinator.lease` is off: the operator ran one replica. `WorkspaceAccessResolved` is present only when a workspace access is declared: `True` (reason `Declared`) with the access and where it came from, reason `ToolsOverruled` when `enabledTools` names a workspace tool the access does not allow, and `False` (reason `NoWorkspaceServer`) when the access reads but no MCPServer in the namespace selects `spec.kubemootImage: artifactAccess` |
+| `workspace` | object | The resolved workspace access (`access`: `none`, `read`, `write`, `readWrite` or `implicit`) and where it was declared (`source`: `agent`, `crew`, `config` or `implicit`) |
 | `message` | string | The bound models (`mulling=<model>@<server>; triage=<model>@<server>`), or the reason the agent is unschedulable |
 | `ragSourceStatus[]` | RAGSourceRefStatus | Declared, not populated by the controller today |
 | `mcpServerStatus[]` | MCPServerRefStatus | Declared, not populated by the controller today |

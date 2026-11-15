@@ -147,6 +147,7 @@ func (r *AgentReconciler) buildContract(ctx context.Context, agent *kubemootv1al
 	if concurrency < 1 {
 		concurrency = 1
 	}
+	tools := r.workspaceToolsFor(ctx, agent)
 	c := meshcontract.Contract{
 		ContractVersion: meshcontract.ContractVersion,
 		Identity:        id,
@@ -164,7 +165,7 @@ func (r *AgentReconciler) buildContract(ctx context.Context, agent *kubemootv1al
 			Policy: r.placementPolicyEnvVar(ctx, agent).Value, ServiceURL: r.placementServiceURL(),
 		},
 		Tools: meshcontract.Tools{
-			Enabled: agent.Spec.EnabledTools, Disabled: agent.Spec.DisabledTools,
+			Enabled: tools.enabled, Disabled: tools.disabled,
 			NativeTools: meshcontract.NativeTools(stringOrDefault(h.NativeTools, string(meshcontract.NativeToolsNone))),
 		},
 		Policy: &meshcontract.Policy{

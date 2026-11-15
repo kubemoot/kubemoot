@@ -211,6 +211,10 @@ type KubemootConfigSpec struct {
 	// +optional
 	Artifacts ArtifactsConfig `json:"artifacts,omitempty"`
 
+	// Workspace configures the discussion workspace cluster-wide.
+	// +optional
+	Workspace *WorkspaceConfig `json:"workspace,omitempty"`
+
 	// Coordinator configures the crew coordinators. The log and resume are on when this is
 	// left out.
 	// +kubebuilder:default={}

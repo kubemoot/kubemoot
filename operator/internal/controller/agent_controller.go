@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // AgentReconciler reconciles Agent objects.
@@ -187,6 +188,9 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 	if err := r.syncReplicasLimitedCondition(ctx, agent); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.syncWorkspaceAccess(ctx, agent); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -880,7 +884,9 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 	env = append(env, candidateEnvVars(mulling, triage)...)
 	env = append(env, r.placementPolicyEnvVar(ctx, agent))
 	env = append(env, r.placementServiceEnvVars()...)
-	env = append(env, agentModelEnvVars(agent)...)
+	decision := r.workspaceDecisionFor(ctx, agent)
+	env = append(env, agentModelEnvVars(agent, r.workspaceToolsFor(ctx, agent))...)
+	env = append(env, workspaceAccessEnvVar(decision)...)
 	env = append(env, agentDiscussRelevanceEnvVars(agent)...)
 	env = append(env, r.agentDiscussRoleEnvVars(ctx, agent, crew)...)
 	env = append(env, r.agentGatewayEnvVars(ctx, agent)...)
@@ -959,7 +965,7 @@ func baseAgentEnvVars(agent *kubemootv1alpha1.Agent, crew string, mulling, triag
 
 // agentModelEnvVars returns the optional model-tuning and tool-filter env vars
 // (temperature, max tokens, think, enabled/disabled tools).
-func agentModelEnvVars(agent *kubemootv1alpha1.Agent) []corev1.EnvVar {
+func agentModelEnvVars(agent *kubemootv1alpha1.Agent, tools workspaceTools) []corev1.EnvVar {
 	var env []corev1.EnvVar
 	if temp := stringOrDefault(agent.Spec.Temperature, "0.3"); temp != "" {
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_MODEL_TEMPERATURE", Value: temp})
@@ -970,11 +976,11 @@ func agentModelEnvVars(agent *kubemootv1alpha1.Agent) []corev1.EnvVar {
 	if agent.Spec.Think != nil {
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_MODEL_THINK", Value: strconv.FormatBool(*agent.Spec.Think)})
 	}
-	if len(agent.Spec.EnabledTools) > 0 {
-		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_ENABLED_TOOLS", Value: strings.Join(agent.Spec.EnabledTools, ",")})
+	if len(tools.enabled) > 0 {
+		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_ENABLED_TOOLS", Value: strings.Join(tools.enabled, ",")})
 	}
-	if len(agent.Spec.DisabledTools) > 0 {
-		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISABLED_TOOLS", Value: strings.Join(agent.Spec.DisabledTools, ",")})
+	if len(tools.disabled) > 0 {
+		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISABLED_TOOLS", Value: strings.Join(tools.disabled, ",")})
 	}
 	return env
 }
@@ -1311,6 +1317,18 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// Re-reconcile the Agents that ask for a RuntimeClass when it is created or
 		// deleted, so the RuntimeClassAvailable condition and the held Deployment follow
 		// the cluster with no timer. See agent_runtimeclass.go.
+		Watches(
+			&kubemootv1alpha1.Crew{},
+			enqueueNamespaceAgents[*kubemootv1alpha1.Crew](mgr.GetClient(), "Crew"),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
+		// Re-reconcile a namespace's Agents when an MCPServer appears or changes, so the
+		// WorkspaceAccessResolved condition follows whether a workspace server exists.
+		Watches(
+			&kubemootv1alpha1.MCPServer{},
+			enqueueNamespaceAgents[*kubemootv1alpha1.MCPServer](mgr.GetClient(), "MCPServer"),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
 		Watches(
 			&nodev1.RuntimeClass{},
 			r.runtimeClassWatch(),

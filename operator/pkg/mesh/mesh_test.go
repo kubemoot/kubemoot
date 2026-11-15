@@ -232,3 +232,28 @@ func TestTheAckPermissionIsThisAgentsConsumerOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceWriteGrantFollowsTheDeclaredAccess(t *testing.T) {
+	id := valid().Identity
+	workspace := []string{
+		"kubemoot.artifacts.homelab.homelab-pilot.*",
+		"$O.kubemoot_discussion_artifacts.>",
+		"$JS.API.STREAM.INFO.OBJ_kubemoot_discussion_artifacts",
+		"$JS.API.STREAM.CREATE.OBJ_kubemoot_discussion_artifacts",
+	}
+	withWrite, withoutWrite := id.PermissionsFor(true), id.PermissionsFor(false)
+	for _, s := range workspace {
+		if !slices.Contains(withWrite.Publish, s) {
+			t.Errorf("a writing agent lacks %q", s)
+		}
+		if slices.Contains(withoutWrite.Publish, s) {
+			t.Errorf("an agent without write holds %q", s)
+		}
+	}
+	if !slices.Equal(id.Permissions().Publish, withWrite.Publish) {
+		t.Error("an agent with no declared access must keep the write grant")
+	}
+	if !slices.Contains(withoutWrite.Publish, "kubemoot.discuss.homelab.homelab-pilot.>") {
+		t.Error("dropping the workspace grant must keep the discussion grant")
+	}
+}

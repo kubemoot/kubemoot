@@ -324,6 +324,11 @@ type AgentSpec struct {
 	// +optional
 	DisabledTools []string `json:"disabledTools,omitempty"`
 
+	// Workspace declares what this agent may do with the discussion's workspace. Left out, the
+	// crew's default applies; with none declared the agent behaves as it always has.
+	// +optional
+	Workspace *AgentWorkspace `json:"workspace,omitempty"`
+
 	// DiscussKeywords are domain keywords used to gate this agent's
 	// participation in a discussion (keyword fallback when the LLM
 	// advisory is unavailable). Set as KUBEMOOT_DISCUSS_KEYWORDS env var.
@@ -441,6 +446,10 @@ type AgentStatus struct {
 
 	// Message provides additional status information
 	Message string `json:"message,omitempty"`
+
+	// Workspace is the workspace access the operator resolved and where it came from.
+	// +optional
+	Workspace *AgentWorkspaceStatus `json:"workspace,omitempty"`
 
 	// Conditions represent the latest available observations
 	// +optional

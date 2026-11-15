@@ -77,6 +77,12 @@ Every tool result is always stored as its own file in the discussion workspace; 
 |-------|------|---------|-------------|
 | `artifacts.queryEngine` | enum | `sqlite` | The engine behind the `workspace_query` tool of the [artifact-access](../../concepts/discussion-artifact-store/#query-with-sql) read-ops server. `sqlite` is the default, also when the field or the whole `artifacts` object is left out: it runs inside the artifact-access process, so nothing is added to the image, and it answers small artifacts in milliseconds with a few MB of memory. `none` is the explicit way to turn the tool off: no query tool is offered. `duckdb` is the option for large data: it is faster on large scans, but the artifact-access image must carry the `duckdb` program, and without it the server logs why and offers no query tool. See [Query engines](../../concepts/discussion-artifact-store/#query-engines). The operator sets `ARTIFACT_QUERY_ENGINE` on every MCPServer that selects `spec.kubemootImage: artifactAccess`; a server that sets the variable itself keeps its own value. For `sqlite` and `duckdb` (everything but `none`) the operator also adds a 1Gi `emptyDir` at `/artifacts` and sets `TMPDIR` to it (see [Workspace directory](../../concepts/discussion-artifact-store/#workspace-directory)). The operator chart sets it from the value `artifacts.queryEngine` |
 
+### Workspace
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `workspace.defaultAccess` | enum | | The workspace access (`none`, `read`, `write`, `readWrite`) of every agent whose Agent and Crew declare none. Empty leaves such an agent implicit, which keeps today's behavior. See [Agent](../../reference/agent/#specworkspaceaccess) |
+
 ### Coordinator
 
 | Field | Type | Default | Description |

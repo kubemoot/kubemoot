@@ -295,6 +295,27 @@ func (c *ConfigCache) GetOTelCollectorEndpoint() string {
 	return ""
 }
 
+// GetWorkspaceDefaultAccess returns the cluster-wide default workspace access, or empty when
+// KubemootConfig declares none.
+func (c *ConfigCache) GetWorkspaceDefaultAccess() kubemootv1alpha1.WorkspaceAccess {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config != nil && c.config.Spec.Workspace != nil {
+		return c.config.Spec.Workspace.DefaultAccess
+	}
+	return ""
+}
+
+// GetWorkspaceQueryEngine returns the engine behind workspace_query; an unset engine is sqlite.
+func (c *ConfigCache) GetWorkspaceQueryEngine() kubemootv1alpha1.ArtifactQueryEngine {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config != nil {
+		return effectiveQueryEngine(c.config.Spec.Artifacts.QueryEngine)
+	}
+	return kubemootv1alpha1.ArtifactQueryEngineSQLite
+}
+
 // IsConfigured returns true if a KubemootConfig has been loaded
 func (c *ConfigCache) IsConfigured() bool {
 	c.mu.RLock()
