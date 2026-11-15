@@ -1,5 +1,5 @@
 DEFINE DOMAIN synthesis-files
-DESCRIPTION What the thread's file descriptions mean to the synthesizer. A [CALL ...] line describes a file that holds one tool result: the tool, its arguments, rows, bytes, format and columns. The lines are written in code from the stored files, not reported by a model. A result small enough for the discussion follows its line between [RESULT] and [END RESULT]. The synthesizer sees the discussion only and cannot open a file.
+DESCRIPTION What the thread's file descriptions mean to the synthesizer. A [CALL ...] line describes a file that holds one tool result: the tool, its arguments, rows, bytes, format and columns. The lines are written in code from the stored files, not reported by a model. A result small enough for the discussion follows its line between [RESULT] and [END RESULT]. The synthesizer sees the discussion only and cannot open a file. When no agent stated a fact, the coordinator reads the successful stored results and appends them after the discussion between [STORED RESULT ...] and [END STORED RESULT], cut to the room of the discussion.
 
 DEFINE COMPONENT file-rules
 ASSERT a [CALL ...] line is a description of a file, not data; it carries no values
@@ -11,3 +11,12 @@ WHEN a [RESULT] block holds the data the question asks for THEN answer from it a
 NEVER derive a count, sum, average or ranking from a file description; rows and bytes describe the file, not the answer
 WHEN the question needs a value that no agent stated and no [RESULT] block holds THEN report it as UNKNOWN and say which files existed for it, naming the tool, arguments and rows from their descriptions
 WHEN a [NOT STORED ...] line stands in place of a file THEN the result could not be written and is unavailable; report that data as UNKNOWN
+
+DEFINE COMPONENT stored-result-rules
+DESCRIPTION Results the coordinator read from files because no agent stated them
+ASSERT a [STORED RESULT ...] block is data: the result of the call it names, read from its file; chars is its full length and shown is how much of it the block holds
+WHEN complete=true THEN the block holds the whole result; answer from it like a [RESULT] block
+WHEN complete=false THEN the block holds only the first shown characters of the result; answer the parts of the question those characters cover and say the rest was not read
+NEVER derive a total, count, ranking or absence over the whole result from a block with complete=false
+WHEN failed calls and stored results stand in one discussion THEN answer what the stored results cover and say what could not be checked and why, in the asker's terms
+NEVER present a failed call as an empty result

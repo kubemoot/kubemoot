@@ -5,7 +5,6 @@ import ai.kubemoot.agent.nats.DiscussionFacts.Message;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -140,66 +139,68 @@ class DiscussionFactsTest {
     }
 
     @Test
-    void theAnswerNamesTheQuestionTheToolsThatRanAndThatNoDataWasObtained() {
-        var thread = List.of(agree("k8s-workloads", DESCRIPTIONS));
+    void theAnswerNamesTheQuestionAndNoAgentToolKeyOrCount() {
+        String answer = DiscussionFacts.noDataAnswer(QUESTION, false);
 
-        String answer = DiscussionFacts.noDataAnswer(QUESTION, thread, Map.of());
-
-        assertTrue(answer.startsWith("No data was obtained to answer this question"), answer);
-        assertTrue(answer.contains("Question: " + QUESTION), answer);
-        assertTrue(answer.contains("- k8s-workloads: resources_list (2 calls), events_list (1 call)"), answer);
-        assertFalse(answer.contains("Failures:"), answer);
-        assertFalse(answer.contains("[CALL"), "no internal line reaches the user: " + answer);
-        assertFalse(answer.contains("k8s-workloads/001"), "no key reaches the user: " + answer);
-        assertTrue(answer.contains("nothing can be reported as fact"), answer);
+        assertTrue(answer.startsWith("I could not get the data needed to answer this question"), answer);
+        assertTrue(answer.contains("You asked: " + QUESTION), answer);
+        assertTrue(answer.contains("Every lookup this needed failed"), answer);
+        for (String internal : List.of("k8s-workloads", "resources_list", "events_list", "workspace_query",
+                "[CALL", "001", "failed 2 times", "(1 call", "agent", "tool ")) {
+            assertFalse(answer.contains(internal), internal + " reached the user: " + answer);
+        }
     }
 
     @Test
-    void theAnswerLeadsTheFailuresWithTheirTextFromTheCallAndFromTheSignals() {
-        String failed = HEADER + CALL1 + "\n" + CALL2.replace("error=false", "error=true")
-                + "\n[FAILED RESULT]\nforbidden:\n  cronjobs.batch is forbidden\n[END RESULT]\n"
-                + "[NOT STORED tool=nodes_list args={} error=true - the result could not be written to the workspace "
-                + "and is not available]" + FOOTER;
-        var thread = List.of(agree("k8s-workloads", failed), agree("compute", HEADER.replace("k8s-workloads", "compute")
-                + "[CALL key=compute/001-workspace_query tool=workspace_query args={} type=text/plain bytes=3 rows=unknown "
-                + "error=true]" + FOOTER));
+    void anAnswerForStoredResultsThatCouldNotBeReadSaysSoWithoutInternals() {
+        String answer = DiscussionFacts.noDataAnswer(QUESTION, true);
 
-        String answer = DiscussionFacts.noDataAnswer(QUESTION, thread,
-                Map.of("compute", "Tool 'workspace_query' failed 2 times in this evaluation"));
-
-        assertTrue(answer.contains("Failures:"), answer);
-        assertTrue(answer.contains("- k8s-workloads, resources_list: forbidden: cronjobs.batch is forbidden"), answer);
-        assertTrue(answer.contains("- compute, workspace_query: the tool returned an error"),
-                "a failed call whose text was not posted still shows: " + answer);
-        assertTrue(answer.contains("- compute: Tool 'workspace_query' failed 2 times in this evaluation"), answer);
-        assertTrue(answer.contains("resources_list (2 calls, 1 failed)"), answer);
-        assertTrue(answer.contains("nodes_list (1 call, 1 failed)"), answer);
+        assertTrue(answer.contains("Some lookups returned results, but none of them could be read here"), answer);
+        assertFalse(answer.contains("Every lookup"), answer);
+        assertFalse(answer.contains("too large to post"), "a mechanism, not the asker's terms: " + answer);
     }
 
     @Test
-    void aLongFailureTextAndQuestionAreCutAndKeptOnOneLine() {
-        String longText = "boom ".repeat(200);
-        String failed = HEADER + CALL1.replace("error=false", "error=true") + "\n[FAILED RESULT]\n" + longText
-                + "\n[END RESULT]" + FOOTER;
+    void aFailedLookupIsNeverReportedAsZeroItems() {
+        assertTrue(DiscussionFacts.noDataAnswer(QUESTION, false).contains("no item is reported as missing or as zero"));
+    }
 
-        String answer = DiscussionFacts.noDataAnswer("q ".repeat(600), List.of(agree("a", failed)), Map.of());
+    @Test
+    void aLongQuestionIsCutAndKeptOnOneLine() {
+        String answer = DiscussionFacts.noDataAnswer("q ".repeat(600), false);
 
-        assertTrue(answer.contains("boom boom"), answer);
-        assertTrue(answer.contains("...\n"), "the failure text is cut: " + answer);
-        assertTrue(answer.length() < 1_500, "length " + answer.length());
-        assertEquals(1, answer.lines().filter(l -> l.startsWith("Question: ")).count());
+        assertTrue(answer.length() < 1_000, "length " + answer.length());
+        assertEquals(1, answer.lines().filter(l -> l.startsWith("You asked: ")).count());
+        assertTrue(answer.contains("...\n"), answer);
     }
 
     @Test
     void aMissingQuestionIsSaidSo() {
-        String answer = DiscussionFacts.noDataAnswer(null, List.of(agree("a", DESCRIPTIONS)), Map.of());
+        assertTrue(DiscussionFacts.noDataAnswer(null, false).contains("You asked: (not recorded)"));
+    }
 
-        assertTrue(answer.contains("Question: (not recorded)"), answer);
+    @Test
+    void theSuccessfulStoredCallsAreFoundOnceEachAndFailuresAreLeftOut() {
+        String failed = HEADER + CALL1.replace("error=false", "error=true") + "\n" + CALL2 + "\n"
+                + "[NOT STORED tool=nodes_list args={} error=false - the result could not be written]" + FOOTER;
+        var thread = List.of(agree("k8s-workloads", failed), agree("k8s-workloads", failed));
+
+        var found = DiscussionFacts.storedSuccesses(thread);
+
+        assertEquals(List.of(new DiscussionFacts.StoredCall("k8s-workloads", "resources_list",
+                "k8s-workloads/002-resources_list")), found);
+    }
+
+    @Test
+    void aThreadWithOnlyFailuresHasNoStoredSuccess() {
+        var thread = List.of(agree("a", HEADER + CALL1.replace("error=false", "error=true") + FOOTER));
+
+        assertTrue(DiscussionFacts.storedSuccesses(thread).isEmpty());
     }
 
     @Test
     void theAnswerPassesThePublishedFormUnchanged() {
-        String answer = DiscussionFacts.noDataAnswer(QUESTION, List.of(agree("k8s-workloads", DESCRIPTIONS)), Map.of());
+        String answer = DiscussionFacts.noDataAnswer(QUESTION, false);
 
         assertEquals(answer, DiscussionOrchestrator.publishedContent("synthesis", answer),
                 "the user-facing clean-up leaves it alone");

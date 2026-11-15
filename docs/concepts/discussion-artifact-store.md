@@ -26,8 +26,10 @@ Kubemoot treats this as plain mechanics, with no setting to turn on:
 5. **The synthesizer answers from the discussion only.** A fact no agent added and no posted
    result holds is reported as unknown, and the file descriptions in the discussion let the
    answer say which data existed. When tools ran and the discussion holds no fact at all, the
-   coordinator does not call the model and says that no data was obtained
-   ([No facts, no model](../signals-and-protocol/#no-facts-no-model)).
+   coordinator reads the stored results of the calls that succeeded (cut to the room of the
+   discussion) and gives them to the synthesizer; when nothing could be read it does not call the
+   model and says, in the asker's terms, that the question could not be checked
+   ([No facts: read the stored results, else no model](../signals-and-protocol/#no-facts-read-the-stored-results-else-no-model)).
 
 The remedy for a result that is too large is a tool call that asks for less (fewer fields, a
 filter, a limit, a shorter time range). Storing the result as a file keeps the bus and the
@@ -290,8 +292,9 @@ arguments, rows). A `[NOT STORED ...]` line is unavailable data and also unknown
 synthesizer sees the discussion only, the cost of an answer is bounded by the room computed above, not
 by the size of the files.
 
-When tools ran and the discussion holds no fact, the synthesizer is not called ([No facts, no
-model](../signals-and-protocol/#no-facts-no-model)).
+When tools ran and the discussion holds no fact, the coordinator reads the successful stored results for
+the synthesizer, or answers without it when none can be read ([No facts, read the stored results, else no
+model](../signals-and-protocol/#no-facts-read-the-stored-results-else-no-model)).
 
 The final answer to the user never carries a file description line or a posted result block.
 

@@ -2524,6 +2524,11 @@ public class DiscussionOrchestrator {
 
     private void runSynthesis(ThreadState state, Instant synthesisStart) {
         try {
+            String stored = storedResultsForSynthesis(state);
+            if (stored == null) {
+                closeWithNoData(state, synthesisStart, true);
+                return;
+            }
             events.synthesisStarted(state);
             // Count tooler agrees (excluding researchers like internet search)
             long synthToolerAgrees = state.agreeSignals.keySet().stream()
@@ -2535,7 +2540,7 @@ public class DiscussionOrchestrator {
             String signalContext = buildSignalContext(state, synthToolerAgrees);
             // The synthesizer is tool-free and answers from the discussion only: the contributions with
             // the descriptions of the files they came from. A fact no agent stated is unknown.
-            String threadText = ManifestText.strip(formatThread(state), false);
+            String threadText = ManifestText.strip(formatThread(state), false) + stored;
             String threadPrefix = signalContext + "\n\n" + SynthesisFiles.rulesFor(threadText);
             var synthesisResult = synthesizeWithCompleteness(loadSystemPrompt(), threadPrefix + threadText,
                     state.threadId);
@@ -3187,21 +3192,48 @@ public class DiscussionOrchestrator {
         return closeWith(state, synthesisStart, capacity, "capacity");
     }
 
+    private static List<DiscussionFacts.Message> discussionMessages(ThreadState state) {
+        return state.messages.stream()
+                .map(m -> new DiscussionFacts.Message(m.agentName, m.messageType, m.content)).toList();
+    }
+
     /**
-     * Close the thread with the no-data answer, without the model, when tools ran and the
-     * discussion holds no fact (see {@link DiscussionFacts}): a synthesizer with nothing to answer
-     * from invents. Returns true when it closed the thread.
+     * Close the thread with the no-data answer, without the model, when tools ran, the discussion
+     * holds no fact and no successful result was stored (see {@link DiscussionFacts}): a
+     * synthesizer with nothing to answer from invents. A thread with a stored result goes to the
+     * synthesis, which reads it ({@link #storedResultsForSynthesis}). Returns true when it closed
+     * the thread.
      */
     private boolean closeForNoData(ThreadState state, Instant synthesisStart) {
-        var thread = state.messages.stream()
-                .map(m -> new DiscussionFacts.Message(m.agentName, m.messageType, m.content)).toList();
-        if (!DiscussionFacts.noData(thread)) {
+        var thread = discussionMessages(state);
+        if (!DiscussionFacts.noData(thread) || !DiscussionFacts.storedSuccesses(thread).isEmpty()) {
             return false;
         }
-        log.info("Thread {} - tools ran and no agent stated a fact; answering that no data was obtained, "
+        return closeWithNoData(state, synthesisStart, false);
+    }
+
+    /** Closes the thread with the no-data answer; {@code anyResultStored} says a result existed that could not be read. */
+    private boolean closeWithNoData(ThreadState state, Instant synthesisStart, boolean anyResultStored) {
+        log.info("Thread {} - tools ran and no fact could be read; answering that no data was obtained, "
                 + "without the synthesis call", state.threadId);
-        String answer = DiscussionFacts.noDataAnswer(state.userQuery, thread, new TreeMap<>(state.failureSignals));
-        return closeWith(state, synthesisStart, answer, CoordinatorWire.NO_DATA);
+        return closeWith(state, synthesisStart, DiscussionFacts.noDataAnswer(state.userQuery, anyResultStored),
+                CoordinatorWire.NO_DATA);
+    }
+
+    /**
+     * The stored results the synthesizer reads when the discussion holds no fact but a call
+     * succeeded and its result was stored: the results, cut to the room of the discussion. An empty
+     * string when the discussion holds facts (nothing to add); null when the discussion holds none
+     * and no stored result could be read.
+     */
+    private String storedResultsForSynthesis(ThreadState state) {
+        var thread = discussionMessages(state);
+        if (!DiscussionFacts.noData(thread)) {
+            return "";
+        }
+        String read = new StoredResults(natsProvider, chatService)
+                .read(state.threadId, DiscussionFacts.storedSuccesses(thread));
+        return read.isEmpty() ? null : "\n" + read;
     }
 
     /** Closes the thread with an answer written in code, without the synthesis call. Always true. */
