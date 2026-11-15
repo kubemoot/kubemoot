@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fetchDashboardVersion, versionLabel, VERSION_UNKNOWN } from './dashboard-version.js';
+import { fetchDashboardVersion, releaseLabel, versionLabel, VERSION_UNKNOWN } from './dashboard-version.js';
 
 const json = (body: unknown, status = 200) => async () => new Response(JSON.stringify(body), { status });
 
@@ -24,5 +24,12 @@ describe('versionLabel', () => {
 	it('prefixes a version and spells out an unknown one', () => {
 		expect(versionLabel('1.2.3')).toBe('v1.2.3');
 		expect(versionLabel(VERSION_UNKNOWN)).toBe('version unknown');
+	});
+});
+
+describe('releaseLabel', () => {
+	it('prefixes a release and says so when none is reported', () => {
+		expect(releaseLabel('1.2.3')).toBe('v1.2.3');
+		expect(releaseLabel('')).toBe('not reported');
 	});
 });

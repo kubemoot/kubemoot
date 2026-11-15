@@ -30,11 +30,18 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
+// ReleaseEnv names the environment variable the operator chart fills from its own
+// stamped version; the operator reports it as the Kubemoot release.
+const ReleaseEnv = "KUBEMOOT_RELEASE"
+
 // KubemootConfigReconciler reconciles a KubemootConfig object
 type KubemootConfigReconciler struct {
 	client.Client
 	Scheme      *runtime.Scheme
 	ConfigCache *ConfigCache
+	// Release is the Kubemoot release (the operator chart version) written to
+	// status.release; empty leaves the field untouched.
+	Release string
 }
 
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=kubemootconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -78,20 +85,7 @@ func (r *KubemootConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// All other controllers will pick up changes on their next reconciliation
 	r.ConfigCache.Update(config)
 
-	// Update status
-	now := metav1.Now()
-	config.Status.Ready = true
-	config.Status.LastUpdated = &now
-	config.Status.Message = "Configuration loaded successfully"
-
-	condition := metav1.Condition{
-		Type:               conditionTypeReady,
-		Status:             metav1.ConditionTrue,
-		Reason:             "ConfigLoaded",
-		Message:            "Configuration has been loaded into the operator",
-		LastTransitionTime: now,
-	}
-	meta.SetStatusCondition(&config.Status.Conditions, condition)
+	r.markLoaded(config, metav1.Now())
 
 	if err := r.Status().Update(ctx, config); err != nil {
 		log.Error(err, "Failed to update KubemootConfig status")
@@ -100,6 +94,25 @@ func (r *KubemootConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	log.Info("KubemootConfig cache updated successfully")
 	return ctrl.Result{}, nil
+}
+
+// markLoaded records on the status that the configuration is loaded, and which
+// release the operator reports.
+func (r *KubemootConfigReconciler) markLoaded(config *kubemootv1alpha1.KubemootConfig, now metav1.Time) {
+	config.Status.Ready = true
+	config.Status.LastUpdated = &now
+	config.Status.Message = "Configuration loaded successfully"
+	if r.Release != "" {
+		config.Status.Release = r.Release
+	}
+
+	meta.SetStatusCondition(&config.Status.Conditions, metav1.Condition{
+		Type:               conditionTypeReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "ConfigLoaded",
+		Message:            "Configuration has been loaded into the operator",
+		LastTransitionTime: now,
+	})
 }
 
 // SetupWithManager sets up the controller with the Manager.

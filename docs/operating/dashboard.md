@@ -63,6 +63,8 @@ The sidebar groups pages by what they cover. The Topology page exists by URL (`/
 
 The sidebar shows the dashboard's version under the logo. A release candidate (`X.Y.Z-rc.N`) carries an RC badge beside it; a published release shows none.
 
+The info icon next to the version opens the Kubemoot components panel. Its first line, `Kubemoot`, is the release the cluster runs: the version of the operator chart, which the operator writes to the `KubemootConfig` status (`status.release`) and the dashboard reads from there. Below it come the dashboard's own version, the operator version, and the operator's uptime. The line reads `not reported` while the operator has not written its status yet, and on an operator too old to report a release. The Copy button puts the panel's lines on the clipboard for a support request.
+
 | Section | Pages | Shows |
 |---------|-------|-------|
 | Top | Overview, Nodes | Ready-of-total counts for nodes, GPUs, crews, and every other resource type (a tile shows a small spinner until its first count arrives, never a zero); Kubernetes nodes with GPU detection and model-loading state |
@@ -162,7 +164,7 @@ The chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grant
 | `nodes`, `namespaces`, `pods` | get, list, watch | Node and namespace views |
 | `pods/log` | get | Log access |
 | `configmaps` | get, list | Agent prompt bundles for the Agent detail page |
-| `deployments` (apps) | get, list, watch | Operator version in the system-info popover |
+| `deployments` (apps) | get, list, watch | Operator version in the Kubemoot components panel |
 | All `kubemoot.ai` resources | get, list, watch | Every Kubemoot page |
 | `crews` | delete | The Crews page "remove crew" action |
 | `crewfitnesssuites` | delete, patch | The Fitness page "remove run" action, and its Pause, Resume, and Stop actions |

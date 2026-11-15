@@ -21,3 +21,8 @@ export async function fetchDashboardVersion(fetcher: Fetcher, url: string): Prom
 export function versionLabel(version: string): string {
 	return version === VERSION_UNKNOWN ? 'version unknown' : `v${version}`;
 }
+
+/** The Kubemoot release as shown: "v1.2.3", or "not reported" when the operator has not written one. */
+export function releaseLabel(release: string): string {
+	return release ? `v${release}` : 'not reported';
+}

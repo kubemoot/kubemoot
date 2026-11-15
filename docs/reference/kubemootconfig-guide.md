@@ -93,6 +93,7 @@ Every tool result is always stored as its own file in the discussion workspace; 
 | `ready` | bool | Configuration applied successfully |
 | `lastUpdated` | Time | Last configuration update timestamp |
 | `message` | string | Additional status information |
+| `release` | string | The Kubemoot release the cluster runs: the version of the operator chart, set by the operator from what the chart build stamps. `kmctl version` and the dashboard's Kubemoot components panel show it. Empty until an operator that reports it has reconciled the object |
 
 ## Example
 

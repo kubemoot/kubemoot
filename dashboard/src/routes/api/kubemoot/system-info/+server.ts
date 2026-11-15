@@ -1,7 +1,9 @@
 import type { RequestHandler } from './$types';
 import * as k8s from '@kubernetes/client-node';
 import { infraNamespace } from '#lib/server/mode.js';
+import { getKubemootConfig } from '#lib/server/k8s/index.js';
 import {
+	kubemootRelease,
 	oldestRunningStart,
 	operatorDeploymentInfo,
 	type OperatorDeploymentInfo,
@@ -24,6 +26,8 @@ import {
  */
 
 interface SystemInfo {
+	/** The Kubemoot release from the KubemootConfig status; empty when the operator has not reported one. */
+	release: string;
 	operatorVersion: string;
 	operatorImage: string;
 	/**
@@ -77,6 +81,15 @@ async function readStartedAt(core: k8s.CoreV1Api, podSelector: string): Promise<
 	}
 }
 
+async function readRelease(): Promise<string> {
+	try {
+		return kubemootRelease(await getKubemootConfig('default'));
+	} catch (err) {
+		console.error('Failed to read the KubemootConfig release:', err);
+		return '';
+	}
+}
+
 export const GET: RequestHandler = async () => {
 	const kc = kubeConfig();
 	const { operatorVersion, operatorImage, podSelector } = await readDeploymentInfo(
@@ -84,6 +97,8 @@ export const GET: RequestHandler = async () => {
 	);
 	const operatorStartedAt = await readStartedAt(kc.makeApiClient(k8s.CoreV1Api), podSelector);
 
-	const info: SystemInfo = { operatorVersion, operatorImage, operatorStartedAt };
+	const release = await readRelease();
+
+	const info: SystemInfo = { release, operatorVersion, operatorImage, operatorStartedAt };
 	return Response.json(info);
 };

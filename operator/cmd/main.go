@@ -381,6 +381,7 @@ func main() {
 	mustSetupControllers(mgr, []controllerSetup{
 		{"KubemootConfig", (&controller.KubemootConfigReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache,
+			Release: os.Getenv(controller.ReleaseEnv),
 		}).SetupWithManager},
 		{"ModelServer", modelServers.SetupWithManager},
 		{"Model", (&controller.ModelReconciler{
