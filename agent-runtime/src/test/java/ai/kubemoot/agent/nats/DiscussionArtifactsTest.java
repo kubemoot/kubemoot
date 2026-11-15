@@ -296,6 +296,22 @@ class DiscussionArtifactsTest {
     }
 
     @Test
+    void deleteThreadArtifacts_aMissingBucketThatOnlyFailsOnTheFirstCallStillLetsTheOldOneBeCleaned() throws Exception {
+        // The client binds a bucket lazily: objectStore() succeeds and getList() reports "stream not found".
+        var conn = mock(Connection.class);
+        var lazy = mock(ObjectStore.class);
+        var oldStore = mock(ObjectStore.class);
+        when(lazy.getList()).thenThrow(new java.io.IOException("stream not found [10059]"));
+        var inOld = objectInfo("ns-a/homelab-pilot/t1/a/001-pods", false);
+        when(oldStore.getList()).thenReturn(List.of(inOld));
+        when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(lazy);
+        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+
+        assertEquals(1, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1")));
+        verify(oldStore).delete("ns-a/homelab-pilot/t1/a/001-pods");
+    }
+
+    @Test
     void deleteThreadArtifacts_theOldBucketFailingStillFailsThePass() throws Exception {
         var conn = mock(Connection.class);
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenThrow(new java.io.IOException("stream not found"));

@@ -225,20 +225,21 @@ final class DiscussionArtifacts {
     /** One bucket's share of {@link #filterAndDelete(Connection, Predicate)}; the workspace bucket may not exist yet. */
     private static int filterAndDelete(Connection conn, String bucket, Predicate<ObjectInfo> shouldDelete)
             throws Exception {
+        // The client binds a bucket lazily: a missing bucket can surface from objectStore() or from the
+        // first call on it (getList), so both are inside the try.
         ObjectStore store;
+        List<ObjectInfo> infos;
         try {
             store = conn.objectStore(bucket);
+            infos = store == null ? List.of() : store.getList();
         } catch (Exception e) {
             if (isBucketMissing(e)) {
                 return 0; // no writer has created it
             }
             throw e;
         }
-        if (store == null) {
-            return 0;
-        }
         int deleted = 0;
-        for (ObjectInfo info : store.getList()) {
+        for (ObjectInfo info : infos) {
             if (!shouldDelete.test(info)) {
                 continue;
             }
