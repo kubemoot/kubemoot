@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
@@ -106,5 +107,34 @@ func TestSelectBelievesTheRecordedType(t *testing.T) {
 	}
 	if _, err := selectOf(t, s, ""); err == nil {
 		t.Error("an empty key is refused")
+	}
+}
+
+func TestSelectReadsACutKubectlTableByWhatItHolds(t *testing.T) {
+	cut := "NAME   READY\nfoo    1/1\nba ...[truncated]"
+	s := New(describingFetcher{
+		fakeFetcher: fakeFetcher{data: map[string]string{"cutkey": cut}},
+		headers: map[string]map[string]string{
+			"cutkey": callHeaders("Content-Type", "text/plain; profile=kubectl-table", "kubemoot.truncated", "true"),
+		},
+	})
+
+	got, err := selectOf(t, s, "cutkey")
+
+	if err != nil || !strings.HasPrefix(got, "name\nfoo\n") {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestSelectOnACutPlainTextResultIsNotATable(t *testing.T) {
+	s := New(describingFetcher{
+		fakeFetcher: fakeFetcher{data: map[string]string{"cutplain": "just words ...[truncated]"}},
+		headers: map[string]map[string]string{
+			"cutplain": callHeaders("Content-Type", "text/plain", "kubemoot.truncated", "true"),
+		},
+	})
+
+	if _, err := selectOf(t, s, "cutplain"); err == nil {
+		t.Fatal("plain text is not a table")
 	}
 }

@@ -1,16 +1,18 @@
 package ai.kubemoot.agent.chat;
 
+import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.MappingIterator;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 /**
  * What a tool result is, decided once when it is stored and recorded as the object's
@@ -41,10 +43,18 @@ final class ResultType {
     private static final char NEWLINE = '\n';
 
     /** Nesting the Go decoders accept (encoding/json and yaml.v3 stop at 10,000); the parsers here stop earlier by default. */
+    /** The characters Go's unicode.IsSpace accepts. */
+    private static final String GO_SPACE = "\t\n\u000B\f\r \u0085\u00A0\u1680"
+            + "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A"
+            + "\u2028\u2029\u202F\u205F\u3000";
+
     private static final int MAX_NESTING = 10_000;
 
+    /** Most bytes of text a YAML check is made on: parsing builds the whole document. Go's {@code maxYAMLBytes} is the same. */
+    private static final int MAX_YAML_BYTES = 1_000_000;
+    private static final int UTF8_MAX_BYTES_PER_CHAR = 3;
+
     private static final ObjectMapper JSON_MAPPER = jsonMapper();
-    private static final ObjectMapper YAML_MAPPER = yamlMapper();
 
     /** One column title: words joined by single spaces; titles are separated by two or more spaces. */
     private static final Pattern HEADER_CELL = Pattern.compile("\\S+(?: \\S+)*");
@@ -58,26 +68,30 @@ final class ResultType {
     }
 
     private static ObjectMapper jsonMapper() {
-        var factory = new com.fasterxml.jackson.core.JsonFactory();
+        var factory = new JsonFactory();
         factory.setStreamReadConstraints(StreamReadConstraints.builder()
-                .maxNestingDepth(MAX_NESTING).maxStringLength(Integer.MAX_VALUE).build());
+                .maxNestingDepth(MAX_NESTING).maxStringLength(Integer.MAX_VALUE)
+                .maxNumberLength(Integer.MAX_VALUE).build());
         return new ObjectMapper(factory).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     }
 
-    private static ObjectMapper yamlMapper() {
+    /** A YAML reader that refuses what Go's yaml.v3 refuses: duplicate keys, unknown aliases, values that do not fit their tag. */
+    private static Yaml yaml() {
         var options = new LoaderOptions();
+        options.setAllowDuplicateKeys(false);
         options.setCodePointLimit(Integer.MAX_VALUE);
         options.setNestingDepthLimit(MAX_NESTING);
-        var factory = YAMLFactory.builder().loaderOptions(options)
-                .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
-        factory.setStreamReadConstraints(StreamReadConstraints.builder()
-                .maxNestingDepth(MAX_NESTING).maxStringLength(Integer.MAX_VALUE).build());
-        return new ObjectMapper(factory);
+        return new Yaml(new SafeConstructor(options));
     }
 
-    /** True for what Go's {@code unicode.IsSpace} counts as space, which {@code String.strip} does not (no-break spaces). */
+    /**
+     * True for exactly what Go's {@code unicode.IsSpace} counts as space: tab, line feed, vertical
+     * tab, form feed, carriage return, space, U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028,
+     * U+2029, U+202F, U+205F and U+3000. (Java's own {@code isWhitespace} also counts the
+     * separators U+001C to U+001F and leaves out the no-break spaces.)
+     */
     private static boolean isSpace(char c) {
-        return Character.isWhitespace(c) || Character.isSpaceChar(c) || c == '\u0085';
+        return GO_SPACE.indexOf(c) >= 0;
     }
 
     /** The text without the leading and trailing space Go's {@code strings.TrimSpace} removes. */
@@ -175,31 +189,35 @@ final class ResultType {
         return false;
     }
 
-    /** YAML starts like YAML, and parses as one mapping or list, or as several documents. */
+    /** YAML starts like YAML, fits the size limit, and parses as one mapping or list, or as several documents. */
     private static boolean isYaml(String text, String firstLine) {
-        if (!YAML_FIRST_LINE.matcher(firstLine).find()) {
+        if (!YAML_FIRST_LINE.matcher(firstLine).find() || utf8Bytes(text) > MAX_YAML_BYTES) {
             return false;
         }
         try {
-            List<JsonNode> docs = yamlDocuments(text);
-            return docs.size() > 1 || (docs.size() == 1 && docs.get(0).isContainerNode());
-        } catch (Exception e) {
+            int count = 0;
+            Object only = null;
+            for (Object doc : yaml().loadAll(text)) {
+                if (doc != null) {
+                    only = count == 0 ? doc : only;
+                    count++;
+                }
+            }
+            return count > 1 || (count == 1 && (only instanceof Map || only instanceof List));
+        } catch (RuntimeException e) {
             return false;
         }
     }
 
-    /** The documents of a YAML text that hold something; a parse error is thrown. */
-    private static List<JsonNode> yamlDocuments(String text) throws java.io.IOException {
-        List<JsonNode> docs = new ArrayList<>();
-        try (MappingIterator<JsonNode> it = YAML_MAPPER.readerFor(JsonNode.class).readValues(text)) {
-            while (it.hasNext()) {
-                JsonNode doc = it.next();
-                if (doc != null && !doc.isNull() && !doc.isMissingNode()) {
-                    docs.add(doc);
-                }
-            }
+    /** The length of the text in UTF-8, counted only when it could be near the limit. */
+    private static long utf8Bytes(String text) {
+        if (text.length() > MAX_YAML_BYTES) {
+            return text.length();
         }
-        return docs;
+        if ((long) text.length() * UTF8_MAX_BYTES_PER_CHAR <= MAX_YAML_BYTES) {
+            return 0;
+        }
+        return text.getBytes(StandardCharsets.UTF_8).length;
     }
 
     /** CSV: every one of the leading lines holds as many fields as the first, which holds two or more. */
