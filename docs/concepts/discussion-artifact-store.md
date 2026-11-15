@@ -105,7 +105,8 @@ The keys in the lines are relative to the thread: `{agent}/{nnn}-{tool}` ([Short
 keys](#short-keys)).
 
 Each call line says what the stored body is, so a reader does not guess it. `type=` is the
-object's `Content-Type` header (see [Content type](#content-type)). For a table, `columns=` lists its column names;
+object's `Content-Type` header (see [Content type](#content-type)); it replaces the `format=` field
+of earlier versions, and its values are content types, not `json`, `text-table` or `text`. For a table, `columns=` lists its column names;
 for a JSON list or object, `fields=` lists the keys of its first row (the `items` list of a
 Kubernetes list). At most 12 names are shown, each cut at 30 characters, then `,+Nmore`.
 These are the names `workspace_query` reads the table by, so a query can use them as written.
@@ -122,19 +123,21 @@ The type of a result is decided once, when the runtime stores it, and recorded a
 | One JSON object or list (the whole text) | `application/json` |
 | A Markdown pipe table (a pipe row, then its separator row, in the first five lines) | `text/markdown` |
 | A `kubectl` style table (a first line of upper-case column titles separated by two or more spaces) | `text/plain; profile=kubectl-table` |
-| YAML that parses as a mapping, a list or several documents | `application/yaml` |
+| YAML that parses as a mapping, a list or several documents, of at most 1,000,000 bytes | `application/yaml` |
 | CSV (the first five lines hold the same number of fields, two or more) | `text/csv` |
 | Anything else, and any result cut at the size cap | `text/plain` |
 
 Every reader (`workspace_query`, `artifact_select`) believes the header. It looks at the bytes
 only when the header is missing or names a type it does not read, and when the bytes cannot be
 read as the type the header names (a JSON type over text that is not JSON). A result cut at the
-size cap is stored as `text/plain`, and `workspace_query` mends the cut text and reads it again
+size cap is stored as `text/plain`, a reader ignores the header of an object marked `kubemoot.truncated`
+(`artifact_select` then reads a cut table by what it holds), and `workspace_query` mends the cut text and reads it again
 section by section.
 
 The detection rule lives in two places because the runtime (Java) writes the header and
 artifact-access (Go) reads objects stored without one. Both run the cases in
-`test/fixtures/result-types.json`, the way both run `test/fixtures/column-names.json` for column
+`test/fixtures/result-types.json` and 1,500 seeded random inputs in `test/fixtures/result-types-generated.json`
+(regenerate it with `UPDATE_RESULT_CORPUS=1 go test ./internal/workspace` in `artifact-access`), the way both run `test/fixtures/column-names.json` for column
 names, so they cannot drift apart. Objects stored without a `Content-Type` are detected from their content.
 
 ### Column names

@@ -23,6 +23,49 @@ class ResultTypeTest {
         }
     }
 
+    /** Seeded random inputs, typed by artifact-access (see contenttype_corpus_test.go): the two detectors must agree on every one. */
+    @Test
+    void generatedCorpusGivesTheSameTypesAsArtifactAccess() throws Exception {
+        JsonNode cases = new ObjectMapper().readTree(new File("../test/fixtures/result-types-generated.json")).get("cases");
+        assertTrue(cases.size() >= 1000, "the corpus has cases");
+        List<String> differences = new java.util.ArrayList<>();
+        for (int i = 0; i < cases.size(); i++) {
+            String input = cases.get(i).get("input").asText();
+            String want = cases.get(i).get("type").asText();
+            if (!want.equals(ResultType.of(input))) {
+                differences.add(i + ": " + want + " vs " + ResultType.of(input) + " for " + input.replace("\n", "\\n"));
+            }
+        }
+        assertEquals(List.of(), differences);
+    }
+
+    /** The YAML reader is the part of the detector that runs library code; the native image check starts the binary, these run it. */
+    @Test
+    void yamlIsReadAsAMappingAListSeveralDocumentsAndRefusedWhenItDoesNotParse() {
+        assertEquals(ResultType.YAML, ResultType.of("kind: Pod\nmetadata:\n  name: a\n"));
+        assertEquals(ResultType.YAML, ResultType.of("- a\n- b\n"));
+        assertEquals(ResultType.YAML, ResultType.of("---\nkind: Pod\n---\nkind: Service\n"));
+        assertEquals(ResultType.YAML, ResultType.of("a: &x 1\nb: *x\n"));
+        assertEquals(ResultType.TEXT, ResultType.of("a: 1\na: 2\n"), "a duplicate key");
+        assertEquals(ResultType.TEXT, ResultType.of("a: b: c\n"));
+        assertEquals(ResultType.TEXT, ResultType.of("--- hello\n"), "a scalar is not data");
+        assertEquals(ResultType.TEXT, ResultType.of("a: *missing\nb: 1\n"), "an alias with no anchor");
+        assertEquals(ResultType.TEXT, ResultType.of("a: !!int abc\nb: 1\n"), "a value that does not fit its tag");
+    }
+
+    @Test
+    void yamlOverTheSizeLimitIsNotTried() {
+        assertEquals(ResultType.YAML, ResultType.of("a: " + "x".repeat(999_990) + "\n"));
+        assertEquals(ResultType.TEXT, ResultType.of("a: " + "x".repeat(1_000_000) + "\n"));
+        assertEquals(ResultType.TEXT, ResultType.of("a: " + "\u00e9".repeat(500_000) + "\n"), "the limit is in bytes");
+    }
+
+    @Test
+    void spaceIsWhatGoCallsSpace() {
+        assertEquals("a", ResultType.trim("\u00a0\u2003a\u3000\u0085"));
+        assertEquals("\u001ca\u001c", ResultType.trim(" \u001ca\u001c "), "the separators are not space");
+    }
+
     @Test
     void aMissingResultIsText() {
         assertEquals(ResultType.TEXT, ResultType.of(null));

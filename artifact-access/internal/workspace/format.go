@@ -114,8 +114,12 @@ func isKubectlTable(_ []byte, lines []string) bool {
 	return true
 }
 
+// maxYAMLBytes is the largest text whose YAML-ness is decided: parsing builds the whole document, so
+// a larger text is not tried. The runtime's ResultType has the same limit.
+const maxYAMLBytes = 1_000_000
+
 func isYAML(data []byte, lines []string) bool {
-	if !yamlFirstLine.MatchString(lines[0]) {
+	if len(data) > maxYAMLBytes || !yamlFirstLine.MatchString(lines[0]) {
 		return false
 	}
 	_, err := yamlToJSON(data)

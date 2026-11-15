@@ -55,11 +55,7 @@ func callInfoOf(m store.Meta) (callInfo, bool) {
 		args:      m.Headers[headerArgs],
 		failed:    m.Headers[headerError] == flagSet,
 		truncated: m.Headers[headerTruncated] == flagSet,
-	}
-	if !ci.truncated {
-		// A cut body is mended and read again by section, so what the header said of the whole
-		// result does not describe the bytes that are left.
-		ci.hint = HintOf(m)
+		hint:      HintOf(m),
 	}
 	return ci, true
 }

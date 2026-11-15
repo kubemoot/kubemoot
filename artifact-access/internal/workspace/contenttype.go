@@ -78,9 +78,13 @@ func FormatOf(contentType string) (Format, bool) {
 	return "", false
 }
 
-// HintOf is the format an object's Content-Type header names; empty when it has none or names a
-// type a query does not read.
+// HintOf is the format an object's Content-Type header names; empty when it has none, names a type
+// a query does not read, or the result was cut at the size cap. A cut body is no longer what the
+// header says of the whole result, so it is read by what it holds.
 func HintOf(m store.Meta) Format {
+	if m.Headers[headerTruncated] == flagSet {
+		return ""
+	}
 	f, _ := FormatOf(m.Headers[HeaderContentType])
 	return f
 }

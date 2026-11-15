@@ -17,6 +17,8 @@ type typeFixture struct {
 	} `json:"cases"`
 }
 
+const csvType = "text/csv"
+
 func TestDetectContentTypeSharedFixture(t *testing.T) {
 	raw, err := os.ReadFile("../../../test/fixtures/result-types.json")
 	if err != nil {
@@ -67,7 +69,7 @@ func TestFormatOf(t *testing.T) {
 		{"text/plain; profile=kubectl-table", FormatKubectlTable, true},
 		{"text/plain; profile=other", FormatText, true},
 		{"text/plain; charset=utf-8", FormatText, true},
-		{"text/csv", FormatCSV, true},
+		{csvType, FormatCSV, true},
 		{"text/markdown", FormatMarkdownTable, true},
 		{"", "", false},
 		{"not a media type", "", false},
@@ -85,9 +87,13 @@ func TestFormatOf(t *testing.T) {
 }
 
 func TestHintOfReadsTheHeaderOnly(t *testing.T) {
-	with := store.Meta{Headers: map[string]string{HeaderContentType: "text/csv"}}
+	with := store.Meta{Headers: map[string]string{HeaderContentType: csvType}}
 	if got := HintOf(with); got != FormatCSV {
 		t.Errorf("got %q", got)
+	}
+	cut := store.Meta{Headers: map[string]string{HeaderContentType: csvType, headerTruncated: flagSet}}
+	if got := HintOf(cut); got != "" {
+		t.Errorf("a cut result has no hint, got %q", got)
 	}
 	for _, m := range []store.Meta{{}, {Headers: map[string]string{"kubemoot.format": "json"}}, // the header older objects carry; not read,
 		{Headers: map[string]string{HeaderContentType: "image/png"}}} {

@@ -48,9 +48,10 @@ dependencies {
     // Jackson for JSON serialization
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
-    // ResultType tells a YAML result from plain text by parsing it, as artifact-access does. Only the
-    // tree reader is used (no data binding to classes), so the native image needs no reflection for it.
-    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml")
+    // ResultType tells a YAML result from plain text by parsing it, as artifact-access does. SnakeYAML
+    // is already on the classpath (Quarkus config); it is read with SafeConstructor, which builds only
+    // maps, lists and scalars, so the native image needs no reflection for it.
+    implementation("org.yaml:snakeyaml")
 
     // LangChain4j via the Quarkus Ollama extension: still the injected static-fallback
     // chat model and the quarkus.langchain4j.ollama.* settings ModelWarmupService and
