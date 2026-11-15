@@ -603,6 +603,21 @@ memory of its whole process. SQLite loads the file into a table before it querie
 time grows with the size of the artifact. DuckDB scans the file as it queries and is
 faster on the large case.
 
+### Workspace access
+
+An Agent declares what it may do with the workspace in `spec.workspace.access`; a Crew sets a default for its agents in `spec.workspace.defaultAccess` and a KubemootConfig sets a cluster default in `workspace.defaultAccess`. The closest declaration wins.
+
+| Access | Read tools | Stores its results | NATS publish on the bucket |
+|--------|------------|--------------------|----------------------------|
+| `none` | no | no, results return inline under the budget | no |
+| `read` | yes | no | no |
+| `write` | no | yes | yes |
+| `readWrite` | yes | yes | yes |
+
+A crew that declares nothing keeps today's behavior: every result is stored and the read tools are present when `enabledTools` names them. A tooler that fetches and hands off declares `write`: it stores what it fetched and gets no read tools. The operator reports the resolved access in the Agent's `status.workspace`, and a `WorkspaceAccessResolved` condition when a declared access cannot work as written.
+
+Read is enforced through the agent's tool list, not per caller: the workspace server scopes reads by discussion, so access does not isolate two agents of one crew. Write is enforced by NATS permissions.
+
 ### List and describe the workspace
 
 Two read-ops tell an agent what the discussion has gathered, before it writes a query. Both

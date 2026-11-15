@@ -387,6 +387,20 @@ spec:
                       RAGSource
                     type: string
                 type: object
+              workspace:
+                description: Workspace configures the discussion workspace cluster-wide.
+                properties:
+                  defaultAccess:
+                    description: |-
+                      DefaultAccess is the access of every agent whose Agent and Crew declare none. Left empty,
+                      such an agent keeps its implicit behavior.
+                    enum:
+                    - none
+                    - read
+                    - write
+                    - readWrite
+                    type: string
+                type: object
             type: object
           status:
             description: KubemootConfigStatus defines the observed state of KubemootConfig

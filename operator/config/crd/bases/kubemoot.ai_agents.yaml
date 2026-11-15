@@ -968,6 +968,26 @@ spec:
                 - task
                 - workflow
                 type: string
+              workspace:
+                description: |-
+                  Workspace declares what this agent may do with the discussion's workspace. Left out, the
+                  crew's default applies; with none declared the agent behaves as it always has.
+                properties:
+                  access:
+                    description: |-
+                      Access is none, read, write or readWrite. Left out, the Crew's defaultAccess applies, then
+                      the KubemootConfig's, and with none declared the agent behaves as before: it stores every
+                      tool result and reads the workspace only through the tools in its enabledTools.
+                      A declared access is authoritative: workspace tools the access does not allow are disabled
+                      even when enabledTools names them. Read is enforced through the agent's tool list; write
+                      is enforced by the agent's NATS permissions.
+                    enum:
+                    - none
+                    - read
+                    - write
+                    - readWrite
+                    type: string
+                type: object
             type: object
             x-kubernetes-validations:
             - message: 'harness.mode sidecar needs the harness image: set harness.image
@@ -1126,6 +1146,19 @@ spec:
               ready:
                 description: Ready indicates if the agent is ready to accept requests
                 type: boolean
+              workspace:
+                description: Workspace is the workspace access the operator resolved
+                  and where it came from.
+                properties:
+                  access:
+                    description: 'Access is the resolved access: none, read, write,
+                      readWrite, or implicit.'
+                    type: string
+                  source:
+                    description: 'Source says where the access was declared: agent,
+                      crew, config or implicit.'
+                    type: string
+                type: object
             type: object
         type: object
     served: true

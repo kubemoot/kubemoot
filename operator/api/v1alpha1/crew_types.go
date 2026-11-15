@@ -54,6 +54,11 @@ type CrewSpec struct {
 	// generates network policies.
 	// +optional
 	Network *CrewNetwork `json:"network,omitempty"`
+
+	// Workspace declares the default workspace access of the crew's agents. An Agent's own
+	// workspace.access overrides it.
+	// +optional
+	Workspace *CrewWorkspace `json:"workspace,omitempty"`
 }
 
 // CrewMemoryConfig governs a crew's working-memory storage, injection, and GC.
