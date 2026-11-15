@@ -66,6 +66,7 @@ public class ChatService {
     CallArtifactStore callArtifactStore;
 
     private final AgentProperties properties;
+    private volatile WorkspaceAccess workspaceAccess;
     private final AgentHeartbeatService heartbeatService;
     private final ObjectMapper objectMapper;
     private final Map<String, Conversation> conversations = new ConcurrentHashMap<>();
@@ -361,7 +362,7 @@ public class ChatService {
         boolean callFailed = true;
         try (var requesterScope = RequesterScope.bind(request.requester());
              var workspaceScope = WorkspaceScope.bind(threadPrefixOf(request.discussionThreadId()))) {
-            ledger = ToolCallLedger.forLoop(callArtifactStore, request.discussionThreadId(), properties.agentName(),
+            ledger = ToolCallLedger.forLoop(resultStore(), request.discussionThreadId(), properties.agentName(),
                     readersWindow(pick));
             loopResult = callWithToolLoop(messages,
                     observed(pick, CallObservation.KIND_TOOL_TURN),
@@ -394,6 +395,25 @@ public class ChatService {
                 serverName, loopResult.pickReason(), pick.evicted(),
                 List.of(new ModelUse(pick.modelName(), serverName, pick.call())),
                 filesOf(loopResult, ledger));
+    }
+
+    /**
+     * The store this agent's tool results go to, or null when its workspace access does not include
+     * storing them. Without a store the loop returns every result inline under the tool result
+     * budget, as it does outside a discussion.
+     */
+    private CallArtifactStore resultStore() {
+        return workspaceAccess().storesResults() ? callArtifactStore : null;
+    }
+
+    /** The declared access, parsed on first use so a bad value is warned of once, not on every tool loop. */
+    private WorkspaceAccess workspaceAccess() {
+        WorkspaceAccess access = workspaceAccess;
+        if (access == null) {
+            access = WorkspaceAccess.of(properties.workspaceAccess());
+            workspaceAccess = access;
+        }
+        return access;
     }
 
     /** The key prefix of the discussion thread's stored results; null outside a thread or without a store. */
