@@ -1,10 +1,8 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.CallManifest;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -16,8 +14,9 @@ import java.util.regex.Pattern;
  * stored files ({@link CallManifest}), the error text of a failed call, the protocol words and
  * the signals that carry no text (stand-aside, failure, an empty agree) are not facts. When tools
  * ran (some contribution describes files) and nothing else was posted, the synthesizer would have
- * nothing to answer from and would invent; the coordinator answers without the model instead:
- * what was asked, which tools ran, which failed and why, and that no data was obtained.
+ * nothing to answer from and would invent. When a successful result was stored, the coordinator
+ * reads it first ({@link StoredResults}); when none can be read it answers without the model: what
+ * was asked and that it could not be checked, in the asker's terms.
  */
 final class DiscussionFacts {
 
@@ -30,16 +29,12 @@ final class DiscussionFacts {
     /** Words that are protocol and say nothing about the world. */
     private static final Pattern PROTOCOL_WORDS = Pattern.compile("\\b(?:NOTHING_TO_ADD|NO_DATA)\\b");
 
-    private static final int FAILURE_TEXT_CHARS = 300;
     private static final int QUESTION_CHARS = 500;
 
-    /** A call line, a not-stored line, or the error text block of a failed call, in the order they stand. */
+    /** A call line or a not-stored line, in the order they stand. */
     private static final Pattern ITEM = Pattern.compile(
             "\\[CALL key=([^\\]\\s]++) tool=([^\\]\\s]++)([^\\]]*+)\\]"
-                    + "|\\[NOT STORED tool=([^\\]\\s]++)([^\\]]*+)\\]"
-                    + "|" + Pattern.quote(CallManifest.FAILED_RESULT_OPEN) + "\\n(.*?)\\n"
-                    + Pattern.quote(CallManifest.RESULT_CLOSE),
-            Pattern.DOTALL);
+                    + "|\\[NOT STORED tool=([^\\]\\s]++)([^\\]]*+)\\]");
 
     private DiscussionFacts() {}
 
@@ -80,70 +75,40 @@ final class DiscussionFacts {
         return PROTOCOL_WORDS.matcher(text).replaceAll("").strip();
     }
 
+    /** A successful tool call whose result was stored: who made it, with what tool, and the thread-relative key. */
+    record StoredCall(String agent, String tool, String key) {}
+
     /**
-     * The answer for a thread that holds no facts: the question, the tools that ran per agent, the
-     * failures with their text, and the plain statement that no data was obtained.
-     * {@code failureSignals} maps an agent that reported a failure to what it reported.
+     * The successful, stored calls the thread describes, in the order they stand and without repeats.
+     * When the thread holds no fact these are results nobody stated and that were too large to post.
      */
-    static String noDataAnswer(String question, List<Message> thread, Map<String, String> failureSignals) {
-        var ran = new LinkedHashMap<String, Map<String, int[]>>();
-        var failures = new ArrayList<String>();
-        statements(thread).forEach(m -> collect(m, ran, failures));
-        failureSignals.forEach((agent, text) -> failures.add(agent + ": " + oneLine(text)));
-
-        var out = new StringBuilder("No data was obtained to answer this question, so there is no answer to give.\n\n");
-        out.append("Question: ").append(question == null || question.isBlank() ? "(not recorded)"
-                : cut(oneLine(question), QUESTION_CHARS)).append("\n\n");
-        out.append("Tools that ran:\n");
-        ran.forEach((agent, tools) -> out.append("- ").append(agent).append(": ").append(toolList(tools)).append('\n'));
-        if (!failures.isEmpty()) {
-            out.append("\nFailures:\n");
-            failures.forEach(f -> out.append("- ").append(f).append('\n'));
-        }
-        boolean anySucceeded = ran.values().stream().flatMap(t -> t.values().stream()).anyMatch(c -> c[0] > c[1]);
-        return out.append(anySucceeded
-                ? "\nThe calls that succeeded returned results that no agent stated and that were too large to post, "
-                        + "so no tool result reached this answer and nothing can be reported as fact."
-                : "\nEvery call failed, so no tool result reached this answer and nothing can be reported as fact.")
-                .toString();
-    }
-
-    /** Adds the tools and failures one contribution describes. A failed call takes the error text posted after it. */
-    private static void collect(Message m, Map<String, Map<String, int[]>> ran, List<String> failures) {
-        Matcher item = ITEM.matcher(m.content());
-        String lastFailed = null;
-        while (item.find()) {
-            if (item.group(2) != null) {
-                String tool = item.group(2);
-                boolean failed = item.group(3).contains("error=true");
-                count(ran, m.agent(), tool, failed);
-                lastFailed = failed ? m.agent() + ", " + tool : null;
-                if (failed) {
-                    failures.add(lastFailed + ": the tool returned an error");
+    static List<StoredCall> storedSuccesses(List<Message> thread) {
+        var found = new LinkedHashMap<String, StoredCall>();
+        statements(thread).forEach(m -> {
+            Matcher item = ITEM.matcher(m.content());
+            while (item.find()) {
+                if (item.group(2) != null && !item.group(3).contains("error=true")) {
+                    found.putIfAbsent(item.group(1), new StoredCall(m.agent(), item.group(2), item.group(1)));
                 }
-            } else if (item.group(4) != null) {
-                count(ran, m.agent(), item.group(4), item.group(5).contains("error=true"));
-                lastFailed = null;
-            } else if (lastFailed != null) {
-                failures.set(failures.size() - 1, lastFailed + ": " + cut(oneLine(item.group(6)), FAILURE_TEXT_CHARS));
-                lastFailed = null;
             }
-        }
+        });
+        return List.copyOf(found.values());
     }
 
-    private static void count(Map<String, Map<String, int[]>> ran, String agent, String tool, boolean failed) {
-        int[] counts = ran.computeIfAbsent(agent, a -> new LinkedHashMap<>()).computeIfAbsent(tool, t -> new int[2]);
-        counts[0]++;
-        if (failed) {
-            counts[1]++;
-        }
-    }
-
-    private static String toolList(Map<String, int[]> tools) {
-        var parts = new ArrayList<String>();
-        tools.forEach((tool, c) -> parts.add(tool + " (" + c[0] + (c[0] == 1 ? " call" : " calls")
-                + (c[1] > 0 ? ", " + c[1] + " failed" : "") + ")"));
-        return String.join(", ", parts);
+    /**
+     * The answer for a thread that holds no facts and has no stored result to read: what was asked
+     * and that it could not be checked. It speaks to the asker, so it names no agent, tool, key or
+     * count of calls. A failed lookup is never reported as an empty result.
+     */
+    static String noDataAnswer(String question, boolean anyResultStored) {
+        var out = new StringBuilder("I could not get the data needed to answer this question, so I have no answer to give.\n\n");
+        out.append("You asked: ").append(question == null || question.isBlank() ? "(not recorded)"
+                : cut(oneLine(question), QUESTION_CHARS)).append("\n\n");
+        return out.append(anyResultStored
+                ? "Some lookups returned results, but none of them could be read here, so nothing from them is reported."
+                : "Every lookup this needed failed, so nothing could be checked.")
+                .append(" A lookup that failed says nothing about what exists, so no item is reported as missing or as zero.")
+                .toString();
     }
 
     private static String oneLine(String text) {

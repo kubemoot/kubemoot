@@ -133,21 +133,41 @@ The full state machine (all states, both automatic and event-driven transitions,
 the key design principles) is documented in
 [The Moot - Discussion phase lifecycle](../consensus-model/#discussion-phase-lifecycle).
 
-### No facts, no model
+### No facts: read the stored results, else no model
 
 The synthesizer answers from the discussion, so it needs something to answer from. When the
-discussion holds **no facts** but tools ran, the coordinator does not call the model: a model with
-nothing to answer from invents. It closes the thread with an answer it writes in code:
+discussion holds **no facts** but tools ran, the coordinator never lets the model answer from
+nothing (it would invent). What it does depends on whether a call succeeded:
 
-- the question,
-- the tools that ran, per agent, with the number of calls and how many failed (from the file
-  descriptions),
-- the failures with their text: the error text a failed call posted, and what an agent reported
-  when it failed,
-- the plain statement that no data was obtained and nothing can be reported as fact.
+- **A successful result was stored but no agent stated it** (it was too large to post whole).
+  The coordinator reads those stored results itself and gives them to the synthesizer after the
+  discussion, each between `[STORED RESULT ...]` and `[END STORED RESULT]`. The size rules are
+  those of any tool result in the discussion ([Small results go in the
+  discussion](../discussion-artifact-store/#small-results-go-in-the-discussion)): one result up to
+  one result's share of the room, all of them up to one contribution's share. JSON is shown
+  without indentation. A longer result is cut, and its block says `chars` (its full length),
+  `shown` and `complete=false`; a result left out for lack of room is counted in the text. The
+  synthesizer answers the parts of the question that the shown data covers and says what could
+  not be checked and why. It never derives a total, count, ranking or absence from a cut result,
+  and a failed call is never an empty result. Only calls that succeeded are read.
+- **Nothing succeeded, or no stored result could be read.** The coordinator does not call the
+  model. It closes the thread with an answer it writes in code, in the asker's terms: what was
+  asked and that it could not be checked. That text names no agent, tool, key, signal or number
+  of calls, and it never reports a failed lookup as zero items.
 
-It is a normal synthesized answer: it is published as the `synthesis` message, the thread closes,
-and the asker and the fitness judge read it like any other.
+Either way it is a normal synthesized answer: it is published as the `synthesis` message, the
+thread closes, and the asker and the fitness judge read it like any other.
+
+**The shortcut applies only when tools ran**: at least one contribution describes files (a
+`[CALL ...]` or `[NOT STORED ...]` line). A discussion where every agent stood aside, or only
+failed without storing a call, still goes to the model, which answers a general question from its
+own knowledge or reports the sources it could not reach.
+
+The decision is made in code on what is in the discussion, never on a timer. The thread's
+`synthesis_done` event carries the outcome `no_data` (see the table below) only when the
+coordinator wrote the no-data answer, so the case is countable: the share of threads that end
+with `no_data` is the share of questions that got no data from their tools. A thread answered
+from stored results ends `synthesized`.
 
 **The discussion holds facts** when a contribution of type `agree`, `contribution`, `proposal`,
 `concern` or `block` has either
@@ -161,16 +181,6 @@ and the asker and the fitness judge read it like any other.
 An empty `agree`, a `stand_aside`, a `decline`, a `failure`, the coordinator's own messages (the
 advisory, the review list) and the user's question hold no facts. A `concern` counts, because its
 text is usually a `TOOL_GAP:` that the model path turns into a hint about the missing tool.
-
-**The shortcut applies only when tools ran**: at least one contribution describes files (a
-`[CALL ...]` or `[NOT STORED ...]` line). A discussion where every agent stood aside, or only
-failed without storing a call, still goes to the model, which answers a general question from its
-own knowledge or reports the sources it could not reach.
-
-The decision is made in code on what is in the discussion, never on a timer. The thread's
-`synthesis_done` event carries the outcome `no_data` (see the table below), so the case is
-countable: the share of threads that end with `no_data` is the share of questions that got no
-data from their tools.
 
 ## The coordinator log
 

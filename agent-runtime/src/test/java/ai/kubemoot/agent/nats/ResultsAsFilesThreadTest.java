@@ -92,6 +92,10 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
         when(store.getList()).thenAnswer(inv -> stored.keySet().stream().map(this::infoOf).toList());
         doAnswer(inv -> {
             fetched.add(inv.getArgument(0));
+            String body = stored.get((String) inv.getArgument(0));
+            if (body != null) {
+                ((java.io.OutputStream) inv.getArgument(1)).write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
             return null;
         }).when(store).get(anyString(), any(java.io.OutputStream.class));
         when(chatService.simpleCallContextTokens()).thenReturn(OptionalLong.of(32_768));
@@ -219,26 +223,95 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
         return publishedOfType("synthesis").get(0).body().path("content").asText();
     }
 
-    @Test
-    void toolsThatRanAndStatedNothingEndInAnAnswerWithoutTheModelAndTheNoDataOutcome() throws Exception {
-        storeIsOpen();
-        send(THREAD, "human", "thread_start", "List the CronJobs and recent Jobs.", "{\"crew\":\"crew\",\"namespace\":\"ns\"}");
+    private static final String METRICS_KEY = "ns/crew/" + THREAD + "/k8s-metrics/001-execute_query";
+
+    private static String metricsManifest() {
+        return "[WORKSPACE agent=k8s-metrics calls=1 errors=0 prefix=k8s-metrics/]\n"
+                + "[CALL key=k8s-metrics/001-execute_query tool=execute_query args={\"query\":\"node_memory\"} "
+                + "type=application/json bytes=4373 rows=2 error=false fields=node,free]\n"
+                + "The results are stored under these keys; a result not shown above is only in its file.";
+    }
+
+    private void toSynthesis(String question, String... agreeAgentAndText) throws Exception {
+        send(THREAD, "human", "thread_start", question, "{\"crew\":\"crew\",\"namespace\":\"ns\"}");
         advanceThroughAdvisory(THREAD);
-        send(THREAD, "k8s-workloads", "agree", manifest(callLine()), null);
-        send(THREAD, "k8s-metrics", "failure", "Tool 'pods_top' failed 2 times in this evaluation", null);
+        for (int i = 0; i < agreeAgentAndText.length; i += 2) {
+            send(THREAD, agreeAgentAndText[i], "agree", agreeAgentAndText[i + 1], null);
+        }
         settle(THREAD, EVALUATION_TO_REVIEW);
         send(THREAD, "k8s-analyst", "stand_aside", "", null);
         settle(THREAD, REVIEW_TO_SYNTHESIS);
         awaitTypes(THREAD, 1, "synthesis_done");
+    }
+
+    @Test
+    void aStoredResultNobodyStatedIsReadForTheModelWhileTheFailuresStayFailures() throws Exception {
+        storeIsOpen();
+        stored.put(METRICS_KEY, "{\n  \"data\": [{\"node\": \"worker-2\", \"free\": 21474836480}]\n}");
+
+        toSynthesis("Which worker nodes have the most free memory?",
+                "k8s-metrics", metricsManifest(),
+                "k8s-workloads", manifest(callLine().replace("error=false", "error=true")
+                        + "\n[FAILED RESULT]\nfield selector not supported\n[END RESULT]"));
+
+        assertEquals("synthesized", doneOutcome());
+        String prompt = synthesisPrompt();
+        assertTrue(prompt.contains("[STORED RESULT key=k8s-metrics/001-execute_query tool=execute_query"), prompt);
+        assertTrue(prompt.contains("{\"data\":[{\"node\":\"worker-2\",\"free\":21474836480}]}"), prompt);
+        assertTrue(prompt.contains("complete=true]"), prompt);
+        assertTrue(prompt.contains("field selector not supported"), "the failure stays in the discussion");
+        assertEquals(List.of(METRICS_KEY), fetched, "only the successful stored result is read");
+        assertEquals("Two pods.", synthesisAnswer());
+    }
+
+    @Test
+    void aStoredResultTooLargeForTheRoomIsCutAndSaysSo() throws Exception {
+        storeIsOpen();
+        String rows = "[" + "{\"node\":\"worker-1\",\"free\":123456},".repeat(2_000) + "{}]";
+        stored.put(METRICS_KEY, rows);
+
+        toSynthesis("Which worker nodes have the most free memory?", "k8s-metrics", metricsManifest());
+
+        String prompt = synthesisPrompt();
+        int room = ai.kubemoot.agent.chat.DiscussionRoom.perResultChars(OptionalLong.of(32_768));
+        assertTrue(prompt.contains("chars=" + rows.length() + " shown=" + room + " complete=false]"), prompt);
+        assertFalse(prompt.contains(rows), "the whole result is not in the prompt");
+        assertTrue(prompt.contains("NEVER derive a total, count, ranking or absence"), "the cut-result rule comes with it");
+    }
+
+    @Test
+    void aStoredResultThatCannotBeReadEndsInTheNoDataAnswerWithoutInternals() throws Exception {
+        storeIsOpen();
+
+        toSynthesis("Which worker nodes have the most free memory?", "k8s-metrics", metricsManifest());
 
         assertEquals("no_data", doneOutcome());
         assertTrue(synthesisPrompts.isEmpty(), "the model was not asked: " + synthesisPrompts);
         String answer = synthesisAnswer();
-        assertTrue(answer.startsWith("No data was obtained"), answer);
-        assertTrue(answer.contains("Question: List the CronJobs and recent Jobs."), answer);
-        assertTrue(answer.contains("- k8s-workloads: pods_list (1 call)"), answer);
-        assertTrue(answer.contains("- k8s-metrics: Tool 'pods_top' failed 2 times in this evaluation"), answer);
-        assertFalse(answer.contains("[CALL"), answer);
+        assertTrue(answer.contains("Some lookups returned results, but none of them could be read here"), answer);
+        assertTrue(answer.contains("You asked: Which worker nodes have the most free memory?"), answer);
+    }
+
+    @Test
+    void whenEveryCallFailedTheAnswerIsNoDataAndNamesNoAgentToolOrCount() throws Exception {
+        storeIsOpen();
+        String failedMetrics = metricsManifest().replace("error=false", "error=true")
+                + "\n[FAILED RESULT]\nmalformed PromQL\n[END RESULT]";
+
+        toSynthesis("Which worker nodes have the most free memory?",
+                "k8s-metrics", failedMetrics,
+                "k8s-workloads", manifest(callLine().replace("error=false", "error=true")));
+        send(THREAD, "compute", "failure", "Tool 'artifact_jq' failed 2 times in this evaluation", null);
+
+        assertEquals("no_data", doneOutcome());
+        assertTrue(synthesisPrompts.isEmpty(), "the model was not asked: " + synthesisPrompts);
+        assertTrue(fetched.isEmpty(), "a failed call's file is not read: " + fetched);
+        String answer = synthesisAnswer();
+        assertTrue(answer.startsWith("I could not get the data needed"), answer);
+        for (String internal : List.of("k8s-metrics", "k8s-workloads", "compute", "k8s-analyst", "execute_query",
+                "pods_list", "artifact_jq", "workspace_query", "failed 2 times", "[CALL", "malformed PromQL")) {
+            assertFalse(answer.contains(internal), internal + " reached the user: " + answer);
+        }
         assertTrue(forThread(THREAD).stream().anyMatch(e -> e.type().equals("thread_closed")
                 && e.data().path("reason").asText().equals("no_data")), "the close names the same outcome");
     }
@@ -274,7 +347,6 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
         awaitTypes(THREAD, 1, "synthesis_done");
 
         assertEquals("no_data", doneOutcome());
-        assertTrue(synthesisAnswer().contains("- k8s-workloads, pods_list: forbidden: cannot list pods"),
-                synthesisAnswer());
+        assertFalse(synthesisAnswer().contains("forbidden"), "the error text is not shown to the asker");
     }
 }
