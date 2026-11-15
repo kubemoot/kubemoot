@@ -203,8 +203,10 @@ func (s *Server) rows(ctx context.Context, req *mcp.CallToolRequest, in rowsIn) 
 func (s *Server) selectCSV(
 	ctx context.Context, req *mcp.CallToolRequest, in selectIn,
 ) (*mcp.CallToolResult, Out, error) {
-	return s.read(ctx, scopeOf(req), in.Key, func(r io.Reader) (string, error) {
-		return readops.SelectCSV(r, in.Columns, delimiterOrComma(in.Delimiter), s.MaxOutputBytes)
+	sc := scopeOf(req)
+	hint := s.recordedFormat(ctx, sc, in.Key)
+	return s.read(ctx, sc, in.Key, func(r io.Reader) (string, error) {
+		return readops.SelectCSV(r, hint, in.Columns, delimiterOrComma(in.Delimiter), s.MaxOutputBytes)
 	})
 }
 
@@ -239,6 +241,24 @@ func (s *Server) recordedRows(ctx context.Context, key string) (int64, bool) {
 		return 0, false
 	}
 	return workspace.RowsHeader(meta)
+}
+
+// recordedFormat is the format the Content-Type header of the stored object names; empty when
+// the key does not resolve, the store keeps no headers, or the object has none.
+func (s *Server) recordedFormat(ctx context.Context, sc threadkey.Scope, key string) workspace.Format {
+	d, ok := s.Fetcher.(store.Describer)
+	if !ok || key == "" {
+		return ""
+	}
+	resolved, err := sc.Resolve(key)
+	if err != nil {
+		return ""
+	}
+	meta, err := d.Describe(ctx, resolved)
+	if err != nil {
+		return ""
+	}
+	return workspace.HintOf(meta)
 }
 
 // result caps the text and wraps it as a tool result.

@@ -57,8 +57,8 @@ func TestStackedCallColumnsAreTheKeyAndTheArgumentText(t *testing.T) {
 
 func TestStackedJSONCallsCarryTheColumnsToo(t *testing.T) {
 	s := callService(t, map[string]object{
-		callPods1: call(toolPods, podsA, headerFormat, "json", headerArgs, `{"namespace":"x"}`),
-		callPods2: call(toolPods, podsB, headerFormat, "json", headerArgs, `{"namespace":"y"}`),
+		callPods1: call(toolPods, podsA, HeaderContentType, "application/json", headerArgs, `{"namespace":"x"}`),
+		callPods2: call(toolPods, podsB, HeaderContentType, "application/json", headerArgs, `{"namespace":"y"}`),
 	})
 
 	got := query(t, s, map[string]string{tblPods: callPrefix + "*-pods_list"},
@@ -128,8 +128,8 @@ func TestArgumentNamesBecomeSafeColumnNames(t *testing.T) {
 
 func TestACallWithoutArgumentsHeaderStillHasCallAndEmptyArgs(t *testing.T) {
 	s := callService(t, map[string]object{
-		callPods1: call(toolPods, podsA, headerFormat, "json"),
-		callPods2: call(toolPods, podsB, headerFormat, "json"),
+		callPods1: call(toolPods, podsA, HeaderContentType, "application/json"),
+		callPods2: call(toolPods, podsB, HeaderContentType, "application/json"),
 	})
 
 	got := query(t, s, map[string]string{tblPods: callPrefix + "*-pods_list"},

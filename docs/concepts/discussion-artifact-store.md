@@ -14,7 +14,7 @@ Kubemoot treats this as plain mechanics, with no setting to turn on:
 
 1. **Every tool result is written to a file**, always, one file per call.
 2. **The discussion carries the file's description**: the tool, its arguments, rows, bytes,
-   format and columns.
+   content type and columns.
 3. **A result small enough to read is posted in the discussion as well**, whole, after its
    description. A larger result is only in its file. How small is computed from the context
    window of the models that read the discussion ([Small results go in the
@@ -75,7 +75,7 @@ define use the convention's name; the rest sit in the `kubemoot.` namespace.
 | `kubemoot.error` | `true` or `false`. |
 | `kubemoot.bytes` | Size of the stored body. |
 | `kubemoot.rows` | Items in a JSON list, or in the `items` list of a JSON object; absent when unknown (text). |
-| `kubemoot.format` | `json` when the body is a JSON object or list, otherwise `text`. A text body is a `kubectl` table, YAML or prose, and `workspace_query` detects which. |
+| `Content-Type` | What the stored body is, decided once when it is stored: `application/json`, `text/csv`, `text/markdown` (a Markdown table), `application/yaml`, `text/plain; profile=kubectl-table`, or `text/plain` for anything else. Every reader believes it and looks at the bytes only when it is missing (an object stored before the header existed). See [Content type](#content-type). |
 | `kubemoot.truncated` | `true` only when the result was cut at the size cap. |
 
 ### What an agent posts: the descriptions of its files, and its small results
@@ -92,9 +92,9 @@ goes through the bus.
 Pod a-1 uses the most CPU, 0.9 cores (workspace_query over 001-pods_list).
 
 [WORKSPACE agent=k8s-workloads calls=3 errors=0 prefix=k8s-workloads/]
-[CALL key=k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} format=text-table bytes=15210 rows=unknown error=false columns=name,ready,status,restarts,age]
-[CALL key=k8s-workloads/002-nodes_list tool=nodes_list args={} format=json bytes=2210 rows=3 error=false fields=metadata,spec,status]
-[CALL key=k8s-workloads/003-events_list tool=events_list args={} format=text bytes=15 rows=unknown error=false]
+[CALL key=k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} type=text/plain; profile=kubectl-table bytes=15210 rows=unknown error=false columns=name,ready,status,restarts,age]
+[CALL key=k8s-workloads/002-nodes_list tool=nodes_list args={} type=application/json bytes=2210 rows=3 error=false fields=metadata,spec,status]
+[CALL key=k8s-workloads/003-events_list tool=events_list args={} type=text/plain bytes=15 rows=unknown error=false]
 [RESULT]
 No events found
 [END RESULT]
@@ -104,15 +104,38 @@ The results are stored under these keys; a result not shown above is only in its
 The keys in the lines are relative to the thread: `{agent}/{nnn}-{tool}` ([Short
 keys](#short-keys)).
 
-Each call line says what the stored body is, so a reader does not guess it. `format=` is
-`json` (a JSON object or list), `text-table` (a `kubectl` style table: a first line of
-upper-case column titles separated by two or more spaces) or `text` (anything else, and a
-JSON result that was cut at the size cap). For a table, `columns=` lists its column names;
+Each call line says what the stored body is, so a reader does not guess it. `type=` is the
+object's `Content-Type` header (see [Content type](#content-type)). For a table, `columns=` lists its column names;
 for a JSON list or object, `fields=` lists the keys of its first row (the `items` list of a
 Kubernetes list). At most 12 names are shown, each cut at 30 characters, then `,+Nmore`.
 These are the names `workspace_query` reads the table by, so a query can use them as written.
 A `workspace_query` that names a column the table does not have fails with `no such column`
 and the error lists the actual columns of every table in the query.
+
+### Content type
+
+The type of a result is decided once, when the runtime stores it, and recorded as the standard
+`Content-Type` object header. The runtime tells them apart with one rule:
+
+| Result | `Content-Type` |
+|--------|----------------|
+| One JSON object or list (the whole text) | `application/json` |
+| A Markdown pipe table (a pipe row, then its separator row, in the first five lines) | `text/markdown` |
+| A `kubectl` style table (a first line of upper-case column titles separated by two or more spaces) | `text/plain; profile=kubectl-table` |
+| YAML that parses as a mapping, a list or several documents | `application/yaml` |
+| CSV (the first five lines hold the same number of fields, two or more) | `text/csv` |
+| Anything else, and any result cut at the size cap | `text/plain` |
+
+Every reader (`workspace_query`, `artifact_select`) believes the header. It looks at the bytes
+only when the header is missing or names a type it does not read, and when the bytes cannot be
+read as the type the header names (a JSON type over text that is not JSON). A result cut at the
+size cap is stored as `text/plain`, and `workspace_query` mends the cut text and reads it again
+section by section.
+
+The detection rule lives in two places because the runtime (Java) writes the header and
+artifact-access (Go) reads objects stored without one. Both run the cases in
+`test/fixtures/result-types.json`, the way both run `test/fixtures/column-names.json` for column
+names, so they cannot drift apart. Objects stored without a `Content-Type` are detected from their content.
 
 ### Column names
 
@@ -226,7 +249,7 @@ stored is missing from it, and the totals line shows if a line were:
 ```
 [CATALOG calls=11 errors=1 bytes=198940 groups=3]
 [GROUP agent=proxmox-qm tool=get_vm_rrd_data calls=9 errors=0 bytes=198000 rows=540 pattern=proxmox-qm/*-get_vm_rrd_data]
-[CATALOG-CALL key=proxmox-qm/002-get_vm_rrd_data tool=get_vm_rrd_data args={"node":"pve","vmid":101} format=text rows=60 bytes=22000 error=false]
+[CATALOG-CALL key=proxmox-qm/002-get_vm_rrd_data tool=get_vm_rrd_data args={"node":"pve","vmid":101} type=text/plain rows=60 bytes=22000 error=false]
 ...
 Read one call by its key, or every call of a group by its pattern, with workspace_query (SQL) or the artifact_* tools, or with execute_code over the file /artifacts/<key>. A pattern reads the calls as one table with the columns _call (the call's key), _args (its arguments) and _arg_<name> for an argument that differs between the calls (for example _arg_vmid).
 ```
@@ -234,7 +257,7 @@ Read one call by its key, or every call of a group by its pattern, with workspac
 One `[GROUP ...]` line per agent and tool carries the call, error and byte counts, the sum of the
 rows when every call reports them (`unknown` otherwise) and the key pattern that reads the group.
 One `[CATALOG-CALL ...]` line per call carries the tool, the arguments (cut at 60 characters),
-the format and rows from the headers, the bytes and whether it was an error. A catalog line never
+the content type and rows from the headers, the bytes and whether it was an error. A catalog line never
 begins with `[CALL key=`, so it is not read as an agent's file description. When the call lines do
 not fit a quarter of the smallest window any server publishes for the model (about 3 characters a
 token; 8,000 characters when no window is known), the catalog is rendered one level coarser: the
@@ -282,7 +305,7 @@ materializer can put it on disk and a consumer can decide before opening it:
 |-------|---------|
 | `bucket` | Object store bucket name. |
 | `key` | Full object key (`namespace/crew/thread/agent/nnn-tool`). |
-| `contentType` | MIME type of the stored object (`application/json` for a JSON body). |
+| `contentType` | The stored object's `Content-Type` header, for example `application/json`. |
 | `bytes` | Total object size in bytes. |
 | `rows` | Row count when known. |
 | `tool` | Name of the MCP tool that produced the data. |
@@ -336,7 +359,7 @@ choosing a tool for the format.
 A call works in four steps:
 
 1. The agent names the artifacts as table names and writes one `SELECT`.
-2. The read-ops service detects each artifact's format and turns it into a table: columns
+2. The read-ops service reads each artifact by its recorded content type (detecting it from the content when there is none) and turns it into a table: columns
    from a `kubectl` table's headers, keys from JSON items, a tooler's sections read one by
    one (see [How each artifact becomes a table](#how-each-artifact-becomes-a-table)).
 3. It loads the tables into a new in-memory SQLite database, runs the read-only
@@ -409,7 +432,7 @@ Running | 2
 
 #### How each artifact becomes a table
 
-The format is decided from the content (object keys carry no file extension):
+The format is the object's recorded `Content-Type`; an object without one is detected from its content (object keys carry no file extension):
 
 | Content | Table |
 |---------|-------|
@@ -422,8 +445,8 @@ The format is decided from the content (object keys carry no file extension):
 | Anything else | One row per line, columns `line_no` and `line`. |
 
 The key of one call
-(`k8s-workloads/001-pods_list`, or the full `default/pilot/t1/k8s-workloads/001-pods_list`) is one table, and its `kubemoot.format`
-header decides how it is read: `json` is read as JSON, `text` is detected as above. A
+(`k8s-workloads/001-pods_list`, or the full `default/pilot/t1/k8s-workloads/001-pods_list`) is one table, and its `Content-Type`
+header decides how it is read; an object without one is detected from its content as above. A
 key with a `*` reads every stored call that matches as one table. `*` stands for any
 characters except `/`. A short key (`k8s-workloads/*-pods_list`) is read inside the current thread
 ([Short keys](#short-keys)); a full key must name the namespace, crew and thread

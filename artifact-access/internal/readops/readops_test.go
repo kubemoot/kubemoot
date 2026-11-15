@@ -38,7 +38,7 @@ func TestSelectCSVFormats(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := SelectCSV(strings.NewReader(tc.in), tc.columns, ',', big)
+			got, err := SelectCSV(strings.NewReader(tc.in), "", tc.columns, ',', big)
 			if err != nil || got != tc.want {
 				t.Fatalf("got %q, %v; want %q", got, err, tc.want)
 			}
@@ -61,7 +61,7 @@ func TestSelectCSVErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := SelectCSV(strings.NewReader(tc.in), []string{"nme"}, ',', big)
+			_, err := SelectCSV(strings.NewReader(tc.in), "", []string{"nme"}, ',', big)
 			if err == nil {
 				t.Fatal("expected an error")
 			}
@@ -75,14 +75,14 @@ func TestSelectCSVErrors(t *testing.T) {
 }
 
 func TestSelectCSVDelimiterReadsDelimitedText(t *testing.T) {
-	got, err := SelectCSV(strings.NewReader("a;b\n1;2\n"), []string{"b"}, ';', big)
+	got, err := SelectCSV(strings.NewReader("a;b\n1;2\n"), "", []string{"b"}, ';', big)
 	if err != nil || got != "b\n2\n" {
 		t.Fatalf("got %q, %v", got, err)
 	}
 }
 
 func TestSelectCSVReadsKubectlTable(t *testing.T) {
-	got, err := SelectCSV(strings.NewReader(kubectlDaemonSets),
+	got, err := SelectCSV(strings.NewReader(kubectlDaemonSets), "",
 		[]string{"namespace", "name", "node_selector", "desired", "current"}, 0, big)
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ func TestRows(t *testing.T) {
 
 func TestSelectCSV(t *testing.T) {
 	csvIn := "name,ns,age\npod-a,default,3\npod-b,kube-system,7\n"
-	got, err := SelectCSV(strings.NewReader(csvIn), []string{"ns", "name"}, 0, big)
+	got, err := SelectCSV(strings.NewReader(csvIn), "", []string{"ns", "name"}, 0, big)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,10 +213,10 @@ func TestSelectCSV(t *testing.T) {
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
-	if _, err := SelectCSV(strings.NewReader(csvIn), []string{"nope"}, 0, big); err == nil {
+	if _, err := SelectCSV(strings.NewReader(csvIn), "", []string{"nope"}, 0, big); err == nil {
 		t.Fatal("missing column must error")
 	}
-	if _, err := SelectCSV(strings.NewReader(csvIn), nil, 0, big); err == nil {
+	if _, err := SelectCSV(strings.NewReader(csvIn), "", nil, 0, big); err == nil {
 		t.Fatal("no columns must error")
 	}
 }
@@ -224,7 +224,7 @@ func TestSelectCSV(t *testing.T) {
 func TestSelectCSVMatchesAndShowsSQLSafeNames(t *testing.T) {
 	in := "NAME,NODE SELECTOR,UP-TO-DATE,NAME\nds-a,disk=ssd,1,x\n"
 	for _, req := range [][]string{{"node_selector", "up_to_date"}, {"NODE SELECTOR", "UP-TO-DATE"}, {"Node_Selector", "up-to-date"}} {
-		got, err := SelectCSV(strings.NewReader(in), req, 0, big)
+		got, err := SelectCSV(strings.NewReader(in), "", req, 0, big)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -232,11 +232,11 @@ func TestSelectCSVMatchesAndShowsSQLSafeNames(t *testing.T) {
 			t.Fatalf("request %q: got %q want %q", req, got, want)
 		}
 	}
-	got, err := SelectCSV(strings.NewReader(in), []string{"name_2"}, 0, big)
+	got, err := SelectCSV(strings.NewReader(in), "", []string{"name_2"}, 0, big)
 	if err != nil || got != "name_2\nx\n" {
 		t.Fatalf("the duplicate header is name_2: %q, %v", got, err)
 	}
-	if _, err := SelectCSV(strings.NewReader(in), []string{""}, 0, big); err == nil {
+	if _, err := SelectCSV(strings.NewReader(in), "", []string{""}, 0, big); err == nil {
 		t.Fatal("an empty column name must not match")
 	}
 }
@@ -308,7 +308,7 @@ func TestSelectCSVBoundedByMaxBytes(t *testing.T) {
 	for i := 0; i < 100000; i++ {
 		sb.WriteString("x,y\n")
 	}
-	got, err := SelectCSV(strings.NewReader(sb.String()), []string{"a"}, 0, 100)
+	got, err := SelectCSV(strings.NewReader(sb.String()), "", []string{"a"}, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}

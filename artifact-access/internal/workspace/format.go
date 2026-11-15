@@ -149,13 +149,16 @@ func Prepare(name, src string, data []byte, workDir string) (Relation, Format, e
 	return PrepareAs("", name, src, data, workDir)
 }
 
-// PrepareAs is Prepare for an artifact whose producer says what it is. A hint of FormatJSON is
-// believed when data is valid JSON; any other hint, or none, leaves the format to Detect.
+// PrepareAs is Prepare for an artifact whose Content-Type is recorded. The recorded format is
+// believed (see trusted) and the bytes are sniffed only when there is none, or when the bytes
+// cannot be read as the format the header names.
 func PrepareAs(hint Format, name, src string, data []byte, workDir string) (Relation, Format, error) {
-	format := Detect(data)
-	if hint == FormatJSON && isJSON(data, nil) {
-		format = FormatJSON
+	if trusted(hint, data) {
+		if rel, err := preparers[hint](name, src, data, workDir); err == nil {
+			return rel, hint, nil
+		}
 	}
+	format := Detect(data)
 	rel, err := preparers[format](name, src, data, workDir)
 	return rel, format, err
 }

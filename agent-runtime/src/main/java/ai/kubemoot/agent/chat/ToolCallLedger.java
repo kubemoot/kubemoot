@@ -80,9 +80,8 @@ final class ToolCallLedger {
             calls.add(ToolCallRecord.notStored(call.tool(), call.arguments(), error));
             return null;
         }
-        String format = cut && shape.json() ? CallHeaders.FORMAT_TEXT : shape.format();
         calls.add(new ToolCallRecord(key, call.tool(), call.arguments(), body.length, shape.rows(), error,
-                format, cut ? List.of() : shape.columns(), cut ? null : inlineOf(text, error)));
+                storedType(shape, cut), cut ? List.of() : shape.columns(), cut ? null : inlineOf(text, error)));
         return key;
     }
 
@@ -106,6 +105,11 @@ final class ToolCallLedger {
         return block;
     }
 
+    /** The type of the stored bytes: a result cut at the size cap no longer holds what it was, so it is text. */
+    private static String storedType(ToolResultShape shape, boolean cut) {
+        return cut ? ResultType.TEXT : shape.type();
+    }
+
     private Map<String, String> headers(Call call, String key, int bytes, ToolResultShape shape,
                                         boolean error, boolean cut) {
         var h = new LinkedHashMap<String, String>();
@@ -125,7 +129,7 @@ final class ToolCallLedger {
         if (shape.rows() >= 0) {
             h.put(CallHeaders.ROWS, Integer.toString(shape.rows()));
         }
-        h.put(CallHeaders.FORMAT, shape.json() && !cut ? CallHeaders.FORMAT_JSON : CallHeaders.FORMAT_TEXT);
+        h.put(CallHeaders.CONTENT_TYPE, storedType(shape, cut));
         if (cut) {
             h.put(CallHeaders.TRUNCATED, "true");
         }
@@ -226,12 +230,12 @@ final class ToolCallLedger {
         if (withArgs) {
             sb.append(" args=").append(summary(c.arguments()));
         }
-        sb.append(" format=").append(c.format());
+        sb.append(" type=").append(c.type());
         sb.append(" bytes=").append(c.bytes())
                 .append(" rows=").append(c.rows() >= 0 ? Integer.toString(c.rows()) : "unknown")
                 .append(" error=").append(c.error());
         if (withColumns && !c.columns().isEmpty()) {
-            sb.append(CallHeaders.FORMAT_JSON.equals(c.format()) ? " fields=" : " columns=").append(columnList(c.columns()));
+            sb.append(ResultType.isJson(c.type()) ? " fields=" : " columns=").append(columnList(c.columns()));
         }
         return sb.append(']').toString();
     }

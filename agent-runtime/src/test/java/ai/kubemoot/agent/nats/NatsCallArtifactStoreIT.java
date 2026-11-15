@@ -107,7 +107,7 @@ class NatsCallArtifactStoreIT {
             headers.put(CallHeaders.TOOL_NAME, "pods_list");
             headers.put(CallHeaders.TOOL_CALL_ARGUMENTS, "{\"a\":\n\"b\"}");
             headers.put(CallHeaders.ROWS, "2");
-            headers.put(CallHeaders.FORMAT, CallHeaders.FORMAT_JSON);
+            headers.put(CallHeaders.CONTENT_TYPE, "application/json");
             headers.put(CallHeaders.ERROR, "false");
             byte[] body = "[{\"a\":1},{\"a\":2}]".getBytes(StandardCharsets.UTF_8);
 
@@ -117,7 +117,7 @@ class NatsCallArtifactStoreIT {
             var info = conn.objectStore(DiscussionArtifacts.BUCKET).getInfo(key);
             assertEquals("pods_list", info.getHeaders().getFirst(CallHeaders.TOOL_NAME));
             assertEquals("2", info.getHeaders().getFirst(CallHeaders.ROWS));
-            assertEquals("json", info.getHeaders().getFirst(CallHeaders.FORMAT));
+            assertEquals("application/json", info.getHeaders().getFirst(CallHeaders.CONTENT_TYPE));
             assertEquals("{\"a\": \"b\"}", info.getHeaders().getFirst(CallHeaders.TOOL_CALL_ARGUMENTS),
                     "a line break in a value becomes a space");
             // The wire form other clients (artifact-access, in Go) read: headers as name -> list of values.

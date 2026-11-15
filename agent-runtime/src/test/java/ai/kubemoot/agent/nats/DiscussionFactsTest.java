@@ -16,11 +16,11 @@ class DiscussionFactsTest {
 
     private static final String HEADER = "[WORKSPACE agent=k8s-workloads calls=3 errors=0 prefix=k8s-workloads/]\n";
     private static final String CALL1 = "[CALL key=k8s-workloads/001-resources_list tool=resources_list "
-            + "args={\"kind\": \"CronJob\"} format=text-table bytes=856 rows=unknown error=false columns=NAMESPACE,NAME]";
+            + "args={\"kind\": \"CronJob\"} type=text/plain; profile=kubectl-table bytes=856 rows=unknown error=false columns=NAMESPACE,NAME]";
     private static final String CALL2 = "[CALL key=k8s-workloads/002-resources_list tool=resources_list "
-            + "args={\"kind\": \"Job\"} format=text-table bytes=25662 rows=unknown error=false columns=NAMESPACE,NAME]";
+            + "args={\"kind\": \"Job\"} type=text/plain; profile=kubectl-table bytes=25662 rows=unknown error=false columns=NAMESPACE,NAME]";
     private static final String CALL3 = "[CALL key=k8s-workloads/003-events_list tool=events_list args={} "
-            + "format=text bytes=17 rows=unknown error=false]";
+            + "type=text/plain bytes=17 rows=unknown error=false]";
     private static final String FOOTER = "\nThe results are stored under these keys; a result not shown above is only in its "
             + "file. Read a key with workspace_query.";
     private static final String DESCRIPTIONS = HEADER + CALL1 + "\n" + CALL2 + "\n" + CALL3 + FOOTER;
@@ -161,7 +161,7 @@ class DiscussionFactsTest {
                 + "[NOT STORED tool=nodes_list args={} error=true - the result could not be written to the workspace "
                 + "and is not available]" + FOOTER;
         var thread = List.of(agree("k8s-workloads", failed), agree("compute", HEADER.replace("k8s-workloads", "compute")
-                + "[CALL key=compute/001-workspace_query tool=workspace_query args={} format=text bytes=3 rows=unknown "
+                + "[CALL key=compute/001-workspace_query tool=workspace_query args={} type=text/plain bytes=3 rows=unknown "
                 + "error=true]" + FOOTER));
 
         String answer = DiscussionFacts.noDataAnswer(QUESTION, thread,

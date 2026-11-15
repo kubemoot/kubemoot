@@ -85,6 +85,17 @@ class ToolCallLedgerTest {
     }
 
     @Test
+    void anyResultOverTheCapIsStoredAsPlainText() {
+        for (String result : new String[] {"name: a\nitems:\n" + "  - x\n".repeat(20), "a,b\n" + "1,2\n".repeat(20),
+                "NAME   READY\n" + "a      1/1\n".repeat(20)}) {
+            String key = ledger.record(new ToolCallLedger.Call("t", "i", "{}", T0, 1), result, false, 20);
+
+            assertEquals("text/plain", store.headers.get(key).get(CallHeaders.CONTENT_TYPE), result);
+            assertTrue(ledger.manifest().contains("type=text/plain "), "the [CALL] line shows the stored type");
+        }
+    }
+
+    @Test
     void emptyArgumentsShowAsAnEmptyObject() {
         assertEquals("{}", ToolCallLedger.summary(null));
         assertEquals("{}", ToolCallLedger.summary("  "));
@@ -97,7 +108,7 @@ class ToolCallLedgerTest {
 
         var h = store.headers.get(key);
         assertEquals("true", h.get(CallHeaders.TRUNCATED));
-        assertEquals("text", h.get(CallHeaders.FORMAT), "a cut list is no longer valid JSON");
+        assertEquals("text/plain", h.get(CallHeaders.CONTENT_TYPE), "a cut list is no longer valid JSON");
         assertTrue(store.body(key).endsWith(" ...[truncated]"));
     }
 
@@ -141,28 +152,28 @@ class ToolCallLedgerTest {
 
     @Test
     void shapeReadsJsonListsAndKubernetesLists() {
-        assertEquals(new ToolResultShape("json", 2), ToolResultShape.of("[1,2]"));
-        assertEquals(new ToolResultShape("json", 1), ToolResultShape.of(" {\"items\":[{}]}"));
-        assertEquals(new ToolResultShape("json", -1, java.util.List.of("error")), ToolResultShape.of("{\"error\":\"x\"}"));
-        assertEquals(new ToolResultShape("text", -1), ToolResultShape.of("{broken"));
-        assertEquals(new ToolResultShape("text", -1), ToolResultShape.of("NAME"), "one column is not a table");
-        assertEquals(new ToolResultShape("text", -1), ToolResultShape.of(null));
+        assertEquals(new ToolResultShape("application/json", 2), ToolResultShape.of("[1,2]"));
+        assertEquals(new ToolResultShape("application/json", 1), ToolResultShape.of(" {\"items\":[{}]}"));
+        assertEquals(new ToolResultShape("application/json", -1, java.util.List.of("error")), ToolResultShape.of("{\"error\":\"x\"}"));
+        assertEquals(new ToolResultShape("text/plain", -1), ToolResultShape.of("{broken"));
+        assertEquals(new ToolResultShape("text/plain", -1), ToolResultShape.of("NAME"), "one column is not a table");
+        assertEquals(new ToolResultShape("text/plain", -1), ToolResultShape.of(null));
     }
 
     @Test
     void shapeReadsTheColumnsOfATableAndTheFieldsOfAJsonList() {
         var table = ToolResultShape.of("NAME      READY   NOMINATED NODE\npod-a     1/1     <none>\n");
-        assertEquals("text-table", table.format());
+        assertEquals("text/plain; profile=kubectl-table", table.type());
         assertEquals(java.util.List.of("name", "ready", "nominated_node"), table.columns());
 
         var list = ToolResultShape.of("[{\"name\":\"a\",\"ns\":\"x\"},{\"name\":\"b\",\"extra\":1}]");
-        assertEquals("json", list.format());
+        assertEquals("application/json", list.type());
         assertEquals(2, list.rows());
         assertEquals(java.util.List.of("name", "ns"), list.columns(), "the first row's keys");
 
         assertEquals(java.util.List.of("metadata", "spec"), ToolResultShape.of("{\"items\":[{\"metadata\":{},\"spec\":{}}]}").columns());
-        assertEquals("text", ToolResultShape.of("Error: pods is forbidden\nsecond line").format());
-        assertEquals("text", ToolResultShape.of("Name  Ready\nx  y").format(), "titles are upper case");
+        assertEquals("text/plain", ToolResultShape.of("Error: pods is forbidden\nsecond line").type());
+        assertEquals("text/plain", ToolResultShape.of("Name  Ready\nx  y").type(), "titles are upper case");
     }
 
     @Test
@@ -173,9 +184,9 @@ class ToolCallLedgerTest {
 
         String manifest = ledger.manifest();
 
-        assertTrue(manifest.contains("format=text-table bytes=") && manifest.contains("columns=name,ready,status]"), manifest);
-        assertTrue(manifest.contains("format=json bytes=") && manifest.contains("fields=name,taints]"), manifest);
-        assertTrue(manifest.contains("tool=logs args={} format=text bytes=14 rows=unknown error=false]"), manifest);
+        assertTrue(manifest.contains("type=text/plain; profile=kubectl-table bytes=") && manifest.contains("columns=name,ready,status]"), manifest);
+        assertTrue(manifest.contains("type=application/json bytes=") && manifest.contains("fields=name,taints]"), manifest);
+        assertTrue(manifest.contains("tool=logs args={} type=text/plain bytes=14 rows=unknown error=false]"), manifest);
     }
 
     @Test
@@ -205,7 +216,7 @@ class ToolCallLedgerTest {
 
         String manifest = ledger.manifest();
 
-        assertTrue(manifest.contains("format=text "), manifest);
+        assertTrue(manifest.contains("type=text/plain "), manifest);
         assertFalse(manifest.contains("fields="), manifest);
     }
 
