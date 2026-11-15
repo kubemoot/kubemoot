@@ -140,11 +140,11 @@ class DiscussionFactsTest {
 
     @Test
     void theAnswerNamesTheQuestionAndNoAgentToolKeyOrCount() {
-        String answer = DiscussionFacts.noDataAnswer(QUESTION, false);
+        String answer = DiscussionFacts.noDataAnswer(QUESTION, StoredResults.Status.NOTHING_STORED);
 
         assertTrue(answer.startsWith("I could not get the data needed to answer this question"), answer);
         assertTrue(answer.contains("You asked: " + QUESTION), answer);
-        assertTrue(answer.contains("Every lookup this needed failed"), answer);
+        assertTrue(answer.contains("No lookup this needed returned a result that could be checked"), answer);
         for (String internal : List.of("k8s-workloads", "resources_list", "events_list", "workspace_query",
                 "[CALL", "001", "failed 2 times", "(1 call", "agent", "tool ")) {
             assertFalse(answer.contains(internal), internal + " reached the user: " + answer);
@@ -152,22 +152,25 @@ class DiscussionFactsTest {
     }
 
     @Test
-    void anAnswerForStoredResultsThatCouldNotBeReadSaysSoWithoutInternals() {
-        String answer = DiscussionFacts.noDataAnswer(QUESTION, true);
+    void theTextFollowsTheReasonNothingWasShown() {
+        String unreadable = DiscussionFacts.noDataAnswer(QUESTION, StoredResults.Status.UNREADABLE);
+        String noRoom = DiscussionFacts.noDataAnswer(QUESTION, StoredResults.Status.NO_ROOM);
+        String nothing = DiscussionFacts.noDataAnswer(QUESTION, StoredResults.Status.NOTHING_STORED);
 
-        assertTrue(answer.contains("Some lookups returned results, but none of them could be read here"), answer);
-        assertFalse(answer.contains("Every lookup"), answer);
-        assertFalse(answer.contains("too large to post"), "a mechanism, not the asker's terms: " + answer);
+        assertTrue(unreadable.contains("could not be read here"), unreadable);
+        assertTrue(noRoom.contains("too large to show here"), noRoom);
+        assertFalse(nothing.contains("returned results"), "nothing was stored, so it does not claim results: " + nothing);
+        assertFalse(unreadable.contains("Every lookup"), unreadable);
     }
 
     @Test
     void aFailedLookupIsNeverReportedAsZeroItems() {
-        assertTrue(DiscussionFacts.noDataAnswer(QUESTION, false).contains("no item is reported as missing or as zero"));
+        assertTrue(DiscussionFacts.noDataAnswer(QUESTION, StoredResults.Status.UNREADABLE).contains("no item is reported as missing or as zero"));
     }
 
     @Test
     void aLongQuestionIsCutAndKeptOnOneLine() {
-        String answer = DiscussionFacts.noDataAnswer("q ".repeat(600), false);
+        String answer = DiscussionFacts.noDataAnswer("q ".repeat(600), StoredResults.Status.NOTHING_STORED);
 
         assertTrue(answer.length() < 1_000, "length " + answer.length());
         assertEquals(1, answer.lines().filter(l -> l.startsWith("You asked: ")).count());
@@ -176,31 +179,12 @@ class DiscussionFactsTest {
 
     @Test
     void aMissingQuestionIsSaidSo() {
-        assertTrue(DiscussionFacts.noDataAnswer(null, false).contains("You asked: (not recorded)"));
-    }
-
-    @Test
-    void theSuccessfulStoredCallsAreFoundOnceEachAndFailuresAreLeftOut() {
-        String failed = HEADER + CALL1.replace("error=false", "error=true") + "\n" + CALL2 + "\n"
-                + "[NOT STORED tool=nodes_list args={} error=false - the result could not be written]" + FOOTER;
-        var thread = List.of(agree("k8s-workloads", failed), agree("k8s-workloads", failed));
-
-        var found = DiscussionFacts.storedSuccesses(thread);
-
-        assertEquals(List.of(new DiscussionFacts.StoredCall("k8s-workloads", "resources_list",
-                "k8s-workloads/002-resources_list")), found);
-    }
-
-    @Test
-    void aThreadWithOnlyFailuresHasNoStoredSuccess() {
-        var thread = List.of(agree("a", HEADER + CALL1.replace("error=false", "error=true") + FOOTER));
-
-        assertTrue(DiscussionFacts.storedSuccesses(thread).isEmpty());
+        assertTrue(DiscussionFacts.noDataAnswer(null, StoredResults.Status.NOTHING_STORED).contains("You asked: (not recorded)"));
     }
 
     @Test
     void theAnswerPassesThePublishedFormUnchanged() {
-        String answer = DiscussionFacts.noDataAnswer(QUESTION, false);
+        String answer = DiscussionFacts.noDataAnswer(QUESTION, StoredResults.Status.NOTHING_STORED);
 
         assertEquals(answer, DiscussionOrchestrator.publishedContent("synthesis", answer),
                 "the user-facing clean-up leaves it alone");

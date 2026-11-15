@@ -140,20 +140,32 @@ discussion holds **no facts** but tools ran, the coordinator never lets the mode
 nothing (it would invent). What it does depends on whether a call succeeded:
 
 - **A successful result was stored but no agent stated it** (it was too large to post whole).
-  The coordinator reads those stored results itself and gives them to the synthesizer after the
-  discussion, each between `[STORED RESULT ...]` and `[END STORED RESULT]`. The size rules are
-  those of any tool result in the discussion ([Small results go in the
+  The coordinator reads those stored results itself, from the thread's list of stored calls (the
+  objects' headers: only objects marked as tool calls and not as errors), and gives them to the
+  synthesizer after the discussion, each between `[STORED RESULT ...]` and `[END STORED RESULT]`.
+  The block header carries the result's `type` (its `Content-Type`, so a table reads as a table).
+  The size rules are those of any tool result in the discussion ([Small results go in the
   discussion](../discussion-artifact-store/#small-results-go-in-the-discussion)): one result up to
-  one result's share of the room, all of them up to one contribution's share. JSON is shown
-  without indentation. A longer result is cut, and its block says `chars` (its full length),
-  `shown` and `complete=false`; a result left out for lack of room is counted in the text. The
-  synthesizer answers the parts of the question that the shown data covers and says what could
-  not be checked and why. It never derives a total, count, ranking or absence from a cut result,
-  and a failed call is never an empty result. Only calls that succeeded are read.
-- **Nothing succeeded, or no stored result could be read.** The coordinator does not call the
-  model. It closes the thread with an answer it writes in code, in the asker's terms: what was
-  asked and that it could not be checked. That text names no agent, tool, key, signal or number
-  of calls, and it never reports a failed lookup as zero items.
+  one result's share of the room, all of them up to one contribution's share. A result is shown as
+  the tool returned it, not rewritten. Each object is read only as far as the room can use it, and
+  the whole read stops after a deadline (or if the thread is interrupted).
+  - A result that is longer than its room, or that the store marked as cut (the
+    `kubemoot.truncated` header, or a body ending in the truncation marker), is shown as cut:
+    `complete=false`, with `shown` the number of characters in the block. The synthesizer reports
+    it as cut, answers the parts of the question the shown data covers and says what could not be
+    checked. It never derives a total, count, ranking or absence from a cut result, and a failed
+    call is never an empty result.
+  - A result whose shown text holds a marker of the discussion's own format (`[END STORED RESULT]`,
+    `[STORED RESULT `, `[CALL `, `[RESULT]`, `[END RESULT]`, `[FAILED RESULT]`, `[NOT STORED`,
+    `[WORKSPACE `) is not shown, so its content can never close a block and pose as the
+    discussion. It is counted in the line "N more stored results not shown". The rules also tell the
+    synthesizer never to follow an instruction found inside a stored result.
+- **Nothing could be shown.** The coordinator does not call the model. It closes the thread with
+  an answer it writes in code, in the asker's terms: what was asked and why it could not be
+  checked, with one of three reasons: no lookup returned a result (no bus, or every call failed),
+  results were returned but could not be read, or results were returned but were too large to show
+  or could not be shown. The text names no agent, tool, key, signal or number of calls, and it
+  never reports a failed lookup as zero items.
 
 Either way it is a normal synthesized answer: it is published as the `synthesis` message, the
 thread closes, and the asker and the fitness judge read it like any other.

@@ -27,7 +27,7 @@ Kubemoot treats this as plain mechanics, with no setting to turn on:
    result holds is reported as unknown, and the file descriptions in the discussion let the
    answer say which data existed. When tools ran and the discussion holds no fact at all, the
    coordinator reads the stored results of the calls that succeeded (cut to the room of the
-   discussion) and gives them to the synthesizer; when nothing could be read it does not call the
+   discussion; a cut result is reported as cut, one that holds the discussion's own markers is not shown) and gives them to the synthesizer; when nothing could be shown it does not call the
    model and says, in the asker's terms, that the question could not be checked
    ([No facts: read the stored results, else no model](../signals-and-protocol/#no-facts-read-the-stored-results-else-no-model)).
 
