@@ -5,6 +5,7 @@
 	import KubemootLogo from './KubemootLogo.svelte';
 	import { KUBEMOOT_SITE } from '#lib/brand-links.js';
 	import { isReleaseCandidate } from '#lib/release-candidate.js';
+	import { versionLabel } from '#lib/dashboard-version.js';
 
 	const githubUrl = 'https://github.com/kubemoot/kubemoot';
 
@@ -59,7 +60,7 @@
 		<div class="logo-meta">
 			<div class="version-link">
 				<a href={githubUrl} target="_blank" rel="noopener noreferrer" class="version-github-link" title="View on GitHub">
-					<span class="version-num">v{version}</span>
+					<span class="version-num">{versionLabel(version)}</span>
 				</a>
 				{#if isReleaseCandidate(version)}
 					<span class="rc-badge" title="This dashboard runs a release candidate">RC</span>

@@ -7,6 +7,7 @@
 	import { Sidebar } from '#lib/components/layout/index.js';
 	import { NamespaceSelector } from '#lib/components/common/index.js';
 	import { crewDirectory, dashboardMode, loadCrewDirectory, refresh } from '#lib/stores/index.js';
+	import { fetchDashboardVersion } from '#lib/dashboard-version.js';
 
 	// Pages where the crew selector doesn't apply. Discussions IS crew-scoped
 	// (threads carry a crew), so it shows the selector and filters by crew.
@@ -50,13 +51,7 @@
 		namespacesLoading = false;
 
 		// Fetch version
-		try {
-			const res = await fetch(resolve('/api/version'));
-			const data = await res.json();
-			version = data.version;
-		} catch {
-			version = 'dev';
-		}
+		version = await fetchDashboardVersion(fetch, resolve('/api/version'));
 	});
 </script>
 

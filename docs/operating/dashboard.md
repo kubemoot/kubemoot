@@ -135,6 +135,8 @@ Your chat with a crew. The crew picker is the same **Crew** selector in the top 
 
 A new conversation sends a `thread_start` on the crew's discuss subject, the same message **New discussion** sends.
 
+Discussions and Messages show a message as soon as you send it. If the dashboard server did not accept it, the message stays on screen marked **Not sent** with the reason and a **Retry** button, so a question that never reached the crew does not look sent. The reasons are: your session has ended (reload and sign in again), the dashboard server could not be reached, or the server refused the message. Retry sends the same message again. When the dashboard cannot read its own version, the sidebar and an exported discussion say "version unknown".
+
 The **Details** toggle is off by default and the dashboard remembers the choice per viewer. When it is on, each answer shows the time from your question to the answer and the tokens used: the agents' tokens plus the coordinator's. A figure the thread did not record is left out.
 
 The toolbar copies the conversation to the clipboard and deletes it (removing its thread and purging its messages) after an in-page confirmation. A read-only dashboard hides sending and deleting. To watch raw NATS subjects, use `kmctl` or the NATS tooling directly.

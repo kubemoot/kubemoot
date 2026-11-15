@@ -20,6 +20,8 @@
 	import { crewEntry, crewLabel } from '#lib/crew-display-name.js';
 	import { canSend, chatAsText, chatTurns, crewThreads, detailsLine } from '#lib/chat-view.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
+	import { publishToBus, sendTracked } from '#lib/send-state.js';
+	import { NotSent } from '#lib/components/discussions/index.js';
 
 	marked.setOptions({ breaks: true, gfm: true });
 
@@ -51,13 +53,8 @@
 		deleteConfirm = false;
 	}
 
-	async function publish(subject: string, msg: DiscussionMessage) {
-		const res = await fetch(resolve('/api/nats/publish'), {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ subject, data: JSON.stringify(msg) })
-		});
-		if (!res.ok) throw new Error('Failed to publish');
+	function publish(subject: string, msg: DiscussionMessage): Promise<void> {
+		return publishToBus(resolve('/api/nats/publish'), subject, msg);
 	}
 
 	// A new conversation starts a thread (thread_start on the crew's discuss subject, as
@@ -96,7 +93,7 @@
 			const { subject, msg } = outgoing(selectedScope, draft.trim());
 			addDiscussionMessage(msg, subject);
 			selectedThreadId = msg.threadId;
-			await publish(subject, msg);
+			await sendTracked(publish, subject, msg);
 			draft = '';
 			await tick();
 			if (timelineEl) timelineEl.scrollTop = timelineEl.scrollHeight;
@@ -209,6 +206,7 @@
 							{/if}
 						{:else}
 							<div class="plain">{turn.text}</div>
+							<NotSent messageId={turn.id} {publish} />
 						{/if}
 					</div>
 				{/each}

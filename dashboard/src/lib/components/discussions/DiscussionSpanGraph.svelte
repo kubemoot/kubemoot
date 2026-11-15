@@ -2,6 +2,7 @@
 	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 	import { showStandAsides } from '#lib/stores/index.js';
 	import { buildAgentSpans, placementOf, type AgentSpan } from '#lib/discussion-spans.js';
+	import { versionLabel } from '#lib/dashboard-version.js';
 
 	let {
 		messages = [],
@@ -159,7 +160,7 @@
 		const rawQuery = userQuery || 'Unknown';
 		const queryText = rawQuery.length > 128 ? rawQuery.substring(0, 128) + '...' : rawQuery;
 		const threadLine = `Thread id: ${threadId || 'unknown'} | ${queryText}`;
-		const metaLine = `v${version || 'dev'}  ${now}`;
+		const metaLine = `${version ? versionLabel(version) : 'version unknown'}  ${now}`;
 		return [
 			'Kubemoot Discussion Agents',
 			...(crew ? [`Crew: ${crew}`] : []),

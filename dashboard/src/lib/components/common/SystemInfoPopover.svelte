@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
+	import { versionLabel } from '#lib/dashboard-version.js';
 
 	interface SystemInfo {
 		operatorVersion: string;
@@ -107,7 +108,7 @@
 		const uptimeLine = uptimeLabel
 			? `Uptime:    ${uptimeLabel}${parenthetical(startedNote)}`
 			: 'Uptime:    unknown';
-		const lines = ['Kubemoot components', `Dashboard: v${dashboardVersion}`, operatorLine, uptimeLine];
+		const lines = ['Kubemoot components', `Dashboard: ${versionLabel(dashboardVersion)}`, operatorLine, uptimeLine];
 		await navigator.clipboard.writeText(lines.join('\n'));
 		copied = true;
 		setTimeout(() => { copied = false; }, 2000);
@@ -135,7 +136,7 @@
 			</div>
 			<dl class="components">
 				<dt>Dashboard</dt>
-				<dd>v{dashboardVersion}</dd>
+				<dd>{versionLabel(dashboardVersion)}</dd>
 				<dt>Operator</dt>
 				<dd>
 					{#if loading}<span class="muted">loading…</span>

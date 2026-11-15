@@ -8,7 +8,7 @@
 	import type { Thread } from '#lib/stores/index.js';
 	import { discussSubject, tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewTooltip } from '#lib/crew-display-name.js';
-	import { DeleteDiscussion, DiscussionSpanGraph, MessageStatsLine, PlacementPanel, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
+	import { DeleteDiscussion, DiscussionSpanGraph, NotSent, MessageStatsLine, PlacementPanel, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
 	import { debugMessageCount, visibleMessages, afterAnswerMessages } from '#lib/conversation-view.js';
 	import { placementCallsOf } from '#lib/placement-panel.js';
 	import { formatTimestamp, messageStats, summarizeThread } from '#lib/discussion-timing.js';
@@ -18,6 +18,8 @@
 	import { placementOf, threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
 	import * as tips from '#lib/discussion-actions.js';
+	import { publishToBus, sendTracked } from '#lib/send-state.js';
+	import { fetchDashboardVersion, versionLabel, VERSION_UNKNOWN } from '#lib/dashboard-version.js';
 
 	// Configure marked for safe inline rendering
 	marked.setOptions({ breaks: true, gfm: true });
@@ -63,7 +65,7 @@
 	let copiedThread = $state(false);
 	let deleteConfirm = $state(false);
 	let showSpanGraph = $state(false);
-	let dashboardVersion = $state('dev');
+	let dashboardVersion = $state(VERSION_UNKNOWN);
 	// Server-id -> discovered GPU model (e.g. "ollama-rig1" -> "RTX 4090"), so the
 	// span graph shows the human GPU name instead of the raw server id. Sourced
 	// from the operator's DCGM discovery (ModelServer.status.capacity.gpuModel);
@@ -159,13 +161,13 @@
 		return discussSubject(scope, thread.channel, threadId);
 	}
 
-	async function publishMessage(subject: string, data: object) {
-		const res = await fetch(resolve('/api/nats/publish'), {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ subject, data: JSON.stringify(data) })
-		});
-		if (!res.ok) throw new Error('Failed to publish');
+	function publishMessage(subject: string, data: DiscussionMessage): Promise<void> {
+		return publishToBus(resolve('/api/nats/publish'), subject, data);
+	}
+
+	// Sends a message already on screen; one that did not go is marked "not sent" with a Retry.
+	function deliver(subject: string, msg: DiscussionMessage): Promise<boolean> {
+		return sendTracked(publishMessage, subject, msg);
 	}
 
 	async function startNewDiscussion() {
@@ -187,7 +189,7 @@
 			// Optimistic: show message immediately
 			addDiscussionMessage(msg, subject);
 			selectedThreadId = threadId;
-			await publishMessage(subject, msg);
+			await deliver(subject, msg);
 			newQuery = '';
 			showNewForm = false;
 		} catch (e) {
@@ -213,7 +215,7 @@
 			};
 			// Optimistic: show message immediately
 			addDiscussionMessage(msg, subject);
-			await publishMessage(subject, msg);
+			await deliver(subject, msg);
 			replyText = '';
 		} catch (e) {
 			console.error('Failed to send reply:', e);
@@ -236,20 +238,10 @@
 		}
 	}
 
-	async function fetchDashboardVersion(): Promise<string> {
-		try {
-			const res = await fetch(resolve('/api/version'));
-			const data = await res.json();
-			return data.version || 'dev';
-		} catch {
-			return 'dev';
-		}
-	}
-
 	function buildThreadHeader(thread: Thread, version: string): string {
 		let text = `# ${thread.userQuery}\n`;
 		text += `**Discussion**: ${thread.threadId}\n`;
-		text += `**Kubemoot Dashboard**: v${version}\n`;
+		text += `**Kubemoot Dashboard**: ${versionLabel(version)}\n`;
 		if (thread.namespace) text += `**Namespace**: ${thread.namespace}\n`;
 		if (thread.crew) text += `**Crew**: ${thread.crew}\n`;
 		if (thread.crewVersion) text += `**Crew version**: ${thread.crewVersion}\n`;
@@ -294,7 +286,7 @@
 	}
 
 	async function formatThreadForClipboard(thread: Thread): Promise<string> {
-		const version = await fetchDashboardVersion();
+		const version = await fetchDashboardVersion(fetch, resolve('/api/version'));
 		const t0 = messagesStartMs(thread.messages);
 		const agentMap = aggregateAgents(thread.messages, t0);
 		return buildThreadHeader(thread, version) + renderAgentSummary(agentMap) + renderMessageTimeline(thread);
@@ -333,7 +325,7 @@
 				metadata: {}
 			};
 			addDiscussionMessage(msg, subject);
-			await publishMessage(subject, msg);
+			await deliver(subject, msg);
 		} catch (e) {
 			console.error('Failed to publish pause signal:', e);
 		} finally {
@@ -415,7 +407,7 @@
 			};
 			addDiscussionMessage(msg, subject);
 			selectedThreadId = threadId;
-			await publishMessage(subject, msg);
+			await deliver(subject, msg);
 		} catch (e) {
 			console.error('Failed to replay discussion:', e);
 		} finally {
@@ -551,7 +543,7 @@
 		loadChannels();
 		loadGpuLabels();
 		loadPinnedThreads();
-		fetch(resolve('/api/version')).then(r => r.json()).then(d => { dashboardVersion = d.version || 'dev'; }).catch(() => {});
+		fetchDashboardVersion(fetch, resolve('/api/version')).then((v) => { dashboardVersion = v; });
 		// Keyboard shortcuts for delete confirmation
 		window.addEventListener('keydown', handleGlobalKeydown);
 		// A link from Messages opens its thread: /discussions?thread=<id>
@@ -794,6 +786,7 @@
 									<span class="message-time" title={formatTimestamp(msg.timestamp)}>{formatElapsed(stats.elapsedMs)}</span>
 								{/if}
 							</div>
+							<NotSent messageId={msg.messageId} publish={publishMessage} />
 							{#if (msg.messageType === 'advisory' || msg.messageType === 'advisory_ready') && msg.metadata?.technologies && msg.metadata.technologies.length > 0}
 								<div class="tech-badges">
 									{#each msg.metadata.technologies as tech}
@@ -1219,7 +1212,6 @@
 		border-color: #10b981;
 		background: rgba(16, 185, 129, 0.05);
 	}
-
 
 	.decline-reason {
 		font-size: 0.7rem;
