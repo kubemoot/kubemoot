@@ -5,6 +5,7 @@ The check starts the native agent-runtime binary and needs one MCP server it can
 without a cluster. This serves two tools over the SSE transport the agent-runtime's MCP
 client speaks: GET /sse opens the event stream and announces a per-session message URL, and
 POST /message?sessionId=... takes JSON-RPC requests whose answers come back on the stream.
+GET /ready answers 200 once the server accepts connections, for a caller to wait on.
 It implements initialize, ping, tools/list and tools/call, and nothing else.
 
 Usage: stub-mcp-server.py PORT      (listens on 127.0.0.1)
@@ -87,6 +88,13 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write("stub-mcp-server: " + (fmt % args) + "\n")
 
     def do_GET(self):
+        if urlparse(self.path).path == "/ready":
+            body = b"ok"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if urlparse(self.path).path != "/sse":
             self.send_error(404)
             return

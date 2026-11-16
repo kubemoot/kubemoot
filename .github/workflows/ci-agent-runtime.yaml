@@ -148,6 +148,10 @@ jobs:
       # binary runs without either.
       - name: Run the native binary against a stub MCP server
         timeout-minutes: 5
+        env:
+          # The JDK HTTP client's own log of its errors and requests: a failed MCP connection
+          # then shows what the client did, not only that it failed.
+          NATIVE_CHECK_BINARY_ARGS: -Djdk.httpclient.HttpClient.log=errors,requests
         run: |
           runners=(agent-runtime/build/*-runner)
           [ "${#runners[@]}" -eq 1 ] || { echo "want one native binary, found: ${runners[*]}"; exit 1; }
