@@ -179,7 +179,7 @@ The distinction matters because the two mean different things:
 |---|---|---|
 | `stand_aside` | "I looked, and this isn't my domain." | A participation decision. Working as designed. |
 | `failure` | "I tried and could not complete." | An infrastructure problem: a tool timed out, the model errored, a dependency was unreachable. |
-| `stand_aside` with reason `gpu-busy`, `model-too-large`, or `prompt-too-large` | "I was ready, but no GPU could run me." | Cluster capacity: every GPU that can hold the model stayed busy, none can hold it, or none gives it a context window that holds the prompt. |
+| `stand_aside` with reason `gpu-busy`, `model-too-large`, or `prompt-too-large` | "I was ready, but no accelerator could run me." | Cluster capacity: every accelerator that can hold the model stayed busy, none can hold it, or none gives it a context window that holds the prompt. |
 
 Collapsing both into `stand_aside` would corrupt every downstream reader of that
 signal: gap detection would propose onboarding a new specialist when the real problem
@@ -287,7 +287,7 @@ legitimately land after the `REVIEW` phase's own marker and before `SYNTHESIZING
 without being an ordering bug; a late agree that arrives after synthesis has begun is
 the one case that isn't incorporated, because the thread has moved on.
 
-Model selection for each individual inference call, including which GPU or server
+Model selection for each individual inference call, including which accelerator or server
 serves it, is decided separately at the moment the call is made - the mechanics and
 the reasoning live in [Scheduler](../scheduler/#jit-per-call-server-selection).
 
@@ -299,7 +299,7 @@ role is and how they compose is defined in
 give that composition its shape: Toolers act in `EVALUATING` with tool-calling and
 thinking off; Analysts act in `REVIEW` with thinking on and no live tools, reasoning
 over what the Toolers gathered. The rationale for splitting the two roles, the
-GPU cost profile of each, and how new Toolers and Analysts get created automatically
+accelerator cost profile of each, and how new Toolers and Analysts get created automatically
 when a capability gap is filled are covered in
 [Tooler-Analyst Architecture](../tooler-analyst-architecture/) - that page is the
 canonical home for the split; this page only needs the phase mapping above.
@@ -340,7 +340,7 @@ missing:
 ## Watching a discussion
 
 The Kubemoot dashboard renders the discussion table in real time - the thread list,
-each agent's timeline with its signal and the GPU it ran on, and the final synthesis -
+each agent's timeline with its signal and the accelerator it ran on, and the final synthesis -
 and the same stream powers Homelab Pilot's live "who's working on this" view during
 chat. The dashboard's own design, its span graph, and the observability stack behind
 it are documented separately in [Dashboard](../../operating/dashboard/) and

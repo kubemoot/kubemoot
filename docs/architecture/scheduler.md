@@ -15,18 +15,18 @@ Kubemoot is an LLM orchestrator. Like `kube-scheduler` matches Pods to Nodes bas
 1. **Only the Model knows what VRAM it needs; only the ModelServer knows what VRAM it has; only the Scheduler does the match.** Agents and Crews know neither.
 2. **No CR below the policy layer mentions a specific model name or a specific server.** If a CR has to name `qwen3:32b` or `ollama-b`, the abstraction is wrong.
 3. **State-driven, not timeout-driven.** Scheduler transitions are triggered by CR changes (Model added, ModelServer capacity changed, Policy edited), not by elapsed seconds.
-4. **Crew portability.** The same crew should deploy to dev (CPU only), staging (1× small GPU), and prod (multi-GPU) with no agent or policy changes - only the parameterized Model bundle differs per cluster.
-5. **JIT server selection at the inference boundary, not at reconcile time.** The decision "which GPU does this call run on?" belongs at the moment the inference is needed, with fresh shared state - not baked into env vars at Agent reconcile. Distribution across servers emerges from many independent local-optimal decisions, the same way `kube-scheduler` produces emergent bin-packing across Nodes.
+4. **Crew portability.** The same crew should deploy to dev (CPU only), staging (one small accelerator), and prod (several accelerators) with no agent or policy changes - only the parameterized Model bundle differs per cluster.
+5. **JIT server selection at the inference boundary, not at reconcile time.** The decision "which accelerator does this call run on?" belongs at the moment the inference is needed, with fresh shared state - not baked into env vars at Agent reconcile. Distribution across servers emerges from many independent local-optimal decisions, the same way `kube-scheduler` produces emergent bin-packing across Nodes.
 
 ## JIT Per-Call Server Selection
 
-Operator-side scheduling (above) resolves each agent's candidate models and servers. The final choice of which server serves a given inference call is made by the agent runtime at the moment the call is issued, against fresh shared state. There are no tiers: warm reuse, cold load, and eviction are regions that fall out of a single weighted cost, so the same logic scales from one GPU to many.
+Operator-side scheduling (above) resolves each agent's candidate models and servers. The final choice of which server serves a given inference call is made by the agent runtime at the moment the call is issued, against fresh shared state. There are no tiers: warm reuse, cold load, and eviction are regions that fall out of a single weighted cost, so the same logic scales from one accelerator to many.
 
 ### The kube-scheduler analogy
 
 `kube-scheduler` does not pre-assign Pods to Nodes at YAML-write time. At the moment a Pod becomes Pending, the scheduler reads fresh Node state (capacity, conditions, taints), applies a hard feasibility filter, scores the survivors with weighted plugins, and binds the best. Across many Pods the distribution is emergent: no central planner moves Pods around, each placement is locally optimal given the state at that instant, and the aggregate is healthy bin-packing.
 
-Kubemoot's server selection works the same way. Each inference call is the equivalent "Pod becoming Pending" moment, the agent runtime's [`ServerSelector`](#serverselector-agent-side) is the equivalent scheduler, and NATS KV server state is the equivalent of the Node status `kube-scheduler` reads. The decision is one feasibility filter followed by a weighted cost, computed per call. The principle: decide which GPU serves a call at the exact point the call is needed, with fresh state, not at a previous time.
+Kubemoot's server selection works the same way. Each inference call is the equivalent "Pod becoming Pending" moment, the agent runtime's [`ServerSelector`](#serverselector-agent-side) is the equivalent scheduler, and NATS KV server state is the equivalent of the Node status `kube-scheduler` reads. The decision is one feasibility filter followed by a weighted cost, computed per call. The principle: decide which accelerator serves a call at the exact point the call is needed, with fresh state, not at a previous time.
 
 ### What the operator publishes
 
@@ -41,7 +41,7 @@ The agent runtime contains two classes for this:
 
 `agent-runtime/src/main/java/ai/kubemoot/agent/modelserver/ServerSelector.java`
 
-On every call, `ServerSelector.pickAndClaim(modelName, occupancy)` reads all candidate states from the `kubemoot_server_state` KV bucket (a 200ms in-memory cache absorbs Tooler fan-out bursts), then runs the feasibility filter and weighted cost below and claims a VRAM ticket against the winner. `pickAndClaimWarm` does the same restricted to servers where the model is already warm (resident or loading) with a free slot, which is how the runtime tries a candidate model without loading it. Both return empty when no server has room; the mulling path then waits for capacity (see [Waiting for GPU capacity](#waiting-for-gpu-capacity)). When NATS has no server state at all, the runtime probes the servers directly and falls back to its static endpoint only when no prober is available.
+On every call, `ServerSelector.pickAndClaim(modelName, occupancy)` reads all candidate states from the `kubemoot_server_state` KV bucket (a 200ms in-memory cache absorbs Tooler fan-out bursts), then runs the feasibility filter and weighted cost below and claims a VRAM ticket against the winner. `pickAndClaimWarm` does the same restricted to servers where the model is already warm (resident or loading) with a free slot, which is how the runtime tries a candidate model without loading it. Both return empty when no server has room; the mulling path then waits for capacity (see [Waiting for accelerator capacity](#waiting-for-accelerator-capacity)). When NATS has no server state at all, the runtime probes the servers directly and falls back to its static endpoint only when no prober is available.
 
 #### Model occupancy (counted once, KV-inclusive)
 
@@ -71,7 +71,7 @@ Every placement path applies the filter: claiming a server, queueing on a loaded
 
 The tool loop applies the same rule before every model call. It takes the prompt size the engine reported for the previous call, adds the tool results appended since, and compares the total with the context of the server the call runs on. When the next prompt would not fit, the loop stops with a `failure` signal whose `failureType` is `CONTEXT_EXCEEDED` instead of sending a prompt the engine would cut. A vLLM server rejects an oversized prompt with HTTP 400 ("maximum context length") instead of cutting it; if one slips past the estimate, the agent reports it as the same `context_exceeded` failure rather than a generic internal error. Prompt size counts messages, tool results, tool-call arguments, and tool specifications. The estimate does not run under what the engine counts. It learns characters per token from the engine's reported prompt sizes (an exponentially weighted average, starting at 3.5), and counts text at the lower of that ratio and 3 characters per token, since JSON and YAML tool output runs near 3 even when the prompts measured so far were mostly prose. Each message also counts 8 tokens for the chat template around it. A tool result that does not fit the room left in the window is kept out of the model's prompt, as described under [Bounded Tool Retries and Failure Signals](../reference/agent.md#bounded-tool-retries-and-failure-signals).
 
-On Ollama, `OLLAMA_CONTEXT_LENGTH` is the per-request context of each parallel slot, and the total KV cache scales with `OLLAMA_NUM_PARALLEL` times that value. A GPU's memory therefore buys either more parallel slots or a larger per-request context. Operators choose the balance for each server: more slots serve more concurrent calls, a larger context admits longer prompts. Mixed servers can make different choices, and the scheduler routes each call to one whose context holds it.
+On Ollama, `OLLAMA_CONTEXT_LENGTH` is the per-request context of each parallel slot, and the total KV cache scales with `OLLAMA_NUM_PARALLEL` times that value. An accelerator's memory therefore buys either more parallel slots or a larger per-request context. Operators choose the balance for each server: more slots serve more concurrent calls, a larger context admits longer prompts. Mixed servers can make different choices, and the scheduler routes each call to one whose context holds it.
 
 #### The weighted cost (lowest wins)
 
@@ -83,7 +83,7 @@ For each feasible server the runtime sums these weights and picks the minimum:
 | reliability | learned recent failure rate | server healthy |
 | spill | resident set already exceeds usable VRAM (running on CPU) | not spilling |
 | load | cost to load M (scales with its weights) | M already warm here |
-| best-fit | excess capacity `(usable - occupancy)/occupancy` - reserves big GPUs for big models so a small model does not squat a big card; sized to dominate contention | the model fits the card tightly |
+| best-fit | excess capacity `(usable - occupancy)/occupancy` - reserves big accelerators for big models so a small model does not squat a big card; sized to dominate contention | the model fits the card tightly |
 | eviction | cost to evict resident models to fit M; near-infinite if a victim has in-flight (live) work | warm, or `free(P) ≥ occupancy(M)` |
 
 where `free(P) = usable(P) - Σ resident footprints`. `CrewSchedulingPolicy` require/prefer biases fold in as additional weight terms. There are no categorical tiers; the ordering of warm, cold-onto-free, and eviction emerges from the weights.
@@ -152,7 +152,7 @@ A candidate with no measured speed earns no points: it is never guessed fast or 
 
 A triage call takes the same step as a mulling call, with the triage list: the preferred triage model warm with a free slot, else an in-tolerance candidate that is warm with a free slot or fits free memory now. Triage still never unloads another model to make room, so with no room it runs on the agent's triage endpoint, as before. A bound triage model that moved or went away no longer leaves triage without a model while the cluster has another candidate that qualifies. The signal records the model triage ran on.
 
-#### Waiting for GPU capacity
+#### Waiting for accelerator capacity
 
 #### Queue or unload
 
@@ -188,7 +188,7 @@ Every value carries `expiresAt`, and readers ignore expired entries. One key per
 
 When the coordinator selects an agent for a live thread, the agent's discussion subscriber calls `ChatService.commitToThread`, which publishes the agent's intents, records the selection, and runs `CallPlanner.place` for the first mulling call right away (with an assumed prompt size). A plan that claims a ticket is held for that thread; if the model is not resident on the planned server, the runtime starts loading it (`POST /api/generate {"model": m}`), so the load overlaps triage and prompt building. The first mulling call takes the held plan when its server is still ready, its context holds the real prompt, and the plan owns a call slot or a load it started. A plan that only queued on a busy copy (step 4 of the placement order, joining a copy without a counted slot) is released at the first call and placed again against the state read then, in the usual order, so a slot freed since selection, often by the agents' own triage calls, is used; when there is still no room the call queues as before, and the runtime logs where the re-placed call landed. A plan that owns a slot is kept, since its load overlaps triage. A held plan is released when the agent's evaluation ends without using it (it stood aside or failed), when the thread closes, or after three minutes as a safety net. Plans made for agents selected together, in one thread or across crews, see each other's tickets and intents, so agents with overlapping candidates converge on one warm or loading copy. Nothing is loaded without a selected agent behind it.
 
-#### Waiting for GPU capacity
+#### Waiting for accelerator capacity
 
 When placement comes back empty, the runtime classifies the refusal:
 
@@ -196,7 +196,7 @@ When placement comes back empty, the runtime classifies the refusal:
 - **Prompt too large:** some server could hold the model in VRAM, but none gives it a context that holds the prompt (see [The context window is a hard constraint](#the-context-window-is-a-hard-constraint)). The agent stands aside at once with `metadata.reason = "prompt-too-large"`.
 - **Busy:** some server could hold the model. The agent waits.
 
-The wait is state-driven. `NatsCapacityWatch` holds KV watches on `kubemoot_server_state` and `kubemoot_server_tickets` (updates only, metadata only). Every probe publish, ticket claim, and ticket release advances a change counter; the waiter records the counter, retries the placement against fresh state, and blocks until the counter moves. While it waits, its `wait.<model>.<agent>` entry tells other agents' planners not to unload that model. It publishes `waiting` (metadata `model`, `reason: "gpu-busy"`) once, before its first block, and `evaluating` again when a retry claims a GPU. The agent's discussion heartbeat keeps running, so the coordinator keeps its deadline alive.
+The wait is state-driven. `NatsCapacityWatch` holds KV watches on `kubemoot_server_state` and `kubemoot_server_tickets` (updates only, metadata only). Every probe publish, ticket claim, and ticket release advances a change counter; the waiter records the counter, retries the placement against fresh state, and blocks until the counter moves. While it waits, its `wait.<model>.<agent>` entry tells other agents' planners not to unload that model. It publishes `waiting` (metadata `model`, `reason: "gpu-busy"`) once, before its first block, and `evaluating` again when a retry claims an accelerator. The agent's discussion heartbeat keeps running, so the coordinator keeps its deadline alive.
 
 Two exits give up with `stand_aside` and `metadata.reason = "gpu-busy"`:
 
@@ -209,7 +209,7 @@ With no server state in NATS, the direct prober checks each endpoint; when none 
 
 A cold load onto free memory needs room beside the models already resident. When idle residents stand in the way, the queue-or-unload decision releases them on demand, so a wait no longer depends on the server's keep-alive.
 
-#### The crew's answer when agents could not get a GPU
+#### The crew's answer when agents could not get an accelerator
 
 The coordinator records each `waiting` signal and each `stand_aside` carrying `gpu-busy`, `model-too-large`, or `prompt-too-large`. When the discussion settles with no `agree` and no `concern`, and at least one agent stood aside for capacity or is still waiting, the coordinator skips the synthesis call and answers:
 
@@ -383,7 +383,7 @@ downloaded the model is not an option. It has no opinion, and `algorithm` places
 call, when:
 
 - any server that has the model has not measured it (an unmeasured server is never
-  guessed fast or slow, so a calibrated CPU never wins over an uncalibrated GPU);
+  guessed fast or slow, so a calibrated CPU never wins over an uncalibrated accelerator);
 - the soonest option has to wait for a slot (`algorithm` weighs queueing against
   unloading idle models, and queues across models);
 - another call takes the chosen slot, or starts a load of the same model, first.
@@ -650,7 +650,7 @@ A crew of one synthesizing coordinator plus several Toolers (and optionally Anal
 | Single-shape Tooler | `[tool-calling]` | 0.3 | `small` model |
 | Analyst | `[reasoning]` | 0.7 | `medium` or `large` model |
 
-The synthesizer holds the larger model because *it* declared `reasoning`. Toolers stay on smaller, faster models because they didn't. One heavy model and many light ones co-exist on the same GPU pool without slot starvation under per-server `num_parallel=1`.
+The synthesizer holds the larger model because *it* declared `reasoning`. Toolers stay on smaller, faster models because they didn't. One heavy model and many light ones co-exist on the same accelerator pool without slot starvation under per-server `num_parallel=1`.
 
 ## CRD Surface
 
@@ -741,7 +741,7 @@ The label vocabulary the catalog produces is in the [model reference](../../refe
 
 ### Agent - capability-only
 
-Agents declare capabilities and discussion role. No model name, no server, no GPU hint.
+Agents declare capabilities and discussion role. No model name, no server, no accelerator hint.
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1

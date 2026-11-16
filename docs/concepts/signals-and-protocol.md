@@ -15,7 +15,7 @@ is no central controller issuing commands.
 |--------|---------|
 | `agree` | This contribution supports the emerging answer. |
 | `concern` | A reservation that should be weighed before the crew settles. |
-| `stand_aside` | No relevant contribution; abstain without blocking. With `metadata.reason` set to `gpu-busy`, `model-too-large`, or `prompt-too-large`, the agent was willing but could not get a GPU (see below). |
+| `stand_aside` | No relevant contribution; abstain without blocking. With `metadata.reason` set to `gpu-busy`, `model-too-large`, or `prompt-too-large`, the agent was willing but could not get an accelerator (see below). |
 | `block` | A strong objection that should stop the answer as it stands. |
 | `failure` | The agent tried and could not complete - surfaced as a first-class signal, not hidden behind silence. |
 
@@ -31,8 +31,8 @@ returned data, the output is posted as before, failed sections included.
 
 Additional protocol signals facilitate the discussion itself - `triaging`,
 `evaluating`, `waiting`, `advisory`, `proposal`. An agent publishes `waiting`
-(with `metadata.model` and `metadata.reason: gpu-busy`) once when every GPU that can
-hold its model is busy, and `evaluating` again when a GPU frees up. Which signals a crew exercises is fixed
+(with `metadata.model` and `metadata.reason: gpu-busy`) once when every accelerator that can
+hold its model is busy, and `evaluating` again when an accelerator frees up. Which signals a crew exercises is fixed
 by the runtime today; the one archetype that ships is described in
 [The Moot](../consensus-model/).
 
@@ -89,7 +89,7 @@ span that published it, so one trace follows a question across the crew. The sam
 value travels in the `traceparent` header of the NATS message. Both fields are
 optional, and a writer that has no trace context omits them.
 
-## Stand-asides for GPU capacity
+## Stand-asides for accelerator capacity
 
 A stand-aside usually means the agent had nothing to add. Three reasons mark a different
 case, where the agent was selected and willing but the cluster could not run it:
@@ -101,7 +101,7 @@ case, where the agent was selected and willing but the cluster could not run it:
 | `prompt-too-large` | No server gives an acceptable model a context window that holds the prompt. The engine would drop the oldest messages, so the agent stands aside instead. |
 
 When no agent contributed and at least one stood aside for one of these reasons (or was
-still waiting), the crew's answer says the GPUs were the limit, not the crew's design.
+still waiting), the crew's answer says the accelerators were the limit, not the crew's design.
 See [Models & Scheduling](../models-and-scheduling/#when-every-accelerator-is-busy).
 
 ## Discussion phases

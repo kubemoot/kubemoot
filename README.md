@@ -17,7 +17,7 @@ Agent frameworks are good for prototyping a single agent; Kubernetes runs a cont
 Neither operates a *multi-agent* AI workflow as infrastructure - that gap is Kubemoot's
 lane. Instead of routing every question through one large hosted model, Kubemoot
 composes capability **horizontally** from many small models, scheduled just in time
-across the GPUs you have, and settles an answer by deliberation rather than by one
+across the accelerators you choose, and settles an answer by deliberation rather than by one
 model asserting it. Crew quality is measured by executable fitness functions, not
 eyeballed from transcripts.
 
@@ -50,7 +50,7 @@ runtime today (see the [Roadmap](https://kubemoot.org/docs/introduction/roadmap/
 | `Agent` | One participant: a coordinator, a Tooler, or an Analyst, with declared capabilities and tools - never a hardcoded model name. |
 | `PromptModule` | An agent's behavior, written in ADL (the Architecture Definition Language) and composed by reference. |
 | `MootArchetype` / `CrewSchedulingPolicy` | How a discussion is run: its phases, and the rules that decide who speaks in each. |
-| `Model` / `ModelServer` | A model, addressed by capability, and the GPU-backed endpoint that serves it. |
+| `Model` / `ModelServer` | A model, addressed by capability, and the accelerator-backed endpoint that serves it. |
 | `RAGSource` | A knowledge source that's indexed and made queryable for agents. |
 | `MCPServer` / `MCPGateway` | Tools an agent can call, discovered through a gateway (Model Context Protocol). |
 | `CrewFitness` / `CrewFitnessSuite` | Executable tests that score a crew against ground truth. |
@@ -62,7 +62,7 @@ Because these are CRDs, you author crews with `kubectl apply`, review changes wi
 
 ## Quick start
 
-A CPU trial you can run on a laptop, no GPU required: one script installs everything
+A CPU trial you can run on a laptop, no accelerator required: one script installs everything
 on an empty cluster (`kind` works) and has a two-agent crew answer a question over
 NATS, a CPU Ollama with a small model, the operator chart, a `ModelServer`, and the
 `hello` crew.
@@ -78,7 +78,7 @@ red before you see it. Details, options, and what each step creates:
 [quickstart/README.md](quickstart/README.md). For the narrated walkthrough and the CPU
 trial's model/agent/latency profile, see the
 [Quickstart doc](docs/introduction/quickstart.md); for installing the operator on your
-own cluster with a GPU-backed model server, see
+own cluster with an accelerator-backed model server, see
 [Installation](docs/introduction/installation.md).
 
 ## Documentation

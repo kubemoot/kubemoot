@@ -755,7 +755,7 @@ then the follow-up command. The summary has the total time and the time to the
 first signal (as kmctl received them), the crew's own time from the thread's start
 to the answer, the subcommittee the coordinator convened with each agent's reason
 when given, the agents that took part and stood aside, signals by kind, tokens in
-and out, accelerators, models, agents that waited for GPU capacity, tool errors,
+and out, accelerators, models, agents that waited for accelerator capacity, tool errors,
 and the command that fetches each attached artifact. Step durations come from the
 timestamps the crew published (`summary.timeSource` is `published`); with a
 discussion gateway that does not send timestamps they are measured on receipt
