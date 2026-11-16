@@ -90,7 +90,8 @@ public final class CallManifest {
      */
     public static String argsSummary(String arguments) {
         String one = arguments == null ? ""
-                : EDGE_SPACE.matcher(ASCII_SPACE_RUNS.matcher(arguments).replaceAll(" ")).replaceAll("").replace('[', '(').replace(']', ')');
+                : EDGE_SPACE.matcher(ASCII_SPACE_RUNS.matcher(neutralize(arguments)).replaceAll(" ")).replaceAll("")
+                        .replace('[', '(').replace(']', ')');
         if (one.isEmpty()) {
             return "{}";
         }
@@ -98,5 +99,12 @@ public final class CallManifest {
             return one;
         }
         return one.substring(0, one.offsetByCodePoints(0, ARGS_SUMMARY_CHARS)) + "...";
+    }
+
+    private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cc}\\u2028\\u2029]");
+
+    /** The text with every control character (an escape, a line separator) turned into a space, so it cannot act on a terminal or end a line. */
+    public static String neutralize(String text) {
+        return CONTROL_CHARS.matcher(text).replaceAll(" ");
     }
 }

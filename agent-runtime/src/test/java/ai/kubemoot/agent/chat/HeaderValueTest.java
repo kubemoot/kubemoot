@@ -48,4 +48,11 @@ class HeaderValueTest {
     void aMissingValueStaysMissing() {
         assertNull(HeaderValue.decode(null));
     }
+
+    @Test
+    void anUnpairedSurrogateIsWrittenAsAQuestionMark() {
+        assertEquals("utf8-pct:a?", HeaderValue.encode("a\ud83d"));
+        assertEquals("a?", HeaderValue.decode(HeaderValue.encode("a\ud83d")));
+        assertEquals("utf8-pct:?b", HeaderValue.encode("\ude00b"));
+    }
 }

@@ -137,7 +137,7 @@ func cellFor(n string, p prepared, args map[string]string, argOf map[string]stri
 	case callColumn:
 		return p.call
 	case argsColumn:
-		return p.args
+		return neutralize(p.args)
 	}
-	return args[argOf[n]]
+	return neutralize(args[argOf[n]])
 }

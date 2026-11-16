@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.CallHeaders;
+import ai.kubemoot.agent.chat.HeaderValue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
@@ -118,8 +119,9 @@ class NatsCallArtifactStoreIT {
             assertEquals("pods_list", info.getHeaders().getFirst(CallHeaders.TOOL_NAME));
             assertEquals("2", info.getHeaders().getFirst(CallHeaders.ROWS));
             assertEquals("application/json", info.getHeaders().getFirst(CallHeaders.CONTENT_TYPE));
-            assertEquals("{\"a\": \"b\"}", info.getHeaders().getFirst(CallHeaders.TOOL_CALL_ARGUMENTS),
-                    "a line break in a value becomes a space");
+            assertEquals("utf8-pct:{\"a\":%0A\"b\"}", info.getHeaders().getFirst(CallHeaders.TOOL_CALL_ARGUMENTS),
+                    "a line break in a value is encoded, so the value reads back as written");
+            assertEquals("{\"a\":\n\"b\"}", HeaderValue.decode(info.getHeaders().getFirst(CallHeaders.TOOL_CALL_ARGUMENTS)));
             // The wire form other clients (artifact-access, in Go) read: headers as name -> list of values.
             String metaSubject = "$O." + DiscussionArtifacts.BUCKET + ".M."
                     + java.util.Base64.getUrlEncoder().encodeToString(key.getBytes(StandardCharsets.UTF_8));

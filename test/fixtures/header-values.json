@@ -1,5 +1,5 @@
 {
- "description": "How a header value is carried in a NATS header, shared by agent-runtime (Java, HeaderValue) and artifact-access (Go, store.DecodeHeaderValue). roundTrip: encode(value) is encoded and decode(encoded) is value. decodeOnly: decode(encoded) is value, though no encoder makes that encoded form.",
+ "description": "How a header value is carried in a NATS header, shared by agent-runtime (Java, HeaderValue) and artifact-access (Go, store.DecodeHeaderValue). roundTrip: encode(value) is encoded and decode(encoded) is value. decodeOnly: decode(encoded) is value, though no encoder makes that encoded form. A value that is a plain legacy value starting with the marker and holding only valid escapes reads as encoded.",
  "roundTrip": [
   {
    "name": "plain ASCII is unchanged",
@@ -50,6 +50,16 @@
    "name": "a tab is escaped",
    "value": "a\tb",
    "encoded": "utf8-pct:a%09b"
+  },
+  {
+   "name": "DEL is escaped",
+   "value": "ab",
+   "encoded": "utf8-pct:a%7Fb"
+  },
+  {
+   "name": "a line break is escaped",
+   "value": "{\"a\":\n\"b\"}",
+   "encoded": "utf8-pct:{\"a\":%0A\"b\"}"
   }
  ],
  "decodeOnly": [
@@ -77,6 +87,36 @@
    "name": "lowercase hex is read",
    "encoded": "utf8-pct:caf%c3%a9",
    "value": "café"
+  },
+  {
+   "name": "the marker alone is the empty text",
+   "encoded": "utf8-pct:",
+   "value": ""
+  },
+  {
+   "name": "a non-ASCII character inside an encoded value reads as it is",
+   "encoded": "utf8-pct:café",
+   "value": "utf8-pct:café"
+  },
+  {
+   "name": "a control character inside an encoded value reads as it is",
+   "encoded": "utf8-pct:a\tb",
+   "value": "utf8-pct:a\tb"
+  },
+  {
+   "name": "a trailing percent reads as it is",
+   "encoded": "utf8-pct:abc%",
+   "value": "utf8-pct:abc%"
+  },
+  {
+   "name": "an overlong encoding reads as it is",
+   "encoded": "utf8-pct:%C0%80",
+   "value": "utf8-pct:%C0%80"
+  },
+  {
+   "name": "a surrogate encoding reads as it is",
+   "encoded": "utf8-pct:%ED%A0%80",
+   "value": "utf8-pct:%ED%A0%80"
   }
  ]
 }
