@@ -58,6 +58,9 @@ type RunOutcome struct {
 	// the deadline) that the Job's backoffLimit should retry rather than record
 	// as a spurious zero. See [[Rollout-Safety Fitness Job Fails BackoffLimitExceeded]].
 	Answered bool `json:"answered"`
+	// Evidence is the names the run's tool results held, captured before the
+	// thread's workspace is deleted (see captureEvidence).
+	Evidence
 }
 
 // answeringThreadID returns the thread the stream last announced. The gateway announces

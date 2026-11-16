@@ -348,6 +348,12 @@ type SuiteScenarioResult struct {
 	AssertionsPassed int32 `json:"assertionsPassed,omitempty"`
 	// +optional
 	AssertionsTotal int32 `json:"assertionsTotal,omitempty"`
+
+	// InventedNameRuns counts the finished iterations whose answer named a
+	// resource that no tool result of the run held. It is a flag: no score or
+	// verdict reads it. The names are in the XLSX Runs sheet.
+	// +optional
+	InventedNameRuns int32 `json:"inventedNameRuns,omitempty"`
 }
 
 // CrewFitnessSuiteStatus reflects the observed state of a suite run.

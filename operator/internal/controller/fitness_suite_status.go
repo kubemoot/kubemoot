@@ -43,6 +43,7 @@ type scenarioRollup struct {
 	durationSum      int64
 	assertionsPassed int32
 	assertionsTotal  int32
+	inventedRuns     int32
 }
 
 func (a *scenarioRollup) add(r IterationResult) {
@@ -50,6 +51,9 @@ func (a *scenarioRollup) add(r IterationResult) {
 	a.durationSum += r.DurationMs
 	a.assertionsPassed += int32(r.AssertionsPassed)
 	a.assertionsTotal += int32(r.AssertionsTotal)
+	if len(r.InventedNames) > 0 {
+		a.inventedRuns++
+	}
 }
 
 func (a *scenarioRollup) result(name string) kubemootv1alpha1.SuiteScenarioResult {
@@ -64,6 +68,7 @@ func (a *scenarioRollup) result(name string) kubemootv1alpha1.SuiteScenarioResul
 	out.MeanDurationMs = a.durationSum / int64(a.outcomes.completed)
 	out.AssertionsPassed = a.assertionsPassed
 	out.AssertionsTotal = a.assertionsTotal
+	out.InventedNameRuns = a.inventedRuns
 	return out
 }
 

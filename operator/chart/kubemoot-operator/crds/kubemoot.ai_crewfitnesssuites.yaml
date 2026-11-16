@@ -522,6 +522,13 @@ spec:
                     failed:
                       format: int32
                       type: integer
+                    inventedNameRuns:
+                      description: |-
+                        InventedNameRuns counts the finished iterations whose answer named a
+                        resource that no tool result of the run held. It is a flag: no score or
+                        verdict reads it. The names are in the XLSX Runs sheet.
+                      format: int32
+                      type: integer
                     iterations:
                       description: Iterations is how many iterations of this scenario
                         finished.

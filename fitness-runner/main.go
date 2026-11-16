@@ -136,6 +136,9 @@ func run() error {
 	// Capture the full discussion transcript to NATS Object Store (suite
 	// iterations only; best-effort — never fails the run). Drill-down data for
 	// the merged Fitness dashboard.
+	if os.Getenv("TRANSCRIPT_KEY") != "" {
+		outcome.Evidence = captureEvidence(os.Getenv("NATS_URL"), outcome.ThreadID, os.Getenv)
+	}
 	maybeWriteTranscript(outcome, os.Getenv)
 
 	// The scenario ran to completion. Exit 0 regardless of assertion pass/fail:

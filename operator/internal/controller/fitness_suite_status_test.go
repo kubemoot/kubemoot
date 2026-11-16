@@ -42,6 +42,7 @@ func maximalResults(n int) (*kubemootv1alpha1.FitnessJudgeStatus, []kubemootv1al
 		scenarios = append(scenarios, kubemootv1alpha1.SuiteScenarioResult{
 			Name: name, Iterations: 1000, Passed: 400, Failed: 300, Errored: 300,
 			MeanDurationMs: 1 << 40, AssertionsPassed: 100000, AssertionsTotal: 100000,
+			InventedNameRuns: 1000,
 		})
 	}
 	return js, scenarios
