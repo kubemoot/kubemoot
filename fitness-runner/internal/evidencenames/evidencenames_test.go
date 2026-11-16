@@ -110,7 +110,11 @@ func TestInvented(t *testing.T) {
 		{"exact whole token only", "- **node-1**", []string{"node-12345 node-10"}, nil, []string{"node-1"}},
 		{"owner name of a seen pod is seen", "- **gpu-swap-monitor** ran twice\n- `gpu-swap-monitor`",
 			[]string{"gpu-swap-monitor-29914110-vmnfv Completed"}, nil, nil},
-		{"owner name seen through the ignore set", "- **web-front-1**", []string{"x"}, []string{"web-front-1-abc12"}, nil},
+		{"owner name seen through the ignore set", "- **web-front-1**", []string{"x"}, []string{"web-front-1-x2k9p"}, nil},
+		{"an invented name is not hidden by a real name that continues it", "- `kube-scheduler`\n- `web-front`",
+			[]string{"kube-scheduler-extra-config web-front-end", "kube-scheduler-cp1"}, nil, []string{"kube-scheduler", "web-front"}},
+		{"owner of a replica set pod and a stateful set pod", "- **api-gate**\n- **db-main**",
+			[]string{"api-gate-7d9f8c6b5d-x2k9p", "db-main-0"}, nil, nil},
 		{"owner prefix needs a hyphen after it", "- **node-1**", []string{"node-12345 node1-abc"}, nil, []string{"node-1"}},
 		{"a longer name is not seen from its owner", "- **gpu-swap-monitor-29914110-vmnfv**",
 			[]string{"gpu-swap-monitor"}, nil, []string{"gpu-swap-monitor-29914110-vmnfv"}},
@@ -190,13 +194,35 @@ func TestAddJSONDecodesEscapes(t *testing.T) {
 }
 
 func TestHasOwnerOf(t *testing.T) {
-	e := evidenceOf("gpu-swap-monitor-29914110-vmnfv node-12345")
+	e := evidenceOf("gpu-swap-monitor-29914110-vmnfv node-12345 kube-scheduler-extra-config web-front-end-7d9f " +
+		"api-gate-7d9f8c6b5d-x2k9p db-main-0 kube-scheduler-cp1")
 	for tok, want := range map[string]bool{
-		"gpu-swap-monitor": true, "GPU-Swap-Monitor": true, "gpu-swap": true,
+		"gpu-swap-monitor": true, "GPU-Swap-Monitor": true, "gpu-swap": false,
+		"api-gate": true, "api-gate-7d9f8c6b5d": true, "db-main": true,
 		"node-1": false, "node": true, "gpu-swap-monitor-29914110-vmnfv": false, "other": false, "": false,
+		"kube-scheduler": false, "kube-scheduler-extra": false, "web-front": false, "web-front-end": false,
 	} {
 		if got := e.HasOwnerOf(tok); got != want {
 			t.Errorf("HasOwnerOf(%q) = %v, want %v", tok, got, want)
 		}
+	}
+}
+
+func TestGeneratedSegment(t *testing.T) {
+	for seg, want := range map[string]bool{
+		"0": true, "29914110": true, "vmnfv": true, "x2k9p": true, "7d9f8c6b5d": true,
+		"": false, "end": false, "extra": false, "config": false, "cp1": false, "7d9f": false,
+		"abcdefghijk": false, "Vmnfv": false,
+	} {
+		if got := generatedSegment(seg); got != want {
+			t.Errorf("generatedSegment(%q) = %v, want %v", seg, got, want)
+		}
+	}
+}
+
+func TestOwnerIndexSurvivesStorage(t *testing.T) {
+	got := EvidenceFromTokens(evidenceOf("gpu-swap-monitor-29914110-vmnfv").Tokens())
+	if !got.HasOwnerOf("gpu-swap-monitor") {
+		t.Error("a rebuilt evidence set lost its owner index")
 	}
 }

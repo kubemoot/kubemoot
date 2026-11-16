@@ -13,8 +13,8 @@ You may obtain a copy of the License at
 // from name positions (list items, table first cells, bold, single-token code
 // spans, ns/name pairs, a kind word followed by a name) and each is looked up,
 // as a whole token, in the set of tokens the run's tool results held. A name
-// also counts as held when a held token is that name followed by a hyphen and
-// more, the owner prefix of a pod, job or ReplicaSet name.
+// also counts as held when a held token is that name followed by one or two
+// generated segments, the owner prefix of a pod, job or ReplicaSet name.
 //
 // The check is a flag, not a score: it favors a missed invention over a false
 // accusation, so a token counts as a name only when it is shaped like one.
@@ -89,17 +89,21 @@ var wellKnown = map[string]bool{
 // Evidence is the set of tokens a run's tool results held.
 type Evidence struct {
 	tokens    map[string]struct{}
+	owners    map[string]struct{} // names that a held token extends with generated segments
 	truncated bool
 }
 
 // NewEvidence returns an empty evidence set.
-func NewEvidence() *Evidence { return &Evidence{tokens: map[string]struct{}{}} }
+func NewEvidence() *Evidence {
+	return &Evidence{tokens: map[string]struct{}{}, owners: map[string]struct{}{}}
+}
 
 // EvidenceFromTokens rebuilds an evidence set from a stored token list.
 func EvidenceFromTokens(tokens []string) *Evidence {
 	e := NewEvidence()
 	for _, t := range tokens {
 		e.tokens[t] = struct{}{}
+		e.indexOwner(t)
 	}
 	return e
 }
@@ -161,6 +165,7 @@ func (e *Evidence) put(tok string) {
 		return
 	}
 	e.tokens[tok] = struct{}{}
+	e.indexOwner(tok)
 }
 
 // Truncated reports whether the set hit MaxTokens and lost tokens.
@@ -182,22 +187,55 @@ func (e *Evidence) Has(tok string) bool {
 	return ok
 }
 
-// HasOwnerOf reports whether a token in the set is tok followed by a hyphen and
-// more: tok is the owner prefix of a pod, job or ReplicaSet name such as
-// "gpu-swap-monitor" in "gpu-swap-monitor-29914110-vmnfv". A token with no
-// hyphen after it ("node-1" in "node-12345") does not match.
+// generatedAlphabet is the characters Kubernetes draws a generated name suffix from: no
+// vowels and none of 0, 1 and 3, so a suffix never spells a word.
+const generatedAlphabet = "bcdfghjklmnpqrstvwxz2456789"
+
+// generatedSegment is true for what a controller appends to its owner's name: digits only (a
+// StatefulSet ordinal, a CronJob's scheduled minute), or 5 to 10 characters of the generated
+// alphabet (a pod suffix, a ReplicaSet hash).
+func generatedSegment(seg string) bool {
+	if seg == "" {
+		return false
+	}
+	if strings.Trim(seg, "0123456789") == "" {
+		return true
+	}
+	return len(seg) >= 5 && len(seg) <= 10 && strings.Trim(seg, generatedAlphabet) == ""
+}
+
+// indexOwner records the owner name of a held token: the token without its last one or two
+// segments when every removed segment is generated, such as "gpu-swap-monitor" for
+// "gpu-swap-monitor-29914110-vmnfv".
+func (e *Evidence) indexOwner(tok string) {
+	segs := strings.Split(tok, "-")
+	for cut := 1; cut <= 2 && cut < len(segs); cut++ {
+		if !generatedSegment(segs[len(segs)-cut]) {
+			return
+		}
+		e.owners[strings.Join(segs[:len(segs)-cut], "-")] = struct{}{}
+	}
+}
+
+// HasOwnerOf reports whether a token in the set is tok followed by one or two generated
+// segments (see generatedSegment): tok is the owner of a pod, job or ReplicaSet name. A name
+// that merely continues ("web-front" in "web-front-end-7d9f"), or a token with no hyphen after
+// it ("node-1" in "node-12345"), does not match.
 func (e *Evidence) HasOwnerOf(tok string) bool {
-	prefix := strings.ToLower(tok) + "-"
-	for t := range e.tokens {
-		if strings.HasPrefix(t, prefix) {
+	_, ok := e.owners[strings.ToLower(tok)]
+	return ok
+}
+
+// heldBy reports whether any of the sets holds tok whole, or, with owner, as the owner of a
+// held name. A nil set holds nothing.
+func heldBy(tok string, owner bool, sets ...*Evidence) bool {
+	for _, set := range sets {
+		if set != nil && (set.Has(tok) || (owner && set.HasOwnerOf(tok))) {
 			return true
 		}
 	}
 	return false
 }
-
-// seen reports whether the token is held whole or as the owner prefix of a held name.
-func (e *Evidence) seen(tok string) bool { return e.Has(tok) || e.HasOwnerOf(tok) }
 
 // isLabel is true for a DNS-1123 label that holds a letter.
 func isLabel(tok string) bool {
@@ -252,10 +290,8 @@ func Invented(answer string, ev *Evidence, ignore *Evidence) []string {
 	if ev == nil {
 		return nil
 	}
-	known := func(s string) bool { return ev.Has(s) || (ignore != nil && ignore.Has(s)) }
-	seen := func(s string) bool {
-		return ev.seen(s) || (ignore != nil && ignore.seen(s))
-	}
+	known := func(s string) bool { return heldBy(s, false, ev, ignore) }
+	seen := func(s string) bool { return heldBy(s, true, ev, ignore) }
 	var out []string
 	for _, tok := range Claimed(answer, known) {
 		if !seen(tok) {
