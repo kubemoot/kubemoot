@@ -118,6 +118,10 @@ type IterationResult struct {
 	// (contributing agents / responding agents). -1 means "unknown" (no event
 	// stream) and is skipped in the scenario mean.
 	Selectivity float64
+	// InventedNames are the resource names the answer asserts that no tool result
+	// of the run held. Empty when none, or when the run's tool results were not
+	// captured. A flag only: no score reads it.
+	InventedNames []string
 }
 
 // HarvestIterationResults extracts an IterationResult per child CrewFitness
@@ -289,7 +293,7 @@ func writeRunsSheet(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSuite, 
 		"crew", columnScenario, "run_id", "iteration",
 		"started_at", "duration_ms", "phase",
 		"assertions_passed", "assertions_total",
-		"correctness", "adherence", "efficiency", "selectivity", "factuality", "fabricated",
+		"correctness", "adherence", "efficiency", "selectivity", "factuality", "fabricated", "invented_names",
 	}
 	for col, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(col+1, 1)
@@ -349,7 +353,11 @@ func writeRunRow(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSuite, r I
 	if err := f.SetCellValue(sheetRuns, cellAt(14, n), factualityCell(factualityScore(r.Assertions))); err != nil {
 		return err
 	}
-	return f.SetCellValue(sheetRuns, cellAt(15, n), fabricationTripped(r.Assertions))
+	if err := f.SetCellValue(sheetRuns, cellAt(15, n), fabricationTripped(r.Assertions)); err != nil {
+		return err
+	}
+	// invented_names lists the names no tool result held, blank when none.
+	return f.SetCellValue(sheetRuns, cellAt(16, n), strings.Join(r.InventedNames, ", "))
 }
 
 // writeAssertionsSheet emits one row per (iteration × assertion) so a reader

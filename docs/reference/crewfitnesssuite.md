@@ -131,8 +131,21 @@ One row per distinct `testRef`, in the order of `spec.scripts`. A script with no
 | `passed`, `failed`, `errored` | `iterations` broken down by outcome. |
 | `meanDurationMs` | Mean wall-clock duration of the finished iterations. |
 | `assertionsPassed`, `assertionsTotal` | Assertion results summed over the finished iterations. |
+| `inventedNameRuns` | Finished iterations whose answer named a resource that no tool result of the run held (see [Invented names](#invented-names)). Absent when none. |
 
 On a re-judge suite the rows come from the copied transcripts, with the durations of the source run.
+
+### Invented names
+
+A run is flagged when its answer names a resource that none of the run's tool results contained. The check is deterministic and changes no score or pass/fail: it is a flag, shown in the `invented_names` column of the XLSX Runs sheet (the names, comma separated) and as the count `inventedNameRuns` in `status.scenarios`.
+
+How it works:
+
+1. When an iteration ends, the fitness runner reads the thread's tool results from the discussion workspace, before the workspace is deleted, and stores the name-shaped tokens of every successful result in the transcript (`evidenceNames`, with `evidenceCaptured`). Error results are not evidence. A transcript with no captured results, or one whose token set outgrew its bound, is not checked and shows no names.
+2. The operator reads the names the answer asserts from name positions only: the first token of a list item or table row, bold text, a code span that is one token, both sides of a `namespace/name` pair, and a kind word (`node`, `pod`, `namespace`, `deployment` and similar) followed by a token. Fenced blocks count only for lines that are one token. Placeholders such as `<node-name>` are skipped.
+3. A name is reported when it is in none of the captured results and not in the question, the scenario's assertions (its reference and terms), or the crew's own agent and accelerator names.
+
+To keep false positives low, a token counts as a name only when it is a lowercase DNS-1123 label with a letter and a hyphen or a digit. Versions, sizes, IP addresses, dates, dotted host names, capitalized words, plain words, `kube-system`, `kube-public`, `kube-node-lease` and a short list of Kubernetes terms (`control-plane`, `ephemeral-storage`) are never reported. Matching is exact on whole tokens, so `node-1` is not found in `node-12345`. A name that is a plain word with no hyphen or digit is not checked, so an invented `grafana` goes unflagged. The flag is for review, not a verdict. It is separate from the Runs sheet's `fabricated` column, which is true when a `NOT CONTAIN` forbidden-claim assertion failed.
 
 ### status.judge
 
