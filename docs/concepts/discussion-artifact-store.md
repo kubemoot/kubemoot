@@ -232,7 +232,8 @@ Rules that keep the posted text trustworthy:
 - A result is posted exactly as the tool returned it, or not at all. It is never cut, and a
   result that would have been cut at the storage cap (1,000,000 characters) is not posted.
 - A result that holds the text `[END RESULT]` itself and a result that could not be stored are
-  not posted.
+  not posted. An agent that stores nothing posts its results by the same rules ([Calls of an agent
+  that stores nothing](#calls-of-an-agent-that-stores-nothing)).
 - A successful call whose result is empty (no text, or only white space) always posts the block
   `[EMPTY RESULT]`, `(empty: the call succeeded and returned nothing)`, `[END RESULT]`, whatever
   room is left, so an empty result is never read as a result that is only in its file. A failed
@@ -651,9 +652,28 @@ An Agent declares what it may do with the workspace in `spec.workspace.access`; 
 
 A crew that declares nothing keeps today's behavior: every result is stored and the read tools are present when `enabledTools` names them. A tooler that fetches and hands off declares `write`: it stores what it fetched and gets no read tools. The operator reports the resolved access in the Agent's `status.workspace`, and a `WorkspaceAccessResolved` condition when a declared access cannot work as written.
 
-The agent-runtime reads the declared access from `KUBEMOOT_WORKSPACE_ACCESS`. With `none` or `read` it stores nothing: it does not write a file for any tool call, so the agent's contribution carries no `[CALL key=...]` lines, and every tool result returns inline under the tool result budget, with a large result cut, exactly as a tool loop does outside a discussion. With `write` or `readWrite`, or when the variable is absent, it stores every result as before. A value the runtime does not recognize is logged once and treated as absent, so a typo cannot silence an agent that used to store. An agent with `none` or `read` still receives the coordinator's catalog of stored keys in the discussion; the access limits what it stores and which tools it has, not what the coordinator posts.
+The agent-runtime reads the declared access from `KUBEMOOT_WORKSPACE_ACCESS`. With `none` or `read` it stores nothing: it does not write a file for any tool call, so its calls have no key, and every tool result returns to the model inline under the tool result budget, with a large result cut, exactly as a tool loop does outside a discussion. The agent still lists its calls in its contribution ([Calls of an agent that stores nothing](#calls-of-an-agent-that-stores-nothing)), so the coordinator and the other agents see what it asked and what it got. A raw-output tooler with `none` or `read` has no such list: its contribution is the tool output it gathered. With `write` or `readWrite`, or when the variable is absent, it stores every result as before. A value the runtime does not recognize is logged once and treated as absent, so a typo cannot silence an agent that used to store. An agent with `none` or `read` still receives the coordinator's catalog of stored keys in the discussion; the access limits what it stores and which tools it has, not what the coordinator posts.
 
 In 0.94 read is enforced through the agent's tool list, not per caller, and write by the agent-runtime. NATS enforcement lands with NATS user provisioning; the NATS column above is the grant that provisioning will give, and it is not applied yet. The workspace server scopes reads by discussion, so access does not isolate two agents of one crew. The code sandbox's `/artifacts` mount, the coordinator's catalog of stored keys, and direct MCP mode (tool names with a `server.` prefix) reach the workspace whatever the tool list says; see [Agent](../../reference/agent/#specworkspaceaccess).
+
+### Calls of an agent that stores nothing
+
+An agent with `read` or `none` access lists its tool calls in its contribution the same way a storing agent does, and writes nothing to the workspace. The `[WORKSPACE ...]` header says `stored=no` in place of a prefix. Each call has one line with no key (nothing was stored to read), and its result follows when it fits the same room as a stored agent's:
+
+```
+[WORKSPACE agent=obs-advisor calls=3 errors=0 stored=no]
+[CALL tool=artifact_select args={"q": "events"} type=text/plain bytes=15 rows=unknown error=false stored=no]
+[RESULT]
+node-a NotReady
+[END RESULT]
+[CALL tool=workspace_grep args={"pattern": "DiskPres... (args cut at 60 of 91 chars) type=text/plain bytes=0 rows=unknown error=false stored=no]
+[EMPTY RESULT]
+(empty: the call succeeded and returned nothing)
+[END RESULT]
+[NOT STORED tool=pods_list args={} error=false - the agent does not store results and this one is not shown here, so it is not available]
+```
+
+A result that is too large for the room has the `[NOT STORED ...]` line shown last above, which says it was not stored and not shown: nothing is "only in its file", and the synthesizer treats that data as unknown. The closing "The results are stored under these keys" line is not written, because no key reads anything. Readers treat the lines as follows: a posted result is a fact, like a stored agent's; a `[CALL tool=...]` line shows that tools ran; no reader looks for a stored object for a line without `key=`. The fitness runner's invented-name check adds the call lines and posted results of these findings to the evidence it read from the store, and does not check a run that holds a `[NOT STORED ...]` line, since a name could be in the result nobody kept.
 
 ### Names
 

@@ -20,7 +20,8 @@ final class SynthesisFiles {
     /** The rules, followed by a blank line, when {@code thread} holds file descriptions; otherwise empty. */
     static String rulesFor(String thread) {
         boolean described = thread != null
-                && (thread.contains(CallManifest.CALL_PREFIX) || thread.contains(CallManifest.NOT_STORED_PREFIX));
+                && (CallManifest.CALL_PREFIXES.stream().anyMatch(thread::contains)
+                        || thread.contains(CallManifest.NOT_STORED_PREFIX));
         return described ? RULES + "\n\n" : "";
     }
 

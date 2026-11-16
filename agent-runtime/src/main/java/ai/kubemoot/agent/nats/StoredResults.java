@@ -52,7 +52,7 @@ final class StoredResults {
 
     /** The markers a result must not hold: each would close a block or pose as the discussion's own line. */
     private static final List<String> FORBIDDEN = java.util.stream.Stream.concat(
-            java.util.stream.Stream.of(CLOSE, OPEN, CallManifest.CALL_PREFIX, CallManifest.NOT_STORED_PREFIX,
+            java.util.stream.Stream.of(CLOSE, OPEN, CallManifest.CALL_PREFIX, CallManifest.UNSTORED_CALL_PREFIX, CallManifest.NOT_STORED_PREFIX,
                     CallManifest.HEADER_PREFIX, CallManifest.RESULT_CLOSE),
             CallManifest.RESULT_OPENERS.stream()).toList();
 

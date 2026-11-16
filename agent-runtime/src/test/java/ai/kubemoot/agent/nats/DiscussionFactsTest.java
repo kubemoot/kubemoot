@@ -101,6 +101,35 @@ class DiscussionFactsTest {
     }
 
     @Test
+    void aNonStoringAgentsInlineResultCountsAsFacts() {
+        String manifest = LedgerManifests.unstored("pod-a  Running");
+        var thread = List.of(agree("obs", manifest), new Message("human", "thread_start", QUESTION));
+
+        assertTrue(manifest.contains("[CALL tool=artifact_select"), manifest);
+        assertTrue(DiscussionFacts.toolsRan(thread), "its call line shows that tools ran");
+        assertTrue(DiscussionFacts.holdsFacts(thread));
+        assertFalse(DiscussionFacts.noData(thread));
+    }
+
+    @Test
+    void aNonStoringAgentsEmptyResultsAreNoFacts() {
+        var thread = List.of(agree("obs", LedgerManifests.unstored("", " ")), new Message("human", "thread_start", QUESTION));
+
+        assertTrue(DiscussionFacts.toolsRan(thread));
+        assertFalse(DiscussionFacts.holdsFacts(thread));
+        assertTrue(DiscussionFacts.noData(thread));
+    }
+
+    @Test
+    void aNonStoringAgentsNotShownResultIsToolsRanWithoutFacts() {
+        String big = "x".repeat(ai.kubemoot.agent.chat.CallManifest.MAX_INLINE_CHARS);
+        var thread = List.of(agree("obs", LedgerManifests.unstored(big)), new Message("human", "thread_start", QUESTION));
+
+        assertTrue(DiscussionFacts.toolsRan(thread));
+        assertTrue(DiscussionFacts.noData(thread));
+    }
+
+    @Test
     void anEmptyResultBlockIsNotAFact() {
         var thread = List.of(agree("k8s-workloads", HEADER + CALL3 + "\n" + CallManifest.EMPTY_RESULT_TEXT),
                 new Message("human", "thread_start", QUESTION));

@@ -49,6 +49,17 @@ class ManifestTextTest {
     }
 
     @Test
+    void aNonStoringAgentsLinesGoWithTheCallLines() {
+        String manifest = ai.kubemoot.agent.chat.LedgerManifests.unstored("pod-a Running", "");
+        String text = "Own words.\n" + manifest;
+
+        assertEquals("Own words.\n", ManifestText.strip(text, true).replaceAll("\\n+$", "\n"));
+        String kept = ManifestText.strip(text, false);
+        assertTrue(kept.contains("[CALL tool=artifact_select"), kept);
+        assertFalse(kept.contains("[WORKSPACE"), kept);
+    }
+
+    @Test
     void aNotStoredLineGoesWithTheCallLinesFromTheUserFacingAnswer() {
         String answer = "Two pods.\n[WORKSPACE agent=k8s calls=1 errors=0 prefix=]\n"
                 + "[NOT STORED tool=pods_list args={} error=false - the result could not be written to the workspace "

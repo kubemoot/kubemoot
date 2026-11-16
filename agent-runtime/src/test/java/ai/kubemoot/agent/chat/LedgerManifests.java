@@ -7,6 +7,15 @@ public final class LedgerManifests {
 
     private LedgerManifests() {}
 
+    /** The manifest of one agent that stores nothing, whose successful calls returned {@code results}. */
+    public static String unstored(String... results) {
+        var ledger = ToolCallLedger.unstoredForLoop("th", "obs", java.util.OptionalLong.empty());
+        for (String result : results) {
+            ledger.record(new ToolCallLedger.Call("artifact_select", "id", "{}", Instant.EPOCH, 1), result, false, 1_000_000);
+        }
+        return ledger.manifest();
+    }
+
     /** The manifest of one agent whose successful calls returned {@code results}, in order. */
     public static String of(String... results) {
         var ledger = new ToolCallLedger(new ChatServiceCallFilesTest.FakeStore(), "th", "k8s");
