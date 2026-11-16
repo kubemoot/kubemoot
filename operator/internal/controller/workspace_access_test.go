@@ -83,7 +83,7 @@ func TestImplicitAccessLeavesTheToolListsAlone(t *testing.T) {
 func TestAccessDerivesToolGrants(t *testing.T) {
 	sqlite := kubemootv1alpha1.ArtifactQueryEngineSQLite
 	decide := func(a kubemootv1alpha1.WorkspaceAccess) workspaceDecision { return resolveWorkspaceAccess(a, "", "") }
-	allTools := append(slices.Clone(workspaceReadTools), sortedKeys(legacyWorkspaceTools)...)
+	allTools := append(workspaceReadTools(), sortedKeys(legacyWorkspaceTools())...)
 
 	for _, a := range []kubemootv1alpha1.WorkspaceAccess{kubemootv1alpha1.WorkspaceAccessNone, kubemootv1alpha1.WorkspaceAccessWrite} {
 		got := applyWorkspaceAccess([]string{wsDomainTool}, nil, decide(a), sqlite)
@@ -370,5 +370,17 @@ func TestWatchPredicatesFireOnlyOnWhatChangesAccess(t *testing.T) {
 	if !sp.Update(event.UpdateEvent{ObjectOld: srvA, ObjectNew: srvC}) || !sp.Create(event.CreateEvent{Object: srvA}) ||
 		!sp.Delete(event.DeleteEvent{Object: srvA}) {
 		t.Error("a kubemootImage change, a create or a delete did not fire")
+	}
+}
+
+func TestCanonicalWorkspaceToolMatchesExactlyAndTheServerPrefixIsNotOne(t *testing.T) {
+	if current, ok := canonicalWorkspaceTool("artifact_select"); !ok || current != "workspace_query" {
+		t.Errorf("an old name maps to the current one, got %q %v", current, ok)
+	}
+	if _, ok := canonicalWorkspaceTool("mcp.workspace_grep"); ok {
+		t.Error("an access list names tools exactly: a server-prefixed name is not a workspace tool here")
+	}
+	if _, ok := canonicalWorkspaceTool("pods_list"); ok {
+		t.Error("pods_list is not a workspace tool")
 	}
 }
