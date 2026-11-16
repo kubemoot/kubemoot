@@ -93,7 +93,7 @@ the only server type today, and the API server rejects `openai` and `anthropic`.
 hosted models are supported, make the choice deliberately, because it moves inference, and whatever your
 agents read from your cluster, off the premises. If staying local is the point of the
 deployment, the frontier tier is simply not available, and the real question becomes
-which 20B to 35B class model calls tools best on your card. For a homelab budget
+which 20B to 35B class model calls tools best on a card of that size. For a homelab budget
 in the range of a single $5,000 GPU with 24 GB to 48 GB of memory, that field is
 genuinely competitive.
 

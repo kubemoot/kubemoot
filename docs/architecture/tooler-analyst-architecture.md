@@ -173,7 +173,7 @@ the chance to be heard.
 
 The span graph on the discussions page shows which accelerator tier each agent used per
 discussion, colored per server, alongside each signal. An agent that never reached
-either tier (filtered before triage) shows no accelerator badge at all.
+either tier (filtered before triage) shows no GPU badge at all.
 
 ---
 
