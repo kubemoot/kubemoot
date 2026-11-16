@@ -137,7 +137,7 @@ func run() error {
 	// iterations only; best-effort — never fails the run). Drill-down data for
 	// the merged Fitness dashboard.
 	if os.Getenv("TRANSCRIPT_KEY") != "" {
-		outcome.Evidence = captureEvidence(os.Getenv("NATS_URL"), outcome.ThreadID, os.Getenv)
+		outcome.Evidence = captureEvidence(os.Getenv("NATS_URL"), namespace, outcome)
 	}
 	maybeWriteTranscript(outcome, os.Getenv)
 
