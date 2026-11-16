@@ -30,8 +30,6 @@ final class ToolCallLedger {
 
     /** The descriptions stay under this size so they are posted inline whole. */
     static final int MAX_MANIFEST_CHARS = CallManifest.MAX_CHARS;
-    /** Most characters of a call's arguments in a manifest line. */
-    static final int ARGS_SUMMARY_CHARS = CallManifest.ARGS_SUMMARY_CHARS;
     /** Most column or field names of one call in a manifest line, and the most characters of one name. */
     static final int MAX_COLUMNS_SHOWN = 12;
     static final int MAX_NAME_CHARS = 30;
@@ -162,8 +160,10 @@ final class ToolCallLedger {
     /**
      * The file descriptions of the agent's contribution: a header line, one line per call (each
      * followed by its result when the result was small enough to post), and one line saying where
-     * the results are. Arguments are summarized, then dropped, then the last calls without a result
-     * are replaced by a count, so the descriptions never pass {@link #MAX_MANIFEST_CHARS}.
+     * the results are. Arguments are summarized, then dropped, then the last calls without data are
+     * replaced by a count, so the descriptions, with the empty-result blocks (which are protocol
+     * text and always posted), never pass {@link #MAX_MANIFEST_CHARS}; results with data come on
+     * top, within the room of the contribution ({@link CallManifest#MAX_INLINE_CHARS}).
      */
     String manifest() {
         String prefix = prefix();
@@ -186,22 +186,34 @@ final class ToolCallLedger {
      */
     private String lines(int room) {
         for (boolean[] detail : new boolean[][] {{true, true}, {false, true}, {false, false}}) {
-            if (joined(calls, detail[0], detail[1], false).length() <= room) {
-                return joined(calls, detail[0], detail[1], true);
+            if (joined(calls, detail[0], detail[1], Posted.EMPTY_ONLY).length() <= room) {
+                return joined(calls, detail[0], detail[1], Posted.ALL);
             }
         }
         var shown = new ArrayList<>(calls);
-        while (!shown.isEmpty() && joined(shown, false, false, false).length()
+        while (!shown.isEmpty() && joined(shown, false, false, Posted.EMPTY_ONLY).length()
                 + omitted(calls.size() - shown.size()).length() > room) {
             shown.remove(lastToDrop(shown));
         }
-        return joined(shown, false, false, true) + omitted(calls.size() - shown.size());
+        return joined(shown, false, false, Posted.ALL) + omitted(calls.size() - shown.size());
     }
 
-    /** The index of the last call without a posted result, or of the last call when every one has a result. */
+    /** Which posted results {@link #joined} adds after the call lines. */
+    private enum Posted {
+        /** Only the empty-result blocks, which count against the descriptions' size. */
+        EMPTY_ONLY,
+        /** Every posted result. */
+        ALL;
+
+        boolean shows(ToolCallRecord c) {
+            return this == ALL || this == EMPTY_ONLY && !c.hasData();
+        }
+    }
+
+    /** The index of the last call that holds no data (an empty or unposted result), or of the last call when every one holds data. */
     private static int lastToDrop(List<ToolCallRecord> shown) {
         for (int i = shown.size() - 1; i >= 0; i--) {
-            if (!shown.get(i).hasInline()) {
+            if (!shown.get(i).hasData()) {
                 return i;
             }
         }
@@ -212,7 +224,7 @@ final class ToolCallLedger {
         return count == 0 ? "" : CallManifest.omittedLine(count);
     }
 
-    private String joined(List<ToolCallRecord> shown, boolean withArgs, boolean withColumns, boolean withResults) {
+    private String joined(List<ToolCallRecord> shown, boolean withArgs, boolean withColumns, Posted posted) {
         var sb = new StringBuilder();
         for (int i = 0; i < shown.size(); i++) {
             ToolCallRecord c = shown.get(i);
@@ -220,7 +232,7 @@ final class ToolCallLedger {
                 sb.append('\n');
             }
             sb.append(line(c, withArgs, withColumns));
-            if (withResults && c.hasInline()) {
+            if (c.hasInline() && posted.shows(c)) {
                 sb.append('\n').append(c.inline());
             }
         }

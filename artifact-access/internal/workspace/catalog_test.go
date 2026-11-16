@@ -173,8 +173,8 @@ func TestArgsSummary(t *testing.T) {
 		`{"a": [1, 2]}`:          `{"a": (1, 2)}`,
 		"{\"a\":\n\n  1}":        `{"a": 1}`,
 		"{\"a\":   \t 1}":        `{"a": 1}`,
-		strings.Repeat("x", 61):  strings.Repeat("x", 60) + "...",
-		strings.Repeat("é", 100): strings.Repeat("é", 60) + "...",
+		strings.Repeat("x", 61):  strings.Repeat("x", 60) + "... (args cut at 60 of 61 chars)",
+		strings.Repeat("é", 100): strings.Repeat("é", 60) + "... (args cut at 60 of 100 chars)",
 	}
 	for in, want := range cases {
 		if got := argsSummary(in); got != want {

@@ -83,7 +83,7 @@
     "kubemoot.bytes": "5",
     "kubemoot.error": "false"
    },
-   "line": "[CATALOG-CALL key=k8s/006-x tool=x args={\"q\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa... type=text/plain rows=unknown bytes=5 error=false]"
+   "line": "[CATALOG-CALL key=k8s/006-x tool=x args={\"q\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa... (args cut at 60 of 83 chars) type=text/plain rows=unknown bytes=5 error=false]"
   },
   {
    "name": "a row count that is not a number is unknown",
@@ -167,22 +167,22 @@
   {
    "name": "61 characters are cut at 60",
    "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-   "output": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx..."
+   "output": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx... (args cut at 60 of 61 chars)"
   },
   {
    "name": "accented characters are cut by character",
    "input": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
-   "output": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé..."
+   "output": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé... (args cut at 60 of 100 chars)"
   },
   {
    "name": "an astral character counts as one character and is never split",
    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀bbbbb",
-   "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀..."
+   "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀... (args cut at 60 of 65 chars)"
   },
   {
    "name": "an astral character at the cut",
    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀😀😀",
-   "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀..."
+   "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀... (args cut at 60 of 62 chars)"
   },
   {
    "name": "an escape character is neutralized",

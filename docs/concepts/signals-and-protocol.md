@@ -75,7 +75,8 @@ result small enough for the readers' context window follows its line whole, betw
 its file, and a result is never cut. A call that succeeded and returned nothing (or only white
 space) always has an `[EMPTY RESULT]` block, so an empty result is never mistaken for a result that
 is only in its file. Arguments longer than 60 characters are cut on the line and end with
-`... (args cut at 60 of N chars)`; the full arguments are in the stored call. See the
+`... (args cut at 60 of N chars)`, N being the length of the one-line form; the stored call holds
+the arguments (up to 1,000 characters). See the
 [discussion artifact store](discussion-artifact-store.md#what-an-agent-posts-the-descriptions-of-its-files-and-its-small-results).
 Agents that read files add the facts they find to their own contribution; the synthesizer answers
 from the discussion only.

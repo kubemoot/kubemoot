@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.chat;
 
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -70,6 +71,9 @@ public final class CallManifest {
             Pattern.quote(FAILED_RESULT_OPEN) + "\\n(.*?)\\n" + Pattern.quote(RESULT_CLOSE) + "\\n?",
             Pattern.DOTALL);
 
+    /** The markers that open a result block: a result, an error text, an empty result. */
+    public static final List<String> RESULT_OPENERS = List.of(RESULT_OPEN, FAILED_RESULT_OPEN, EMPTY_RESULT_OPEN);
+
     /** The block of an empty result, with its line break. */
     public static final Pattern EMPTY_RESULT_BLOCK = Pattern.compile(Pattern.quote(EMPTY_RESULT_TEXT) + "\\n?");
 
@@ -89,7 +93,19 @@ public final class CallManifest {
     private static final Pattern ASCII_SPACE_RUNS = Pattern.compile("[ \\t\\n\\x0B\\f\\r]+");
     private static final Pattern EDGE_SPACE = Pattern.compile("^ | $");
 
+    /** All three kinds of result block, in the order they are removed. */
+    private static final List<Pattern> RESULT_BLOCKS = List.of(RESULT_BLOCK, FAILED_RESULT_BLOCK, EMPTY_RESULT_BLOCK);
+
     private CallManifest() {}
+
+    /** The text without any result block: a result, an error text or an empty result. */
+    public static String withoutResultBlocks(String text) {
+        String out = text;
+        for (Pattern block : RESULT_BLOCKS) {
+            out = block.matcher(out).replaceAll("");
+        }
+        return out;
+    }
 
     /** The line, with its leading line break, that says {@code count} calls are not listed. */
     public static String omittedLine(int count) {
@@ -97,26 +113,25 @@ public final class CallManifest {
     }
 
     /**
-     * The arguments on one line, cut at {@link #ARGS_SUMMARY_CHARS} characters with a trailing
-     * "...". Square brackets become parentheses so a list in the arguments cannot end the
-     * [CALL ...] line early.
+     * The arguments on one line, cut at {@link #ARGS_SUMMARY_CHARS} characters. Arguments that
+     * were shortened end with "... (args cut at N of M chars)", M being the length of the one-line
+     * form, so a cut cannot be read as the real call. Square brackets become parentheses so a list
+     * in the arguments cannot end the [CALL ...] line early. artifact-access's {@code argsSummary}
+     * gives the same text.
      */
     public static String argsSummary(String arguments) {
         String one = oneLineArgs(arguments);
-        return isCut(one) ? cutAt(one) + "..." : one;
+        int chars = one.codePointCount(0, one.length());
+        if (chars <= ARGS_SUMMARY_CHARS) {
+            return one;
+        }
+        return one.substring(0, one.offsetByCodePoints(0, ARGS_SUMMARY_CHARS)) + "... (args cut at "
+                + ARGS_SUMMARY_CHARS + " of " + chars + " chars)";
     }
 
-    /**
-     * The {@code args=...} part of a manifest call line. Arguments that were shortened say so, with
-     * the characters kept and the characters sent, so a cut cannot be read as the real call.
-     */
+    /** The {@code args=...} part of a call line, in the manifest and in the catalog. */
     public static String argsField(String arguments) {
-        String one = oneLineArgs(arguments);
-        if (!isCut(one)) {
-            return "args=" + one;
-        }
-        return "args=" + cutAt(one) + "... (args cut at " + ARGS_SUMMARY_CHARS + " of "
-                + one.codePointCount(0, one.length()) + " chars)";
+        return "args=" + argsSummary(arguments);
     }
 
     private static String oneLineArgs(String arguments) {
@@ -124,14 +139,6 @@ public final class CallManifest {
                 : EDGE_SPACE.matcher(ASCII_SPACE_RUNS.matcher(neutralize(arguments)).replaceAll(" ")).replaceAll("")
                         .replace('[', '(').replace(']', ')');
         return one.isEmpty() ? "{}" : one;
-    }
-
-    private static boolean isCut(String one) {
-        return one.codePointCount(0, one.length()) > ARGS_SUMMARY_CHARS;
-    }
-
-    private static String cutAt(String one) {
-        return one.substring(0, one.offsetByCodePoints(0, ARGS_SUMMARY_CHARS));
     }
 
     private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cc}\\u2028\\u2029]");

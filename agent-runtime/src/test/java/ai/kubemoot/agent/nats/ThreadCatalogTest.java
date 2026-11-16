@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.chat.CallManifest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.impl.Headers;
@@ -49,11 +50,25 @@ class ThreadCatalogTest {
     }
 
     @Test
+    void aCatalogLineMarksCutArgumentsLikeAManifestLine() {
+        String args = "{\"q\":\"" + "a".repeat(80) + "\"}";
+        var cut = entry("qm", 1, "t", args, -1, 5, false);
+        var catalog = new ThreadCatalog(PREFIX, List.of(cut));
+
+        String line = catalog.callLine(cut);
+
+        assertTrue(line.contains(" " + CallManifest.argsField(args) + " type="), line);
+        assertTrue(line.contains("... (args cut at 60 of 88 chars) type="), line);
+        String whole = catalog.callLine(entry("qm", 2, "t", "{}", -1, 5, false));
+        assertTrue(whole.contains(" args={} type=") && !whole.contains("cut"), whole);
+    }
+
+    @Test
     void sharedFixtureGivesTheSameArgumentSummariesAsArtifactAccess() throws Exception {
         JsonNode cases = new ObjectMapper().readTree(new File("../test/fixtures/catalog-lines.json")).get("argsSummaries");
         assertTrue(cases.size() > 0, "the fixture has cases");
         for (JsonNode c : cases) {
-            assertEquals(c.get("output").asText(), ai.kubemoot.agent.chat.CallManifest.argsSummary(c.get("input").asText()),
+            assertEquals(c.get("output").asText(), CallManifest.argsSummary(c.get("input").asText()),
                     c.get("name").asText());
         }
     }

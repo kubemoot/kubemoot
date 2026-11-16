@@ -24,4 +24,9 @@ record ToolCallRecord(String key, String tool, String arguments, long bytes, int
     boolean hasInline() {
         return inline != null;
     }
+
+    /** True when a result with data is posted: a posted result that is not the empty-result block. */
+    boolean hasData() {
+        return hasInline() && !CallManifest.EMPTY_RESULT_TEXT.equals(inline);
+    }
 }

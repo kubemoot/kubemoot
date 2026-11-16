@@ -110,7 +110,8 @@ states nothing: its contribution is the descriptions alone. Any other agent with
 its own words first, then the descriptions after a blank line. The descriptions stay under
 4,000 characters. A result small enough for the discussion follows its description whole,
 between `[RESULT]` and `[END RESULT]`; a larger result is only in its file, so nothing large
-goes through the bus.
+goes through the bus. A successful call that returned nothing has an `[EMPTY RESULT]` block
+instead, which counts against the 4,000 characters.
 
 ```
 Pod a-1 uses the most CPU, 0.9 cores (workspace_query over 001-pods_list).
@@ -237,13 +238,13 @@ Rules that keep the posted text trustworthy:
   room is left, so an empty result is never read as a result that is only in its file. A failed
   call with no text posts nothing.
 - Arguments longer than 60 characters are cut on the call line (on a character boundary) and the
-  line says so: `args={"key": "k8s-nodes/001-res... (args cut at 60 of 91 chars)`. The full
-  arguments are in the stored call's headers. The `[CATALOG-CALL ...]` lines keep their own
-  `...` cut.
+  line says so: `args={"key": "k8s-nodes/001-res... (args cut at 60 of 91 chars)`, where 91 is the
+  length of the one-line form of the arguments. The stored call holds the arguments (up to 1,000
+  characters). The `[CATALOG-CALL ...]` lines cut and mark arguments the same way.
 - A failed call posts its error text between `[FAILED RESULT]` and `[END RESULT]` when it fits.
   That text says why the call failed; it is not data about the system and does not count as a
   fact.
-- A long manifest that has to drop lines drops the calls without a posted result first, so a
+- A long manifest that has to drop lines drops the calls without a posted result with data (an empty result or a large one) first, so a
   posted result keeps the line that describes it.
 
 The example from a Kubernetes crew: a CronJobs table of 856 bytes and an events result of 15 bytes are
@@ -295,7 +296,7 @@ Read one call by its key, or every call of a group by its pattern, with workspac
 
 One `[GROUP ...]` line per agent and tool carries the call, error and byte counts, the sum of the
 rows when every call reports them (`unknown` otherwise) and the key pattern that reads the group.
-An object stored before the `Content-Type` header existed shows `type=unknown`. One `[CATALOG-CALL ...]` line per call carries the tool, the arguments (cut at 60 characters),
+An object stored before the `Content-Type` header existed shows `type=unknown`. One `[CATALOG-CALL ...]` line per call carries the tool, the arguments (cut at 60 characters, with the same "(args cut at N of M chars)" marker as a call line),
 the content type and rows from the headers, the bytes and whether it was an error. A catalog line never
 begins with `[CALL key=`, so it is not read as an agent's file description. When the call lines do
 not fit a quarter of the smallest window any server publishes for the model (about 3 characters a
