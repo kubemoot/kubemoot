@@ -11,8 +11,8 @@ How to observe what a Kubemoot crew is doing: the data it exposes, the surfaces 
 | Domain | Signals | Where it comes from |
 |--------|---------|---------------------|
 | **Discussions / consensus** | Thread lifecycle, per-agent signals (`triaging`, `evaluating`, `waiting`, `agree`, `concern`, `stand_aside`, `failure`, `block`, `advisory`, `synthesis`), settle decisions, synthesis text | Coordinator + agents publish to NATS `kubemoot.discuss.<namespace>.<crew>.*` |
-| **Agent activity** | Heartbeats while GPU-queued, triage vs evaluation phases, per-call server attribution (which model/server/GPU served each call) | Agent runtime signals + metadata |
-| **GPU & scheduling** | Loaded-model footprints, in-flight tickets, server readiness, total/used VRAM, scheduling decisions | Operator-published server state (NATS KV) + DCGM |
+| **Agent activity** | Heartbeats while queued for an accelerator, triage vs evaluation phases, per-call server attribution (which model/server/accelerator served each call) | Agent runtime signals + metadata |
+| **Accelerators & scheduling** | Loaded-model footprints, in-flight tickets, server readiness, total/used VRAM, scheduling decisions | Operator-published server state (NATS KV) + DCGM |
 | **Quality** | MCP tool quality verdicts (hot/failing/out-of-norm) | MCP quality pipeline → `kubemoot.quality.*` |
 | **RAG indexing** | Source indexing progress, chunk/embed status | RAGSource controller |
 | **Fitness** | Per-scenario/iteration pass-rates, assertion results, durations, full conversation transcripts | `CrewFitness` / `CrewFitnessSuite` → XLSX in NATS Object Store |
@@ -149,12 +149,12 @@ The dashboard's span graph visualizes each agent's participation timeline with s
 | **Stand Aside** | Query is outside this agent's domain; no contribution |
 | **Proposal** | Onboarding agent proposed a new tool to fill a capability gap |
 | **Synthesis** | Coordinator synthesized all agent contributions into a final answer |
-| **Triaging** | Agent is queued on the triage GPU deciding whether to contribute |
+| **Triaging** | Agent is queued on the triage accelerator deciding whether to contribute |
 | **Evaluating** | Agent passed triage and is running full tool-calling inference |
 | **Heartbeat** | Agent is alive, queued for or running LLM inference |
 | **Inference** | Saturated bar portion: actual LLM inference time |
-| **Overhead** | Faded bar portion: GPU queue wait and triage time before inference |
-| **Queue Depth** | Red circle on bar: number of other agents running inference on the same GPU concurrently |
+| **Overhead** | Faded bar portion: accelerator queue wait and triage time before inference |
+| **Queue Depth** | Red circle on bar: number of other agents running inference on the same accelerator concurrently |
 
 Signal markers (vertical ticks) appear on bars when an agent has multiple signal types, e.g., the coordinator bar shows purple advisory ticks within its amber synthesis bar. Bars start at each agent's actual first message timestamp, not at t=0.
 
@@ -171,7 +171,7 @@ Two items complete the three pillars.
 Stand up a log backend so the already-structured JSON logs are centrally searchable and retained, instead of per-pod `kubectl logs`.
 
 - **Decision: Grafana Loki.** Completes the existing Grafana "LGTM" stack (Loki/Grafana/Tempo/Prometheus): one pane of glass, label-based indexing, lightweight (object-storage backed), and native **trace↔log correlation** (jump from a discussion span to that agent's logs by `trace_id` once traces land).
-- *Considered and rejected:* Elasticsearch/ELK: stronger full-text search and analytics, but heavy (JVM, RAM/disk), a separate Kibana UI, and weaker trace correlation. A poor footprint trade on GPU-saturated hardware.
+- *Considered and rejected:* Elasticsearch/ELK: stronger full-text search and analytics, but heavy (JVM, RAM/disk), a separate Kibana UI, and weaker trace correlation. A poor footprint trade on accelerator-saturated hardware.
 - **Collection** is backend-agnostic: the existing otel-collector can ship pod logs via its `loki` or `elasticsearch` exporter (filelog receiver), so the choice is only the store. Do **not** route logs through NATS; keep app-events and logs separate, on the standard path.
 - **Kubemoot side:** ensure structured logs carry `trace_id`/`thread_id` so logs correlate with the OTel spans below.
 

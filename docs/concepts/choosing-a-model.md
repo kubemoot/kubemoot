@@ -1,10 +1,10 @@
 ---
 title: "Choosing a Model"
 weight: 45
-description: "How to pick models for a crew when GPU memory is the binding constraint."
+description: "How to pick models for a crew when accelerator memory is the binding constraint."
 ---
 
-Kubemoot runs on the GPUs you have. A crew is typically twenty or more agents sharing a
+Kubemoot runs on the accelerators you choose. A crew is typically twenty or more agents sharing a
 small number of cards, so choosing a model is a capacity decision as much as a quality
 one. This page is the decision framework. For the CRD fields, the current model catalog,
 and the per-GPU fit matrix, see [Models in Kubemoot](../../reference/models/).
@@ -38,7 +38,7 @@ So rank candidates in this order:
 4. **Reasoning depth.** This matters for the coordinator's synthesis, and much less for
    the toolers who make up most of the crew.
 
-## GPU memory is the binding constraint
+## Accelerator memory is the binding constraint
 
 The scheduler places models by VRAM budget and evicts idle ones on demand (see
 [Scheduler](../../architecture/scheduler/)). The budget for a card is the quantized weights plus room for KV cache and concurrent
@@ -93,7 +93,7 @@ the only server type today, and the API server rejects `openai` and `anthropic`.
 hosted models are supported, make the choice deliberately, because it moves inference, and whatever your
 agents read from your cluster, off the premises. If staying local is the point of the
 deployment, the frontier tier is simply not available, and the real question becomes
-which 20B to 35B class model calls tools best on the card you own. For a homelab budget
+which 20B to 35B class model calls tools best on your card. For a homelab budget
 in the range of a single $5,000 GPU with 24 GB to 48 GB of memory, that field is
 genuinely competitive.
 
@@ -295,5 +295,5 @@ it is not something to fold into an experiment that is measuring something else.
 
 - [Models & Scheduling](../models-and-scheduling/) - loose coupling and just-in-time binding
 - [Models in Kubemoot](../../reference/models/) - CRD fields, model catalog, per-GPU fit matrix
-- [Scheduler](../../architecture/scheduler/) - how models are placed on GPUs, several to a card when they fit
+- [Scheduler](../../architecture/scheduler/) - how models are placed on accelerators, several to a card when they fit
 - [Define Fitness Functions](../../user-guides/define-fitness-functions/) - building the suite you measure with

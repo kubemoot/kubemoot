@@ -135,8 +135,8 @@ Agents pass the requester to every tool call of the thread as the MCP request's 
 
 ### Activity on the stream
 
-Some steps run for minutes without a new phase event: a model loading onto a GPU, an
-agent waiting in the GPU queue, a long tool-calling evaluation, the coordinator
+Some steps run for minutes without a new phase event: a model loading onto an accelerator, an
+agent waiting in the accelerator queue, a long tool-calling evaluation, the coordinator
 synthesizing the answer. So a client can tell a crew that is working from one that has
 stopped, the stream sends an `activity` event every 15 seconds while anyone is busy on
 the thread, and sends none while no one is:
@@ -152,7 +152,7 @@ the thread, and sends none while no one is:
 | `waking` | The agent is starting up for the thread. |
 | `triaging` | The agent is deciding whether it has something to add. |
 | `evaluating` | The agent is running its tool-calling evaluation (model calls and tool calls), on `gpu`. |
-| `waiting_for_accelerator` | The agent is queued for a GPU with room for `model`. |
+| `waiting_for_accelerator` | The agent is queued for an accelerator with room for `model`. |
 | `reasoning` | The coordinator is choosing which agents to convene. |
 | `waiting_for_agents` | The coordinator has convened agents that have not reported yet. |
 | `synthesizing` | Every agent is done and the coordinator is writing the answer. |

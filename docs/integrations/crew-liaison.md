@@ -30,7 +30,7 @@ client can tell a live discussion from a stalled one. It names nobody.
 A crew deliberates for one to several minutes. Most MCP clients time a tool call out
 before that; Claude Code's default is sixty seconds. A tool that blocked for the
 whole discussion would time out, lose the answer, and tempt the client to ask again,
-spending the GPU twice.
+spending the accelerator twice.
 
 So the liaison never blocks a call for longer than 45 seconds. `ask` returns the
 ticket inside that window whatever the crew is doing, and `get_answer` is a long
@@ -84,7 +84,7 @@ client asks again.
 ```yaml
 liaison:
   enabled: true
-  maxInflight: 4          # discussions at once; each spends GPU time
+  maxInflight: 4          # discussions at once; each spends accelerator time
   auth:
     token: ""             # bearer token for /mcp; or existingSecret + key
   expose:

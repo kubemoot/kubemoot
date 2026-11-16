@@ -16,7 +16,7 @@ Kubemoot organizes the data-gathering and reasoning work of a discussion into tw
 | **Carries** | MCP tools, no live tools in reasoning | RAG sources, no MCP tools |
 | **Thinking** | OFF (deterministic tool selection) | ON (reasoning over gathered data) |
 | **Analogy** | The person with their hands on the keyboard | The person with the manual open, weighing the evidence |
-| **GPU profile** | Heavier (tool-calling inference) | Lighter (reasoning-focused, no tool overhead) |
+| **Accelerator profile** | Heavier (tool-calling inference) | Lighter (reasoning-focused, no tool overhead) |
 
 ### Why Separate Them
 
@@ -122,9 +122,9 @@ The documentation enriches REVIEW-phase reasoning by Analysts about the newly on
 
 ---
 
-## GPU Tiering: Two-Phase Inference
+## Accelerator Tiering: Two-Phase Inference
 
-A crew with two GPU tiers - one lighter, one heavier - can split inference into two
+A crew with two accelerator tiers - one lighter, one heavier - can split inference into two
 phases per discussion instead of sending every candidate agent straight to the
 expensive tier. On the reference homelab (an RTX 5090 node and an RTX 4090 node) that
 looks like this:
@@ -150,17 +150,17 @@ looks like this:
 
 ### Why Two Phases
 
-Without triage, every candidate agent hits the primary GPU for full inference; under a
+Without triage, every candidate agent hits the primary accelerator for full inference; under a
 server that serves one request at a time, that queue grows linearly with crew size
-and the lighter tier sits idle. With triage, the lighter GPU makes the cheap "should I
+and the lighter tier sits idle. With triage, the lighter accelerator makes the cheap "should I
 contribute?" decision for every candidate first. Most stand aside after a few seconds
 of triage, and only the agents that pass proceed to the expensive tier for full
-mulling - a large reduction in how many agents queue for the primary GPU, and in
+mulling - a large reduction in how many agents queue for the primary accelerator, and in
 wall-clock time.
 
 ### Queue, don't fail closed
 
-Triage does not fail an agent out on a short fixed timeout. The GPU is a shared
+Triage does not fail an agent out on a short fixed timeout. The accelerator is a shared
 resource, so an agent queued for triage publishes a `triaging` signal and keeps
 heartbeating while it waits its turn; the coordinator tracks it as pending rather than
 racing a clock. Only genuine unavailability - the triage call errors outright, or the
@@ -171,9 +171,9 @@ the chance to be heard.
 
 ### Dashboard Visibility
 
-The span graph on the discussions page shows which GPU tier each agent used per
+The span graph on the discussions page shows which accelerator tier each agent used per
 discussion, colored per server, alongside each signal. An agent that never reached
-either tier (filtered before triage) shows no GPU badge at all.
+either tier (filtered before triage) shows no accelerator badge at all.
 
 ---
 

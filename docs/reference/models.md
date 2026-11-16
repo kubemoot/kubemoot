@@ -1,6 +1,6 @@
 ---
 title: "Models in Kubemoot"
-description: "The Kubemoot model layer: the ModelServer, Model, and EmbeddingModel CRDs, how the scheduler binds agents to them, load on demand, the catalog, and GPU fit."
+description: "The Kubemoot model layer: the ModelServer, Model, and EmbeddingModel CRDs, how the scheduler binds agents to them, load on demand, the catalog, and GPU fit on the reference hardware."
 weight: 3
 ---
 
@@ -97,7 +97,7 @@ An agent that uses a model on a `vllm` ModelServer calls that model's own vLLM s
 |-------|--------|-------------|
 | `ready` | Operator probe | Endpoint reachable + API responding (for `vllm`, at least one server answering) |
 | `vllmServers` | Operator, from `serviceRef` | For a `vllm` ModelServer with `serviceRef`: each server found, as its served name and URL. Empty with `servers`, where the spec says it. |
-| `capacity.vramTotalMiB` | DCGM Prometheus | Total GPU VRAM |
+| `capacity.vramTotalMiB` | DCGM Prometheus | Total accelerator memory (VRAM on a GPU) |
 | `capacity.vramUsedMiB` | Ollama `/api/ps` | VRAM consumed by loaded models |
 | `capacity.gpuModel` | DCGM metrics | e.g., "NVIDIA GeForce RTX 5090" |
 | `capacity.maxParallel` | Pod env `OLLAMA_NUM_PARALLEL` | Concurrent request slots |
@@ -140,7 +140,7 @@ The scheduler refuses to place a call whose prompt exceeds a server's context fo
 model, because the engine would silently drop the oldest messages instead of rejecting it
 (see [Scheduler](../architecture/scheduler.md#the-context-window-is-a-hard-constraint)).
 On Ollama the total KV cache scales with `OLLAMA_NUM_PARALLEL` times
-`OLLAMA_CONTEXT_LENGTH`, so a GPU trades parallel slots against per-request context.
+`OLLAMA_CONTEXT_LENGTH`, so an accelerator trades parallel slots against per-request context.
 
 Discovery always runs, because agents place every call against the models it finds; VRAM
 needs DCGM metrics in Prometheus. A server the operator cannot measure (a CPU Ollama, or a GPU host without DCGM)
@@ -472,7 +472,7 @@ Declares a specific inference model on a server, **labeled** so the scheduler ca
 | `serverRef` | string | Yes | Name of the ModelServer CR |
 | `model` | string | Yes | The served name: the name every request uses to ask for this model (e.g., `qwen3:32b`), whatever engine serves it. Where the weights come from is `source`. |
 | `source` | object | No | Where the weights come from, as exactly one of `ollama` or `huggingFace`. Absent means an Ollama tag equal to `model`, so existing Models need no change. |
-| `vramMib` | int32 | For GPU servers | Capacity request - used by the scheduler's filter step |
+| `vramMib` | int32 | For accelerator servers | Capacity request - used by the scheduler's filter step |
 | `contextLength` | int | No | Override maximum context window |
 | `quantization` | string | No | Quantization method (e.g., `q4_K_M`, `q8_0`) |
 | `parameters` | string | No | The total parameter count, such as `14B`, `0.5B` or `751M`. Declare it where the engine cannot report it (vLLM does not) or to correct a wrong report. The size class in the [model catalog](#the-model-catalog) is derived from it. |
@@ -748,9 +748,9 @@ Kubemoot loads a model into server VRAM **when an agent asks for it, not before*
 
 ### The principle
 
-> Load a model when an agent needs it. Do not tie up a GPU with a model it's not needed.
+> Load a model when an agent needs it. Do not tie up an accelerator with a model it's not needed.
 
-GPU VRAM is shared capacity. Pinning model X in advance for a guess at what crew A will use starves model Y for whichever agent actually fires next. Any system that hand-declares preload intent is making predictions about future agent demand that the scheduler can - and should - make at request time.
+Accelerator memory is shared capacity. Pinning model X in advance for a guess at what crew A will use starves model Y for whichever agent actually fires next. Any system that hand-declares preload intent is making predictions about future agent demand that the scheduler can - and should - make at request time.
 
 ### What handles the cold-load case
 
@@ -765,11 +765,11 @@ The cold-load tax is paid once per `(model, server)` per session. If a user comp
 
 ### When to push back on preload
 
-Future requests in the form *"can we just preload model X on GPU Y"* should be re-framed:
+Future requests in the form *"can we just preload model X on accelerator Y"* should be re-framed:
 
 1. What problem is the preload solving? (Usually: "first query is slow.")
 2. Is the slowness on the *first* query only, or on every query? (If only first: `KEEP_ALIVE` handles the rest - accept the cold cost.)
-3. If genuinely needed, address at the *infrastructure* layer: increase `KEEP_ALIVE`, tune the scheduler, or admit that the workload pattern is wrong for shared GPU capacity.
+3. If genuinely needed, address at the *infrastructure* layer: increase `KEEP_ALIVE`, tune the scheduler, or admit that the workload pattern is wrong for shared accelerator capacity.
 4. Pin VRAM only as a last resort, and never via a chart - manual `curl /api/generate keep_alive=-1` is fine for one-off debugging.
 
 The architectural commitment: **the orchestrator decides what to load. The chart declares what's possible (Model CRs with labels), not what's resident.**

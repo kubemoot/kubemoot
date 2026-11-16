@@ -77,7 +77,7 @@ checker. They fire when the current signal state satisfies the advance condition
 
 ### Key principles
 
-**Signal-driven, not timeout-driven.** GPU inference and model loading have
+**Signal-driven, not timeout-driven.** Accelerator inference and model loading have
 unpredictable latency. The coordinator waits for agents to report, not for a clock to
 expire. Timeouts fire only when an agent crashes or falls permanently silent; the
 healthy path never reaches them.

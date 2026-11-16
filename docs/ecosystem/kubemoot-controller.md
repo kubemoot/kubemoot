@@ -24,7 +24,7 @@ CLI is only useful because the controller reconciles the resources they produce.
 ## What it does
 
 The controller is the substrate; it carries **no domain knowledge of its own**. It
-provides the machinery - reconciliation, GPU-aware scheduling, the tool gateway,
+provides the machinery - reconciliation, accelerator-aware scheduling, the tool gateway,
 consensus orchestration, working memory, and observability - and the domain comes
 entirely from the crews that run on it. That separation is what lets one controller
 serve infrastructure ops, Kafka operations, research, or security work without change.

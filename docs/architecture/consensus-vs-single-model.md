@@ -49,11 +49,11 @@ Both shapes hit the same wall: too many tools degrade tool selection (any model 
 
 ### Parallelism and the coordinator bottleneck
 
-Kubemoot's Toolers and Analysts are genuinely peer-parallel: many small models run concurrently across GPUs. Single-model systems parallelize more narrowly - concurrent tool calls and concurrent sub-agents - but the central reasoner is sequential. Worth noting: *both* shapes have a coordinator that serializes the final synthesis even when the work beneath it ran in parallel. Kubemoot simply has far more real parallelism underneath that chokepoint.
+Kubemoot's Toolers and Analysts are genuinely peer-parallel: many small models run concurrently across accelerators. Single-model systems parallelize more narrowly - concurrent tool calls and concurrent sub-agents - but the central reasoner is sequential. Worth noting: *both* shapes have a coordinator that serializes the final synthesis even when the work beneath it ran in parallel. Kubemoot simply has far more real parallelism underneath that chokepoint.
 
-### GPU multiplexing - application layer vs device layer
+### Accelerator multiplexing - application layer vs device layer
 
-"Many workloads, few GPUs" gets solved at different altitudes. Kubemoot solves it at the **application/scheduling** layer: just-in-time server selection picks which model on which GPU at inference time, from live server state. Device-level approaches (MIG partitions, MPS, time-slicing, GPU operators) solve it at the **hardware/driver** layer by slicing the silicon. These are complementary, not competing - Kubemoot's just-in-time scheduling can run on top of device-partitioned GPUs. The distinction matters because Kubemoot's horizontal design makes GPU multiplexing a first-class scheduling problem rather than an afterthought.
+"Many workloads, few accelerators" gets solved at different altitudes. Kubemoot solves it at the **application/scheduling** layer: just-in-time server selection picks which model on which accelerator at inference time, from live server state. Device-level approaches (NVIDIA MIG partitions, MPS, time-slicing, GPU operators) solve it at the **hardware/driver** layer by slicing the silicon. These are complementary, not competing - Kubemoot's just-in-time scheduling can run on top of device-partitioned accelerators. The distinction matters because Kubemoot's horizontal design makes accelerator multiplexing a first-class scheduling problem rather than an afterthought.
 
 ### Summary
 
@@ -66,14 +66,14 @@ Kubemoot's Toolers and Analysts are genuinely peer-parallel: many small models r
 | Participant selection | Reasoner picks sub-agents in-context | Résumé embeddings select subcommittee |
 | Tool overload | Lazy-load schemas into one context | Partition tools across agents |
 | Parallelism | Narrow (tools, sub-agents) | Broad (peer Toolers and Analysts) |
-| GPU sharing | (model-serving concern) | Application-layer JIT scheduling |
+| Accelerator sharing | (model-serving concern) | Application-layer JIT scheduling |
 | Hard dependency | A single frontier model | None - composes commodity/local models |
 
 ## Why Kubemoot takes the distributed path
 
 The single-model shape is simpler and, with a strong enough model, very capable. Kubemoot accepts more coordination complexity in exchange for properties the concentrated shape cannot offer:
 
-- **No dependence on a frontier model.** Capability is assembled from small, swappable models that run on commodity or local GPUs. The system's ceiling is not gated by access to one large model.
+- **No dependence on a frontier model.** Capability is assembled from small, swappable models that run on commodity or local accelerators. The system's ceiling is not gated by access to one large model.
 - **Modularity and composition.** A capability is a Tooler plus its tools and prompt (or an Analyst plus its RAG sources), added without touching the others. The crew is assembled from parts, declaratively.
 - **Consensus as a quality mechanism.** Multiple independent perspectives, with disagreement (`concern`, `block`) and abstention (`stand_aside`) as first-class signals, is a built-in cross-check rather than a bolt-on. Failure is signal, not silence.
 - **Portability.** Crews carry no cluster topology in their prompts; agents discover what they need at run time, so the same crew runs on different clusters.

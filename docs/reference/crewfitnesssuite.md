@@ -218,7 +218,7 @@ A cancelled suite still writes its XLSX. It holds only the iterations that finis
 
 Scores from `DEFER` assertions are produced by a judge pass that runs only after the suite reaches a terminal phase. A `Running` or `Paused` suite is never judged, so pausing cannot start judging early.
 
-A `Cancelled` suite is not judged at all. Stop means no further work on the GPUs, and a judge pass over a partial run would score scenarios from fewer iterations than planned. The quality columns of a cancelled suite's XLSX stay unjudged. To score a run, let it reach `Completed`.
+A `Cancelled` suite is not judged at all. Stop means no further work on the accelerators, and a judge pass over a partial run would score scenarios from fewer iterations than planned. The quality columns of a cancelled suite's XLSX stay unjudged. To score a run, let it reach `Completed`.
 
 ## Re-judge an earlier run
 

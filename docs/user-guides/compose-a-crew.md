@@ -81,7 +81,7 @@ catalog at once. It reads what every Tooler in the crew can do, and reasons abou
 which ones the question needs. That same call also produces the framing brief. **One
 call returns both the selected subcommittee and the brief.** The selected agents form
 the subcommittee (`innerCircle`); agents not selected are never woken, incurring zero
-GPU cost.
+accelerator cost.
 
 This is genuine reasoning over a compact representation of every Tooler's
 capabilities, not a vector retrieval of the closest matches. The coordinator can

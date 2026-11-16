@@ -4,9 +4,9 @@ description: "Give Kubernetes worker nodes NVIDIA GPUs, on bare metal or through
 weight: 4
 ---
 
-Kubemoot schedules models onto GPUs, but it does not create GPU nodes. This page covers
-the general path for making an NVIDIA GPU usable by Kubernetes workloads, whether the
-worker node is a bare-metal machine or a virtual machine, and ends with how a Kubemoot
+Kubemoot schedules models onto accelerators, but it does not create accelerator nodes. This page covers
+how to make an NVIDIA GPU, the accelerator the reference setup uses, usable by Kubernetes
+workloads, whether the worker node is a bare-metal machine or a virtual machine, and ends with how a Kubemoot
 `ModelServer` then uses the node. A short worked example closes the page.
 
 The end state is one check: the node reports `nvidia.com/gpu` capacity.
