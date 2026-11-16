@@ -66,15 +66,15 @@ class ToolCallLedgerTest {
 
         String manifest = ledger.manifest();
 
-        assertTrue(manifest.contains("args={\"a\": \"" + "z".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS - 7) + "... (args cut at "
-                + ToolCallLedger.ARGS_SUMMARY_CHARS + " of 209 chars)"), manifest);
+        assertTrue(manifest.contains("args={\"a\": \"" + "z".repeat(CallManifest.ARGS_SUMMARY_CHARS - 7) + "... (args cut at "
+                + CallManifest.ARGS_SUMMARY_CHARS + " of 209 chars)"), manifest);
         assertFalse(manifest.contains("\n   "), "arguments are on one line");
     }
 
     @Test
     void argumentsUnderTheLimitAreNotCutAndCarryNoMarker() {
-        String args = "{\"k\": \"" + "a".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS - 9) + "\"}";
-        assertEquals(ToolCallLedger.ARGS_SUMMARY_CHARS, args.length());
+        String args = "{\"k\": \"" + "a".repeat(CallManifest.ARGS_SUMMARY_CHARS - 9) + "\"}";
+        assertEquals(CallManifest.ARGS_SUMMARY_CHARS, args.length());
         record("t", args, "[]", false);
 
         String manifest = ledger.manifest();
@@ -86,29 +86,58 @@ class ToolCallLedgerTest {
 
     @Test
     void argumentsOneOverTheLimitCarryTheMarker() {
-        String args = "a".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS + 1);
+        String args = "a".repeat(CallManifest.ARGS_SUMMARY_CHARS + 1);
         record("t", args, "[]", false);
 
-        assertTrue(ledger.manifest().contains(" args=" + "a".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS)
+        assertTrue(ledger.manifest().contains(" args=" + "a".repeat(CallManifest.ARGS_SUMMARY_CHARS)
                 + "... (args cut at 60 of 61 chars) type="), ledger.manifest());
     }
 
     @Test
     void unicodeArgumentsAreCutOnACharacterBoundaryAndCountedInCharacters() {
         String emoji = new String(Character.toChars(0x1F600));
-        String args = emoji.repeat(ToolCallLedger.ARGS_SUMMARY_CHARS + 5);
+        String args = emoji.repeat(CallManifest.ARGS_SUMMARY_CHARS + 5);
         record("t", args, "[]", false);
 
         String manifest = ledger.manifest();
 
-        assertTrue(manifest.contains(" args=" + emoji.repeat(ToolCallLedger.ARGS_SUMMARY_CHARS)
+        assertTrue(manifest.contains(" args=" + emoji.repeat(CallManifest.ARGS_SUMMARY_CHARS)
                 + "... (args cut at 60 of 65 chars) type="), manifest);
         assertFalse(manifest.contains("\uFFFD"), "no split surrogate pair");
     }
 
     @Test
+    void manyEmptyCallsStayWithinTheSizeOfAContributionAndAreCounted() {
+        for (int i = 0; i < 100; i++) {
+            record("workspace_grep", "{\"pattern\":\"p" + i + "\"}", "", false);
+        }
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.length() <= ToolCallLedger.MAX_MANIFEST_CHARS + CallManifest.MAX_INLINE_CHARS,
+                "length " + manifest.length());
+        assertTrue(manifest.length() <= ToolCallLedger.MAX_MANIFEST_CHARS, "empty blocks count against the descriptions");
+        assertTrue(manifest.contains("calls=100"), manifest);
+        assertTrue(CallManifest.OMITTED_LINE.matcher(manifest).find(), manifest);
+    }
+
+    @Test
+    void whenCallsAreDroppedACallWithDataKeepsItsLineBeforeAnEmptyOne() {
+        for (int i = 0; i < 60; i++) {
+            record("tool_" + i, "{}", "", false);
+        }
+        record("the_data", "{}", "pod-a Running", false);
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.contains("tool=the_data"), manifest);
+        assertTrue(manifest.contains("pod-a Running"), manifest);
+        assertTrue(CallManifest.OMITTED_LINE.matcher(manifest).find(), manifest);
+    }
+
+    @Test
     void theNotStoredLineCarriesTheSameMarker() {
-        String args = "q".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS + 10);
+        String args = "q".repeat(CallManifest.ARGS_SUMMARY_CHARS + 10);
         store.failWrites = true;
         record("t", args, "[]", false);
 

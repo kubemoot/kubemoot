@@ -199,7 +199,7 @@ final class ThreadCatalog {
     /** The catalog line of one call: its key, tool, arguments, shape and size. */
     /** Package-private so the shared fixture test (ThreadCatalogTest) can render one line. */
     String callLine(Entry e) {
-        return ENTRY_PREFIX + e.relativeKey(prefix) + " tool=" + CallManifest.neutralize(e.tool()) + " args=" + CallManifest.argsSummary(e.args())
+        return ENTRY_PREFIX + e.relativeKey(prefix) + " tool=" + CallManifest.neutralize(e.tool()) + " " + CallManifest.argsField(e.args())
                 + " type=" + (e.type().isEmpty() ? UNKNOWN_TYPE : e.type())
                 + " rows=" + (e.rows() >= 0 ? Long.toString(e.rows()) : "unknown")
                 + " bytes=" + e.bytes() + " error=" + e.error() + "]";

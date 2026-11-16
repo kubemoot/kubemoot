@@ -147,7 +147,8 @@ func neutralize(s string) string {
 func isASCIISpace(r rune) bool { return strings.ContainsRune(" \t\n\v\f\r", r) }
 
 // argsSummary is a call's arguments on one line: white space folded, square brackets turned into
-// parentheses so a list cannot end the line early, cut at argsSummaryChars. The runtime's
+// parentheses so a list cannot end the line early, cut at argsSummaryChars with a
+// marker that gives the characters kept and the characters sent. The runtime's
 // CallManifest.argsSummary does the same.
 func argsSummary(args string) string {
 	folded := strings.Join(strings.FieldsFunc(neutralize(args), isASCIISpace), " ")
@@ -156,7 +157,7 @@ func argsSummary(args string) string {
 		return "{}"
 	}
 	if r := []rune(one); len(r) > argsSummaryChars {
-		return string(r[:argsSummaryChars]) + "..."
+		return fmt.Sprintf("%s... (args cut at %d of %d chars)", string(r[:argsSummaryChars]), argsSummaryChars, len(r))
 	}
 	return one
 }

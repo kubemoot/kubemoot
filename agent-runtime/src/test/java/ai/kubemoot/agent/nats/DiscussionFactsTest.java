@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.CallManifest;
+import ai.kubemoot.agent.chat.LedgerManifests;
 import ai.kubemoot.agent.nats.DiscussionFacts.Message;
 import org.junit.jupiter.api.Test;
 
@@ -80,8 +81,28 @@ class DiscussionFactsTest {
     }
 
     @Test
+    void aManifestOfOnlyEmptyResultsHoldsNoFacts() {
+        String manifest = LedgerManifests.of("", "  \n", null);
+        var thread = List.of(agree("k8s", manifest), new Message("human", "thread_start", QUESTION));
+
+        assertTrue(manifest.contains(CallManifest.EMPTY_RESULT_OPEN), manifest);
+        assertTrue(DiscussionFacts.toolsRan(thread));
+        assertFalse(DiscussionFacts.holdsFacts(thread));
+        assertTrue(DiscussionFacts.noData(thread));
+    }
+
+    @Test
+    void anEmptyBlockNextToARealResultStillLeavesTheFacts() {
+        String manifest = LedgerManifests.of("", "pod-a  Running");
+        var thread = List.of(agree("k8s", manifest), new Message("human", "thread_start", QUESTION));
+
+        assertTrue(DiscussionFacts.holdsFacts(thread), manifest);
+        assertFalse(DiscussionFacts.noData(thread));
+    }
+
+    @Test
     void anEmptyResultBlockIsNotAFact() {
-        var thread = List.of(agree("k8s-workloads", HEADER + CALL3 + "\n" + ai.kubemoot.agent.chat.CallManifest.EMPTY_RESULT_TEXT),
+        var thread = List.of(agree("k8s-workloads", HEADER + CALL3 + "\n" + CallManifest.EMPTY_RESULT_TEXT),
                 new Message("human", "thread_start", QUESTION));
 
         assertTrue(DiscussionFacts.noData(thread));

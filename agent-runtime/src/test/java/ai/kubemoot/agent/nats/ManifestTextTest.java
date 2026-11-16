@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.chat.CallManifest;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +35,17 @@ class ManifestTextTest {
         assertTrue(ManifestText.strip(answer, false).contains("[CALL key="), "call lines stay unless asked");
         assertEquals("[WORKSPACE no end", ManifestText.strip("[WORKSPACE no end", true));
         assertEquals("The cluster has 3 pods.", DiscussionOrchestrator.publishedContent("synthesis", "The cluster has 3 pods."));
+    }
+
+    @Test
+    void anEmptyResultBlockGoesWithTheCallLinesAndStaysWhenCallsAreKept() {
+        String block = CallManifest.EMPTY_RESULT_TEXT;
+        String text = "Own words.\n" + HEADER + LINE2 + "\n" + block + "\n" + LINE1 + FOOTER;
+
+        assertEquals("Own words.\n", ManifestText.strip(text, true).replaceAll("\\n+$", "\n"));
+        String kept = ManifestText.strip(text, false);
+        assertTrue(kept.contains(block) && kept.contains(LINE2), kept);
+        assertFalse(kept.contains("[WORKSPACE"), kept);
     }
 
     @Test
