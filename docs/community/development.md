@@ -91,6 +91,13 @@ Every Go module, the operator included, lints with the shared `.golangci.yml` at
 repository root (cyclomatic complexity <= 10, duplication, and the rest) at the
 `GOLANGCI_LINT_VERSION` pinned in `operator/Makefile`.
 
+A module's `go` directive must not be newer than the `golang:` builder in the Dockerfile that
+compiles it, because the image builds with `GOTOOLCHAIN=local`. CI runs
+`.github/scripts/check-go-builder-version.sh` on every pull request that changes a `go.mod` or
+a Dockerfile, so a Dependabot bump of one without the other fails the pull request instead of the
+release workflow. The daily Release Status workflow also fails, and lists the workflow, when the
+latest run on main of any component release workflow failed.
+
 **Query service** (`query-service/`):
 
 ```bash

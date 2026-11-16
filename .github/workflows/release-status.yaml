@@ -7,6 +7,10 @@
 # workflow's own token, which reads any public repository; no stored token is involved, and
 # the only write permission is issues, on this repository.
 #
+# It also lists any component release workflow whose latest run on main failed
+# (.github/scripts/check-release-workflow-runs.sh) and fails the job, since a release
+# workflow runs only when its component changes and a broken one stays red unnoticed.
+#
 # GitHub disables a scheduled workflow after 60 days without activity in the repository.
 # Kubemoot merges to main daily, which keeps this one alive; if main goes quiet that long, the
 # check stops silently and needs enabling again (Actions tab, Release Status, Enable workflow).
@@ -30,12 +34,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read # the latest run of each release workflow
       issues: write # open, update and close the one release status issue
     steps:
       - name: Checkout the release scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: .github/scripts
+          sparse-checkout: |
+            .github/scripts
+            .github/workflows
           persist-credentials: false
 
       - name: Check the public repositories
@@ -66,3 +73,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STATUS: ${{ steps.check.outputs.status }}
         run: bash .github/scripts/release-status-issue.sh "$STATUS" "${RUNNER_TEMP}/report.md"
+
+      # Last, so a failure here never skips the issue step above.
+      - name: Check the latest run of every release workflow
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status=0
+          bash .github/scripts/check-release-workflow-runs.sh > "${RUNNER_TEMP}/runs.md" || status=$?
+          {
+            echo '### Latest run of each release workflow on main'
+            echo
+            cat "${RUNNER_TEMP}/runs.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "${RUNNER_TEMP}/runs.md"
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=A release workflow is failing on main::check-release-workflow-runs.sh exited ${status}; see the summary."
+            exit 1
+          fi
