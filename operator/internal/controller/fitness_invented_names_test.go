@@ -12,14 +12,25 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/xuri/excelize/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+)
+
+const (
+	invGotcha     = "gotcha"
+	invCrew       = "inv-crew"
+	invFlaggedKey = "ns/s/r1/s0-i1.json"
+	invSecondKey  = "ns/s/r1/s0-i2.json"
 )
 
 const inventedSuiteKey = "crew/suite/run/s0-i1.json"
@@ -91,7 +102,7 @@ func TestAddInventedCountsFromTranscripts(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{Scripts: []kubemootv1alpha1.SuiteScript{
-			{TestRef: "gotcha"}, {TestRef: "quiet"},
+			{TestRef: invGotcha}, {TestRef: "quiet"},
 		}},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "r1"},
 	}
@@ -99,7 +110,7 @@ func TestAddInventedCountsFromTranscripts(t *testing.T) {
 	flagged := `{"events":[{"type":"synthesis","content":"x"}],"inventedNames":["homelab-k8s-1"],"evidenceCaptured":true}`
 	clean := `{"events":[{"type":"synthesis","content":"x"}],"evidenceCaptured":true}`
 	store := fakeStore{objs: map[string][]byte{
-		"ns/s/r1/s0-i1.json": []byte(flagged), "ns/s/r1/s0-i2.json": []byte(flagged),
+		invFlaggedKey: []byte(flagged), invSecondKey: []byte(flagged),
 		"ns/s/r1/s0-i3.json": []byte(clean), "ns/s/r1/s1-i1.json": []byte(clean),
 		"ns/s/r2/s1-i1.json": []byte(flagged), // another run
 	}}
@@ -121,5 +132,75 @@ func TestAddInventedCountsLeavesRowsWithoutAStore(t *testing.T) {
 	addInventedCounts(listFailStore{}, suite)
 	if suite.Status.Scenarios[0].InventedNameRuns != 3 {
 		t.Error("no store or a failed listing must keep the rows as they are")
+	}
+}
+
+// failingGetStore fails the read of one key, as a transient object store error.
+type failingGetStore struct {
+	fakeStore
+	failKey string
+}
+
+func (s failingGetStore) GetObject(b, key string) ([]byte, error) {
+	if key == s.failKey {
+		return nil, errors.New("timeout")
+	}
+	return s.fakeStore.GetObject(b, key)
+}
+
+func TestAddInventedCountsKeepsTheCountWhenATranscriptIsUnreadable(t *testing.T) {
+	suite := &kubemootv1alpha1.CrewFitnessSuite{
+		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: invGotcha}}},
+		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "r1"},
+	}
+	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, nil)
+	suite.Status.Scenarios[0].InventedNameRuns = 2
+	flagged := []byte(`{"events":[{"type":"synthesis","content":"x"}],"inventedNames":["a-1"]}`)
+	store := failingGetStore{
+		fakeStore: fakeStore{objs: map[string][]byte{invFlaggedKey: flagged, invSecondKey: flagged}},
+		failKey:   invSecondKey,
+	}
+	addInventedCounts(store, suite)
+	if got := suite.Status.Scenarios[0].InventedNameRuns; got != 2 {
+		t.Errorf("a failed read must not lower the count: got %d, want 2", got)
+	}
+	store.failKey = ""
+	addInventedCounts(store, suite)
+	if got := suite.Status.Scenarios[0].InventedNameRuns; got != 2 {
+		t.Errorf("all transcripts read: got %d, want 2", got)
+	}
+}
+
+// persistArtifact writes the XLSX and the status in one update; the count reaches
+// the stored status from the transcripts in the injected store.
+func TestPersistArtifactWritesInventedCountsToStatus(t *testing.T) {
+	scheme := reapScheme(t)
+	suite := &kubemootv1alpha1.CrewFitnessSuite{
+		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: invCrew, Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: invGotcha}, {TestRef: "quiet"}}},
+		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "r1", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
+	}
+	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, nil)
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(suite).WithStatusSubresource(suite).Build()
+	flagged := []byte(`{"events":[{"type":"synthesis","content":"x"}],"inventedNames":["homelab-k8s-1"]}`)
+	clean := []byte(`{"events":[{"type":"synthesis","content":"x"}]}`)
+	store := fakeStore{objs: map[string][]byte{invFlaggedKey: flagged, "ns/s/r1/s1-i1.json": clean}}
+	r := &CrewFitnessSuiteReconciler{Client: cli, Scheme: scheme, artifacts: store}
+
+	_, ok, err := r.persistArtifact(context.Background(), suite, nil, nil, "write failed")
+	if err != nil || !ok {
+		t.Fatalf("persistArtifact ok=%v err=%v", ok, err)
+	}
+	var got kubemootv1alpha1.CrewFitnessSuite
+	if err := cli.Get(context.Background(), client.ObjectKeyFromObject(suite), &got); err != nil {
+		t.Fatal(err)
+	}
+	rows := got.Status.Scenarios
+	if len(rows) != 2 || rows[0].InventedNameRuns != 1 || rows[1].InventedNameRuns != 0 {
+		t.Errorf("stored status.scenarios = %+v, want inventedNameRuns 1 and 0", rows)
+	}
+	if got.Status.ArtifactRef == nil {
+		t.Error("the artifact ref is written in the same update")
 	}
 }

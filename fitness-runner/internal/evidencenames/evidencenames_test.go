@@ -16,6 +16,8 @@ import (
 	"testing"
 )
 
+const webFront = "web-front"
+
 const nodeTable = `NAME                         STATUS   ROLES           AGE   VERSION   INTERNAL-IP
 homelab-k8s-1-cp             Ready    control-plane   40d   v1.35.0   192.168.50.11
 homelab-k8s-1-cp-2           Ready    <none>          40d   v1.35.0   192.168.50.12
@@ -88,10 +90,21 @@ func TestInvented(t *testing.T) {
 		{"hyphen only in a weak position", "- **web-front** and node worker-pool", []string{"x"}, nil, nil},
 		{"hyphen only on a line with a pod state", "- **cert-manager**: Unschedulable\n- **nginx-ingress**: ImagePullBackOff (image failure)\n- **redis**: Evicted",
 			[]string{"cert-manager"}, nil, []string{"nginx-ingress"}},
-		{"state word in prose names the token after a kind word", "pod web-front is CrashLoopBackOff", []string{"x"}, nil, []string{"web-front"}},
+		{"state word in prose names the token after a kind word", "pod web-front is CrashLoopBackOff", []string{"x"}, nil, []string{webFront}},
+		{"state word in prose is English", "- **memory-hungry** pods are Pending\n- **long-term**: the fix is pending review\n" +
+			"- **well-known** workloads keep terminating gracefully\n" +
+			"Pods are Pending in staging, and the other option is **cost-effective** overall.\n" +
+			"pod web-front is fine; the migration is pending", []string{"x"}, nil, nil},
+		{"state word belongs to the name before it", "- **cert-manager**: Unschedulable and **nginx-ingress** is fine\n- **web-front** is fine. Meanwhile **api-gate** ImagePullBackOff",
+			[]string{"x"}, nil, []string{"cert-manager", "api-gate"}},
+		{"a later bold name does not lend its state to the lead", "- **web-front** is fine and **api-gate**: ImagePullBackOff",
+			[]string{"x"}, nil, []string{"api-gate"}},
+		{"status positions", "| web-front | Pending |\nstatus: Evicted for **redis-cache**\n- **batch-job**: Terminating",
+			[]string{"x"}, nil, []string{"web-front", "batch-job"}},
+		{"kubectl spelling only", "- **cache-warm**: imagepullbackoff\n- **cache-cold**: pending", []string{"x"}, nil, nil},
 		{"english compounds stay quiet on a state line", "- **high-memory** pods are Pending\n- **long-running** jobs: Evicted\n- **in-flight** requests Terminating",
 			[]string{"x"}, nil, nil},
-		{"hyphen only in a strong position", "| web-front | Ready |\nrun `web-front`", []string{"x"}, nil, []string{"web-front"}},
+		{"hyphen only in a strong position", "| web-front | Ready |\nrun `web-front`", []string{"x"}, nil, []string{webFront}},
 		{"pair of two hyphenated sides is strong", "see `app-front/app-back` now", []string{"x"}, nil, []string{"app-front", "app-back"}},
 		{"known left side needs a digit on the right", "`monitoring/grafana-ui` and `monitoring/grafana-2`", []string{"monitoring"}, nil, []string{"grafana-2"}},
 		{"exact whole token only", "- **node-1**", []string{"node-12345 node-10"}, nil, []string{"node-1"}},
