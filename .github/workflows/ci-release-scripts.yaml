@@ -78,6 +78,11 @@ jobs:
         run: shellcheck -x .github/scripts/*.sh k8s/tests/job/*.sh k8s/tests/lib.test.sh k8s/tests/lib-modelserver.sh k8s/tests/lib-ask.sh k8s/tests/ask.test.sh
       - name: Check every Go module against its Dockerfile builder
         run: bash .github/scripts/check-go-builder-version.sh
+      # The stub MCP server test runs python3; pin it as the native check job does.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
       - name: Tests
         run: |
           bash .github/scripts/test-publish-release.sh
