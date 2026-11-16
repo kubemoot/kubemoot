@@ -16,7 +16,11 @@ import (
 	"testing"
 )
 
-const webFront = "web-front"
+const (
+	webFront = "web-front"
+	apiGate  = "api-gate"
+	node1    = "node-1"
+)
 
 const nodeTable = `NAME                         STATUS   ROLES           AGE   VERSION   INTERNAL-IP
 homelab-k8s-1-cp             Ready    control-plane   40d   v1.35.0   192.168.50.11
@@ -96,26 +100,26 @@ func TestInvented(t *testing.T) {
 			"Pods are Pending in staging, and the other option is **cost-effective** overall.\n" +
 			"pod web-front is fine; the migration is pending", []string{"x"}, nil, nil},
 		{"state word belongs to the name before it", "- **cert-manager**: Unschedulable and **nginx-ingress** is fine\n- **web-front** is fine. Meanwhile **api-gate** ImagePullBackOff",
-			[]string{"x"}, nil, []string{"cert-manager", "api-gate"}},
+			[]string{"x"}, nil, []string{"cert-manager", apiGate}},
 		{"a later bold name does not lend its state to the lead", "- **web-front** is fine and **api-gate**: ImagePullBackOff",
-			[]string{"x"}, nil, []string{"api-gate"}},
+			[]string{"x"}, nil, []string{apiGate}},
 		{"status positions", "| web-front | Pending |\nstatus: Evicted for **redis-cache**\n- **batch-job**: Terminating",
-			[]string{"x"}, nil, []string{"web-front", "batch-job"}},
+			[]string{"x"}, nil, []string{webFront, "batch-job"}},
 		{"kubectl spelling only", "- **cache-warm**: imagepullbackoff\n- **cache-cold**: pending", []string{"x"}, nil, nil},
 		{"english compounds stay quiet on a state line", "- **high-memory** pods are Pending\n- **long-running** jobs: Evicted\n- **in-flight** requests Terminating",
 			[]string{"x"}, nil, nil},
 		{"hyphen only in a strong position", "| web-front | Ready |\nrun `web-front`", []string{"x"}, nil, []string{webFront}},
 		{"pair of two hyphenated sides is strong", "see `app-front/app-back` now", []string{"x"}, nil, []string{"app-front", "app-back"}},
 		{"known left side needs a digit on the right", "`monitoring/grafana-ui` and `monitoring/grafana-2`", []string{"monitoring"}, nil, []string{"grafana-2"}},
-		{"exact whole token only", "- **node-1**", []string{"node-12345 node-10"}, nil, []string{"node-1"}},
+		{"exact whole token only", "- **node-1**", []string{"node-12345 node-10"}, nil, []string{node1}},
 		{"owner name of a seen pod is seen", "- **gpu-swap-monitor** ran twice\n- `gpu-swap-monitor`",
 			[]string{"gpu-swap-monitor-29914110-vmnfv Completed"}, nil, nil},
 		{"owner name seen through the ignore set", "- **web-front-1**", []string{"x"}, []string{"web-front-1-x2k9p"}, nil},
 		{"an invented name is not hidden by a real name that continues it", "- `kube-scheduler`\n- `web-front`",
-			[]string{"kube-scheduler-extra-config web-front-end", "kube-scheduler-cp1"}, nil, []string{"kube-scheduler", "web-front"}},
+			[]string{"kube-scheduler-extra-config web-front-end", "kube-scheduler-cp1"}, nil, []string{"kube-scheduler", webFront}},
 		{"owner of a replica set pod and a stateful set pod", "- **api-gate**\n- **db-main**",
 			[]string{"api-gate-7d9f8c6b5d-x2k9p", "db-main-0"}, nil, nil},
-		{"owner prefix needs a hyphen after it", "- **node-1**", []string{"node-12345 node1-abc"}, nil, []string{"node-1"}},
+		{"owner prefix needs a hyphen after it", "- **node-1**", []string{"node-12345 node1-abc"}, nil, []string{node1}},
 		{"a longer name is not seen from its owner", "- **gpu-swap-monitor-29914110-vmnfv**",
 			[]string{"gpu-swap-monitor"}, nil, []string{"gpu-swap-monitor-29914110-vmnfv"}},
 		{"names repeat once", "**node3** and **node3** and node3", []string{"x"}, nil, []string{"node3"}},
