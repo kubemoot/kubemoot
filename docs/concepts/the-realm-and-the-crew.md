@@ -25,9 +25,10 @@ level above both:
 <text x="495" y="140" text-anchor="middle" fill="currentColor" stroke="none">Models: ModelServer, Model,</text>
 <text x="495" y="157" text-anchor="middle" fill="currentColor" stroke="none">EmbeddingModel</text>
 <text x="495" y="184" text-anchor="middle" fill="currentColor" stroke="none">Tools: MCPServer, MCPGateway,</text>
-<text x="495" y="201" text-anchor="middle" fill="currentColor" stroke="none">MCPCatalog, MCPQualityPolicy</text>
-<text x="495" y="230" text-anchor="middle" fill="currentColor" stroke="none">Knowledge: RAGSource</text>
-<text x="495" y="260" text-anchor="middle" fill="currentColor" stroke="none">Delivery: NotificationSink</text>
+<text x="495" y="201" text-anchor="middle" fill="currentColor" stroke="none">MCPCatalog, MCPQualityPolicy,</text>
+<text x="495" y="218" text-anchor="middle" fill="currentColor" stroke="none">MCPServerReport</text>
+<text x="495" y="244" text-anchor="middle" fill="currentColor" stroke="none">Knowledge: RAGSource</text>
+<text x="495" y="272" text-anchor="middle" fill="currentColor" stroke="none">Delivery: NotificationSink</text>
 <line x1="280" y1="150" x2="352" y2="150"/>
 <polygon points="360,150 350,145 350,155" fill="currentColor"/>
 <text x="320" y="140" text-anchor="middle" fill="currentColor" stroke="none">asks for</text>
@@ -48,7 +49,7 @@ runs and which consensus archetypes exist, for every crew in the cluster.
 | Part | Kinds | What it gives a crew |
 |---|---|---|
 | Models | `ModelServer`, `Model`, `EmbeddingModel` | The catalog of models the cluster can run, and the servers that serve them. The cluster owner keeps `ModelServer`s and `Model`s in the operator's namespace |
-| Tools | `MCPServer`, `MCPGateway`, `MCPCatalog`, `MCPQualityPolicy` | The tools agents may call, the gateway they reach them through, and the rules for which community servers are let in |
+| Tools | `MCPServer`, `MCPGateway`, `MCPCatalog`, `MCPQualityPolicy`, `MCPServerReport` | The tools agents may call, the gateway they reach them through, and the rules for which community servers are let in. `MCPServerReport` is generated, not written: it records how each server fared in trials, as a status report beside the quality policy that reads it |
 | Knowledge | `RAGSource` | Indexed documents an agent can search |
 | Delivery | `NotificationSink` | Where a concern raised in a discussion is sent |
 
@@ -68,7 +69,7 @@ sink can ship with the crew, in the crew's namespace, and serve that crew only.
 
 A `CrewSchedulingPolicy` belongs to a crew, but it says how that crew draws on the
 realm: for example, quality over speed, or which capabilities are hard needs and which
-are wishes. It is the one crew resource that reads the realm's catalog.
+are wishes. It is the crew resource that selects from the catalog.
 
 ## The point: crews ask, the realm fills
 
@@ -76,7 +77,7 @@ An agent declares the capability it needs, never a model, a provider, or an endp
 The scheduler places each call on what the realm offers at that moment (see
 [Models and scheduling](../models-and-scheduling/)).
 
-That is why a crew is portable. The same crew runs on a homelab with two accelerators, on a
+That is why a crew is portable. The same crew runs on a small cluster with two accelerators, on a
 cluster with a large pool, or against a catalog that changes underneath it, with no change to
 the crew: moving a model to another accelerator changes the realm, not the crew's namespace.
 
