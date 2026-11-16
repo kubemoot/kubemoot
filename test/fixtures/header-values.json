@@ -1,0 +1,82 @@
+{
+ "description": "How a header value is carried in a NATS header, shared by agent-runtime (Java, HeaderValue) and artifact-access (Go, store.DecodeHeaderValue). roundTrip: encode(value) is encoded and decode(encoded) is value. decodeOnly: decode(encoded) is value, though no encoder makes that encoded form.",
+ "roundTrip": [
+  {
+   "name": "plain ASCII is unchanged",
+   "value": "{\"node\":\"pve\"}",
+   "encoded": "{\"node\":\"pve\"}"
+  },
+  {
+   "name": "empty value",
+   "value": "",
+   "encoded": ""
+  },
+  {
+   "name": "spaces and punctuation are unchanged",
+   "value": "a b, c: d = e",
+   "encoded": "a b, c: d = e"
+  },
+  {
+   "name": "e acute",
+   "value": "{\"q\":\"café\"}",
+   "encoded": "utf8-pct:{\"q\":\"caf%C3%A9\"}"
+  },
+  {
+   "name": "emoji outside the basic plane",
+   "value": "deploy 🚀",
+   "encoded": "utf8-pct:deploy %F0%9F%9A%80"
+  },
+  {
+   "name": "CJK",
+   "value": "{\"name\":\"日本語\"}",
+   "encoded": "utf8-pct:{\"name\":\"%E6%97%A5%E6%9C%AC%E8%AA%9E\"}"
+  },
+  {
+   "name": "ASCII that already looks percent-encoded is not touched",
+   "value": "caf%C3%A9",
+   "encoded": "caf%C3%A9"
+  },
+  {
+   "name": "percent sign next to non-ASCII is escaped",
+   "value": "100% é",
+   "encoded": "utf8-pct:100%25 %C3%A9"
+  },
+  {
+   "name": "ASCII that starts with the marker is encoded",
+   "value": "utf8-pct:abc",
+   "encoded": "utf8-pct:utf8-pct:abc"
+  },
+  {
+   "name": "a tab is escaped",
+   "value": "a\tb",
+   "encoded": "utf8-pct:a%09b"
+  }
+ ],
+ "decodeOnly": [
+  {
+   "name": "a value without the marker reads as it is",
+   "encoded": "caf%C3%A9",
+   "value": "caf%C3%A9"
+  },
+  {
+   "name": "a bad escape reads as it is",
+   "encoded": "utf8-pct:%zz",
+   "value": "utf8-pct:%zz"
+  },
+  {
+   "name": "a cut escape reads as it is",
+   "encoded": "utf8-pct:abc%C3%A",
+   "value": "utf8-pct:abc%C3%A"
+  },
+  {
+   "name": "bytes that are not UTF-8 read as they are",
+   "encoded": "utf8-pct:%FF",
+   "value": "utf8-pct:%FF"
+  },
+  {
+   "name": "lowercase hex is read",
+   "encoded": "utf8-pct:caf%c3%a9",
+   "value": "café"
+  }
+ ]
+}

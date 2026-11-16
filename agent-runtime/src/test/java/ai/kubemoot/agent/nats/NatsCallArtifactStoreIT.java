@@ -136,6 +136,33 @@ class NatsCallArtifactStoreIT {
     }
 
     @Test
+    void anArgumentWithNonAsciiTextIsStoredAndTheCatalogShowsTheOriginalText() throws Exception {
+        try (Connection conn = Nats.connect(url)) {
+            var provider = mock(NatsConnectionProvider.class);
+            when(provider.scope()).thenReturn(SCOPE);
+            when(provider.getConnection()).thenReturn(conn);
+            var store = new NatsCallArtifactStore(provider, new ObjectMapper());
+            String key = store.reserveKey("t-utf8", "k8s-workloads", "pods_list");
+            String args = "{\"q\":\"caf\u00e9 \u65e5\u672c \ud83d\ude80 100%\"}";
+            var headers = new LinkedHashMap<String, String>();
+            headers.put(CallHeaders.OPERATION_NAME, CallHeaders.OPERATION_EXECUTE_TOOL);
+            headers.put(CallHeaders.AGENT_NAME, "k8s-workloads");
+            headers.put(CallHeaders.TOOL_NAME, "pods_list");
+            headers.put(CallHeaders.TOOL_CALL_ARGUMENTS, args);
+            headers.put(CallHeaders.CONTENT_TYPE, "application/json");
+
+            assertTrue(store.put("t-utf8", "k8s-workloads", "pods_list", key,
+                    "[1]".getBytes(StandardCharsets.UTF_8), headers), "a non-ASCII argument does not fail the write");
+
+            var catalog = ThreadCatalog.load(conn, store.threadPrefix("t-utf8"));
+            assertEquals(1, catalog.calls());
+            String line = catalog.callLine(catalog.entries().get(0));
+            assertTrue(line.contains("caf\u00e9 \u65e5\u672c \ud83d\ude80 100%"), line);
+            conn.objectStore(DiscussionArtifacts.BUCKET).delete(key);
+        }
+    }
+
+    @Test
     void numberingCarriesOnAfterARestartInsteadOfOverwritingEarlierCalls() throws Exception {
         try (Connection conn = Nats.connect(url)) {
             var provider = mock(NatsConnectionProvider.class);

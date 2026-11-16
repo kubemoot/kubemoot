@@ -199,12 +199,13 @@ func listBucket(ctx context.Context, js jetstream.JetStream, bucket, prefix stri
 	return out, nil
 }
 
-// metaOf turns object info into Meta, keeping the first value of each header.
+// metaOf turns object info into Meta, keeping the first value of each header, decoded (see
+// store.DecodeHeaderValue).
 func metaOf(info *jetstream.ObjectInfo) store.Meta {
 	m := store.Meta{Key: info.Name, Size: info.Size, Headers: make(map[string]string, len(info.Headers))}
 	for k, v := range info.Headers {
 		if len(v) > 0 {
-			m.Headers[k] = v[0]
+			m.Headers[k] = store.DecodeHeaderValue(v[0])
 		}
 	}
 	return m
