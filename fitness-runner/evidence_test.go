@@ -11,9 +11,13 @@ You may obtain a copy of the License at
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"net/textproto"
+	"os"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -36,17 +40,32 @@ func (f *fakeEvidenceStore) GetBytes(name string, _ ...nats.GetObjectOpt) ([]byt
 	return []byte(f.bodies[name]), nil
 }
 
-// obj is a stored tool call. The runtime writes lower-case header names and the
-// store hands them back as written, so the map is filled directly.
+// obj is a stored tool call with canonical-case header names (Gen_ai.operation.name,
+// Kubemoot.truncated), the form a header read through the Go client's MIME
+// reader takes for the lower-case names the runtime writes. A plain map lookup of
+// the runtime's names finds none of them.
 func obj(name string, hdr ...string) *nats.ObjectInfo {
-	h := nats.Header{"gen_ai.operation.name": {"execute_tool"}}
+	return objWith(textproto.CanonicalMIMEHeaderKey, name, hdr...)
+}
+
+// objAsWritten is a stored tool call whose header names are as the runtime wrote them.
+func objAsWritten(name string, hdr ...string) *nats.ObjectInfo {
+	return objWith(func(k string) string { return k }, name, hdr...)
+}
+
+func objWith(key func(string) string, name string, hdr ...string) *nats.ObjectInfo {
+	h := nats.Header{}
+	h[key("gen_ai.operation.name")] = []string{"execute_tool"}
 	for i := 0; i+1 < len(hdr); i += 2 {
-		h[hdr[i]] = []string{hdr[i+1]}
+		h[key(hdr[i])] = []string{hdr[i+1]}
 	}
 	return &nats.ObjectInfo{ObjectMeta: nats.ObjectMeta{Name: name, Headers: h}}
 }
 
+var noWait = stragglerWait{}
+
 const (
+	evCallKey = "k8s-nodes/001-resources_list"
 	evFinding = "finding"
 	evNS      = "ns"
 	evThread  = "t1"
@@ -64,13 +83,13 @@ func store(infos []*nats.ObjectInfo, bodies map[string]string) *fakeEvidenceStor
 
 func TestReadEvidenceReadsOnlyThisThreadsCalls(t *testing.T) {
 	notACall := obj("ns/crew/t1/k8s-nodes/003-x")
-	delete(notACall.Headers, "gen_ai.operation.name")
+	delete(notACall.Headers, "Gen_ai.operation.name")
 	st := store([]*nats.ObjectInfo{obj(evNodes), obj(evSignal), obj(evOther), obj(evOtherN), notACall},
 		map[string]string{
 			evNodes: nodeBody, evSignal: "signal-only-1", evOther: "other-thread-1",
 			evOtherN: "other-ns-1", "ns/crew/t1/k8s-nodes/003-x": "not-a-call-1",
 		})
-	set, calls, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil)
+	set, calls, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
 	if !ok || calls != 1 || !set.Has("homelab-k8s-1-cp") {
 		t.Fatalf("ok=%v calls=%d", ok, calls)
 	}
@@ -86,7 +105,7 @@ func TestReadEvidenceCountsWhatTheRunWasToldAndAsked(t *testing.T) {
 		obj(evNodes, "gen_ai.tool.call.arguments", "utf8-pct:%7B%22name%22%3A%22foo-9%22%7D"),
 		obj(evErr, "kubemoot.error", "true", "error.type", "tool_error"),
 	}, map[string]string{evNodes: nodeBody, evErr: `pod "web-7" not found in namespace "staging-1"`})
-	set, calls, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil)
+	set, calls, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
 	if !ok || calls != 2 {
 		t.Fatalf("ok=%v calls=%d", ok, calls)
 	}
@@ -111,10 +130,10 @@ func TestReadEvidenceNotComplete(t *testing.T) {
 		"legacy errs":  {[]evidenceStore{good, &fakeEvidenceStore{listErr: errors.New("timeout")}}, nil},
 		"cut result": {[]evidenceStore{store([]*nats.ObjectInfo{obj(evNodes, "kubemoot.truncated", "true")},
 			map[string]string{evNodes: nodeBody})}, nil},
-		"call still missing": {[]evidenceStore{good}, map[string]bool{"k8s-nodes/001-resources_list": true, "k8s-nodes/002-events_list": true}},
+		"call still missing": {[]evidenceStore{good}, map[string]bool{evCallKey: true, "k8s-nodes/002-events_list": true}},
 	}
 	for name, tc := range cases {
-		if set, _, ok := readEvidence(tc.stores, evNS, evThread, tc.expected); ok || set != nil {
+		if set, _, ok := readEvidence(tc.stores, evNS, evThread, tc.expected, noWait); ok || set != nil {
 			t.Errorf("%s: want not complete", name)
 		}
 	}
@@ -122,7 +141,7 @@ func TestReadEvidenceNotComplete(t *testing.T) {
 
 func TestReadEvidenceNamedCallsAllStored(t *testing.T) {
 	st := store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody})
-	_, _, ok := readEvidence([]evidenceStore{st}, evNS, evThread, map[string]bool{"k8s-nodes/001-resources_list": true})
+	_, _, ok := readEvidence([]evidenceStore{st}, evNS, evThread, map[string]bool{evCallKey: true}, noWait)
 	if !ok {
 		t.Error("every named call is stored, want complete")
 	}
@@ -131,7 +150,7 @@ func TestReadEvidenceNamedCallsAllStored(t *testing.T) {
 func TestReadEvidenceReadsJSONAsJSON(t *testing.T) {
 	st := store([]*nats.ObjectInfo{obj(evNodes, "Content-Type", "application/json")},
 		map[string]string{evNodes: `{"items":[{"name":"node-01\nnginx-1"}]}`})
-	set, _, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil)
+	set, _, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
 	if !ok || !set.Has("node-01") || !set.Has("nginx-1") {
 		t.Errorf("JSON escapes must separate words: ok=%v", ok)
 	}
@@ -143,7 +162,7 @@ func TestExpectedCallKeys(t *testing.T) {
 		{Type: "activity"},
 	}
 	got := expectedCallKeys(ev)
-	if len(got) != 2 || !got["k8s-nodes/001-resources_list"] || !got["k8s-nodes/002-events_list"] {
+	if len(got) != 2 || !got[evCallKey] || !got["k8s-nodes/002-events_list"] {
 		t.Errorf("keys = %v", got)
 	}
 }
@@ -161,12 +180,111 @@ func TestBucketMissing(t *testing.T) {
 	}
 }
 
-func TestDecodeHeader(t *testing.T) {
-	cases := map[string]string{"plain": "plain", "utf8-pct:a%20b": "a b", "utf8-pct:%zz": "utf8-pct:%zz"}
-	for in, want := range cases {
-		if got := decodeHeader(in); got != want {
-			t.Errorf("decodeHeader(%q) = %q, want %q", in, got, want)
+// TestDecodeHeaderSharedFixture runs the cases the agent runtime (Java) and
+// artifact-access (Go) run, so the three decoders cannot drift apart.
+func TestDecodeHeaderSharedFixture(t *testing.T) {
+	raw, err := os.ReadFile("../test/fixtures/header-values.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		RoundTrip  []struct{ Name, Value, Encoded string }
+		DecodeOnly []struct{ Name, Encoded, Value string }
+	}
+	if err := json.Unmarshal(raw, &f); err != nil || len(f.RoundTrip) == 0 || len(f.DecodeOnly) == 0 {
+		t.Fatalf("fixture: %v", err)
+	}
+	for _, c := range f.RoundTrip {
+		if got := decodeHeader(c.Encoded); got != c.Value {
+			t.Errorf("%s: decodeHeader(%q) = %q, want %q", c.Name, c.Encoded, got, c.Value)
 		}
+	}
+	for _, c := range f.DecodeOnly {
+		if got := decodeHeader(c.Encoded); got != c.Value {
+			t.Errorf("%s: decodeHeader(%q) = %q, want %q", c.Name, c.Encoded, got, c.Value)
+		}
+	}
+}
+
+// A value that is not validly encoded is returned as it is: invalid UTF-8 and
+// control bytes are not decoded.
+func TestDecodeHeaderRejectsInvalid(t *testing.T) {
+	for _, in := range []string{"utf8-pct:%zz", "utf8-pct:%C3", "utf8-pct:%FF%FE", "utf8-pct:a%2"} {
+		if got := decodeHeader(in); got != in {
+			t.Errorf("decodeHeader(%q) = %q, want it returned as it is", in, got)
+		}
+	}
+}
+
+// The Go client canonicalizes header names on read (Gen_ai.operation.name), so a
+// plain map lookup of the runtime's lower-case name finds nothing.
+func TestHeadersAreFoundInCanonicalCase(t *testing.T) {
+	info := obj(evNodes, "gen_ai.tool.call.arguments", `{"name":"web-7"}`,
+		"Content-Type", "application/json", "kubemoot.truncated", "false")
+	if _, plain := info.Headers["gen_ai.operation.name"]; plain {
+		t.Fatal("the fixture must hold canonical-case names")
+	}
+	if !inThread(info, evNS, evThread) {
+		t.Error("inThread must find the canonical-case operation header")
+	}
+	if !inThread(objAsWritten(evNodes), evNS, evThread) {
+		t.Error("inThread must also find the names as the runtime wrote them")
+	}
+	st := store([]*nats.ObjectInfo{info}, map[string]string{evNodes: `{"items":[{"name":"node-01\nnginx-1"}]}`})
+	set, _, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
+	if !ok || !set.Has("web-7") || !set.Has("nginx-1") {
+		t.Errorf("arguments header and JSON content type must be read: ok=%v", ok)
+	}
+	cut := obj(evNodes, "kubemoot.truncated", "true")
+	if _, _, ok := readEvidence([]evidenceStore{store([]*nats.ObjectInfo{cut}, map[string]string{evNodes: "x-1"})},
+		evNS, evThread, nil, noWait); ok {
+		t.Error("a result marked truncated in canonical case must skip the check")
+	}
+}
+
+// lateStore lists the call only from its second list on, as a call that lands
+// while the runner is already reading.
+type lateStore struct {
+	fakeEvidenceStore
+	lists, landsAt int
+}
+
+func (l *lateStore) List(...nats.ListObjectsOpt) ([]*nats.ObjectInfo, error) {
+	l.lists++
+	if l.lists < l.landsAt {
+		return nil, nats.ErrNoObjectsFound
+	}
+	return l.infos, nil
+}
+
+func TestReadEvidenceWaitsForNamedCalls(t *testing.T) {
+	expected := map[string]bool{evCallKey: true}
+	wait := stragglerWait{deadline: 5 * time.Second, interval: time.Millisecond}
+	late := &lateStore{fakeEvidenceStore: *store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody}), landsAt: 3}
+	set, calls, ok := readEvidence([]evidenceStore{late}, evNS, evThread, expected, wait)
+	if !ok || calls != 1 || !set.Has("homelab-k8s-1-cp") || late.lists != 3 {
+		t.Errorf("a call that lands late is read: ok=%v calls=%d lists=%d", ok, calls, late.lists)
+	}
+	never := &lateStore{fakeEvidenceStore: *store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody}), landsAt: 1 << 30}
+	short := stragglerWait{deadline: 20 * time.Millisecond, interval: time.Millisecond}
+	if _, _, ok := readEvidence([]evidenceStore{never}, evNS, evThread, expected, short); ok {
+		t.Error("a call that never lands must end as not checked at the deadline")
+	}
+}
+
+func TestExpectedCallKeysOnlyOfTheAnsweringThread(t *testing.T) {
+	ev := []SignalEvent{
+		{Type: eventThreadFound, ThreadID: "abandoned"},
+		{Type: evFinding, Content: "[CALL key=old-agent/001-x tool=x]"},
+		{Type: eventThreadFound, ThreadID: "answer-thread"},
+		{Type: evFinding, Content: "[CALL key=k8s-nodes/001-resources_list tool=x]"},
+	}
+	got := expectedCallKeys(ev)
+	if len(got) != 1 || !got[evCallKey] {
+		t.Errorf("keys = %v, want only the answering thread's", got)
+	}
+	if got := expectedCallKeys([]SignalEvent{{Type: evFinding, Content: "[CALL key=a/001-x tool=x]"}}); !got["a/001-x"] {
+		t.Error("a stream with no thread_found is read whole")
 	}
 }
 
@@ -195,7 +313,7 @@ func TestCheckInventedNamesRealCases(t *testing.T) {
 		{"real names", "- homelab-k8s-1-cp\n- homelab-k8s-1-gpu-worker", nil},
 	}
 	for _, tc := range cases {
-		got := checkInventedNames([]evidenceStore{st}, evNS, realRun(q, tc.answer))
+		got := checkInventedNames([]evidenceStore{st}, evNS, realRun(q, tc.answer), noWait)
 		if !got.Captured || got.Calls != 1 || !slices.Equal(got.InventedNames, tc.want) {
 			t.Errorf("%s: got %+v, want names %v", tc.name, got, tc.want)
 		}
@@ -212,7 +330,7 @@ func TestCheckInventedNamesNotCheckedWithoutBasis(t *testing.T) {
 		out *RunOutcome
 	}{"no answer": {evNS, noAnswer}, "no thread": {evNS, noThread}, "no namespace": {"", realRun("q", "**node3**")}}
 	for name, tc := range cases {
-		if got := checkInventedNames([]evidenceStore{st}, tc.ns, tc.out); got.Captured || got.InventedNames != nil {
+		if got := checkInventedNames([]evidenceStore{st}, tc.ns, tc.out, noWait); got.Captured || got.InventedNames != nil {
 			t.Errorf("%s: want not checked, got %+v", name, got)
 		}
 	}
@@ -223,7 +341,7 @@ func TestCheckInventedNamesNamesFromTheQuestionAndAssertions(t *testing.T) {
 	out := realRun("Is node-7 ready?", "**node-7** and **node-9** and **vllm-rig0**")
 	out.Assertions = []AssertionResult{{Raw: `DEFER synthesis REFLECTS "mentions node-9"`}}
 	out.Events[0].GPU = "vllm-rig0"
-	got := checkInventedNames([]evidenceStore{st}, evNS, out)
+	got := checkInventedNames([]evidenceStore{st}, evNS, out, noWait)
 	if !got.Captured || len(got.InventedNames) != 0 {
 		t.Errorf("question, reference and crew names are allowed: %+v", got)
 	}

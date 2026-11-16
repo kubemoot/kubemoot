@@ -13,14 +13,15 @@ package main
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"regexp"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/kubemoot/kubemoot/operator/pkg/evidencenames"
+	"github.com/kubemoot/kubemoot/fitness-runner/internal/evidencenames"
 	"github.com/kubemoot/kubemoot/operator/pkg/fitnessscript"
 )
 
@@ -33,12 +34,13 @@ const (
 
 // Header names the agent runtime sets on a stored tool call.
 const (
-	headerOperation = "gen_ai.operation.name"
-	operationTool   = "execute_tool"
-	headerArguments = "gen_ai.tool.call.arguments"
-	headerTruncated = "kubemoot.truncated"
-	headerType      = "Content-Type"
-	headerEncoded   = "utf8-pct:"
+	headerOperation  = "gen_ai.operation.name"
+	operationTool    = "execute_tool"
+	headerArguments  = "gen_ai.tool.call.arguments"
+	headerTruncated  = "kubemoot.truncated"
+	headerType       = "Content-Type"
+	eventThreadFound = "thread_found"
+	headerEncoded    = "utf8-pct:"
 )
 
 var (
@@ -103,11 +105,25 @@ func relativeKey(name string) string {
 	return parts[3]
 }
 
-// expectedCallKeys are the keys of the [CALL key=...] lines of the stream's
-// findings: the calls the run says it made.
+// answeringEvents are the events of the answering thread: those from the last
+// thread_found on. The gateway announces a second thread when the coordinator
+// restarted and took the request again, and the earlier thread's findings
+// belong to calls of a thread that is not read. Only thread_found carries the
+// thread id, so the split is by position in the stream.
+func answeringEvents(events []SignalEvent) []SignalEvent {
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Type == eventThreadFound {
+			return events[i:]
+		}
+	}
+	return events
+}
+
+// expectedCallKeys are the keys of the [CALL key=...] lines of the answering
+// thread's findings: the calls the run says it made.
 func expectedCallKeys(events []SignalEvent) map[string]bool {
 	out := map[string]bool{}
-	for _, e := range events {
+	for _, e := range answeringEvents(events) {
 		for _, m := range callLine.FindAllStringSubmatch(e.Content, -1) {
 			out[m[1]] = true
 		}
@@ -115,17 +131,50 @@ func expectedCallKeys(events []SignalEvent) map[string]bool {
 	return out
 }
 
-// decodeHeader returns the text of a header value written with the runtime's
-// percent encoding (utf8-pct:), or the value itself.
+// decodeHeader returns the text a header value stands for. The agent runtime
+// writes a value that is not printable ASCII as "utf8-pct:" and the UTF-8 bytes
+// with each byte outside printable ASCII, and every percent sign, as %XX. A value
+// that is not validly encoded is returned as it is. It follows
+// artifact-access/internal/store DecodeHeaderValue; both run
+// test/fixtures/header-values.json.
 func decodeHeader(v string) string {
 	rest, ok := strings.CutPrefix(v, headerEncoded)
 	if !ok {
 		return v
 	}
-	if dec, err := url.PathUnescape(rest); err == nil {
-		return dec
+	var b strings.Builder
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if c < 0x20 || c >= 0x7F {
+			return v
+		}
+		if c != '%' {
+			b.WriteByte(c)
+			continue
+		}
+		if i+2 >= len(rest) || hexDigit(rest[i+1]) < 0 || hexDigit(rest[i+2]) < 0 {
+			return v
+		}
+		b.WriteByte(byte(hexDigit(rest[i+1])<<4 | hexDigit(rest[i+2])))
+		i += 2
 	}
-	return v
+	if !utf8.ValidString(b.String()) {
+		return v
+	}
+	return b.String()
+}
+
+// hexDigit is the value of an ASCII hex digit, or -1.
+func hexDigit(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10
+	}
+	return -1
 }
 
 // addResult adds one stored call to the evidence: its arguments (what the run
@@ -176,28 +225,56 @@ func missingCall(seen, expected map[string]bool) string {
 	return ""
 }
 
-// readEvidence reads the thread's tool calls from the stores. ok is false when
-// any list or read failed, a result was cut, a call the findings name is not
-// stored, no call was read, or the token set outgrew its bound: the set then
-// does not cover the run and the check must not run.
-func readEvidence(stores []evidenceStore, namespace, threadID string,
-	expected map[string]bool) (*evidencenames.Evidence, int, bool) {
+// stragglerWait bounds the wait for a call the findings name but the store does
+// not list yet. The wait ends by state, when every named call is stored; the
+// deadline is only a safety net for a call that never lands.
+type stragglerWait struct {
+	deadline time.Duration
+	interval time.Duration
+}
+
+var defaultWait = stragglerWait{deadline: 30 * time.Second, interval: 2 * time.Second}
+
+// readOnce lists and reads the thread's calls once. ok is false when a list or
+// read failed or a result was cut.
+func readOnce(stores []evidenceStore, namespace, threadID string) (*evidencenames.Evidence, map[string]bool, bool) {
 	set := evidencenames.NewEvidence()
 	seen := map[string]bool{}
 	for _, st := range stores {
 		if !readStore(set, seen, st, namespace, threadID) {
-			return nil, 0, false
+			return nil, nil, false
 		}
 	}
-	if len(seen) == 0 {
-		fmt.Println("[fitness-runner] no tool results read for the thread; invented-name check skipped")
-		return nil, 0, false
+	return set, seen, true
+}
+
+// readEvidence reads the thread's tool calls from the stores. When the findings
+// name a call that is not stored yet it lists again until all are, or the wait
+// deadline passes. ok is false when a list or read failed, a result was cut, a
+// named call never landed, no call was read, or the token set outgrew its bound:
+// the set then does not cover the run and the check must not run.
+func readEvidence(stores []evidenceStore, namespace, threadID string, expected map[string]bool,
+	wait stragglerWait) (*evidencenames.Evidence, int, bool) {
+	deadline := time.Now().Add(wait.deadline)
+	for {
+		set, seen, ok := readOnce(stores, namespace, threadID)
+		if !ok {
+			return nil, 0, false
+		}
+		key := missingCall(seen, expected)
+		if key == "" {
+			if len(seen) == 0 {
+				fmt.Println("[fitness-runner] no tool results read for the thread; invented-name check skipped")
+				return nil, 0, false
+			}
+			return set, len(seen), !set.Truncated()
+		}
+		if !time.Now().Before(deadline) {
+			fmt.Fprintf(os.Stderr, "[fitness-runner] call %s named in the findings is not stored; check skipped\n", key)
+			return nil, 0, false
+		}
+		time.Sleep(wait.interval)
 	}
-	if key := missingCall(seen, expected); key != "" {
-		fmt.Fprintf(os.Stderr, "[fitness-runner] call %s named in the findings is not stored; check skipped\n", key)
-		return nil, 0, false
-	}
-	return set, len(seen), !set.Truncated()
 }
 
 // allowedNames are the tokens the answer may repeat without having read them
@@ -218,12 +295,12 @@ func allowedNames(outcome *RunOutcome) *evidencenames.Evidence {
 // checkInventedNames runs the check for a finished run over the stores. The
 // result says whether the check ran and, if so, which names the answer asserts
 // that no tool result held. It never fails the run.
-func checkInventedNames(stores []evidenceStore, namespace string, outcome *RunOutcome) Evidence {
+func checkInventedNames(stores []evidenceStore, namespace string, outcome *RunOutcome, wait stragglerWait) Evidence {
 	synthesis := fitnessscript.FindSynthesis(outcome.Events)
 	if namespace == "" || outcome.ThreadID == "" || strings.TrimSpace(synthesis) == "" {
 		return Evidence{}
 	}
-	set, calls, ok := readEvidence(stores, namespace, outcome.ThreadID, expectedCallKeys(outcome.Events))
+	set, calls, ok := readEvidence(stores, namespace, outcome.ThreadID, expectedCallKeys(outcome.Events), wait)
 	if !ok {
 		return Evidence{}
 	}
@@ -267,5 +344,5 @@ func captureEvidence(natsURL, namespace string, outcome *RunOutcome) Evidence {
 			return Evidence{}
 		}
 	}
-	return checkInventedNames(stores, namespace, outcome)
+	return checkInventedNames(stores, namespace, outcome, defaultWait)
 }
