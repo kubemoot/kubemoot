@@ -12,6 +12,7 @@ package controller
 
 import (
 	"bytes"
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -80,5 +81,45 @@ func TestScenarioResultsCountsInventedNames(t *testing.T) {
 	}
 	if got := scenarioResults(scripts("a"), results)[0]; got.InventedNameRuns != 2 {
 		t.Errorf("InventedNameRuns = %d, want 2 (runs, not names)", got.InventedNameRuns)
+	}
+}
+
+// transcripts with the runner's inventedNames reach status.scenarios: the rows of a
+// suite are built from the CrewFitness children, which carry no transcript, so the
+// count is added from the stored transcripts once the run is terminal.
+func TestAddInventedCountsFromTranscripts(t *testing.T) {
+	suite := &kubemootv1alpha1.CrewFitnessSuite{
+		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{Scripts: []kubemootv1alpha1.SuiteScript{
+			{TestRef: "gotcha"}, {TestRef: "quiet"},
+		}},
+		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "r1"},
+	}
+	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, nil)
+	flagged := `{"events":[{"type":"synthesis","content":"x"}],"inventedNames":["homelab-k8s-1"],"evidenceCaptured":true}`
+	clean := `{"events":[{"type":"synthesis","content":"x"}],"evidenceCaptured":true}`
+	store := fakeStore{objs: map[string][]byte{
+		"ns/s/r1/s0-i1.json": []byte(flagged), "ns/s/r1/s0-i2.json": []byte(flagged),
+		"ns/s/r1/s0-i3.json": []byte(clean), "ns/s/r1/s1-i1.json": []byte(clean),
+		"ns/s/r2/s1-i1.json": []byte(flagged), // another run
+	}}
+	addInventedCounts(store, suite)
+	got := suite.Status.Scenarios
+	if got[0].InventedNameRuns != 2 || got[1].InventedNameRuns != 0 {
+		t.Errorf("inventedNameRuns = %d, %d; want 2, 0", got[0].InventedNameRuns, got[1].InventedNameRuns)
+	}
+	raw, _ := json.Marshal(suite.Status)
+	if !bytes.Contains(raw, []byte(`"inventedNameRuns":2`)) {
+		t.Errorf("status JSON must carry the count: %s", raw)
+	}
+}
+
+func TestAddInventedCountsLeavesRowsWithoutAStore(t *testing.T) {
+	suite := &kubemootv1alpha1.CrewFitnessSuite{Status: kubemootv1alpha1.CrewFitnessSuiteStatus{
+		RunID: "r1", Scenarios: []kubemootv1alpha1.SuiteScenarioResult{{Name: "a", InventedNameRuns: 3}}}}
+	addInventedCounts(nil, suite)
+	addInventedCounts(listFailStore{}, suite)
+	if suite.Status.Scenarios[0].InventedNameRuns != 3 {
+		t.Error("no store or a failed listing must keep the rows as they are")
 	}
 }

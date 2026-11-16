@@ -11,6 +11,7 @@ on:
       - 'operator/Makefile'
       - 'operator/pkg/fitnessscript/**'
       - 'operator/pkg/sse/**'
+      - 'test/fixtures/header-values.json'
       - '.github/scripts/go-build-static.sh'
       - '.github/workflows/build-go-binary-image.yaml'
   workflow_dispatch:

@@ -610,6 +610,7 @@ func (r *CrewFitnessSuiteReconciler) persistArtifact(ctx context.Context, suite 
 		return ctrl.Result{RequeueAfter: artifactRetryInterval}, false, nil
 	}
 	suite.Status.ArtifactRef = ref
+	addInventedCounts(r.store(), suite)
 	if err := r.Status().Update(ctx, suite); err != nil {
 		return ctrl.Result{}, false, err
 	}
