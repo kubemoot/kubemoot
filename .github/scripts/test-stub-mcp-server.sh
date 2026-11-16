@@ -60,6 +60,7 @@ check "an unknown tool is an error result" true "$(post '{"jsonrpc":"2.0","id":5
 check "an unknown method is a JSON-RPC error" -32601 "$(post '{"jsonrpc":"2.0","id":6,"method":"resources/list"}' >/dev/null; wait_for '"id": 6[,}]' || true; reply 6 | jq -r .error.code)"
 check "a body that is not JSON is refused" 400 "$(post 'not json')"
 check "an unknown session is refused" 404 "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d '{}' "${base}/message?sessionId=nope")"
+check "ready answers once the server accepts connections" ok "$(curl -s "${base}/ready")"
 check "an unknown path is refused" 404 "$(curl -s -o /dev/null -w '%{http_code}' "${base}/other")"
 check "a missing port is a usage error" 64 "$(python3 -I "$script" >/dev/null 2>&1 && echo 0 || echo $?)"
 

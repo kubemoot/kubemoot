@@ -14,7 +14,8 @@
 # Usage: run-native-check.sh RUNNER_BINARY
 # Environment: NATIVE_CHECK_PORT (binary's HTTP port, default 18080), NATIVE_CHECK_STUB_PORT
 # (default 18081), NATIVE_CHECK_TOOLS (tools the stub serves, default 2),
-# NATIVE_CHECK_START_SECONDS (wait for the binary to answer, default 120).
+# NATIVE_CHECK_START_SECONDS (wait for the binary and the stub, default 120),
+# NATIVE_CHECK_BINARY_ARGS (extra arguments for the binary, e.g. -Djdk.httpclient.HttpClient.log=errors).
 # Tested by test-run-native-check.sh.
 set -euo pipefail
 
@@ -58,6 +59,20 @@ wait_live() {
   done
 }
 
+# wait_stub PID: waits until the stub answers /ready (it accepts connections), a state the
+# binary's first MCP connection depends on; fails when the stub exits or the wait ends.
+wait_stub() {
+  local pid="$1" waited=0
+  until curl -sf --max-time 2 "http://127.0.0.1:${STUB_PORT}/ready" >/dev/null; do
+    if ! kill -0 "$pid" 2>/dev/null || [ "$waited" -ge "$START_SECONDS" ]; then
+      cat "${work}/stub.log"
+      fail "the stub MCP server did not become ready on port ${STUB_PORT}"
+    fi
+    sleep 0.2
+    waited=$((waited + 1))
+  done
+}
+
 # Held outside main so the EXIT trap, which runs after main returns, can still stop them.
 work="" stub="" runner=""
 cleanup() {
@@ -75,14 +90,17 @@ main() {
   python3 -I "${here}/stub-mcp-server.py" "$STUB_PORT" >"${work}/stub.log" 2>&1 &
   stub=$!
   trap cleanup EXIT
+  wait_stub "$stub"
 
+  local -a args=()
+  read -ra args <<<"${NATIVE_CHECK_BINARY_ARGS:-}"
   KUBEMOOT_MCP_SERVERS_0__NAME=check \
   KUBEMOOT_MCP_SERVERS_0__ENDPOINT="http://127.0.0.1:${STUB_PORT}" \
   KUBEMOOT_NATIVE_SELFTEST=true \
   QUARKUS_HTTP_PORT="$PORT" \
   KUBEMOOT_AGENT_NAME=native-check \
   KUBEMOOT_AGENT_DESCRIPTION="native image check" \
-    "$binary" >"${work}/runner.log" 2>&1 &
+    "$binary" "${args[@]}" >"${work}/runner.log" 2>&1 &
   runner=$!
 
   wait_live "$runner" "${work}/runner.log"
@@ -90,6 +108,9 @@ main() {
   tools="$(curl -sf --max-time 90 "http://localhost:${PORT}/tools")" || { cat "${work}/runner.log"; fail "the native binary did not answer /tools"; }
   kill "$runner" 2>/dev/null || true
   cat "${work}/runner.log"
+  # What the stub saw: a connection the binary made shows as a request line here.
+  echo "--- stub log"
+  cat "${work}/stub.log"
   judge_log "${work}/runner.log"
   echo "tools: ${tools}"
   count="$(tool_count "$tools")"
