@@ -54,6 +54,11 @@ var (
 	boldSpan  = regexp.MustCompile(`\*\*([^*\n]+)\*\*|__([^_\n]+)__`)
 	kindWord  = regexp.MustCompile(`(?i)\b(?:` + kindWords + `)\s+(?:named\s+|called\s+)?` +
 		"[`*\"']*" + `([A-Za-z0-9._/-]+)`)
+	// stateWord is a Kubernetes pod or node state. A weak-position token on a line
+	// that carries one is a resource ("- **nginx-ingress**: ImagePullBackOff"), so a
+	// hyphen is enough for it.
+	stateWord = regexp.MustCompile(`(?i)\b(?:ImagePullBackOff|ErrImagePull|CrashLoopBackOff|Evicted|OOMKilled|` +
+		`Unschedulable|NotReady|Terminating|Pending|CreateContainerConfigError)\b`)
 	leadMarkup = regexp.MustCompile("^[`*_\"'(\\[]+")
 	pairSplit  = regexp.MustCompile(`^([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)$`)
 )
@@ -70,7 +75,9 @@ var wellKnown = map[string]bool{
 	"x86-64": true, "out-of-memory": true, "high-memory": true, "in-flight": true,
 	"cluster-wide": true, "read-write": true, "read-heavy": true, "write-heavy": true,
 	"non-root": true, "per-node": true, "per-pod": true, "multi-node": true,
-	"single-node": true, "pre-existing": true, "cross-namespace": true,
+	"single-node": true, "long-running": true, "short-lived": true, "long-lived": true,
+	"node-level": true, "pod-level": true, "cluster-level": true, "memory-bound": true,
+	"cpu-bound": true, "resource-constrained": true, "image-related": true, "pre-existing": true, "cross-namespace": true,
 }
 
 // Evidence is the set of tokens a run's tool results held.
@@ -266,8 +273,11 @@ func bareLine(line string) []candidate {
 
 func lineCandidates(line string) []candidate {
 	var out []candidate
+	// A state word on the line makes a weak position strong: the token is the
+	// thing in that state.
+	weak := stateWord.MatchString(line)
 	if m := listItem.FindStringSubmatch(line); m != nil {
-		out = append(out, candidate{text: leadToken(m[1])})
+		out = append(out, candidate{text: leadToken(m[1]), strong: weak})
 	}
 	if m := tableCell.FindStringSubmatch(line); m != nil {
 		out = append(out, candidate{text: leadToken(m[1]), strong: true})
@@ -276,10 +286,10 @@ func lineCandidates(line string) []candidate {
 		out = append(out, candidate{text: strings.TrimSpace(m[1]), strong: true})
 	}
 	for _, m := range boldSpan.FindAllStringSubmatch(line, -1) {
-		out = append(out, candidate{text: strings.TrimSpace(m[1] + m[2])})
+		out = append(out, candidate{text: strings.TrimSpace(m[1] + m[2]), strong: weak})
 	}
 	for _, m := range kindWord.FindAllStringSubmatch(line, -1) {
-		out = append(out, candidate{text: m[1]})
+		out = append(out, candidate{text: m[1], strong: weak})
 	}
 	return out
 }

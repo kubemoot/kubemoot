@@ -16,6 +16,7 @@ import (
 	"net/textproto"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,9 +90,9 @@ func TestReadEvidenceReadsOnlyThisThreadsCalls(t *testing.T) {
 			evNodes: nodeBody, evSignal: "signal-only-1", evOther: "other-thread-1",
 			evOtherN: "other-ns-1", "ns/crew/t1/k8s-nodes/003-x": "not-a-call-1",
 		})
-	set, calls, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
-	if !ok || calls != 1 || !set.Has("homelab-k8s-1-cp") {
-		t.Fatalf("ok=%v calls=%d", ok, calls)
+	set, calls, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
+	if res != readComplete || calls != 1 || !set.Has("homelab-k8s-1-cp") {
+		t.Fatalf("res=%v calls=%d", res, calls)
 	}
 	for _, bad := range []string{"signal-only-1", "other-thread-1", "other-ns-1", "not-a-call-1"} {
 		if set.Has(bad) {
@@ -105,9 +106,9 @@ func TestReadEvidenceCountsWhatTheRunWasToldAndAsked(t *testing.T) {
 		obj(evNodes, "gen_ai.tool.call.arguments", "utf8-pct:%7B%22name%22%3A%22foo-9%22%7D"),
 		obj(evErr, "kubemoot.error", "true", "error.type", "tool_error"),
 	}, map[string]string{evNodes: nodeBody, evErr: `pod "web-7" not found in namespace "staging-1"`})
-	set, calls, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
-	if !ok || calls != 2 {
-		t.Fatalf("ok=%v calls=%d", ok, calls)
+	set, calls, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
+	if res != readComplete || calls != 2 {
+		t.Fatalf("res=%v calls=%d", res, calls)
 	}
 	for _, tok := range []string{"foo-9", "web-7", "staging-1"} {
 		if !set.Has(tok) {
@@ -133,7 +134,7 @@ func TestReadEvidenceNotComplete(t *testing.T) {
 		"call still missing": {[]evidenceStore{good}, map[string]bool{evCallKey: true, "k8s-nodes/002-events_list": true}},
 	}
 	for name, tc := range cases {
-		if set, _, ok := readEvidence(tc.stores, evNS, evThread, tc.expected, noWait); ok || set != nil {
+		if set, _, res := readEvidence(tc.stores, evNS, evThread, tc.expected, noWait); res == readComplete || set != nil {
 			t.Errorf("%s: want not complete", name)
 		}
 	}
@@ -141,8 +142,8 @@ func TestReadEvidenceNotComplete(t *testing.T) {
 
 func TestReadEvidenceNamedCallsAllStored(t *testing.T) {
 	st := store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody})
-	_, _, ok := readEvidence([]evidenceStore{st}, evNS, evThread, map[string]bool{evCallKey: true}, noWait)
-	if !ok {
+	_, _, res := readEvidence([]evidenceStore{st}, evNS, evThread, map[string]bool{evCallKey: true}, noWait)
+	if res != readComplete {
 		t.Error("every named call is stored, want complete")
 	}
 }
@@ -150,9 +151,9 @@ func TestReadEvidenceNamedCallsAllStored(t *testing.T) {
 func TestReadEvidenceReadsJSONAsJSON(t *testing.T) {
 	st := store([]*nats.ObjectInfo{obj(evNodes, "Content-Type", "application/json")},
 		map[string]string{evNodes: `{"items":[{"name":"node-01\nnginx-1"}]}`})
-	set, _, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
-	if !ok || !set.Has("node-01") || !set.Has("nginx-1") {
-		t.Errorf("JSON escapes must separate words: ok=%v", ok)
+	set, _, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
+	if res != readComplete || !set.Has("node-01") || !set.Has("nginx-1") {
+		t.Errorf("JSON escapes must separate words: res=%v", res)
 	}
 }
 
@@ -231,13 +232,13 @@ func TestHeadersAreFoundInCanonicalCase(t *testing.T) {
 		t.Error("inThread must also find the names as the runtime wrote them")
 	}
 	st := store([]*nats.ObjectInfo{info}, map[string]string{evNodes: `{"items":[{"name":"node-01\nnginx-1"}]}`})
-	set, _, ok := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
-	if !ok || !set.Has("web-7") || !set.Has("nginx-1") {
-		t.Errorf("arguments header and JSON content type must be read: ok=%v", ok)
+	set, _, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
+	if res != readComplete || !set.Has("web-7") || !set.Has("nginx-1") {
+		t.Errorf("arguments header and JSON content type must be read: res=%v", res)
 	}
 	cut := obj(evNodes, "kubemoot.truncated", "true")
-	if _, _, ok := readEvidence([]evidenceStore{store([]*nats.ObjectInfo{cut}, map[string]string{evNodes: "x-1"})},
-		evNS, evThread, nil, noWait); ok {
+	if _, _, res := readEvidence([]evidenceStore{store([]*nats.ObjectInfo{cut}, map[string]string{evNodes: "x-1"})},
+		evNS, evThread, nil, noWait); res == readComplete {
 		t.Error("a result marked truncated in canonical case must skip the check")
 	}
 }
@@ -261,13 +262,13 @@ func TestReadEvidenceWaitsForNamedCalls(t *testing.T) {
 	expected := map[string]bool{evCallKey: true}
 	wait := stragglerWait{deadline: 5 * time.Second, interval: time.Millisecond}
 	late := &lateStore{fakeEvidenceStore: *store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody}), landsAt: 3}
-	set, calls, ok := readEvidence([]evidenceStore{late}, evNS, evThread, expected, wait)
-	if !ok || calls != 1 || !set.Has("homelab-k8s-1-cp") || late.lists != 3 {
-		t.Errorf("a call that lands late is read: ok=%v calls=%d lists=%d", ok, calls, late.lists)
+	set, calls, res := readEvidence([]evidenceStore{late}, evNS, evThread, expected, wait)
+	if res != readComplete || calls != 1 || !set.Has("homelab-k8s-1-cp") || late.lists != 3 {
+		t.Errorf("a call that lands late is read: res=%v calls=%d lists=%d", res, calls, late.lists)
 	}
 	never := &lateStore{fakeEvidenceStore: *store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody}), landsAt: 1 << 30}
 	short := stragglerWait{deadline: 20 * time.Millisecond, interval: time.Millisecond}
-	if _, _, ok := readEvidence([]evidenceStore{never}, evNS, evThread, expected, short); ok {
+	if _, _, res := readEvidence([]evidenceStore{never}, evNS, evThread, expected, short); res != readTimedOut {
 		t.Error("a call that never lands must end as not checked at the deadline")
 	}
 }
@@ -344,5 +345,24 @@ func TestCheckInventedNamesNamesFromTheQuestionAndAssertions(t *testing.T) {
 	got := checkInventedNames([]evidenceStore{st}, evNS, out, noWait)
 	if !got.Captured || len(got.InventedNames) != 0 {
 		t.Errorf("question, reference and crew names are allowed: %+v", got)
+	}
+}
+
+func TestStragglerTimeoutIsRecordedInTheTranscript(t *testing.T) {
+	st := store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody})
+	out := realRun("q", "**node3**")
+	out.Events[0].Content += "\n[CALL key=k8s-nodes/009-missing tool=x]"
+	got := checkInventedNames([]evidenceStore{st}, evNS, out, stragglerWait{deadline: 10 * time.Millisecond, interval: time.Millisecond})
+	if got.Captured || !got.StragglerTimeout || got.InventedNames != nil {
+		t.Errorf("a call that never lands: want not checked and StragglerTimeout, got %+v", got)
+	}
+	b, _ := json.Marshal(got)
+	if !strings.Contains(string(b), `"evidenceStragglerTimeout":true`) {
+		t.Errorf("the transcript must carry the flag: %s", b)
+	}
+	none := realRun("q", "**node3**")
+	none.Events[0].Content = ""
+	if skipped := checkInventedNames(nil, evNS, none, noWait); skipped.StragglerTimeout {
+		t.Error("a run that is not checked for another reason is not a timeout")
 	}
 }

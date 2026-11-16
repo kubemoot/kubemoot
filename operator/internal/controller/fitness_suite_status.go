@@ -95,6 +95,36 @@ func scenarioResults(scripts []kubemootv1alpha1.SuiteScript, results []Iteration
 	return out
 }
 
+// withInventedCounts sets inventedNameRuns on the scenario rows from the run's
+// stored transcripts. The rows of a running suite come from the finished
+// CrewFitness children, which carry no transcript, so the count is added once
+// the run is terminal and its transcripts are final.
+func withInventedCounts(rows []kubemootv1alpha1.SuiteScenarioResult, results []IterationResult) {
+	runs := map[string]int32{}
+	for _, r := range results {
+		if len(r.InventedNames) > 0 {
+			runs[statusName(r.Scenario)]++
+		}
+	}
+	for i := range rows {
+		rows[i].InventedNameRuns = runs[rows[i].Name]
+	}
+}
+
+// addInventedCounts reads the run's transcripts and sets inventedNameRuns on
+// status.scenarios. Without a store, or when the listing fails, the rows keep
+// what they hold.
+func addInventedCounts(store objectStore, suite *kubemootv1alpha1.CrewFitnessSuite) {
+	if store == nil || suite.Status.RunID == "" || len(suite.Status.Scenarios) == 0 {
+		return
+	}
+	keys, err := store.ListObjects(FitnessArtifactsBucket, suiteRunPrefix(suite.Namespace, suite.Name, suite.Status.RunID))
+	if err != nil {
+		return
+	}
+	withInventedCounts(suite.Status.Scenarios, readTranscriptResults(suite, store, keys))
+}
+
 // distinctTestRefs returns the scripts' testRefs in spec order, each once.
 func distinctTestRefs(scripts []kubemootv1alpha1.SuiteScript) []string {
 	seen := make(map[string]bool, len(scripts))

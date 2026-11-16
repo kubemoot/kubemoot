@@ -58,6 +58,10 @@ type Evidence struct {
 	Captured bool `json:"evidenceCaptured,omitempty"`
 	// Calls is how many tool results were read.
 	Calls int `json:"evidenceCalls,omitempty"`
+	// StragglerTimeout is true when the run waited the full wait for a call the
+	// findings name and it never landed; the check did not run. Counting it over a
+	// suite's transcripts shows a systematic gap.
+	StragglerTimeout bool `json:"evidenceStragglerTimeout,omitempty"`
 	// InventedNames are the names the answer asserts that no tool result held.
 	InventedNames []string `json:"inventedNames,omitempty"`
 }
@@ -248,30 +252,40 @@ func readOnce(stores []evidenceStore, namespace, threadID string) (*evidencename
 	return set, seen, true
 }
 
+// readOutcome is how a read of the thread's calls ended.
+type readOutcome int
+
+const (
+	readComplete readOutcome = iota // every call read; the set covers the run
+	readSkipped                     // a failure, a cut result, or no call: not checked
+	readTimedOut                    // a named call never landed within the wait
+)
+
 // readEvidence reads the thread's tool calls from the stores. When the findings
 // name a call that is not stored yet it lists again until all are, or the wait
 // deadline passes. ok is false when a list or read failed, a result was cut, a
 // named call never landed, no call was read, or the token set outgrew its bound:
 // the set then does not cover the run and the check must not run.
 func readEvidence(stores []evidenceStore, namespace, threadID string, expected map[string]bool,
-	wait stragglerWait) (*evidencenames.Evidence, int, bool) {
+	wait stragglerWait) (*evidencenames.Evidence, int, readOutcome) {
 	deadline := time.Now().Add(wait.deadline)
 	for {
 		set, seen, ok := readOnce(stores, namespace, threadID)
 		if !ok {
-			return nil, 0, false
+			return nil, 0, readSkipped
 		}
 		key := missingCall(seen, expected)
 		if key == "" {
-			if len(seen) == 0 {
-				fmt.Println("[fitness-runner] no tool results read for the thread; invented-name check skipped")
-				return nil, 0, false
+			if len(seen) == 0 || set.Truncated() {
+				fmt.Println("[fitness-runner] no usable tool results for the thread; invented-name check skipped")
+				return nil, 0, readSkipped
 			}
-			return set, len(seen), !set.Truncated()
+			return set, len(seen), readComplete
 		}
 		if !time.Now().Before(deadline) {
-			fmt.Fprintf(os.Stderr, "[fitness-runner] call %s named in the findings is not stored; check skipped\n", key)
-			return nil, 0, false
+			fmt.Fprintf(os.Stderr, "[fitness-runner] call %s named in the findings is not stored after waiting %s; "+
+				"check skipped (evidence straggler timeout)\n", key, wait.deadline)
+			return nil, 0, readTimedOut
 		}
 		time.Sleep(wait.interval)
 	}
@@ -300,9 +314,9 @@ func checkInventedNames(stores []evidenceStore, namespace string, outcome *RunOu
 	if namespace == "" || outcome.ThreadID == "" || strings.TrimSpace(synthesis) == "" {
 		return Evidence{}
 	}
-	set, calls, ok := readEvidence(stores, namespace, outcome.ThreadID, expectedCallKeys(outcome.Events), wait)
-	if !ok {
-		return Evidence{}
+	set, calls, res := readEvidence(stores, namespace, outcome.ThreadID, expectedCallKeys(outcome.Events), wait)
+	if res != readComplete {
+		return Evidence{StragglerTimeout: res == readTimedOut}
 	}
 	names := evidencenames.Invented(synthesis, set, allowedNames(outcome))
 	return Evidence{Captured: true, Calls: calls, InventedNames: names}
