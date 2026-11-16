@@ -1,6 +1,7 @@
 # Tests for the release scripts, the check that no chart or image version
 # is typed in git and no workflow commits one, the test Jobs' single RBAC source and
-# image placeholder, the brand copies, and the advisory ignores. Not a release gate.
+# image placeholder, the brand copies, and the advisory ignores. Also checks that no Go
+# module needs a newer Go than the Dockerfile that builds it. Not a release gate.
 name: CI Release Scripts
 
 on:
@@ -22,6 +23,7 @@ on:
       - 'k8s/tests/lib-modelserver.sh'
       - 'k8s/tests/ask.test.sh'
       - '**/go.mod'
+      - '**/Dockerfile*'
       - '**/osv-scanner.toml'
       - 'dashboard/src/lib/server/nats-object-store.ts'
       - 'agent-runtime/src/main/java/ai/kubemoot/agent/nats/DiscussionArtifacts.java'
@@ -47,6 +49,7 @@ on:
       - 'k8s/tests/lib-modelserver.sh'
       - 'k8s/tests/ask.test.sh'
       - '**/go.mod'
+      - '**/Dockerfile*'
       - '**/osv-scanner.toml'
       - 'dashboard/src/lib/server/nats-object-store.ts'
       - 'agent-runtime/src/main/java/ai/kubemoot/agent/nats/DiscussionArtifacts.java'
@@ -73,6 +76,8 @@ jobs:
         uses: kubemoot/release-actions/setup@b78d1a218811e2a0376eed26240451b2f353f367 # v0.11.4
       - name: Shellcheck
         run: shellcheck -x .github/scripts/*.sh k8s/tests/job/*.sh k8s/tests/lib.test.sh k8s/tests/lib-modelserver.sh k8s/tests/lib-ask.sh k8s/tests/ask.test.sh
+      - name: Check every Go module against its Dockerfile builder
+        run: bash .github/scripts/check-go-builder-version.sh
       - name: Tests
         run: |
           bash .github/scripts/test-publish-release.sh
@@ -90,6 +95,8 @@ jobs:
           bash .github/scripts/test-check-chart-triggers.sh
           bash .github/scripts/test-check-native-libs.sh
           bash .github/scripts/test-check-native-target.sh
+          bash .github/scripts/test-check-go-builder-version.sh
+          bash .github/scripts/test-check-release-workflow-runs.sh
           bash .github/scripts/test-java-toolchain-version.sh
           bash .github/scripts/test-bucket-names.sh
           bash k8s/tests/job/run.test.sh
