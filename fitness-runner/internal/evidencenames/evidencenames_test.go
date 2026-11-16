@@ -108,6 +108,12 @@ func TestInvented(t *testing.T) {
 		{"pair of two hyphenated sides is strong", "see `app-front/app-back` now", []string{"x"}, nil, []string{"app-front", "app-back"}},
 		{"known left side needs a digit on the right", "`monitoring/grafana-ui` and `monitoring/grafana-2`", []string{"monitoring"}, nil, []string{"grafana-2"}},
 		{"exact whole token only", "- **node-1**", []string{"node-12345 node-10"}, nil, []string{"node-1"}},
+		{"owner name of a seen pod is seen", "- **gpu-swap-monitor** ran twice\n- `gpu-swap-monitor`",
+			[]string{"gpu-swap-monitor-29914110-vmnfv Completed"}, nil, nil},
+		{"owner name seen through the ignore set", "- **web-front-1**", []string{"x"}, []string{"web-front-1-abc12"}, nil},
+		{"owner prefix needs a hyphen after it", "- **node-1**", []string{"node-12345 node1-abc"}, nil, []string{"node-1"}},
+		{"a longer name is not seen from its owner", "- **gpu-swap-monitor-29914110-vmnfv**",
+			[]string{"gpu-swap-monitor"}, nil, []string{"gpu-swap-monitor-29914110-vmnfv"}},
 		{"names repeat once", "**node3** and **node3** and node3", []string{"x"}, nil, []string{"node3"}},
 	}
 	for _, tc := range cases {
@@ -180,5 +186,17 @@ func TestAddJSONDecodesEscapes(t *testing.T) {
 	}
 	if NewEvidence().AddJSON([]byte("NAME  STATUS")) {
 		t.Error("a table is not JSON")
+	}
+}
+
+func TestHasOwnerOf(t *testing.T) {
+	e := evidenceOf("gpu-swap-monitor-29914110-vmnfv node-12345")
+	for tok, want := range map[string]bool{
+		"gpu-swap-monitor": true, "GPU-Swap-Monitor": true, "gpu-swap": true,
+		"node-1": false, "node": true, "gpu-swap-monitor-29914110-vmnfv": false, "other": false, "": false,
+	} {
+		if got := e.HasOwnerOf(tok); got != want {
+			t.Errorf("HasOwnerOf(%q) = %v, want %v", tok, got, want)
+		}
 	}
 }

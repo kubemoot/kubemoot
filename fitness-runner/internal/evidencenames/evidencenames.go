@@ -12,7 +12,9 @@ You may obtain a copy of the License at
 // result of the run contained. It is deterministic: the answer's names are read
 // from name positions (list items, table first cells, bold, single-token code
 // spans, ns/name pairs, a kind word followed by a name) and each is looked up,
-// as a whole token, in the set of tokens the run's tool results held.
+// as a whole token, in the set of tokens the run's tool results held. A name
+// also counts as held when a held token is that name followed by a hyphen and
+// more, the owner prefix of a pod, job or ReplicaSet name.
 //
 // The check is a flag, not a score: it favors a missed invention over a false
 // accusation, so a token counts as a name only when it is shaped like one.
@@ -180,6 +182,23 @@ func (e *Evidence) Has(tok string) bool {
 	return ok
 }
 
+// HasOwnerOf reports whether a token in the set is tok followed by a hyphen and
+// more: tok is the owner prefix of a pod, job or ReplicaSet name such as
+// "gpu-swap-monitor" in "gpu-swap-monitor-29914110-vmnfv". A token with no
+// hyphen after it ("node-1" in "node-12345") does not match.
+func (e *Evidence) HasOwnerOf(tok string) bool {
+	prefix := strings.ToLower(tok) + "-"
+	for t := range e.tokens {
+		if strings.HasPrefix(t, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// seen reports whether the token is held whole or as the owner prefix of a held name.
+func (e *Evidence) seen(tok string) bool { return e.Has(tok) || e.HasOwnerOf(tok) }
+
 // isLabel is true for a DNS-1123 label that holds a letter.
 func isLabel(tok string) bool {
 	return len(tok) <= maxLabel && labelPattern.MatchString(tok) && strings.ContainsAny(tok, "abcdefghijklmnopqrstuvwxyz")
@@ -234,9 +253,12 @@ func Invented(answer string, ev *Evidence, ignore *Evidence) []string {
 		return nil
 	}
 	known := func(s string) bool { return ev.Has(s) || (ignore != nil && ignore.Has(s)) }
+	seen := func(s string) bool {
+		return ev.seen(s) || (ignore != nil && ignore.seen(s))
+	}
 	var out []string
 	for _, tok := range Claimed(answer, known) {
-		if !known(tok) {
+		if !seen(tok) {
 			out = append(out, tok)
 		}
 	}
