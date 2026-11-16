@@ -95,24 +95,13 @@ func scenarioResults(scripts []kubemootv1alpha1.SuiteScript, results []Iteration
 	return out
 }
 
-// withInventedCounts sets inventedNameRuns on the scenario rows from the run's
-// stored transcripts. The rows of a running suite come from the finished
-// CrewFitness children, which carry no transcript, so the count is added once
-// the run is terminal and its transcripts are final.
-func withInventedCounts(rows []kubemootv1alpha1.SuiteScenarioResult, results []IterationResult) {
-	runs := map[string]int32{}
-	for _, r := range results {
-		if len(r.InventedNames) > 0 {
-			runs[statusName(r.Scenario)]++
-		}
-	}
-	for i := range rows {
-		rows[i].InventedNameRuns = runs[rows[i].Name]
-	}
-}
-
 // addInventedCounts reads the run's transcripts and sets inventedNameRuns on
-// status.scenarios. Without a store, or when the listing fails, the rows keep
+// status.scenarios. The rows of a running suite come from the finished
+// CrewFitness children, which carry no transcript, so the count is added once the
+// run is terminal and its transcripts are final. The rows are rolled up by
+// scenarioResults, the one place that counts iterations, and only the count is
+// copied. Without a store, with a failed listing, or when a transcript could not
+// be read (a transient failure must not lower a correct count), the rows keep
 // what they hold.
 func addInventedCounts(store objectStore, suite *kubemootv1alpha1.CrewFitnessSuite) {
 	if store == nil || suite.Status.RunID == "" || len(suite.Status.Scenarios) == 0 {
@@ -122,7 +111,29 @@ func addInventedCounts(store objectStore, suite *kubemootv1alpha1.CrewFitnessSui
 	if err != nil {
 		return
 	}
-	withInventedCounts(suite.Status.Scenarios, readTranscriptResults(suite, store, keys))
+	results := readTranscriptResults(suite, store, keys)
+	if len(results) < countTranscriptKeys(keys) {
+		return
+	}
+	runs := map[string]int32{}
+	for _, row := range scenarioResults(suite.Spec.Scripts, results) {
+		runs[row.Name] = row.InventedNameRuns
+	}
+	for i := range suite.Status.Scenarios {
+		suite.Status.Scenarios[i].InventedNameRuns = runs[suite.Status.Scenarios[i].Name]
+	}
+}
+
+// countTranscriptKeys is how many of the listed keys are transcripts (the run
+// prefix also holds the judge checkpoint and other non-transcript objects).
+func countTranscriptKeys(keys []string) int {
+	n := 0
+	for _, k := range keys {
+		if _, _, ok := parseTranscriptKey(k); ok && strings.HasSuffix(k, ".json") {
+			n++
+		}
+	}
+	return n
 }
 
 // distinctTestRefs returns the scripts' testRefs in spec order, each once.

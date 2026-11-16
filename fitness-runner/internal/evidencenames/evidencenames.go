@@ -54,11 +54,16 @@ var (
 	boldSpan  = regexp.MustCompile(`\*\*([^*\n]+)\*\*|__([^_\n]+)__`)
 	kindWord  = regexp.MustCompile(`(?i)\b(?:` + kindWords + `)\s+(?:named\s+|called\s+)?` +
 		"[`*\"']*" + `([A-Za-z0-9._/-]+)`)
-	// stateWord is a Kubernetes pod or node state. A weak-position token on a line
-	// that carries one is a resource ("- **nginx-ingress**: ImagePullBackOff"), so a
-	// hyphen is enough for it.
-	stateWord = regexp.MustCompile(`(?i)\b(?:ImagePullBackOff|ErrImagePull|CrashLoopBackOff|Evicted|OOMKilled|` +
-		`Unschedulable|NotReady|Terminating|Pending|CreateContainerConfigError)\b`)
+	// unambiguousState is a pod or node state, in kubectl's spelling, that is not an
+	// English word.
+	unambiguousState = regexp.MustCompile(`\b(?:ImagePullBackOff|ErrImagePull|CrashLoopBackOff|OOMKilled|` +
+		`CreateContainerConfigError|NotReady|Unschedulable)\b`)
+	// statusState is Pending, Terminating or Evicted where the text gives a status: right
+	// after a colon that follows the name, after "status:", or as a table cell. In prose
+	// ("the fix is pending review", "keep terminating gracefully") they are English.
+	statusState = regexp.MustCompile(`^[*_)\]]*\s*:\s*(?:Pending|Terminating|Evicted)\b|` +
+		`(?i:\bstatus)\s*[:=]\s*(?:Pending|Terminating|Evicted)\b|\|\s*(?:Pending|Terminating|Evicted)\s*\|`)
+	clauseEnd  = regexp.MustCompile(`;|[.!?](?:\s|$)|\s\*\*`)
 	leadMarkup = regexp.MustCompile("^[`*_\"'(\\[]+")
 	pairSplit  = regexp.MustCompile(`^([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)$`)
 )
@@ -66,18 +71,17 @@ var (
 // wellKnown are names every cluster has or words that are shaped like a name
 // and are not one. A name here is never reported.
 var wellKnown = map[string]bool{
-	"kube-system": true, "kube-public": true, "kube-node-lease": true,
-	"control-plane": true, "ephemeral-storage": true, "read-only": true,
-	"built-in": true, "multi-agent": true, "non-zero": true, "up-to-date": true,
-	"k8s": true, "arm64": true, "amd64": true, "x86": true, "ipv4": true,
-	"ipv6": true, "http2": true, "utf8": true, "oom-killed": true,
-	"crash-loop": true, "x-yaml": true, "x-www-form-urlencoded": true,
-	"x86-64": true, "out-of-memory": true, "high-memory": true, "in-flight": true,
-	"cluster-wide": true, "read-write": true, "read-heavy": true, "write-heavy": true,
-	"non-root": true, "per-node": true, "per-pod": true, "multi-node": true,
-	"single-node": true, "long-running": true, "short-lived": true, "long-lived": true,
-	"node-level": true, "pod-level": true, "cluster-level": true, "memory-bound": true,
-	"cpu-bound": true, "resource-constrained": true, "image-related": true, "pre-existing": true, "cross-namespace": true,
+	"kube-system": true, "kube-public": true, "kube-node-lease": true, "control-plane": true,
+	"ephemeral-storage": true, "read-only": true, "built-in": true, "multi-agent": true,
+	"non-zero": true, "up-to-date": true, "k8s": true, "arm64": true, "amd64": true, "x86": true,
+	"ipv4": true, "ipv6": true, "http2": true, "utf8": true, "oom-killed": true, "crash-loop": true,
+	"x-yaml": true, "x-www-form-urlencoded": true, "x86-64": true, "out-of-memory": true,
+	"high-memory": true, "in-flight": true, "cluster-wide": true, "read-write": true,
+	"read-heavy": true, "write-heavy": true, "non-root": true, "per-node": true, "per-pod": true,
+	"multi-node": true, "single-node": true, "long-running": true, "short-lived": true,
+	"long-lived": true, "node-level": true, "pod-level": true, "cluster-level": true,
+	"memory-bound": true, "cpu-bound": true, "resource-constrained": true, "image-related": true,
+	"pre-existing": true, "cross-namespace": true,
 }
 
 // Evidence is the set of tokens a run's tool results held.
@@ -273,11 +277,9 @@ func bareLine(line string) []candidate {
 
 func lineCandidates(line string) []candidate {
 	var out []candidate
-	// A state word on the line makes a weak position strong: the token is the
-	// thing in that state.
-	weak := stateWord.MatchString(line)
 	if m := listItem.FindStringSubmatch(line); m != nil {
-		out = append(out, candidate{text: leadToken(m[1]), strong: weak})
+		tok, rest := leadSplit(m[1])
+		out = append(out, candidate{text: tok, strong: stateFollows(rest)})
 	}
 	if m := tableCell.FindStringSubmatch(line); m != nil {
 		out = append(out, candidate{text: leadToken(m[1]), strong: true})
@@ -285,22 +287,49 @@ func lineCandidates(line string) []candidate {
 	for _, m := range codeSpan.FindAllStringSubmatch(line, -1) {
 		out = append(out, candidate{text: strings.TrimSpace(m[1]), strong: true})
 	}
-	for _, m := range boldSpan.FindAllStringSubmatch(line, -1) {
-		out = append(out, candidate{text: strings.TrimSpace(m[1] + m[2]), strong: weak})
+	for _, m := range boldSpan.FindAllStringSubmatchIndex(line, -1) {
+		out = append(out, candidate{text: strings.TrimSpace(groupText(line, m)), strong: stateFollows(line[m[1]:])})
 	}
-	for _, m := range kindWord.FindAllStringSubmatch(line, -1) {
-		out = append(out, candidate{text: m[1], strong: weak})
+	for _, m := range kindWord.FindAllStringSubmatchIndex(line, -1) {
+		out = append(out, candidate{text: line[m[2]:m[3]], strong: stateFollows(line[m[3]:])})
 	}
 	return out
 }
 
-// leadToken is the first token of s after leading markup, cut where a name ends.
-func leadToken(s string) string {
+// groupText is the text of the first capture group of a match that took part.
+func groupText(line string, m []int) string {
+	for g := 2; g+1 < len(m); g += 2 {
+		if m[g] >= 0 {
+			return line[m[g]:m[g+1]]
+		}
+	}
+	return ""
+}
+
+// stateFollows is true when the clause that continues after a name gives it a
+// pod or node state. The state word belongs to the name before it: a clause ends
+// at a semicolon or a sentence end.
+func stateFollows(rest string) bool {
+	if loc := clauseEnd.FindStringIndex(rest); loc != nil {
+		rest = rest[:loc[0]]
+	}
+	return unambiguousState.MatchString(rest) || statusState.MatchString(rest)
+}
+
+// leadSplit is the first token of s after leading markup, cut where a name ends,
+// and what follows it.
+func leadSplit(s string) (tok, rest string) {
 	s = leadMarkup.ReplaceAllString(strings.TrimSpace(s), "")
 	if i := strings.IndexAny(s, " \t`*:,;)(\"'|"); i >= 0 {
-		s = s[:i]
+		return s[:i], s[i:]
 	}
-	return s
+	return s, ""
+}
+
+// leadToken is the first token of s after leading markup.
+func leadToken(s string) string {
+	tok, _ := leadSplit(s)
+	return tok
 }
 
 // splitCandidate turns one candidate into the name tokens it holds: the token
