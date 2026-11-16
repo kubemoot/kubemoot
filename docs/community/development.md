@@ -98,6 +98,16 @@ a Dockerfile, so a Dependabot bump of one without the other fails the pull reque
 release workflow. The daily Release Status workflow also fails, and lists the workflow, when the
 latest run on main of any component release workflow failed.
 
+**Native image check** (agent-runtime): the native binary is built and run without a cluster. The
+CI job `native-check` starts `.github/scripts/stub-mcp-server.py` (two tools over the HTTP+SSE
+transport) and the binary with `KUBEMOOT_NATIVE_SELFTEST=true`, which runs the paths native
+compilation can break (result type detection with Jackson and SnakeYAML, `readTree`, a record listed
+in the reflection configuration) and logs `NATIVE_SELFTEST_OK` or exits 1; the check then reads
+`/tools` and expects the stub's two tools. It runs on a pull request that changes the agent-runtime
+dependencies, the native configuration, `ResultType`, `NativeSelfTest` or the check itself, and on a
+manual dispatch of CI Agent Runtime with `native_check`. To run it locally against a built binary:
+`.github/scripts/run-native-check.sh agent-runtime/build/agent-runtime-*-runner`.
+
 **Query service** (`query-service/`):
 
 ```bash
