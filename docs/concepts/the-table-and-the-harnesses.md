@@ -41,6 +41,11 @@ That layering decides what belongs in Kubemoot and what does not.
   not grow its own harness (planning, compaction, code execution, approvals, session
   state). A capability beyond it arrives through an adopted harness that sits at the
   table.
+- **Conventions in the runtime, adopted.** The open conventions small local models need to
+  be useful, in the spirit of the tools people already use: skills, memory, and code as
+  action in a sandbox. They are adopted as conventions, never as a dependency on a product,
+  and each part passes the adoption test above before more of it is built. Skills are
+  instruction-only today; bundled files and runnable scripts are directions.
 - **Convened, not built.** The per-agent harness race. The moot
   talks to an agent through a thin contract (the question and the role in; a signal,
   a rationale, and evidence out), so an external harness such as Claude Code, Codex,
@@ -53,7 +58,7 @@ The seams beyond the agent harness, each with what sits behind it:
 | Layer | Seam | Behind it |
 |---|---|---|
 | Agent harness | The turn contract and the [Moot Mesh](../../architecture/moot-mesh/) sidecar | The native agent runtime; goose and other harnesses |
-| Where agents run | The pod spec | Deployments today; Agent Sandbox and Agent Substrate are directions on the [Roadmap](../../introduction/roadmap/) |
+| Where agents run | The pod spec | Deployments today; Agent Sandbox is a candidate on the [Roadmap](../../introduction/roadmap/) |
 | Model servers | The engine-state contract (aligned with the Model Server Protocol), one adapter per engine | vLLM and Ollama; more are a direction |
 | Tools | MCP | Any MCP server |
 
