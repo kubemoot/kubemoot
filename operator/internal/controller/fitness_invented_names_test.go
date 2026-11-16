@@ -12,7 +12,6 @@ package controller
 
 import (
 	"bytes"
-	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -22,64 +21,30 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-const (
-	inventedAgent     = "k8s-nodes"
-	inventedNode3     = "node3"
-	inventedSuiteKey  = "crew/suite/run/s0-i1.json"
-	inventedQuestion  = "The recent pod restarts were caused by the node running out of disk, tell me which node."
-	inventedSynthesis = "Restarts came from **node3** running out of disk; see `k8s-nodes/001-resources_list` " +
-		"and **homelab-k8s-1-cp**."
-)
+const inventedSuiteKey = "crew/suite/run/s0-i1.json"
 
-// inventedTranscript is a stored run: the answer, the stream's agents, and the
-// tool-result tokens the runner captured.
-func inventedTranscript(captured bool, names []string) []byte {
-	b, _ := json.Marshal(map[string]any{
-		"question": inventedQuestion,
-		"assertions": []map[string]any{
-			{"raw": "synthesis is non-empty", "passed": true},
-		},
-		"events": []transcriptEvent{
-			{Type: "finding", Agent: inventedAgent, Signal: "agree", Content: "nodes listed"},
-			{Type: "synthesis", Content: inventedSynthesis},
-		},
-		"evidenceNames":    names,
-		"evidenceCaptured": captured,
-	})
-	return b
-}
-
-func TestIterationFromTranscriptFlagsInventedNames(t *testing.T) {
+func TestIterationFromTranscriptReadsInventedNames(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{}
 	cases := []struct {
-		name     string
-		captured bool
-		names    []string
-		want     []string
+		name string
+		json string
+		want []string
 	}{
-		{"name in no tool result", true, []string{"homelab-k8s-1-cp", "homelab-k8s-1-gpu-worker"}, []string{inventedNode3}},
-		{"all names in tool results", true, []string{"homelab-k8s-1-cp", inventedNode3}, nil},
-		{"tool results not captured", false, nil, nil},
+		{"flagged by the runner", `{"events":[{"type":"synthesis","content":"x"}],"inventedNames":["node3"],"evidenceCaptured":true}`,
+			[]string{"node3"}},
+		{"nothing flagged", `{"events":[{"type":"synthesis","content":"x"}],"evidenceCaptured":true}`, nil},
+		{"older transcript", `{"events":[{"type":"synthesis","content":"x"}]}`, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ir, ok := iterationFromTranscript(suite, inventedSuiteKey, inventedTranscript(tc.captured, tc.names))
+			ir, ok := iterationFromTranscript(suite, inventedSuiteKey, []byte(tc.json))
 			if !ok {
 				t.Fatal("transcript not read")
 			}
 			if !reflect.DeepEqual(ir.InventedNames, tc.want) {
 				t.Errorf("InventedNames = %v, want %v", ir.InventedNames, tc.want)
 			}
-			if ir.Correctness != 100 {
-				t.Errorf("the flag must not change scores, correctness = %v", ir.Correctness)
-			}
 		})
-	}
-}
-
-func TestInventedNamesEmptySynthesisIsNotChecked(t *testing.T) {
-	if got := inventedNamesFromTranscript(transcriptDoc{EvidenceCaptured: true}, ""); got != nil {
-		t.Errorf("no answer, got %v", got)
 	}
 }
 
@@ -90,7 +55,7 @@ func TestRunsSheetListsInventedNames(t *testing.T) {
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "inv00001", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	results := []IterationResult{
-		{Scenario: "a", Iteration: 1, Phase: kubemootv1alpha1.CrewFitnessPhasePassed, InventedNames: []string{inventedNode3, "node-12345"}},
+		{Scenario: "a", Iteration: 1, Phase: kubemootv1alpha1.CrewFitnessPhasePassed, InventedNames: []string{"node3", "node-12345"}},
 		{Scenario: "a", Iteration: 2, Phase: kubemootv1alpha1.CrewFitnessPhasePassed},
 	}
 	raw, err := BuildFitnessSuiteXLSX(suite, results)

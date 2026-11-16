@@ -19,6 +19,7 @@ You may obtain a copy of the License at
 package evidencenames
 
 import (
+	"encoding/json"
 	"regexp"
 	"sort"
 	"strings"
@@ -46,7 +47,6 @@ var (
 	// digit and holds only digits, separators and a short unit.
 	versionPattern = regexp.MustCompile(`^v?[0-9][0-9._-]*[a-z]{0,3}$`)
 	placeholder    = regexp.MustCompile(`<[^<>\n]*>|\{\{[^{}\n]*\}\}|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?`)
-	escapedSpace   = strings.NewReplacer(`\n`, " ", `\t`, " ", `\r`, " ")
 
 	listItem  = regexp.MustCompile(`^\s*(?:[-*+]|[0-9]+[.)])\s+(.*)$`)
 	tableCell = regexp.MustCompile(`^\s*\|\s*([^|]*?)\s*\|`)
@@ -67,6 +67,10 @@ var wellKnown = map[string]bool{
 	"k8s": true, "arm64": true, "amd64": true, "x86": true, "ipv4": true,
 	"ipv6": true, "http2": true, "utf8": true, "oom-killed": true,
 	"crash-loop": true, "x-yaml": true, "x-www-form-urlencoded": true,
+	"x86-64": true, "out-of-memory": true, "high-memory": true, "in-flight": true,
+	"cluster-wide": true, "read-write": true, "read-heavy": true, "write-heavy": true,
+	"non-root": true, "per-node": true, "per-pod": true, "multi-node": true,
+	"single-node": true, "pre-existing": true, "cross-namespace": true,
 }
 
 // Evidence is the set of tokens a run's tool results held.
@@ -91,8 +95,37 @@ func EvidenceFromTokens(tokens []string) *Evidence {
 // characters, lowercased, and its dot-separated and underscore-separated parts
 // (a hostname holds its labels, a key holds its words).
 func (e *Evidence) Add(text string) {
-	for _, run := range runPattern.FindAllString(escapedSpace.Replace(text), -1) {
+	for _, run := range runPattern.FindAllString(text, -1) {
 		e.addRun(strings.ToLower(strings.Trim(run, "._-")))
+	}
+}
+
+// AddJSON reads a JSON document as JSON: every key and every string value is
+// added as it decodes, so an escape such as \n separates words instead of
+// joining its letter to the next word. It returns false, adding nothing, when
+// data is not JSON.
+func (e *Evidence) AddJSON(data []byte) bool {
+	var v any
+	if json.Unmarshal(data, &v) != nil {
+		return false
+	}
+	e.addValue(v)
+	return true
+}
+
+func (e *Evidence) addValue(v any) {
+	switch x := v.(type) {
+	case string:
+		e.Add(x)
+	case []any:
+		for _, item := range x {
+			e.addValue(item)
+		}
+	case map[string]any:
+		for k, item := range x {
+			e.Add(k)
+			e.addValue(item)
+		}
 	}
 }
 
@@ -142,13 +175,27 @@ func isLabel(tok string) bool {
 }
 
 // nameShaped is true for a label that reads as a resource name rather than a
-// word: it holds a letter and a hyphen or a digit, and is not a version, a
-// size or a well-known term.
-func nameShaped(tok string) bool {
+// word: it holds a letter, is not a version, a size or a well-known term, and
+// holds a digit or, in a strong position, a hyphen. English compounds
+// ("high-memory", "in-flight") are hyphenated and have no digit, so a weak
+// position (a list lead, bold text, the token after a kind word) needs a digit.
+func nameShaped(tok string, strong bool) bool {
 	if !isLabel(tok) || wellKnown[tok] || versionPattern.MatchString(tok) {
 		return false
 	}
-	return strings.ContainsAny(tok, "-0123456789")
+	if strong && strings.Contains(tok, "-") {
+		return true
+	}
+	return strings.ContainsAny(tok, "0123456789")
+}
+
+// candidate is a string in a name position and how strongly the position says
+// the string is a name: a strong position (a table's first cell, a code span of
+// one token, an ns/name pair of two name-shaped sides) accepts a hyphenated
+// name; a weak one needs a digit.
+type candidate struct {
+	text   string
+	strong bool
 }
 
 // Claimed returns the distinct names the answer asserts, in order of first
@@ -157,15 +204,12 @@ func nameShaped(tok string) bool {
 func Claimed(answer string, known func(string) bool) []string {
 	seen := map[string]bool{}
 	var out []string
-	add := func(tok string) {
-		if nameShaped(tok) && !seen[tok] {
-			seen[tok] = true
-			out = append(out, tok)
-		}
-	}
 	for _, cand := range candidates(placeholder.ReplaceAllString(answer, " ")) {
 		for _, tok := range splitCandidate(cand, known) {
-			add(tok)
+			if !seen[tok] {
+				seen[tok] = true
+				out = append(out, tok)
+			}
 		}
 	}
 	return out
@@ -191,8 +235,8 @@ func Invented(answer string, ev *Evidence, ignore *Evidence) []string {
 // candidates returns the strings in name positions: list item leads, table
 // first cells, bold and code spans, kind-word followers, and bare-token lines
 // of a fenced block.
-func candidates(answer string) []string {
-	var out []string
+func candidates(answer string) []candidate {
+	var out []candidate
 	fenced := false
 	for _, line := range strings.Split(answer, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
@@ -209,33 +253,33 @@ func candidates(answer string) []string {
 }
 
 // bareLine returns the line when it is one token (a name per line in a block).
-func bareLine(line string) []string {
+func bareLine(line string) []candidate {
 	t := strings.TrimSpace(line)
 	if m := listItem.FindStringSubmatch(t); m != nil {
 		t = strings.TrimSpace(m[1])
 	}
 	if t != "" && !strings.ContainsAny(t, " \t") {
-		return []string{t}
+		return []candidate{{text: t}}
 	}
 	return nil
 }
 
-func lineCandidates(line string) []string {
-	var out []string
+func lineCandidates(line string) []candidate {
+	var out []candidate
 	if m := listItem.FindStringSubmatch(line); m != nil {
-		out = append(out, leadToken(m[1]))
+		out = append(out, candidate{text: leadToken(m[1])})
 	}
 	if m := tableCell.FindStringSubmatch(line); m != nil {
-		out = append(out, leadToken(m[1]))
+		out = append(out, candidate{text: leadToken(m[1]), strong: true})
 	}
 	for _, m := range codeSpan.FindAllStringSubmatch(line, -1) {
-		out = append(out, strings.TrimSpace(m[1]))
+		out = append(out, candidate{text: strings.TrimSpace(m[1]), strong: true})
 	}
 	for _, m := range boldSpan.FindAllStringSubmatch(line, -1) {
-		out = append(out, strings.TrimSpace(m[1]+m[2]))
+		out = append(out, candidate{text: strings.TrimSpace(m[1] + m[2])})
 	}
 	for _, m := range kindWord.FindAllStringSubmatch(line, -1) {
-		out = append(out, m[1])
+		out = append(out, candidate{text: m[1]})
 	}
 	return out
 }
@@ -249,21 +293,35 @@ func leadToken(s string) string {
 	return s
 }
 
-// splitCandidate turns one candidate string into the name tokens it holds: the
-// token itself, or both sides of an ns/name pair when the pair reads as one.
-func splitCandidate(cand string, known func(string) bool) []string {
-	cand = strings.Trim(cand, "._-:,;")
-	if cand == "" || strings.ContainsAny(cand, " \t") {
+// splitCandidate turns one candidate into the name tokens it holds: the token
+// itself when its position accepts it, or the sides of an ns/name pair. A pair
+// of two name-shaped sides is strong; a pair whose left side is a real token is
+// weak, so each side needs a digit.
+func splitCandidate(c candidate, known func(string) bool) []string {
+	text := strings.Trim(c.text, "._-:,;")
+	if text == "" || strings.ContainsAny(text, " \t") {
 		return nil
 	}
-	if m := pairSplit.FindStringSubmatch(cand); m != nil {
-		if nameShaped(m[1]) || known(m[1]) {
-			return []string{m[1], m[2]}
+	if m := pairSplit.FindStringSubmatch(text); m != nil {
+		strong := nameShaped(m[1], true) && nameShaped(m[2], true)
+		if !strong && !known(m[1]) {
+			return nil
 		}
+		return keepNames([]string{m[1], m[2]}, strong)
+	}
+	if strings.ContainsAny(text, "/.:") {
 		return nil
 	}
-	if strings.ContainsAny(cand, "/.:") {
-		return nil
+	return keepNames([]string{text}, c.strong)
+}
+
+// keepNames returns the tokens that are name-shaped for the position strength.
+func keepNames(toks []string, strong bool) []string {
+	var out []string
+	for _, t := range toks {
+		if nameShaped(t, strong) {
+			out = append(out, t)
+		}
 	}
-	return []string{cand}
+	return out
 }

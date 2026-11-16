@@ -83,7 +83,12 @@ func TestInvented(t *testing.T) {
 		{"upper case is not a name", "- **Node-01** and `DiskPressure`", []string{"x"}, nil, nil},
 		{"dotted hostnames are not claimed", "- `docs.example.com` and node-9.example.com", []string{"x"}, nil, nil},
 		{"evidence hostname labels count", "- **ip-10-0-0-1**", []string{"ip-10-0-0-1.ec2.internal"}, nil, nil},
-		{"evidence json escapes", "- **node-02**", []string{`"node-01\nnode-02"`}, nil, nil},
+		{"english compounds are not names", "- high-memory pods\n- out-of-memory kills\npods in-flight, cluster-wide, **read/write-heavy**\n- x86-64 hosts and **x86-64**",
+			[]string{"x"}, nil, nil},
+		{"hyphen only in a weak position", "- **web-front** and node worker-pool", []string{"x"}, nil, nil},
+		{"hyphen only in a strong position", "| web-front | Ready |\nrun `web-front`", []string{"x"}, nil, []string{"web-front"}},
+		{"pair of two hyphenated sides is strong", "see `app-front/app-back` now", []string{"x"}, nil, []string{"app-front", "app-back"}},
+		{"known left side needs a digit on the right", "`monitoring/grafana-ui` and `monitoring/grafana-2`", []string{"monitoring"}, nil, []string{"grafana-2"}},
 		{"exact whole token only", "- **node-1**", []string{"node-12345 node-10"}, nil, []string{"node-1"}},
 		{"names repeat once", "**node3** and **node3** and node3", []string{"x"}, nil, []string{"node3"}},
 	}
@@ -133,4 +138,29 @@ func itoa(i int) string {
 		b = append([]byte{digits[i%10]}, b...)
 	}
 	return string(b)
+}
+
+func TestAddRawTextKeepsBackslashWords(t *testing.T) {
+	e := NewEvidence()
+	e.Add(`image: \nginx:1.27 and C:\temp\node-7`)
+	for _, tok := range []string{"nginx", "node-7", "temp"} {
+		if !e.Has(tok) {
+			t.Errorf("raw text lost %q: %v", tok, e.Tokens())
+		}
+	}
+}
+
+func TestAddJSONDecodesEscapes(t *testing.T) {
+	e := NewEvidence()
+	if !e.AddJSON([]byte(`{"items":[{"metadata":{"name":"node-01\nnode-02"}}],"n":3}`)) {
+		t.Fatal("valid JSON refused")
+	}
+	for _, tok := range []string{"node-01", "node-02", "items", "metadata", "name"} {
+		if !e.Has(tok) {
+			t.Errorf("JSON lost %q: %v", tok, e.Tokens())
+		}
+	}
+	if NewEvidence().AddJSON([]byte("NAME  STATUS")) {
+		t.Error("a table is not JSON")
+	}
 }

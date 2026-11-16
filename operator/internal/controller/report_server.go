@@ -49,10 +49,9 @@ type transcriptDoc struct {
 	DurationMs int64                 `json:"durationMs"`
 	StartedAt  string                `json:"startedAt"`
 
-	// EvidenceNames are the name-shaped tokens of the run's tool results, and
-	// EvidenceCaptured says the set is complete (see fitness-runner evidence.go).
-	EvidenceNames    []string `json:"evidenceNames"`
-	EvidenceCaptured bool     `json:"evidenceCaptured"`
+	// InventedNames are the names the answer asserts that no tool result of the
+	// run held, as the fitness runner checked them (empty when none or not checked).
+	InventedNames []string `json:"inventedNames"`
 }
 
 // transcriptAssertion is one assertion result in a persisted transcript.
@@ -162,7 +161,7 @@ func iterationFromTranscript(suite *kubemootv1alpha1.CrewFitnessSuite, key strin
 		// Factuality + fabrication are computed in the scenario aggregator directly
 		// from Assertions + Synthesis, so no per-run sentinel field can be forgotten.
 		Synthesis:     synthesis,
-		InventedNames: inventedNamesFromTranscript(doc, synthesis),
+		InventedNames: doc.InventedNames,
 		Question:      doc.Question,
 		Correctness:   correctnessScore(passed, total),
 		Adherence:     adherenceScore(doc.Events),
