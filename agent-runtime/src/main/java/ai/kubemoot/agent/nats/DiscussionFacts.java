@@ -65,7 +65,7 @@ final class DiscussionFacts {
     /** The contribution's own words: what is left after the descriptions, result blocks and protocol words are taken out. */
     static String ownText(String content) {
         String text = ManifestText.strip(content, true);
-        text = CallManifest.OMITTED_LINE.matcher(text).replaceAll("");
+        text = CallManifest.OMITTED_UNSTORED_LINE.matcher(CallManifest.OMITTED_LINE.matcher(text).replaceAll("")).replaceAll("");
         return PROTOCOL_WORDS.matcher(text).replaceAll("").strip();
     }
 

@@ -3,43 +3,61 @@ package ai.kubemoot.agent.chat;
 import java.util.List;
 
 /**
- * One tool call as stored in the workspace: the object {@code key}, the tool, the call's
- * arguments as sent, the stored size, the row or item count ({@code -1} when unknown),
- * whether the result was a tool error, the stored content type ({@link ResultType}) and the column or field names of a table or a JSON list. {@code inline} is the
- * whole result when it is small enough to be posted in the discussion as well, otherwise null. A
- * call that could not be written has no key.
+ * One tool call of an agent's loop: the object {@code key} (only a stored call has one), the tool,
+ * the call's arguments as sent, the size, the row or item count ({@code -1} when unknown), whether
+ * the result was a tool error, the content type ({@link ResultType}) and the column or field names
+ * of a table or a JSON list. {@code inline} is the whole result when it is small enough to be
+ * posted in the discussion, otherwise null. {@code storage} says whether the result is in the
+ * workspace.
  */
-record ToolCallRecord(String key, String tool, String arguments, long bytes, int rows, boolean error,
-                      String type, List<String> columns, String inline, boolean storeOff) {
+record ToolCallRecord(Storage storage, String key, String tool, String arguments, long bytes, int rows,
+                      boolean error, String type, List<String> columns, String inline) {
+
+    /** Where the result of a call is. */
+    enum Storage {
+        /** In the workspace, under the call's key. */
+        STORED,
+        /** The write failed, so the result is nowhere. */
+        WRITE_FAILED,
+        /** The agent's access does not include storing, so the result is only what was posted. */
+        NOT_STORED_BY_DESIGN
+    }
 
     /** A call stored under {@code key}. */
-    ToolCallRecord(String key, String tool, String arguments, long bytes, int rows, boolean error,
-                   String type, List<String> columns, String inline) {
-        this(key, tool, arguments, bytes, rows, error, type, columns, inline, false);
+    static ToolCallRecord stored(String key, String tool, String arguments, long bytes, int rows, boolean error,
+                                 String type, List<String> columns, String inline) {
+        return new ToolCallRecord(Storage.STORED, key, tool, arguments, bytes, rows, error, type, columns, inline);
     }
 
     /** A call whose agent stores no results: it has no key, and its result is posted when it fits. */
     static ToolCallRecord unstored(String tool, String arguments, long bytes, int rows, boolean error,
                                    String type, String inline) {
-        return new ToolCallRecord(null, tool, arguments, bytes, rows, error, type, List.of(), inline, true);
+        return new ToolCallRecord(Storage.NOT_STORED_BY_DESIGN, null, tool, arguments, bytes, rows, error, type,
+                List.of(), inline);
     }
 
     /** A call whose result could not be written: it has no key, and the manifest says so. */
     static ToolCallRecord notStored(String tool, String arguments, boolean error) {
-        return new ToolCallRecord(null, tool, arguments, 0, -1, error, ResultType.TEXT, List.of(), null);
+        return new ToolCallRecord(Storage.WRITE_FAILED, null, tool, arguments, 0, -1, error, ResultType.TEXT,
+                List.of(), null);
     }
 
     /** True when the call has a stored object under its key. */
     boolean stored() {
-        return key != null;
+        return storage == Storage.STORED;
+    }
+
+    /** True when the agent stores nothing, so the call has no key by design. */
+    boolean storeOff() {
+        return storage == Storage.NOT_STORED_BY_DESIGN;
     }
 
     boolean hasInline() {
         return inline != null;
     }
 
-    /** True when a result with data is posted: a posted result that is not the empty-result block. */
+    /** True when a result with data is posted: a posted result that is not one of the fixed no-data blocks. */
     boolean hasData() {
-        return hasInline() && !CallManifest.EMPTY_RESULT_TEXT.equals(inline);
+        return hasInline() && !CallManifest.NO_DATA_BLOCKS.contains(inline);
     }
 }

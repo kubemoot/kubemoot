@@ -21,6 +21,15 @@ class SynthesisFilesTest {
     }
 
     @Test
+    void theRulesDescribeTheKeylessCallLineAndTheNotShownLine() {
+        String rules = SynthesisFiles.rulesFor("[CALL tool=x args={} stored=no]");
+
+        assertTrue(rules.contains("[CALL tool=... stored=no] line describes a call that has no file"), rules);
+        assertTrue(rules.contains("the [RESULT] block after it is data"), rules);
+        assertTrue(rules.contains("not shown here") && rules.contains("UNKNOWN"), rules);
+    }
+
+    @Test
     void aThreadWithNoFileDescriptionGetsNothing() {
         assertEquals("", SynthesisFiles.rulesFor("[Response (a)]\n12 pods"));
         assertEquals("", SynthesisFiles.rulesFor(""));

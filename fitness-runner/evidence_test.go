@@ -374,67 +374,128 @@ const (
 	evDone     = "done"
 )
 
-// A read-only advisor's calls have no key and no stored object; its findings hold them.
-const advisorFinding = "Checked the nodes.\n[WORKSPACE agent=obs calls=2 errors=0 stored=no]\n" +
-	"[CALL tool=events_list args={\"namespace\": \"all\"} type=text/plain bytes=21 rows=unknown error=false stored=no]\n" +
-	"[RESULT]\nnode-seven NotReady\n[END RESULT]\n" +
-	"[CALL tool=workspace_grep args={} type=text/plain bytes=0 rows=unknown error=false stored=no]\n" +
-	"[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]"
+// unstoredFixture is the shared fixture of the manifests an agent that stores no results posts;
+// agent-runtime's ToolCallLedgerUnstoredTest builds the same manifests from the calls.
+type unstoredFixture struct {
+	Cases []struct {
+		Name        string   `json:"name"`
+		Manifest    string   `json:"manifest"`
+		ListedCalls int      `json:"listedCalls"`
+		Incomplete  bool     `json:"incomplete"`
+		Evidence    []string `json:"evidence"`
+	} `json:"cases"`
+}
+
+func loadUnstoredFixture(t *testing.T) unstoredFixture {
+	t.Helper()
+	raw, err := os.ReadFile("../test/fixtures/unstored-manifests.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f unstoredFixture
+	if err := json.Unmarshal(raw, &f); err != nil || len(f.Cases) == 0 {
+		t.Fatalf("fixture: %v (%d cases)", err, len(f.Cases))
+	}
+	return f
+}
+
+// advisorFinding is a read-only advisor's finding: its own words and the manifest of its calls.
+func advisorFinding(t *testing.T, name string) string {
+	t.Helper()
+	for _, c := range loadUnstoredFixture(t).Cases {
+		if c.Name == name {
+			return "Checked the nodes.\n" + c.Manifest
+		}
+	}
+	t.Fatalf("no fixture case %q", name)
+	return ""
+}
 
 func TestUnstoredCallLinesAreNotExpectedStoredCalls(t *testing.T) {
-	ev := []SignalEvent{{Type: evFinding, Content: advisorFinding}}
-
-	if got := expectedCallKeys(ev); len(got) != 0 {
-		t.Errorf("a call line with no key names no stored object, got %v", got)
+	for _, c := range loadUnstoredFixture(t).Cases {
+		ev := []SignalEvent{{Type: evFinding, Content: c.Manifest}}
+		if got := expectedCallKeys(ev); len(got) != 0 {
+			t.Errorf("%s: a call line with no key names no stored object, got %v", c.Name, got)
+		}
 	}
 }
 
-func TestInlineEvidenceReadsTheResultsAdvisorsPosted(t *testing.T) {
-	got := inlineEvidenceOf([]SignalEvent{{Type: evFinding, Content: advisorFinding}})
+func TestInlineEvidenceOfTheSharedManifests(t *testing.T) {
+	for _, c := range loadUnstoredFixture(t).Cases {
+		got := inlineEvidenceOf([]SignalEvent{{Type: evFinding, Content: "Own words.\n" + c.Manifest}})
 
-	if got.calls != 2 || got.incomplete {
-		t.Fatalf("got %+v, want 2 complete calls", got)
+		if got.incomplete != c.Incomplete {
+			t.Errorf("%s: incomplete = %v, want %v", c.Name, got.incomplete, c.Incomplete)
+		}
+		if c.ListedCalls >= 0 && got.calls != c.ListedCalls || c.ListedCalls < 0 && got.calls == 0 {
+			t.Errorf("%s: calls = %d, want %d", c.Name, got.calls, c.ListedCalls)
+		}
+		checkInlineTexts(t, c.Name, got, c.Evidence)
 	}
+}
+
+// checkInlineTexts asserts the named tokens are in the inline evidence and the agent's own words are not.
+func checkInlineTexts(t *testing.T, name string, got inlineEvidence, want []string) {
+	t.Helper()
 	set := evidencenames.NewEvidence()
 	for _, text := range got.texts {
 		set.Add(text)
 	}
-	if !set.Has("node-seven") {
-		t.Error("a name in a posted result is evidence the run read")
+	for _, tok := range want {
+		if !set.Has(tok) {
+			t.Errorf("%s: %q should be evidence", name, tok)
+		}
+	}
+	if set.Has("own") {
+		t.Errorf("%s: the agent's own words are not evidence", name)
 	}
 }
 
-func TestInlineEvidenceIsIncompleteWhenAResultWasNotShown(t *testing.T) {
-	notShown := "[CALL tool=x args={} type=text/plain bytes=9 rows=unknown error=false stored=no]\n[RESULT]\na\n[END RESULT]\n" +
-		"[NOT STORED tool=big args={} error=false - the agent does not store results and this one is not shown here, so it is not available]"
-
-	if got := inlineEvidenceOf([]SignalEvent{{Type: evFinding, Content: notShown}}); !got.incomplete {
-		t.Errorf("a result in neither the store nor the findings leaves the evidence incomplete: %+v", got)
+func TestNotStoredLineOfAWorkspaceReadToolIsNotALostResult(t *testing.T) {
+	line := func(tool string) string {
+		return "[NOT STORED tool=" + tool + " args={} error=false - the agent does not store results and this one is not shown here, so it is not available]"
+	}
+	for tool, lost := range map[string]bool{
+		"workspace_grep": false, "workspace_query": false, "artifact_select": false, "workspace_list": false,
+		"pods_list": true, "events_list": true,
+	} {
+		if got := resultLost(line(tool)); got != lost {
+			t.Errorf("%s: lost = %v, want %v", tool, got, lost)
+		}
+	}
+	writeFailed := "[NOT STORED tool=pods_list args={} error=false - the result could not be written to the workspace and is not available]"
+	if !resultLost(writeFailed) {
+		t.Error("a write that failed leaves the result nowhere")
+	}
+	if resultLost("[CALL tool=x args={} stored=no]\n[RESULT]\na\n[END RESULT]") {
+		t.Error("a posted result is not lost")
 	}
 }
 
 func TestCheckInventedNamesFromAReadOnlyAdvisorOnly(t *testing.T) {
 	out := &RunOutcome{ThreadID: evThread, Question: "which node is down?", Events: []SignalEvent{
-		{Type: evFinding, Agent: "obs", Content: advisorFinding},
-		{Type: sseSynthesis, Content: "**node-seven** is NotReady and **" + evInvented + "** too."},
+		{Type: evFinding, Agent: "obs", Content: advisorFinding(t, "a result that fits")},
+		{Type: sseSynthesis, Content: "**node-a** is NotReady and **" + evInvented + "** too."},
 		{Type: evDone},
 	}}
 
 	got := checkInventedNames([]evidenceStore{store(nil, nil)}, evNS, out, noWait)
 
-	if !got.Captured || got.Calls != 2 || !slices.Equal(got.InventedNames, []string{evInvented}) {
-		t.Errorf("got %+v, want checked over the 2 posted calls with node-12345 invented", got)
+	if !got.Captured || got.Calls != 1 || !slices.Equal(got.InventedNames, []string{evInvented}) {
+		t.Errorf("got %+v, want checked over the 1 posted call with %s invented", got, evInvented)
 	}
 }
 
-func TestCheckInventedNamesNotCheckedWhenAResultIsNotShown(t *testing.T) {
-	out := &RunOutcome{ThreadID: evThread, Question: "q", Events: []SignalEvent{
-		{Type: evFinding, Agent: "obs", Content: "[NOT STORED tool=big args={} error=false - the agent does not store results and this one is not shown here, so it is not available]"},
-		{Type: sseSynthesis, Content: "**" + evInvented + "**"},
-		{Type: evDone},
-	}}
+func TestCheckInventedNamesNotCheckedWhenAResultIsNowhere(t *testing.T) {
+	for _, name := range []string{"a result too large to show from a raw tool", "many calls leave some out"} {
+		out := &RunOutcome{ThreadID: evThread, Question: "q", Events: []SignalEvent{
+			{Type: evFinding, Agent: "obs", Content: advisorFinding(t, name)},
+			{Type: sseSynthesis, Content: "**" + evInvented + "**"},
+			{Type: evDone},
+		}}
 
-	if got := checkInventedNames([]evidenceStore{store(nil, nil)}, evNS, out, noWait); got.Captured {
-		t.Errorf("want not checked, got %+v", got)
+		if got := checkInventedNames([]evidenceStore{store(nil, nil)}, evNS, out, noWait); got.Captured {
+			t.Errorf("%s: want not checked, got %+v", name, got)
+		}
 	}
 }

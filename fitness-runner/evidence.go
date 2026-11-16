@@ -23,6 +23,7 @@ import (
 
 	"github.com/kubemoot/kubemoot/fitness-runner/internal/evidencenames"
 	"github.com/kubemoot/kubemoot/operator/pkg/fitnessscript"
+	"github.com/kubemoot/kubemoot/operator/pkg/workspacetools"
 )
 
 // The two buckets the discussion workspace lives in: the named one and the one
@@ -53,8 +54,11 @@ var (
 	// Such a call is not in the store; the findings hold all there is of it.
 	unstoredCall = regexp.MustCompile(`(?s)\[CALL tool=[^\]]*\]` +
 		`(?:\n\[(?:FAILED )?RESULT\]\n(.*?)\n\[END RESULT\]|\n\[EMPTY RESULT\]\n[^\n]*\n\[END RESULT\])?`)
-	// notStoredLine matches a call whose result is in neither the store nor the findings.
-	notStoredLine = regexp.MustCompile(`\[NOT STORED tool=`)
+	// notStoredLine matches a call whose result is in neither the store nor the findings; group 1 is its tool.
+	notStoredLine = regexp.MustCompile(`\[NOT STORED tool=([^\s\]]+)`)
+	// omittedUnstoredLine matches the line that counts the calls of an agent that stores nothing the
+	// manifest left out: their results are nowhere.
+	omittedUnstoredLine = regexp.MustCompile(`\[\d+ more calls not listed; this agent stores no results`)
 )
 
 // Evidence is the outcome of the invented-name check, stored in the transcript.
@@ -154,12 +158,28 @@ type inlineEvidence struct {
 	incomplete bool
 }
 
+// resultLost is true when a finding says a result is in neither the store nor the findings: a
+// [NOT STORED] line, or the count of calls an agent that stores nothing left out. A [NOT STORED] line
+// for a workspace read tool does not count: that tool read data already in the store, which the
+// evidence holds. A raw tool, or a write that failed, does count.
+func resultLost(content string) bool {
+	if omittedUnstoredLine.MatchString(content) {
+		return true
+	}
+	for _, m := range notStoredLine.FindAllStringSubmatch(content, -1) {
+		if !workspacetools.IsRead(m[1]) {
+			return true
+		}
+	}
+	return false
+}
+
 // inlineEvidenceOf reads the calls of the answering thread's findings that are not stored. An agent
 // that stores nothing posts what it saw in the finding, so a name in it is evidence the run read.
 func inlineEvidenceOf(events []SignalEvent) inlineEvidence {
 	var out inlineEvidence
 	for _, e := range answeringEvents(events) {
-		if notStoredLine.MatchString(e.Content) {
+		if resultLost(e.Content) {
 			out.incomplete = true
 		}
 		for _, m := range unstoredCall.FindAllStringSubmatch(e.Content, -1) {

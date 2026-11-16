@@ -76,6 +76,13 @@ public final class CallManifest {
     public static final String EMPTY_RESULT_TEXT = EMPTY_RESULT_OPEN
             + "\n(empty: the call succeeded and returned nothing)\n[END RESULT]";
 
+    /** The block of a failed call that returned no text. */
+    public static final String FAILED_NO_TEXT_TEXT = FAILED_RESULT_OPEN
+            + "\n(the call failed and returned no text)\n[END RESULT]";
+
+    /** The blocks the ledger writes itself: they hold no data, and a call that has one is dropped before a call with data. */
+    public static final List<String> NO_DATA_BLOCKS = List.of(EMPTY_RESULT_TEXT, FAILED_NO_TEXT_TEXT);
+
     /** Closes each block. */
     public static final String RESULT_CLOSE = "[END RESULT]";
 
@@ -93,6 +100,10 @@ public final class CallManifest {
 
     /** The markers that open a result block: a result, an error text, an empty result. */
     public static final List<String> RESULT_OPENERS = List.of(RESULT_OPEN, FAILED_RESULT_OPEN, EMPTY_RESULT_OPEN);
+
+    /** The line that counts the calls an agent that stores nothing leaves out: their results are not available. */
+    public static final Pattern OMITTED_UNSTORED_LINE = Pattern.compile(
+            "\\n?\\[\\d++ more calls not listed; this agent stores no results, so theirs are not available\\]");
 
     /** The block of an empty result, with its line break. */
     public static final Pattern EMPTY_RESULT_BLOCK = Pattern.compile(Pattern.quote(EMPTY_RESULT_TEXT) + "\\n?");
@@ -125,6 +136,25 @@ public final class CallManifest {
             out = block.matcher(out).replaceAll("");
         }
         return out;
+    }
+
+    /**
+     * The markers a posted or read result must not hold: each would close a block or pose as one of
+     * the discussion's own lines. The writer ({@link ToolCallLedger}) and the reader
+     * (StoredResults) both refuse a result that holds one.
+     */
+    public static final List<String> RESULT_MARKERS = java.util.stream.Stream.concat(
+            java.util.stream.Stream.of(CALL_PREFIX, UNSTORED_CALL_PREFIX, NOT_STORED_PREFIX, HEADER_PREFIX, RESULT_CLOSE),
+            RESULT_OPENERS.stream()).toList();
+
+    /** True when {@code text} holds a marker of the discussion's own format. */
+    public static boolean holdsMarker(String text) {
+        return RESULT_MARKERS.stream().anyMatch(text::contains);
+    }
+
+    /** The line, with its leading line break, that says {@code count} calls of an agent that stores nothing are not listed. */
+    public static String omittedUnstoredLine(int count) {
+        return "\n[" + count + " more calls not listed; this agent stores no results, so theirs are not available]";
     }
 
     /** The line, with its leading line break, that says {@code count} calls are not listed. */

@@ -9,7 +9,12 @@ public final class LedgerManifests {
 
     /** The manifest of one agent that stores nothing, whose successful calls returned {@code results}. */
     public static String unstored(String... results) {
-        var ledger = ToolCallLedger.unstoredForLoop("th", "obs", java.util.OptionalLong.empty());
+        return unstored(java.util.OptionalLong.empty(), results);
+    }
+
+    /** The same, for readers whose context window is {@code window}: the room for posted results follows it. */
+    public static String unstored(java.util.OptionalLong window, String... results) {
+        var ledger = ToolCallLedger.unstoredForLoop("th", "obs", window);
         for (String result : results) {
             ledger.record(new ToolCallLedger.Call("artifact_select", "id", "{}", Instant.EPOCH, 1), result, false, 1_000_000);
         }

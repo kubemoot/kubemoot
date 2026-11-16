@@ -82,11 +82,15 @@ public class DiscussionSubscriber {
     private static final String FIELD_INNER_CIRCLE = "innerCircle";
 
     // The most characters of an agent's own statement in a contribution. The descriptions of the files
-    // it produced follow the statement whole (the ledger keeps them under its own cap), so the
-    // statement is cut and the descriptions never are.
+    // it produced and the results it posts follow the statement whole (the ledger keeps them under its
+    // own caps), so the statement is cut and the manifest never is.
     static final int STATEMENT_MAX_CHARS = 24_000;
-    // The most characters of any signal's content: a statement and the file descriptions after it.
-    private static final int CONTENT_MAX_CHARS = STATEMENT_MAX_CHARS + CallManifest.MAX_CHARS + 2;
+    // The most characters of any signal's content: a cut statement (with its "..."), the blank line, and
+    // the manifest with all the results it may post. A contribution never exceeds this, so the cut
+    // that guards the bus never falls inside a result block. At up to 4 bytes a character this is
+    // under 200 KB, far below the 1 MB message size NATS allows by default.
+    static final int CONTENT_MAX_CHARS = STATEMENT_MAX_CHARS + "...".length() + 2
+            + CallManifest.MAX_CHARS + CallManifest.MAX_INLINE_CHARS;
     // Eviction caps for the in-memory dedup/context caches; cleared wholesale past these.
     private static final int MAX_PROCESSED_MESSAGES = 5000;
     private static final int MAX_THREAD_CONTEXT_ENTRIES = 500;
