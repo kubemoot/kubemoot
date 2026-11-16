@@ -1,6 +1,7 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.CallHeaders;
+import ai.kubemoot.agent.chat.HeaderValue;
 import ai.kubemoot.agent.mcp.WorkspaceTools;
 import ai.kubemoot.agent.chat.CallManifest;
 import ai.kubemoot.agent.chat.DiscussionRoom;
@@ -118,7 +119,7 @@ final class ThreadCatalog {
     }
 
     private static String text(Headers h, String name) {
-        String v = h.getFirst(name);
+        String v = HeaderValue.decode(h.getFirst(name));
         return v == null ? "" : v;
     }
 

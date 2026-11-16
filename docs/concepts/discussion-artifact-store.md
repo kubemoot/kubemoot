@@ -80,6 +80,20 @@ define use the convention's name; the rest sit in the `kubemoot.` namespace.
 | `Content-Type` | What the stored body is, decided once when it is stored: `application/json`, `text/csv`, `text/markdown` (a Markdown table), `application/yaml`, `text/plain; profile=kubectl-table`, or `text/plain` for anything else. Every reader believes it and looks at the bytes only when it is missing (an object stored before the header existed). See [Content type](#content-type). |
 | `kubemoot.truncated` | `true` only when the result was cut at the size cap. |
 
+#### Header values that are not plain ASCII
+
+A NATS header value can hold printable ASCII only, but arguments, tool names and agent names can
+carry any text (`é`, CJK, emoji). The runtime writes a value that is plain ASCII as it is. Any other
+value, and any ASCII value that starts with `utf8-pct:`, is written as `utf8-pct:` followed by the
+text's UTF-8 bytes, with every byte outside printable ASCII, and every `%`, as `%XX`. A value
+without the `utf8-pct:` prefix is the text itself, so an object stored before the encoding existed
+reads as before, and ASCII that merely looks percent-encoded (`caf%C3%A9`) is left alone. Every
+reader decodes before it uses a value: the catalog and the read tools show the original text. Percent
+encoding was chosen over RFC 2047 because it needs no charset or length-limited word framing, one
+rule decodes any value, and a value stays readable in `nats object info`. The Java encoder
+(`HeaderValue`) and the Go decoder (`store.DecodeHeaderValue`) both run
+`test/fixtures/header-values.json`.
+
 ### What an agent posts: the descriptions of its files, and its small results
 
 A contribution is what the agent states, followed by the description of each file it

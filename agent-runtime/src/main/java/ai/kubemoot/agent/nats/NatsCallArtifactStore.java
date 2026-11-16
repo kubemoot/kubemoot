@@ -2,6 +2,7 @@ package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.CallArtifactStore;
 import ai.kubemoot.agent.chat.CallHeaders;
+import ai.kubemoot.agent.chat.HeaderValue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
 import io.nats.client.api.ObjectMeta;
@@ -125,10 +126,13 @@ public class NatsCallArtifactStore implements CallArtifactStore {
         }
     }
 
-    /** The headers as NATS headers; a line break in a value would end the header, so it becomes a space. */
+    /**
+     * The headers as NATS headers. A line break in a value would end the header, so it becomes a space;
+     * a value that is not printable ASCII (an argument with {@code é}) is encoded by {@link HeaderValue}.
+     */
     static Headers natsHeaders(Map<String, String> values) {
         var headers = new Headers();
-        values.forEach((k, v) -> headers.put(k, v == null ? "" : v.replace('\r', ' ').replace('\n', ' ')));
+        values.forEach((k, v) -> headers.put(k, v == null ? "" : HeaderValue.encode(v.replace('\r', ' ').replace('\n', ' '))));
         return headers;
     }
 
