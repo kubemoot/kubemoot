@@ -45,7 +45,7 @@ operator wants, the operator reports an error and leaves it alone.
 | Each crew namespace (a namespace that holds at least one `Crew`; the operator labels it `kubemoot.ai/crew`) | `km-default-deny`, `km-crew-internal` | Every pod refuses ingress unless a policy admits it. The pods of the namespace, the operator, and the metrics scraper may reach every pod that is not a tool server or a tool gateway. |
 | Each MCPServer with a pod | `km-mcp-<name>-ingress` | Only the crew's gateway and the operator reach the server, on its port (the bridge port for a stdio server). A shared server in the operator namespace admits the gateway of every namespace that holds a `Crew`. |
 | Each MCPGateway | the `<gateway>-admin` policy (created for every gateway, with the flag on or off) | The tool port admits the crew's namespace, the operator, and the metrics scraper when the chart names one, instead of every pod. The admin port stays operator only. |
-| Each Crew with a discussion gateway | `km-crew-<crew>-gateway-ingress`, and on Cilium `km-crew-<crew>-gateway-entities` | Callers from outside the namespace reach the gateway on port 8080: the namespaces in `spec.network.allowedIngress`, the Gateway API proxy, and the API server's service proxy used by `kubectl ask` and kmctl. |
+| Each Crew with a discussion gateway | `km-crew-<crew>-gateway-ingress`, and on Cilium `km-crew-<crew>-gateway-entities` | Callers from outside the namespace reach the gateway on port 8080: the namespaces in `spec.network.allowedIngress`, the Gateway API proxy, and the API server's service proxy used by `kubectl ask`. kmctl reaches the gateway by a port-forward through the kubelet and needs no entry here. |
 | Each MCPServer or Agent with `spec.egress` | `km-mcp-<name>-egress` or `km-agent-<name>-egress`, and on Cilium the same name with `-fqdn` | Outbound rules, described below. |
 
 An MCPServer with `externalEndpoint` has no pod and gets no policy.
@@ -198,7 +198,7 @@ A `NetworkPolicy` can name an address range but not a host name. What happens to
 | | Any CNI that enforces NetworkPolicy | Cilium |
 |---|---|---|
 | Ingress policies (default-deny, tool server, gateway tool port) | Enforced | Enforced |
-| Gateway API proxy and API server proxy to the discussion gateway | Enforced from `trustedIngressNamespaces` and `controlPlaneCIDRs` | Enforced with no setting: entities `ingress`, `kube-apiserver`, `remote-node` |
+| Gateway API proxy and API server proxy (`kubectl ask`) to the discussion gateway | Enforced from `trustedIngressNamespaces` and `controlPlaneCIDRs` | Enforced with no setting: entities `ingress`, `kube-apiserver`, `remote-node` |
 | Outbound to address ranges, namespaces, and pods | Enforced | Enforced |
 | Outbound to the API server | Enforced from the `kubernetes` EndpointSlice | Enforced with the `kube-apiserver` entity |
 | Outbound to a host name | Not enforceable | Enforced with `toFQDNs` and the DNS proxy |

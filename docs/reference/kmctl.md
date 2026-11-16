@@ -641,6 +641,11 @@ kmctl completion <shell>
 Generate shell completion scripts. Supported shells: `bash`, `zsh`, `fish`,
 `powershell`.
 
+Completing a conversation ID (`kmctl conversation watch <crew> <Tab>`) lists the crew's
+recent conversations, so each press opens a short port-forward to the crew's gateway. It is
+a little slower than completing a name kmctl reads from the Kubernetes API, and it needs the
+same permissions as `kmctl conversation`.
+
 **Examples:**
 
 ```bash
@@ -675,9 +680,15 @@ kmctl conversation artifact <crew> <key> [-n <namespace>] [-f <file>]
 ```
 
 Start a conversation turn with a crew and stream the moot's deliberation in real
-time. `kmctl conversation` reaches the crew's discussion gateway through the
-Kubernetes API server's service proxy using your kubeconfig credentials; no extra
-port-forwarding or networking setup is required.
+time. `kmctl conversation` reaches the crew's discussion gateway by opening a
+port-forward to a ready pod behind its Service, through the kubelet as
+`kubectl port-forward` does, using your kubeconfig credentials. You do not run a
+port-forward yourself, and the connection works under a default-deny network policy
+with no cluster-specific policy.
+
+Permissions, in the namespace of the Service: `get` on `services`, `list` on `pods`, and
+`create` on `pods/portforward`. A missing permission is reported with the verb and
+resource that were refused.
 
 ### kmctl conversation ask
 
@@ -1011,8 +1022,10 @@ kmctl fitness download <suite> [-n <namespace>] [-o FILE] [--dashboard-namespace
 ```
 
 Download the XLSX artifact for a completed suite. The command fetches the artifact
-from the dashboard's artifact endpoint through the Kubernetes API server's service
-proxy, using your kubeconfig credentials. No extra port-forwarding is required.
+from the dashboard's artifact endpoint through a port-forward to a ready dashboard pod,
+using your kubeconfig credentials. You do not run a port-forward yourself. It needs `get`
+on `services`, `list` on `pods`, and `create` on `pods/portforward` in the dashboard's
+namespace.
 
 The suite must have reached `phase=Completed` before the artifact is available. A workbook downloaded before the judge pass finishes is provisional and carries quality 0.
 
@@ -1065,7 +1078,7 @@ uses; see [Agent context](../../concepts/agent-context/#memory) for what maps an
 does not.
 
 The command only reads. Crew memory lives in a NATS key-value bucket, and the NATS
-server is not behind the Kubernetes API server's service proxy, so kmctl opens a
+server is not an HTTP service the Kubernetes API server can proxy, so kmctl opens a
 port-forward to a ready pod of the NATS Service with your kubeconfig credentials, lists
 the bucket's keys and gets the values it needs, and closes the forward. It never writes,
 deletes or touches a fact. An unreachable server or a missing bucket is an error; only a
