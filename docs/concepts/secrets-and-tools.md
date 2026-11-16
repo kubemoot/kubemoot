@@ -240,12 +240,15 @@ should apply each crew as an account that holds only that crew's namespace right
    (`flux-crew-mooty` in the examples above). It needs no token: the controller
    impersonates it, so `automountServiceAccountToken: false` stays.
 2. **A Role for what the chart renders.** `get`, `list`, `watch`, `create`, `update`,
-   `patch` and `delete` on each Kubemoot kind the crew's chart renders (`agents`,
-   `crews`, `promptmodules`, `mcpservers`, and so on), and on the core kinds it renders
-   (`configmaps`, `serviceaccounts`, `networkpolicies` for the crew that has them). Run
-   `helm template` on the chart with your values and list the kinds it produces; a chart
-   that renders a new kind needs the Role extended first, or the next upgrade fails
-   `Forbidden` and the release stays at its last revision.
+   `patch` and `delete` on every kind the chart renders, Kubemoot kinds and core kinds
+   alike. Run `helm template` on the chart with your values and list the kinds it
+   produces; the Role must cover all of them. The reference crew's chart, for example,
+   renders `secrets`, `configmaps`, `serviceaccounts`, `networkpolicies`, and the
+   Kubemoot kinds `agents`, `crews`, `promptmodules`, `crewschedulingpolicies`,
+   `embeddingmodels`, `ragsources`, `mcpservers`, `mcpgateways`, `mcpcatalogs` and
+   `mcpqualitypolicies`, so its Role names each of those. A chart that renders a new
+   kind needs the Role extended first, or the next upgrade fails `Forbidden` and the
+   release stays at its last revision.
 3. **The `use` grants.** The Role from [Granting `use` on a Secret](#granting-use-on-a-secret),
    bound to the same account, with `resourceNames` for every Secret and ServiceAccount the
    crew's MCPServers and Agents name.
@@ -272,9 +275,14 @@ account, is rejected with the message in [The admission check](#the-admission-ch
 
 Put the HelmRelease in the crew namespace and name the account. helm-controller
 impersonates it for every Helm action (read, install, upgrade, drift detection, wait), so
-each call is authorized against the account's Role. The chart source and its registry
-credentials stay in the Flux namespace, read by the controller itself, so the account never
-sees them.
+each call is authorized against the account's Role. The controller itself reads the chart
+source and its registry credentials, so the account never sees them. Where the controller
+allows cross-namespace references, the OCIRepository can stay in the Flux namespace and the
+HelmRelease points at it with `chartRef.namespace`, as below. With
+`--no-cross-namespace-refs` (which this page recommends for a multi-tenant cluster) that
+reference is refused, so create the OCIRepository, and the registry Secret it names, in
+the crew namespace; the tenant account needs no rights on either, because the
+controller reads them.
 
 ```yaml
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -289,7 +297,7 @@ spec:
   chartRef:
     kind: OCIRepository
     name: mooty-crew
-    namespace: flux-system
+    namespace: flux-system   # drop this line when the OCIRepository is in crew-mooty
   values: {}
 ```
 
@@ -308,13 +316,26 @@ spec:
   HelmRelease first (deleting a suspended HelmRelease removes it without uninstalling the
   release), copy the release Secrets (`kubectl get secret -l owner=helm,name=<release>`) into
   the crew namespace, then apply the new HelmRelease: it upgrades the release in place and
-  the crew's objects keep their identity. A copy of a large release record with
-  `kubectl apply` can exceed the annotation size limit; use `kubectl create`.
+  the crew's objects keep their identity. Copy each record with its server-set metadata
+  removed, and with `kubectl create`: `kubectl apply` stores the whole object in an
+  annotation, and a large release record exceeds its size limit.
+
+  ```bash
+  REL=crew-mooty-mooty-crew; NS=crew-mooty; OLD=flux-system
+  for s in $(kubectl -n $OLD get secret -l owner=helm,name=$REL -o name); do
+    kubectl -n $OLD get "$s" -o yaml \
+      | yq 'del(.metadata.uid, .metadata.resourceVersion, .metadata.creationTimestamp, .metadata.managedFields, .metadata.annotations, .metadata.ownerReferences) | .metadata.namespace = "'$NS'"' \
+      | kubectl create -f -
+  done
+  ```
 
 ### With Argo CD
 
 Argo CD renders the chart and applies the manifests itself, so it keeps no Helm release
-Secrets: the account needs rights on Secrets only when the chart renders one. Limit what an
+Secrets. The account still needs rights on Secrets when the chart renders one, and the
+reference crew's chart does, so its account holds `create`, `get`, `list`, `update`,
+`patch` and `delete` on Secrets in the crew namespace. A chart that renders no Secret
+needs none. Limit what an
 Application may do with an AppProject, and use sync impersonation (a beta feature in Argo
 CD, off by default) so the apply runs as the crew's account instead of the controller's:
 
