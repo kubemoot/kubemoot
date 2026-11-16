@@ -106,3 +106,9 @@ For the mechanics of declaring the Kubernetes resources see
 those resources, which Toolers and Analysts to include, how to write resumes the
 coordinator reasons over, and how to ground the coordinator so it routes well and
 writes helpful advisory briefs, see [Compose a Crew](../../user-guides/compose-a-crew/).
+
+## The realm a crew draws on
+
+A crew holds who sits at the table and how it behaves. The models, tools, and knowledge it
+draws on are the realm, a separate layer that a platform team curates. See
+[The realm and the crew](../the-realm-and-the-crew/).
