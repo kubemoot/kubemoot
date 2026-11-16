@@ -279,7 +279,7 @@ each call is authorized against the account's Role. The controller itself reads 
 source and its registry credentials, so the account never sees them. Where the controller
 allows cross-namespace references, the OCIRepository can stay in the Flux namespace and the
 HelmRelease points at it with `chartRef.namespace`, as below. With
-`--no-cross-namespace-refs` (which this page recommends for a multi-tenant cluster) that
+`--no-cross-namespace-refs` (part of the lockdown recommended below) that
 reference is refused, so create the OCIRepository, and the registry Secret it names, in
 the crew namespace; the tenant account needs no rights on either, because the
 controller reads them.
@@ -310,7 +310,8 @@ spec:
 - **Omitting `serviceAccountName` runs the release as the controller**, which is an admin.
   Enforce the field with an admission policy that rejects a HelmRelease in a crew
   namespace without it, or enable Flux's multi-tenancy lockdown
-  (`--default-service-account`), which also covers every other release in the cluster.
+  (`--default-service-account` and `--no-cross-namespace-refs`), which also covers every
+  other release in the cluster.
 - **Moving an existing release into the crew namespace.** Pin `releaseName` to the old
   release name so Helm sees the same release and the chart-derived names do not change. Suspend the old
   HelmRelease first (deleting a suspended HelmRelease removes it without uninstalling the
