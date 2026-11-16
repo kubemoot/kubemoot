@@ -229,6 +229,147 @@ The `status.readConsentNamespaces` field and the `NoReadConsent` event are gone 
 controller. The count came from labels and has no replacement: the crew chart's own bindings show the grant, and a
 render that lists no namespace says so in the chart notes.
 
+## Applying a crew under a tenant account
+
+The use-grant check only constrains an identity that is not a cluster admin. A GitOps
+controller that applies every crew as cluster-admin passes every check, so the controller
+should apply each crew as an account that holds only that crew's namespace rights plus its
+`use` grants. The pattern has five parts, the same with Flux or Argo CD.
+
+1. **An identity per crew namespace.** A ServiceAccount in the crew namespace
+   (`flux-crew-mooty` in the examples above). It needs no token: the controller
+   impersonates it, so `automountServiceAccountToken: false` stays.
+2. **A Role for what the chart renders.** `get`, `list`, `watch`, `create`, `update`,
+   `patch` and `delete` on each Kubemoot kind the crew's chart renders (`agents`,
+   `crews`, `promptmodules`, `mcpservers`, and so on), and on the core kinds it renders
+   (`configmaps`, `serviceaccounts`, `networkpolicies` for the crew that has them). Run
+   `helm template` on the chart with your values and list the kinds it produces; a chart
+   that renders a new kind needs the Role extended first, or the next upgrade fails
+   `Forbidden` and the release stays at its last revision.
+3. **The `use` grants.** The Role from [Granting `use` on a Secret](#granting-use-on-a-secret),
+   bound to the same account, with `resourceNames` for every Secret and ServiceAccount the
+   crew's MCPServers and Agents name.
+4. **Apply as that account**, from the crew namespace (below).
+5. **Cluster-wide RBAC through a second, admin release** (below).
+
+Check the result before relying on it. These commands are `kubectl auth can-i` with the
+account impersonated (write `${ns}:flux-crew-mooty` with braces in zsh, or the shell
+mangles the name):
+
+```bash
+ns=crew-mooty
+u=system:serviceaccount:${ns}:flux-crew-mooty
+kubectl auth can-i create mcpservers.kubemoot.ai --as=$u -n $ns        # yes
+kubectl auth can-i use secrets/mail-credentials   --as=$u -n $ns        # yes
+kubectl auth can-i use secrets/registry-pull      --as=$u -n $ns        # no
+kubectl auth can-i create clusterroles            --as=$u               # no
+```
+
+A server-side dry run of an MCPServer that names a Secret without a grant, run as the
+account, is rejected with the message in [The admission check](#the-admission-check).
+
+### With Flux
+
+Put the HelmRelease in the crew namespace and name the account. helm-controller
+impersonates it for every Helm action (read, install, upgrade, drift detection, wait), so
+each call is authorized against the account's Role. The chart source and its registry
+credentials stay in the Flux namespace, read by the controller itself, so the account never
+sees them.
+
+```yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: mooty-crew
+  namespace: crew-mooty
+spec:
+  serviceAccountName: flux-crew-mooty
+  releaseName: crew-mooty-mooty-crew   # pin it; see below
+  interval: 10m
+  chartRef:
+    kind: OCIRepository
+    name: mooty-crew
+    namespace: flux-system
+  values: {}
+```
+
+- **The release record is a Secret in the crew namespace.** Helm stores each revision as
+  `sh.helm.release.v1.<release>.v<N>` in the HelmRelease's namespace, so the account needs
+  `create`, `get`, `list`, `update` and `delete` on Secrets there. `create` and `list` cannot
+  be limited by `resourceNames`. The account can therefore read Secrets in its own
+  namespace; the `use` check constrains what an MCPServer may reference, not what the
+  applier may read.
+- **Omitting `serviceAccountName` runs the release as the controller**, which is an admin.
+  Enforce the field with an admission policy that rejects a HelmRelease in a crew
+  namespace without it, or enable Flux's multi-tenancy lockdown
+  (`--default-service-account`), which also covers every other release in the cluster.
+- **Moving an existing release into the crew namespace.** Pin `releaseName` to the old
+  release name so Helm sees the same release and the chart-derived names do not change. Suspend the old
+  HelmRelease first (deleting a suspended HelmRelease removes it without uninstalling the
+  release), copy the release Secrets (`kubectl get secret -l owner=helm,name=<release>`) into
+  the crew namespace, then apply the new HelmRelease: it upgrades the release in place and
+  the crew's objects keep their identity. A copy of a large release record with
+  `kubectl apply` can exceed the annotation size limit; use `kubectl create`.
+
+### With Argo CD
+
+Argo CD renders the chart and applies the manifests itself, so it keeps no Helm release
+Secrets: the account needs rights on Secrets only when the chart renders one. Limit what an
+Application may do with an AppProject, and use sync impersonation (a beta feature in Argo
+CD, off by default) so the apply runs as the crew's account instead of the controller's:
+
+```yaml
+# argocd-cm
+data:
+  application.sync.impersonation.enabled: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: crew-mooty
+  namespace: argocd
+spec:
+  sourceRepos: ["https://example.com/crews.git"]
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: crew-mooty
+  clusterResourceWhitelist: []
+  destinationServiceAccounts:
+    - server: https://kubernetes.default.svc
+      namespace: crew-mooty
+      defaultServiceAccount: flux-crew-mooty
+```
+
+An Application in this project with destination namespace `crew-mooty` then syncs as
+`flux-crew-mooty`, and the same Role and `use` grants apply. Without impersonation the
+project limits where Argo CD applies, not who applies, so the use-grant check sees the
+Argo CD controller and passes. Impersonation is strict by default: a sync with no matching
+account fails rather than falling back to the controller.
+
+### A crew that renders cluster-wide RBAC
+
+A tenant account cannot create ClusterRoles, ClusterRoleBindings or RoleBindings, and a
+crew whose tool servers read the cluster renders them (the reference crew does, for its
+Kubernetes tool servers). Install the same chart twice from the same values, each release
+rendering its part:
+
+| Release | Applied by | Values | Renders |
+|---|---|---|---|
+| tenant | the crew's account | `rbac.render: namespaced` | everything except the RBAC objects |
+| RBAC | an admin | `rbac.render: cluster`, `rbac.namePrefix: <tenant release name>` | the ClusterRoles, ClusterRoleBindings and RoleBindings |
+
+Install the RBAC release into the same namespace as the tenant release, because the
+bindings name the ServiceAccounts in the namespace they render for, and keep the
+`kubernetesAccess` values equal in both. With Flux the RBAC release is a second HelmRelease
+without `serviceAccountName` (the controller applies it as an admin) with a different
+`releaseName`; with Argo CD it is an Application in an admin project. The tenant account
+then needs no RBAC rights at all, so a crew author cannot widen the access the tool servers
+hold: whoever may create bindings still decides it. The values and the objects each release
+renders are in the
+[crew's README](https://github.com/kubemoot/crews/blob/main/homelab-pilot-crew/README.md#applying-with-a-tenant-account).
+A chart that does not support `rbac.render` renders its RBAC in the one release, so it needs
+an admin applier or the RBAC objects applied separately.
+
 ## Target design
 
 Closing the gap uses Kubernetes authorization and admission, with nothing new invented.
