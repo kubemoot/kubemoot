@@ -115,12 +115,16 @@ goes through the bus.
 ```
 Pod a-1 uses the most CPU, 0.9 cores (workspace_query over 001-pods_list).
 
-[WORKSPACE agent=k8s-workloads calls=3 errors=0 prefix=k8s-workloads/]
+[WORKSPACE agent=k8s-workloads calls=4 errors=0 prefix=k8s-workloads/]
 [CALL key=k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} type=text/plain; profile=kubectl-table bytes=15210 rows=unknown error=false columns=name,ready,status,restarts,age]
 [CALL key=k8s-workloads/002-nodes_list tool=nodes_list args={} type=application/json bytes=2210 rows=3 error=false fields=metadata,spec,status]
 [CALL key=k8s-workloads/003-events_list tool=events_list args={} type=text/plain bytes=15 rows=unknown error=false]
 [RESULT]
 No events found
+[END RESULT]
+[CALL key=k8s-workloads/004-workspace_grep tool=workspace_grep args={"key": "k8s-nodes/001-resources_list", "pattern": "DiskPres... (args cut at 60 of 91 chars) type=text/plain bytes=0 rows=unknown error=false]
+[EMPTY RESULT]
+(empty: the call succeeded and returned nothing)
 [END RESULT]
 The results are stored under these keys; a result not shown above is only in its file. Read a key with workspace_query (SQL; the columns are listed on the call line), the artifact_* tools, or execute_code over the file /artifacts/<key>; the key k8s-workloads/*-<tool> reads every call of one tool as one table.
 ```
@@ -226,8 +230,16 @@ Rules that keep the posted text trustworthy:
 
 - A result is posted exactly as the tool returned it, or not at all. It is never cut, and a
   result that would have been cut at the storage cap (1,000,000 characters) is not posted.
-- A result that holds the text `[END RESULT]` itself, an empty result, and a result that could
-  not be stored are not posted.
+- A result that holds the text `[END RESULT]` itself and a result that could not be stored are
+  not posted.
+- A successful call whose result is empty (no text, or only white space) always posts the block
+  `[EMPTY RESULT]`, `(empty: the call succeeded and returned nothing)`, `[END RESULT]`, whatever
+  room is left, so an empty result is never read as a result that is only in its file. A failed
+  call with no text posts nothing.
+- Arguments longer than 60 characters are cut on the call line (on a character boundary) and the
+  line says so: `args={"key": "k8s-nodes/001-res... (args cut at 60 of 91 chars)`. The full
+  arguments are in the stored call's headers. The `[CATALOG-CALL ...]` lines keep their own
+  `...` cut.
 - A failed call posts its error text between `[FAILED RESULT]` and `[END RESULT]` when it fits.
   That text says why the call failed; it is not data about the system and does not count as a
   fact.

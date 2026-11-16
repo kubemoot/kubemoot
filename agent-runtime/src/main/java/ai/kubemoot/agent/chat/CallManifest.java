@@ -10,7 +10,9 @@ import java.util.regex.Pattern;
  *
  * <p>A result small enough for the discussion ({@link DiscussionRoom}) follows its call line whole,
  * between {@code [RESULT]} and {@code [END RESULT]} ({@code [FAILED RESULT]} when the tool
- * returned an error). Those blocks are data; the other lines only describe files.
+ * returned an error). A call that succeeded with an empty result (nothing, or only white space)
+ * always has the block {@code [EMPTY RESULT]} instead, so an empty result is never mistaken for a
+ * result that is only in its file. The result blocks are data; the other lines only describe files.
  */
 public final class CallManifest {
 
@@ -49,7 +51,14 @@ public final class CallManifest {
     /** Opens the block that holds the error text of a failed call. */
     public static final String FAILED_RESULT_OPEN = "[FAILED RESULT]";
 
-    /** Closes either block. */
+    /** Opens the block that says a successful call returned nothing. */
+    public static final String EMPTY_RESULT_OPEN = "[EMPTY RESULT]";
+
+    /** The whole block of a successful call whose result is empty. */
+    public static final String EMPTY_RESULT_TEXT = EMPTY_RESULT_OPEN
+            + "\n(empty: the call succeeded and returned nothing)\n[END RESULT]";
+
+    /** Closes each block. */
     public static final String RESULT_CLOSE = "[END RESULT]";
 
     /** A block of a result; group 1 is the result as the tool returned it. */
@@ -60,6 +69,9 @@ public final class CallManifest {
     public static final Pattern FAILED_RESULT_BLOCK = Pattern.compile(
             Pattern.quote(FAILED_RESULT_OPEN) + "\\n(.*?)\\n" + Pattern.quote(RESULT_CLOSE) + "\\n?",
             Pattern.DOTALL);
+
+    /** The block of an empty result, with its line break. */
+    public static final Pattern EMPTY_RESULT_BLOCK = Pattern.compile(Pattern.quote(EMPTY_RESULT_TEXT) + "\\n?");
 
     /** Most characters of the descriptions an agent's contribution carries. */
     public static final int MAX_CHARS = 4_000;
@@ -85,20 +97,41 @@ public final class CallManifest {
     }
 
     /**
-     * The arguments on one line, cut at {@link #ARGS_SUMMARY_CHARS}. Square brackets become
-     * parentheses so a list in the arguments cannot end the [CALL ...] line early.
+     * The arguments on one line, cut at {@link #ARGS_SUMMARY_CHARS} characters with a trailing
+     * "...". Square brackets become parentheses so a list in the arguments cannot end the
+     * [CALL ...] line early.
      */
     public static String argsSummary(String arguments) {
+        String one = oneLineArgs(arguments);
+        return isCut(one) ? cutAt(one) + "..." : one;
+    }
+
+    /**
+     * The {@code args=...} part of a manifest call line. Arguments that were shortened say so, with
+     * the characters kept and the characters sent, so a cut cannot be read as the real call.
+     */
+    public static String argsField(String arguments) {
+        String one = oneLineArgs(arguments);
+        if (!isCut(one)) {
+            return "args=" + one;
+        }
+        return "args=" + cutAt(one) + "... (args cut at " + ARGS_SUMMARY_CHARS + " of "
+                + one.codePointCount(0, one.length()) + " chars)";
+    }
+
+    private static String oneLineArgs(String arguments) {
         String one = arguments == null ? ""
                 : EDGE_SPACE.matcher(ASCII_SPACE_RUNS.matcher(neutralize(arguments)).replaceAll(" ")).replaceAll("")
                         .replace('[', '(').replace(']', ')');
-        if (one.isEmpty()) {
-            return "{}";
-        }
-        if (one.codePointCount(0, one.length()) <= ARGS_SUMMARY_CHARS) {
-            return one;
-        }
-        return one.substring(0, one.offsetByCodePoints(0, ARGS_SUMMARY_CHARS)) + "...";
+        return one.isEmpty() ? "{}" : one;
+    }
+
+    private static boolean isCut(String one) {
+        return one.codePointCount(0, one.length()) > ARGS_SUMMARY_CHARS;
+    }
+
+    private static String cutAt(String one) {
+        return one.substring(0, one.offsetByCodePoints(0, ARGS_SUMMARY_CHARS));
     }
 
     private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cc}\\u2028\\u2029]");

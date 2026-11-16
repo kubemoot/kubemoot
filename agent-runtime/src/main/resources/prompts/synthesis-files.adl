@@ -4,6 +4,7 @@ DESCRIPTION What the thread's file descriptions mean to the synthesizer. A [CALL
 DEFINE COMPONENT file-rules
 ASSERT a [CALL ...] line is a description of a file, not data; it carries no values
 ASSERT a [RESULT] block is the whole result of the call above it, exactly as the tool returned it; it is data
+ASSERT an [EMPTY RESULT] block says the call succeeded and returned nothing; it holds no data
 ASSERT a [FAILED RESULT] block is the error text of a failed call; it is not data about the world
 ASSERT a fact is something an agent stated in its contribution or a [RESULT] block holds, with or without a file description beside it
 WHEN a count, total, ranking or list appears in an agent contribution THEN state it as the agent stated it

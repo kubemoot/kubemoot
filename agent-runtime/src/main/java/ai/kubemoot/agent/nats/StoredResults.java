@@ -53,7 +53,7 @@ final class StoredResults {
     /** The markers a result must not hold: each would close a block or pose as the discussion's own line. */
     private static final List<String> FORBIDDEN = List.of(CLOSE, OPEN, CallManifest.CALL_PREFIX,
             CallManifest.NOT_STORED_PREFIX, CallManifest.HEADER_PREFIX, CallManifest.RESULT_OPEN,
-            CallManifest.FAILED_RESULT_OPEN, CallManifest.RESULT_CLOSE);
+            CallManifest.FAILED_RESULT_OPEN, CallManifest.EMPTY_RESULT_OPEN, CallManifest.RESULT_CLOSE);
 
     /** What the read found. */
     enum Status {

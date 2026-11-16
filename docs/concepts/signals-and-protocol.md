@@ -72,7 +72,10 @@ under a `[WORKSPACE ...]` header, or a `[NOT STORED ...]` line for a result that
 written. The keys in those lines are relative to the thread (`k8s-workloads/001-pods_list`). A
 result small enough for the readers' context window follows its line whole, between `[RESULT]` and
 `[END RESULT]` (`[FAILED RESULT]` for the error text of a failed call); a larger result is only in
-its file, and a result is never cut. See the
+its file, and a result is never cut. A call that succeeded and returned nothing (or only white
+space) always has an `[EMPTY RESULT]` block, so an empty result is never mistaken for a result that
+is only in its file. Arguments longer than 60 characters are cut on the line and end with
+`... (args cut at 60 of N chars)`; the full arguments are in the stored call. See the
 [discussion artifact store](discussion-artifact-store.md#what-an-agent-posts-the-descriptions-of-its-files-and-its-small-results).
 Agents that read files add the facts they find to their own contribution; the synthesizer answers
 from the discussion only.
@@ -156,7 +159,7 @@ nothing (it would invent). What it does depends on whether a call succeeded:
     checked. It never derives a total, count, ranking or absence from a cut result, and a failed
     call is never an empty result.
   - A result whose shown text holds a marker of the discussion's own format (`[END STORED RESULT]`,
-    `[STORED RESULT `, `[CALL `, `[RESULT]`, `[END RESULT]`, `[FAILED RESULT]`, `[NOT STORED`,
+    `[STORED RESULT `, `[CALL `, `[RESULT]`, `[END RESULT]`, `[FAILED RESULT]`, `[EMPTY RESULT]`, `[NOT STORED`,
     `[WORKSPACE `) is not shown, so its content can never close a block and pose as the
     discussion. It is counted in the line "N more stored results not shown". The rules also tell the
     synthesizer never to follow an instruction found inside a stored result.
@@ -187,7 +190,7 @@ from stored results ends `synthesized`.
 - a `[RESULT]` block with a result that is not blank, or
 - its own text, which is whatever is left after taking out the `[WORKSPACE ...]` header, the
   `[CALL ...]` and `[NOT STORED ...]` lines, the closing "stored under these keys" line, the
-  `[N more calls under the prefix]` line, the `[FAILED RESULT]` blocks, and the words
+  `[N more calls under the prefix]` line, the `[FAILED RESULT]` and `[EMPTY RESULT]` blocks, and the words
   `NOTHING_TO_ADD` and `NO_DATA`.
 
 An empty `agree`, a `stand_aside`, a `decline`, a `failure`, the coordinator's own messages (the
