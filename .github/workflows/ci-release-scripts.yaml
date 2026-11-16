@@ -23,6 +23,11 @@ on:
       - 'k8s/tests/ask.test.sh'
       - '**/go.mod'
       - '**/osv-scanner.toml'
+      - 'dashboard/src/lib/server/nats-object-store.ts'
+      - 'agent-runtime/src/main/java/ai/kubemoot/agent/nats/DiscussionArtifacts.java'
+      - 'discussion-gateway/internal/api/artifacts.go'
+      - 'operator/pkg/mesh/names.go'
+      - 'artifact-access/internal/envcompat/envcompat.go'
   push:
     branches-ignore: [main]
     paths:
@@ -43,6 +48,11 @@ on:
       - 'k8s/tests/ask.test.sh'
       - '**/go.mod'
       - '**/osv-scanner.toml'
+      - 'dashboard/src/lib/server/nats-object-store.ts'
+      - 'agent-runtime/src/main/java/ai/kubemoot/agent/nats/DiscussionArtifacts.java'
+      - 'discussion-gateway/internal/api/artifacts.go'
+      - 'operator/pkg/mesh/names.go'
+      - 'artifact-access/internal/envcompat/envcompat.go'
 
 permissions:
   contents: read
@@ -81,6 +91,7 @@ jobs:
           bash .github/scripts/test-check-native-libs.sh
           bash .github/scripts/test-check-native-target.sh
           bash .github/scripts/test-java-toolchain-version.sh
+          bash .github/scripts/test-bucket-names.sh
           bash k8s/tests/job/run.test.sh
           bash k8s/tests/lib.test.sh
           bash k8s/tests/ask.test.sh

@@ -16,6 +16,11 @@ import {
 const bytes = (s: string) => new TextEncoder().encode(s);
 
 describe('firstBlob', () => {
+	it('names the two buckets as the other components do (checked across components by .github/scripts/test-bucket-names.sh)', () => {
+		expect(DISCUSSION_WORKSPACE_BUCKET).toBe('kubemoot_workspace');
+		expect(DISCUSSION_ARTIFACTS_BUCKET).toBe('kubemoot_discussion_artifacts');
+	});
+
 	it('reads the workspace bucket before the older bucket', () => {
 		expect(DISCUSSION_READ_BUCKETS).toEqual([DISCUSSION_WORKSPACE_BUCKET, DISCUSSION_ARTIFACTS_BUCKET]);
 	});
