@@ -15,19 +15,16 @@ on:
       - 'config/checkstyle/**'
       - '.github/scripts/check-native-libs.sh'
       - '.github/scripts/check-native-target.sh'
+      - '.github/scripts/run-native-check.sh'
+      - '.github/scripts/stub-mcp-server.py'
       - '.github/workflows/ci-agent-runtime.yaml'
   workflow_dispatch:
     inputs:
       native_check:
-        description: 'Build and start the native image on the homelab runners without pushing it (for a branch before merge)'
+        description: 'Build the native image and run it against a stub MCP server and its self-test, without pushing it (for a branch before merge)'
         required: false
         default: false
         type: boolean
-      mcp_endpoint:
-        description: 'Required with native_check: an in-cluster MCP server (HTTP+SSE) the native binary connects to directly, e.g. http://<service>.<namespace>:8080'
-        required: false
-        default: ''
-        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -91,15 +88,96 @@ jobs:
             echo "${suite}: $(grep -Eo 'tests="[0-9]+" skipped="[0-9]+" failures="[0-9]+" errors="[0-9]+"' "${report}")"
           done
 
+  # The native image is built and started on pull requests only through the native-check job,
+  # and only when the change can break it: the dependencies, the native configuration, the
+  # result type detection or the check itself. The scope job decides.
+  native-scope:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || inputs.native_check
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether the native image needs checking
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "${EVENT}" != "pull_request" ]; then
+            echo "run=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          pattern='^(agent-runtime/(build\.gradle\.kts|settings\.gradle\.kts|gradle\.properties|gradle/|src/main/resources/application\.properties|src/main/resources/META-INF/native-image/|src/main/java/ai/kubemoot/agent/chat/(ResultType|NativeSelfTest)\.java)|\.github/scripts/(run-native-check\.sh|stub-mcp-server\.py|check-native-target\.sh)|\.github/workflows/ci-agent-runtime\.yaml)'
+          if git diff --name-only "origin/${BASE_REF}...HEAD" | grep -Eq "${pattern}"; then
+            echo "run=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "run=false" >> "${GITHUB_OUTPUT}"
+            echo "No dependency, native configuration or self-test change: the native image is not built for this pull request."
+          fi
+
+  # Builds the native binary and runs it against a stub MCP server inside the job, with its
+  # own self-test, so the check needs no cluster service and no network path to one.
+  native-check:
+    needs: native-scope
+    if: needs.native-scope.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up GraalVM Community 25
+        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173 # v1.6.7
+        with:
+          java-version: '25'
+          distribution: 'graalvm-community'
+          cache: 'gradle'
+          native-image-job-reports: 'false'
+
+      - name: Install native toolchain
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gcc zlib1g-dev
+
+      - name: Grant execute permission for gradlew
+        working-directory: agent-runtime
+        run: chmod +x gradlew
+
+      - name: Build native binary
+        working-directory: agent-runtime
+        run: |
+          ./gradlew quarkusBuild \
+            -Dquarkus.native.enabled=true \
+            -Dquarkus.native.container-build=false \
+            -Dquarkus.package.jar.enabled=false
+
+      - name: Check the binary targets every x86-64 CPU
+        run: .github/scripts/check-native-target.sh agent-runtime/build
+
+      # Checks what native compilation can break (startup, the MCP SDK's JSON and reflection,
+      # result type detection, record binding), not NATS or model server connectivity: the
+      # binary runs without either.
+      - name: Run the native binary against a stub MCP server
+        timeout-minutes: 5
+        run: |
+          runners=(agent-runtime/build/*-runner)
+          [ "${#runners[@]}" -eq 1 ] || { echo "want one native binary, found: ${runners[*]}"; exit 1; }
+          .github/scripts/run-native-check.sh "${runners[0]}"
+
   build-image:
     # Runs in parallel with test — pushes SHA-tagged image only.
     # The release job gates on ALL CI jobs passing before creating
     # the version tag that Flux deploys. A failed test means the
     # SHA-tagged image sits unused in Harbor.
-    # A dispatch with native_check builds the same native binary and starts it
-    # instead of pushing: nothing reaches Harbor and no tag is created.
+    # A dispatch with native_check runs the native-check job instead: nothing
+    # reaches Harbor and no tag is created.
     runs-on: homelab-runners
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && !inputs.native_check
 
     steps:
       - name: Checkout repository
@@ -122,7 +200,6 @@ jobs:
         run: chmod +x gradlew
 
       - name: Install kubectl and crane
-        if: ${{ !inputs.native_check }}
         env:
           KUBECTL_VERSION: v1.37.1
           KUBECTL_SHA256: 65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
@@ -150,60 +227,13 @@ jobs:
       - name: Check the binary targets every x86-64 CPU
         run: .github/scripts/check-native-target.sh agent-runtime/build
 
-      - name: Start the native binary (native check)
-        if: ${{ inputs.native_check }}
-        timeout-minutes: 3
-        working-directory: agent-runtime
-        env:
-          MCP_ENDPOINT: ${{ inputs.mcp_endpoint }}
-          QUARKUS_HTTP_PORT: '18080'
-          KUBEMOOT_AGENT_NAME: native-check
-          KUBEMOOT_AGENT_DESCRIPTION: native image check
-        # Checks what native compilation can break (startup, MCP SDK JSON and reflection),
-        # not NATS or Ollama connectivity: the binary runs without either.
-        run: |
-          if [ -z "${MCP_ENDPOINT}" ]; then
-            echo "::error::native_check needs mcp_endpoint: the MCP client is only exercised against a live server"
-            exit 1
-          fi
-          export KUBEMOOT_MCP_SERVERS_0__NAME=check
-          export KUBEMOOT_MCP_SERVERS_0__ENDPOINT="${MCP_ENDPOINT}"
-          runner=(build/*-runner)
-          "./${runner[0]}" > runner.log 2>&1 &
-          pid=$!
-          until curl -sf "http://localhost:${QUARKUS_HTTP_PORT}/q/health/live" >/dev/null; do
-            if ! kill -0 "${pid}" 2>/dev/null; then
-              echo "::error::The native binary exited during startup"
-              cat runner.log
-              exit 1
-            fi
-            sleep 1
-          done
-          # The tools endpoint initializes the MCP client, which connects to MCP_ENDPOINT.
-          if ! tools="$(curl -sf "http://localhost:${QUARKUS_HTTP_PORT}/tools")"; then
-            echo "::error::The native binary did not answer /tools"
-            cat runner.log
-            exit 1
-          fi
-          kill "${pid}"
-          cat runner.log
-          echo "tools: ${tools}"
-          count="$(printf '%s' "${tools}" | grep -o '"count":[0-9]*' | cut -d: -f2)"
-          if [ "${count:-0}" -eq 0 ]; then
-            echo "::error::The native binary listed no tools from ${MCP_ENDPOINT}"
-            exit 1
-          fi
-          echo "Native binary started; ${count} MCP tools listed from ${MCP_ENDPOINT}."
-
       - name: Set up the build helpers
-        if: ${{ !inputs.native_check }}
         uses: kubemoot/release-actions/setup@b78d1a218811e2a0376eed26240451b2f353f367 # v0.11.4
 
       # The run image must hold every shared library the binary links against; the image
       # would build and push without one and the agent pod would fail at startup. The
       # check reads the run image pin from BUILD_IMAGE_DIR, set by the step above.
       - name: Check the binary's libraries against the run image
-        if: ${{ !inputs.native_check }}
         run: |
           runners=(agent-runtime/build/*-runner)
           [ "${#runners[@]}" -eq 1 ] || { echo "want one native binary, found: ${runners[*]}"; exit 1; }
@@ -214,7 +244,6 @@ jobs:
       # the release retags, and :latest; any other ref pushes only :branch-<sha>
       # (build-image-buildpacks.sh decides the tags per ref).
       - name: Build and push with Paketo buildpacks
-        if: ${{ !inputs.native_check }}
         env:
           REGISTRY_HOST_IP: ${{ vars.REGISTRY_HOST_IP }}
           SHA: ${{ github.sha }}

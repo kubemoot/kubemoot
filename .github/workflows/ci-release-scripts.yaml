@@ -97,6 +97,8 @@ jobs:
           bash .github/scripts/test-check-native-target.sh
           bash .github/scripts/test-check-go-builder-version.sh
           bash .github/scripts/test-check-release-workflow-runs.sh
+          bash .github/scripts/test-stub-mcp-server.sh
+          bash .github/scripts/test-run-native-check.sh
           bash .github/scripts/test-java-toolchain-version.sh
           bash .github/scripts/test-bucket-names.sh
           bash k8s/tests/job/run.test.sh
