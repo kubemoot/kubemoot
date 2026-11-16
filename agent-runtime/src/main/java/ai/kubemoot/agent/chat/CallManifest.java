@@ -26,6 +26,20 @@ public final class CallManifest {
     /** Opens the line of a call whose result could not be written: {@code [NOT STORED tool=<tool> ...]}. */
     public static final String NOT_STORED_PREFIX = "[NOT STORED tool=";
 
+    /**
+     * Opens the line of a call by an agent that does not store its results:
+     * {@code [CALL tool=<tool> args=... type=... bytes=... rows=... error=... stored=no]}. It has no
+     * key, because nothing was stored to read; a posted result follows it. A result that is not
+     * posted gets a {@link #NOT_STORED_PREFIX} line with {@link #NOT_KEPT_NOTE}.
+     */
+    public static final String UNSTORED_CALL_PREFIX = "[CALL tool=";
+
+    /** What a {@code [NOT STORED ...]} line says of a call whose agent stores nothing and whose result is not posted. */
+    public static final String NOT_KEPT_NOTE = "the agent does not store results and this one is not shown here, so it is not available";
+
+    /** What a {@code [NOT STORED ...]} line says of a call whose write failed. */
+    public static final String WRITE_FAILED_NOTE = "the result could not be written to the workspace and is not available";
+
     /** Opens the closing line that says where the results are. */
     public static final String FOOTER_PREFIX = "The results are stored under these keys";
 
@@ -35,6 +49,9 @@ public final class CallManifest {
     /** A call line: group 1 is the object key, group 2 the tool. */
     public static final Pattern CALL_LINE =
             Pattern.compile("\\[CALL key=([^\\]\\s]++) tool=([^\\]\\s]++)[^\\]]*+\\]");
+
+    /** A call line of an agent that stores nothing. */
+    public static final Pattern UNSTORED_CALL_LINE = Pattern.compile("\\[CALL tool=[^\\]]*+\\]");
 
     /** A not-stored line. */
     public static final Pattern NOT_STORED_LINE = Pattern.compile("\\[NOT STORED tool=[^\\]]*+\\]");
@@ -70,6 +87,9 @@ public final class CallManifest {
     public static final Pattern FAILED_RESULT_BLOCK = Pattern.compile(
             Pattern.quote(FAILED_RESULT_OPEN) + "\\n(.*?)\\n" + Pattern.quote(RESULT_CLOSE) + "\\n?",
             Pattern.DOTALL);
+
+    /** The text that marks the start of any call line, stored or not. */
+    public static final List<String> CALL_PREFIXES = List.of(CALL_PREFIX, UNSTORED_CALL_PREFIX);
 
     /** The markers that open a result block: a result, an error text, an empty result. */
     public static final List<String> RESULT_OPENERS = List.of(RESULT_OPEN, FAILED_RESULT_OPEN, EMPTY_RESULT_OPEN);

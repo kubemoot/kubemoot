@@ -34,6 +34,7 @@ final class ToolCallLedger {
     static final int MAX_COLUMNS_SHOWN = 12;
     static final int MAX_NAME_CHARS = 30;
 
+    /** The store the results go to, or null for an agent that stores nothing: its calls are listed, not kept. */
     private final CallArtifactStore store;
     private final String threadId;
     private final String agent;
@@ -52,7 +53,7 @@ final class ToolCallLedger {
         this.store = store;
         this.threadId = threadId;
         this.agent = agent;
-        this.threadPrefix = store.threadPrefix(threadId);
+        this.threadPrefix = store == null ? "" : store.threadPrefix(threadId);
         this.perResultChars = DiscussionRoom.perResultChars(readerWindowTokens);
         this.inlineRoomLeft = DiscussionRoom.perContributionChars(readerWindowTokens);
     }
@@ -65,11 +66,23 @@ final class ToolCallLedger {
     }
 
     /**
+     * A ledger for an agent whose workspace access does not include storing: it lists its calls and
+     * posts their results under the same room, and writes nothing. Null when there is no thread.
+     */
+    static ToolCallLedger unstoredForLoop(String threadId, String agent, OptionalLong readerWindowTokens) {
+        boolean usable = threadId != null && !threadId.isBlank();
+        return usable ? new ToolCallLedger(null, threadId, agent, readerWindowTokens) : null;
+    }
+
+    /**
      * Store one call's result as its own object. Returns the object key, or null when the write
      * failed. The body is the tool's own result text, cut at {@code maxChars}.
      */
     String record(Call call, String result, boolean error, int maxChars) {
         String text = result == null ? "" : result;
+        if (store == null) {
+            return recordUnstored(call, text, error, maxChars);
+        }
         boolean cut = text.length() > maxChars;
         byte[] body = (cut ? TextCut.truncate(text, maxChars) : text).getBytes(StandardCharsets.UTF_8);
         ToolResultShape shape = ToolResultShape.of(text);
@@ -84,6 +97,15 @@ final class ToolCallLedger {
         return key;
     }
 
+    /** List a call of an agent that stores nothing: its size and shape, and its result when it fits. Returns null: there is no key. */
+    private String recordUnstored(Call call, String text, boolean error, int maxChars) {
+        ToolResultShape shape = ToolResultShape.of(text);
+        boolean cut = text.length() > maxChars;
+        calls.add(ToolCallRecord.unstored(call.tool(), call.arguments(), text.getBytes(StandardCharsets.UTF_8).length,
+                shape.rows(), error, storedType(shape, cut), cut ? null : inlineOf(text, error)));
+        return null;
+    }
+
     /**
      * The result as the block that posts it in the discussion, or null when it stays in its file
      * only. A successful call with an empty result always gets the empty block, whatever the room.
@@ -96,7 +118,7 @@ final class ToolCallLedger {
             return error ? null : CallManifest.EMPTY_RESULT_TEXT;
         }
         if (text.length() > perResultChars || text.contains(CallManifest.RESULT_CLOSE)
-                || text.contains(CallManifest.CALL_PREFIX)) {
+                || text.contains(CallManifest.CALL_PREFIX) || text.contains(CallManifest.UNSTORED_CALL_PREFIX)) {
             return null;
         }
         String open = error ? CallManifest.FAILED_RESULT_OPEN : CallManifest.RESULT_OPEN;
@@ -169,8 +191,8 @@ final class ToolCallLedger {
         String prefix = prefix();
         long errors = calls.stream().filter(ToolCallRecord::error).count();
         String head = CallManifest.HEADER_PREFIX + "agent=" + agent + " calls=" + calls.size() + " errors=" + errors
-                + " prefix=" + prefix + "]\n";
-        String foot = "\n" + CallManifest.FOOTER_PREFIX + "; a result not shown above is only in its file. Read a key with "
+                + (store == null ? " stored=no" : " prefix=" + prefix) + "]\n";
+        String foot = store == null ? "" : "\n" + CallManifest.FOOTER_PREFIX + "; a result not shown above is only in its file. Read a key with "
                 + WorkspaceTools.QUERY + " (SQL; the columns are listed on the call line), "
                 + WorkspaceTools.HEAD + ", " + WorkspaceTools.TAIL + ", " + WorkspaceTools.GREP + ", or "
                 + "execute_code over the file /artifacts/<key>"
@@ -240,11 +262,25 @@ final class ToolCallLedger {
     }
 
     private String line(ToolCallRecord c, boolean withArgs, boolean withColumns) {
+        if (c.storeOff() && (c.hasInline() || c.bytes() == 0)) {
+            return callLine(new StringBuilder(CallManifest.UNSTORED_CALL_PREFIX).append(c.tool()), c, withArgs)
+                    .append(" stored=no]").toString();
+        }
         if (!c.stored()) {
             return CallManifest.NOT_STORED_PREFIX + c.tool() + (withArgs ? " " + CallManifest.argsField(c.arguments()) : "")
-                    + " error=" + c.error() + " - the result could not be written to the workspace and is not available]";
+                    + " error=" + c.error() + " - "
+                    + (c.storeOff() ? CallManifest.NOT_KEPT_NOTE : CallManifest.WRITE_FAILED_NOTE) + "]";
         }
-        var sb = new StringBuilder(CallManifest.CALL_PREFIX).append(shortKey(c.key())).append(" tool=").append(c.tool());
+        var sb = callLine(new StringBuilder(CallManifest.CALL_PREFIX).append(shortKey(c.key())).append(" tool=")
+                .append(c.tool()), c, withArgs);
+        if (withColumns && !c.columns().isEmpty()) {
+            sb.append(ResultType.isJson(c.type()) ? " fields=" : " columns=").append(columnList(c.columns()));
+        }
+        return sb.append(']').toString();
+    }
+
+    /** What every call line has after its opening: the arguments, the type, the size, the rows and whether it failed. */
+    private static StringBuilder callLine(StringBuilder sb, ToolCallRecord c, boolean withArgs) {
         if (withArgs) {
             sb.append(' ').append(CallManifest.argsField(c.arguments()));
         }
@@ -252,10 +288,7 @@ final class ToolCallLedger {
         sb.append(" bytes=").append(c.bytes())
                 .append(" rows=").append(c.rows() >= 0 ? Integer.toString(c.rows()) : "unknown")
                 .append(" error=").append(c.error());
-        if (withColumns && !c.columns().isEmpty()) {
-            sb.append(ResultType.isJson(c.type()) ? " fields=" : " columns=").append(columnList(c.columns()));
-        }
-        return sb.append(']').toString();
+        return sb;
     }
 
     /** The key relative to the thread: {@code <agent>/<nnn>-<tool>}. */

@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/kubemoot/kubemoot/fitness-runner/internal/evidencenames"
 )
 
 type fakeEvidenceStore struct {
@@ -90,7 +92,7 @@ func TestReadEvidenceReadsOnlyThisThreadsCalls(t *testing.T) {
 			evNodes: nodeBody, evSignal: "signal-only-1", evOther: "other-thread-1",
 			evOtherN: "other-ns-1", "ns/crew/t1/k8s-nodes/003-x": "not-a-call-1",
 		})
-	set, calls, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
+	set, calls, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, inlineEvidence{}, noWait)
 	if res != readComplete || calls != 1 || !set.Has("homelab-k8s-1-cp") {
 		t.Fatalf("res=%v calls=%d", res, calls)
 	}
@@ -106,7 +108,7 @@ func TestReadEvidenceCountsWhatTheRunWasToldAndAsked(t *testing.T) {
 		obj(evNodes, "gen_ai.tool.call.arguments", "utf8-pct:%7B%22name%22%3A%22foo-9%22%7D"),
 		obj(evErr, "kubemoot.error", "true", "error.type", "tool_error"),
 	}, map[string]string{evNodes: nodeBody, evErr: `pod "web-7" not found in namespace "staging-1"`})
-	set, calls, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
+	set, calls, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, inlineEvidence{}, noWait)
 	if res != readComplete || calls != 2 {
 		t.Fatalf("res=%v calls=%d", res, calls)
 	}
@@ -134,7 +136,7 @@ func TestReadEvidenceNotComplete(t *testing.T) {
 		"call still missing": {[]evidenceStore{good}, map[string]bool{evCallKey: true, "k8s-nodes/002-events_list": true}},
 	}
 	for name, tc := range cases {
-		if set, _, res := readEvidence(tc.stores, evNS, evThread, tc.expected, noWait); res == readComplete || set != nil {
+		if set, _, res := readEvidence(tc.stores, evNS, evThread, tc.expected, inlineEvidence{}, noWait); res == readComplete || set != nil {
 			t.Errorf("%s: want not complete", name)
 		}
 	}
@@ -142,7 +144,7 @@ func TestReadEvidenceNotComplete(t *testing.T) {
 
 func TestReadEvidenceNamedCallsAllStored(t *testing.T) {
 	st := store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody})
-	_, _, res := readEvidence([]evidenceStore{st}, evNS, evThread, map[string]bool{evCallKey: true}, noWait)
+	_, _, res := readEvidence([]evidenceStore{st}, evNS, evThread, map[string]bool{evCallKey: true}, inlineEvidence{}, noWait)
 	if res != readComplete {
 		t.Error("every named call is stored, want complete")
 	}
@@ -151,7 +153,7 @@ func TestReadEvidenceNamedCallsAllStored(t *testing.T) {
 func TestReadEvidenceReadsJSONAsJSON(t *testing.T) {
 	st := store([]*nats.ObjectInfo{obj(evNodes, "Content-Type", "application/json")},
 		map[string]string{evNodes: `{"items":[{"name":"node-01\nnginx-1"}]}`})
-	set, _, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
+	set, _, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, inlineEvidence{}, noWait)
 	if res != readComplete || !set.Has("node-01") || !set.Has("nginx-1") {
 		t.Errorf("JSON escapes must separate words: res=%v", res)
 	}
@@ -232,13 +234,13 @@ func TestHeadersAreFoundInCanonicalCase(t *testing.T) {
 		t.Error("inThread must also find the names as the runtime wrote them")
 	}
 	st := store([]*nats.ObjectInfo{info}, map[string]string{evNodes: `{"items":[{"name":"node-01\nnginx-1"}]}`})
-	set, _, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, noWait)
+	set, _, res := readEvidence([]evidenceStore{st}, evNS, evThread, nil, inlineEvidence{}, noWait)
 	if res != readComplete || !set.Has("web-7") || !set.Has("nginx-1") {
 		t.Errorf("arguments header and JSON content type must be read: res=%v", res)
 	}
 	cut := obj(evNodes, "kubemoot.truncated", "true")
 	if _, _, res := readEvidence([]evidenceStore{store([]*nats.ObjectInfo{cut}, map[string]string{evNodes: "x-1"})},
-		evNS, evThread, nil, noWait); res == readComplete {
+		evNS, evThread, nil, inlineEvidence{}, noWait); res == readComplete {
 		t.Error("a result marked truncated in canonical case must skip the check")
 	}
 }
@@ -262,13 +264,13 @@ func TestReadEvidenceWaitsForNamedCalls(t *testing.T) {
 	expected := map[string]bool{evCallKey: true}
 	wait := stragglerWait{deadline: 5 * time.Second, interval: time.Millisecond}
 	late := &lateStore{fakeEvidenceStore: *store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody}), landsAt: 3}
-	set, calls, res := readEvidence([]evidenceStore{late}, evNS, evThread, expected, wait)
+	set, calls, res := readEvidence([]evidenceStore{late}, evNS, evThread, expected, inlineEvidence{}, wait)
 	if res != readComplete || calls != 1 || !set.Has("homelab-k8s-1-cp") || late.lists != 3 {
 		t.Errorf("a call that lands late is read: res=%v calls=%d lists=%d", res, calls, late.lists)
 	}
 	never := &lateStore{fakeEvidenceStore: *store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody}), landsAt: 1 << 30}
 	short := stragglerWait{deadline: 20 * time.Millisecond, interval: time.Millisecond}
-	if _, _, res := readEvidence([]evidenceStore{never}, evNS, evThread, expected, short); res != readTimedOut {
+	if _, _, res := readEvidence([]evidenceStore{never}, evNS, evThread, expected, inlineEvidence{}, short); res != readTimedOut {
 		t.Error("a call that never lands must end as not checked at the deadline")
 	}
 }
@@ -364,5 +366,75 @@ func TestStragglerTimeoutIsRecordedInTheTranscript(t *testing.T) {
 	none.Events[0].Content = ""
 	if skipped := checkInventedNames(nil, evNS, none, noWait); skipped.StragglerTimeout {
 		t.Error("a run that is not checked for another reason is not a timeout")
+	}
+}
+
+const (
+	evInvented = "node-12345"
+	evDone     = "done"
+)
+
+// A read-only advisor's calls have no key and no stored object; its findings hold them.
+const advisorFinding = "Checked the nodes.\n[WORKSPACE agent=obs calls=2 errors=0 stored=no]\n" +
+	"[CALL tool=events_list args={\"namespace\": \"all\"} type=text/plain bytes=21 rows=unknown error=false stored=no]\n" +
+	"[RESULT]\nnode-seven NotReady\n[END RESULT]\n" +
+	"[CALL tool=workspace_grep args={} type=text/plain bytes=0 rows=unknown error=false stored=no]\n" +
+	"[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]"
+
+func TestUnstoredCallLinesAreNotExpectedStoredCalls(t *testing.T) {
+	ev := []SignalEvent{{Type: evFinding, Content: advisorFinding}}
+
+	if got := expectedCallKeys(ev); len(got) != 0 {
+		t.Errorf("a call line with no key names no stored object, got %v", got)
+	}
+}
+
+func TestInlineEvidenceReadsTheResultsAdvisorsPosted(t *testing.T) {
+	got := inlineEvidenceOf([]SignalEvent{{Type: evFinding, Content: advisorFinding}})
+
+	if got.calls != 2 || got.incomplete {
+		t.Fatalf("got %+v, want 2 complete calls", got)
+	}
+	set := evidencenames.NewEvidence()
+	for _, text := range got.texts {
+		set.Add(text)
+	}
+	if !set.Has("node-seven") {
+		t.Error("a name in a posted result is evidence the run read")
+	}
+}
+
+func TestInlineEvidenceIsIncompleteWhenAResultWasNotShown(t *testing.T) {
+	notShown := "[CALL tool=x args={} type=text/plain bytes=9 rows=unknown error=false stored=no]\n[RESULT]\na\n[END RESULT]\n" +
+		"[NOT STORED tool=big args={} error=false - the agent does not store results and this one is not shown here, so it is not available]"
+
+	if got := inlineEvidenceOf([]SignalEvent{{Type: evFinding, Content: notShown}}); !got.incomplete {
+		t.Errorf("a result in neither the store nor the findings leaves the evidence incomplete: %+v", got)
+	}
+}
+
+func TestCheckInventedNamesFromAReadOnlyAdvisorOnly(t *testing.T) {
+	out := &RunOutcome{ThreadID: evThread, Question: "which node is down?", Events: []SignalEvent{
+		{Type: evFinding, Agent: "obs", Content: advisorFinding},
+		{Type: sseSynthesis, Content: "**node-seven** is NotReady and **" + evInvented + "** too."},
+		{Type: evDone},
+	}}
+
+	got := checkInventedNames([]evidenceStore{store(nil, nil)}, evNS, out, noWait)
+
+	if !got.Captured || got.Calls != 2 || !slices.Equal(got.InventedNames, []string{evInvented}) {
+		t.Errorf("got %+v, want checked over the 2 posted calls with node-12345 invented", got)
+	}
+}
+
+func TestCheckInventedNamesNotCheckedWhenAResultIsNotShown(t *testing.T) {
+	out := &RunOutcome{ThreadID: evThread, Question: "q", Events: []SignalEvent{
+		{Type: evFinding, Agent: "obs", Content: "[NOT STORED tool=big args={} error=false - the agent does not store results and this one is not shown here, so it is not available]"},
+		{Type: sseSynthesis, Content: "**" + evInvented + "**"},
+		{Type: evDone},
+	}}
+
+	if got := checkInventedNames([]evidenceStore{store(nil, nil)}, evNS, out, noWait); got.Captured {
+		t.Errorf("want not checked, got %+v", got)
 	}
 }

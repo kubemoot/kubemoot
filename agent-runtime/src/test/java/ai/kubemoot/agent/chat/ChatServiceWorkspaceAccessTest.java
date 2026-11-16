@@ -70,7 +70,11 @@ class ChatServiceWorkspaceAccessTest {
     }
 
     private ChatService.ChatResult runWith(Optional<String> access) {
-        var base = ChatServiceToolLoopTest.stubProperties(8, "tooler", false, false);
+        return runWith(access, "tooler");
+    }
+
+    private ChatService.ChatResult runWith(Optional<String> access, String role) {
+        var base = ChatServiceToolLoopTest.stubProperties(8, role, false, false);
         var props = mock(AgentProperties.class, AdditionalAnswers.delegatesTo(base));
         org.mockito.Mockito.doReturn(access).when(props).workspaceAccess();
         var rag = mock(RagClient.class);
@@ -113,6 +117,33 @@ class ChatServiceWorkspaceAccessTest {
         runWith(Optional.of("read"));
         assertTrue(store.bodies.isEmpty());
         assertEquals(0, store.next);
+    }
+
+    @Test
+    void anAdvisorThatOnlyReadsStillListsItsCallsWithTheirResultsAndStoresNothing() {
+        for (String access : List.of("read", "none")) {
+            store = new ChatServiceCallFilesTest.FakeStore();
+            setUp();
+
+            var result = runWith(Optional.of(access), "advisor");
+
+            assertTrue(store.bodies.isEmpty(), access + " must not write to the workspace");
+            assertEquals(0, store.next, access + " must not reserve a key");
+            String files = result.files();
+            assertTrue(files.contains("[WORKSPACE agent=test-agent calls=1 errors=0 stored=no]"), files);
+            assertTrue(files.contains("[CALL tool=pods_list args={} type=application/json bytes="), files);
+            assertTrue(files.contains(" stored=no]\n[RESULT]\n" + RESULT + "\n[END RESULT]"), files);
+            assertFalse(files.contains("key="), "no key points at nothing: " + files);
+            assertFalse(files.contains(CallManifest.FOOTER_PREFIX), files);
+        }
+    }
+
+    @Test
+    void aToolerThatOnlyReadsKeepsGatheringItsRawOutputAndListsNoFiles() {
+        var result = runWith(Optional.of("read"), "tooler");
+
+        assertEquals("", result.files());
+        assertTrue(result.response().contains(RESULT), result.response());
     }
 
     @Test

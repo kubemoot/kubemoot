@@ -363,8 +363,7 @@ public class ChatService {
         boolean callFailed = true;
         try (var requesterScope = RequesterScope.bind(request.requester());
              var workspaceScope = WorkspaceScope.bind(threadPrefixOf(request.discussionThreadId()))) {
-            ledger = ToolCallLedger.forLoop(resultStore(), request.discussionThreadId(), properties.agentName(),
-                    readersWindow(pick));
+            ledger = loopLedger(request.discussionThreadId(), toolerRawOutput, readersWindow(pick));
             loopResult = callWithToolLoop(messages,
                     observed(pick, CallObservation.KIND_TOOL_TURN),
                     serverName, pick.pickReason(), toolerRawOutput, contextLengthOf(pick), ledger);
@@ -399,12 +398,17 @@ public class ChatService {
     }
 
     /**
-     * The store this agent's tool results go to, or null when its workspace access does not include
-     * storing them. Without a store the loop returns every result inline under the tool result
-     * budget, as it does outside a discussion.
+     * The ledger that lists this agent's tool calls in its contribution, or null when it has none.
+     * An agent whose workspace access includes storing writes each result to the store. Any other
+     * agent (read or none) lists its calls the same way and posts the results that fit, but writes
+     * nothing; the loop still returns every result to the model under the tool result budget. A
+     * raw-output tooler without a store keeps gathering the whole text, which is its contribution.
      */
-    private CallArtifactStore resultStore() {
-        return workspaceAccess().storesResults() ? callArtifactStore : null;
+    private ToolCallLedger loopLedger(String threadId, boolean toolerRawOutput, java.util.OptionalLong window) {
+        if (workspaceAccess().storesResults()) {
+            return ToolCallLedger.forLoop(callArtifactStore, threadId, properties.agentName(), window);
+        }
+        return toolerRawOutput ? null : ToolCallLedger.unstoredForLoop(threadId, properties.agentName(), window);
     }
 
     /** The declared access, parsed on first use so a bad value is warned of once, not on every tool loop. */

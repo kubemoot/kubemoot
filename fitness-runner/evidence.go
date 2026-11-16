@@ -48,6 +48,13 @@ var (
 	callKeyTail = regexp.MustCompile(`^[0-9]{3,}-`)
 	// callLine matches the key of a [CALL key=...] line of a finding, relative to the thread.
 	callLine = regexp.MustCompile(`\[CALL key=([^\s\]]+)`)
+	// unstoredCall matches the line of a call by an agent that stores no results, which has no
+	// key, with the result block posted right after it (group 1 for a result or an error text).
+	// Such a call is not in the store; the findings hold all there is of it.
+	unstoredCall = regexp.MustCompile(`(?s)\[CALL tool=[^\]]*\]` +
+		`(?:\n\[(?:FAILED )?RESULT\]\n(.*?)\n\[END RESULT\]|\n\[EMPTY RESULT\]\n[^\n]*\n\[END RESULT\])?`)
+	// notStoredLine matches a call whose result is in neither the store nor the findings.
+	notStoredLine = regexp.MustCompile(`\[NOT STORED tool=`)
 )
 
 // Evidence is the outcome of the invented-name check, stored in the transcript.
@@ -130,6 +137,37 @@ func expectedCallKeys(events []SignalEvent) map[string]bool {
 	for _, e := range answeringEvents(events) {
 		for _, m := range callLine.FindAllStringSubmatch(e.Content, -1) {
 			out[m[1]] = true
+		}
+	}
+	return out
+}
+
+// inlineEvidence is what the findings of the answering thread hold of calls that are not in the
+// store: the calls of agents that store no results, with the results posted in the findings.
+type inlineEvidence struct {
+	// calls is how many such calls the findings list.
+	calls int
+	// texts are their call lines and posted results.
+	texts []string
+	// incomplete is true when a call's result is in neither the store nor the findings, so no
+	// name can be shown absent from the run's evidence.
+	incomplete bool
+}
+
+// inlineEvidenceOf reads the calls of the answering thread's findings that are not stored. An agent
+// that stores nothing posts what it saw in the finding, so a name in it is evidence the run read.
+func inlineEvidenceOf(events []SignalEvent) inlineEvidence {
+	var out inlineEvidence
+	for _, e := range answeringEvents(events) {
+		if notStoredLine.MatchString(e.Content) {
+			out.incomplete = true
+		}
+		for _, m := range unstoredCall.FindAllStringSubmatch(e.Content, -1) {
+			out.calls++
+			out.texts = append(out.texts, m[0])
+			if m[1] != "" {
+				out.texts = append(out.texts, m[1])
+			}
 		}
 	}
 	return out
@@ -261,13 +299,14 @@ const (
 	readTimedOut                    // a named call never landed within the wait
 )
 
-// readEvidence reads the thread's tool calls from the stores. When the findings
+// readEvidence reads the thread's tool calls from the stores, with the calls the findings hold that are
+// not stored (inline): their lines and results join the set and count as read calls. When the findings
 // name a call that is not stored yet it lists again until all are, or the wait
 // deadline passes. ok is false when a list or read failed, a result was cut, a
 // named call never landed, no call was read, or the token set outgrew its bound:
 // the set then does not cover the run and the check must not run.
 func readEvidence(stores []evidenceStore, namespace, threadID string, expected map[string]bool,
-	wait stragglerWait) (*evidencenames.Evidence, int, readOutcome) {
+	inline inlineEvidence, wait stragglerWait) (*evidencenames.Evidence, int, readOutcome) {
 	deadline := time.Now().Add(wait.deadline)
 	for {
 		set, seen, ok := readOnce(stores, namespace, threadID)
@@ -276,11 +315,18 @@ func readEvidence(stores []evidenceStore, namespace, threadID string, expected m
 		}
 		key := missingCall(seen, expected)
 		if key == "" {
-			if len(seen) == 0 || set.Truncated() {
+			if len(seen)+inline.calls == 0 {
 				fmt.Println("[fitness-runner] no usable tool results for the thread; invented-name check skipped")
 				return nil, 0, readSkipped
 			}
-			return set, len(seen), readComplete
+			for _, text := range inline.texts {
+				set.Add(text)
+			}
+			if set.Truncated() {
+				fmt.Println("[fitness-runner] the evidence outgrew its bound; invented-name check skipped")
+				return nil, 0, readSkipped
+			}
+			return set, len(seen) + inline.calls, readComplete
 		}
 		if !time.Now().Before(deadline) {
 			fmt.Fprintf(os.Stderr, "[fitness-runner] call %s named in the findings is not stored after waiting %s; "+
@@ -314,7 +360,12 @@ func checkInventedNames(stores []evidenceStore, namespace string, outcome *RunOu
 	if namespace == "" || outcome.ThreadID == "" || strings.TrimSpace(synthesis) == "" {
 		return Evidence{}
 	}
-	set, calls, res := readEvidence(stores, namespace, outcome.ThreadID, expectedCallKeys(outcome.Events), wait)
+	inline := inlineEvidenceOf(outcome.Events)
+	if inline.incomplete {
+		fmt.Println("[fitness-runner] a call's result is neither stored nor in the findings; invented-name check skipped")
+		return Evidence{}
+	}
+	set, calls, res := readEvidence(stores, namespace, outcome.ThreadID, expectedCallKeys(outcome.Events), inline, wait)
 	if res != readComplete {
 		return Evidence{StragglerTimeout: res == readTimedOut}
 	}

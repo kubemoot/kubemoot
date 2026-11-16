@@ -34,7 +34,7 @@ final class DiscussionFacts {
 
     /** True when some agent's contribution describes the files of tool calls (they ran, stored or not). */
     static boolean toolsRan(List<Message> thread) {
-        return statements(thread).anyMatch(m -> m.content().contains(CallManifest.CALL_PREFIX)
+        return statements(thread).anyMatch(m -> CallManifest.CALL_PREFIXES.stream().anyMatch(m.content()::contains)
                 || m.content().contains(CallManifest.NOT_STORED_PREFIX));
     }
 

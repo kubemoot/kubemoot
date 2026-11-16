@@ -28,6 +28,13 @@ class SynthesisFilesTest {
     }
 
     @Test
+    void aNonStoringAgentsCallLinesBringTheRulesToo() {
+        assertFalse(SynthesisFiles.rulesFor("[CALL tool=t args={} stored=no]").isEmpty());
+        assertFalse(SynthesisFiles.rulesFor("[NOT STORED tool=t args={} error=false - x]").isEmpty());
+        assertTrue(SynthesisFiles.rulesFor("plain text").isEmpty());
+    }
+
+    @Test
     void theRulesNeverTellTheSynthesizerToOpenAFile() {
         String rules = SynthesisFiles.rulesFor("[CALL key=k tool=t]");
 

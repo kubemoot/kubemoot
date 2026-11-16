@@ -24,7 +24,8 @@ final class ManifestText {
 
     private static String withoutCalls(String text) {
         String noBlocks = CallManifest.withoutResultBlocks(text);
+        String noUnstored = CallManifest.UNSTORED_CALL_LINE.matcher(noBlocks).replaceAll("");
         return CallManifest.CALL_LINE.matcher(
-                CallManifest.NOT_STORED_LINE.matcher(noBlocks).replaceAll("")).replaceAll("");
+                CallManifest.NOT_STORED_LINE.matcher(noUnstored).replaceAll("")).replaceAll("");
     }
 }
