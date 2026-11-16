@@ -66,9 +66,53 @@ class ToolCallLedgerTest {
 
         String manifest = ledger.manifest();
 
-        assertTrue(manifest.contains("args={\"a\": \"" + "z".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS - 7) + "..."),
-                manifest);
+        assertTrue(manifest.contains("args={\"a\": \"" + "z".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS - 7) + "... (args cut at "
+                + ToolCallLedger.ARGS_SUMMARY_CHARS + " of 209 chars)"), manifest);
         assertFalse(manifest.contains("\n   "), "arguments are on one line");
+    }
+
+    @Test
+    void argumentsUnderTheLimitAreNotCutAndCarryNoMarker() {
+        String args = "{\"k\": \"" + "a".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS - 9) + "\"}";
+        assertEquals(ToolCallLedger.ARGS_SUMMARY_CHARS, args.length());
+        record("t", args, "[]", false);
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.contains(" args=" + args + " type="), manifest);
+        assertFalse(manifest.contains("cut at"), manifest);
+        assertFalse(manifest.contains("..."), manifest);
+    }
+
+    @Test
+    void argumentsOneOverTheLimitCarryTheMarker() {
+        String args = "a".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS + 1);
+        record("t", args, "[]", false);
+
+        assertTrue(ledger.manifest().contains(" args=" + "a".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS)
+                + "... (args cut at 60 of 61 chars) type="), ledger.manifest());
+    }
+
+    @Test
+    void unicodeArgumentsAreCutOnACharacterBoundaryAndCountedInCharacters() {
+        String emoji = new String(Character.toChars(0x1F600));
+        String args = emoji.repeat(ToolCallLedger.ARGS_SUMMARY_CHARS + 5);
+        record("t", args, "[]", false);
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.contains(" args=" + emoji.repeat(ToolCallLedger.ARGS_SUMMARY_CHARS)
+                + "... (args cut at 60 of 65 chars) type="), manifest);
+        assertFalse(manifest.contains("\uFFFD"), "no split surrogate pair");
+    }
+
+    @Test
+    void theNotStoredLineCarriesTheSameMarker() {
+        String args = "q".repeat(ToolCallLedger.ARGS_SUMMARY_CHARS + 10);
+        store.failWrites = true;
+        record("t", args, "[]", false);
+
+        assertTrue(ledger.manifest().contains("(args cut at 60 of 70 chars)"), ledger.manifest());
     }
 
     @Test
@@ -97,8 +141,8 @@ class ToolCallLedgerTest {
 
     @Test
     void emptyArgumentsShowAsAnEmptyObject() {
-        assertEquals("{}", ToolCallLedger.summary(null));
-        assertEquals("{}", ToolCallLedger.summary("  "));
+        assertEquals("{}", CallManifest.argsSummary(null));
+        assertEquals("{}", CallManifest.argsSummary("  "));
     }
 
     @Test

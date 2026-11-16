@@ -80,6 +80,14 @@ class DiscussionFactsTest {
     }
 
     @Test
+    void anEmptyResultBlockIsNotAFact() {
+        var thread = List.of(agree("k8s-workloads", HEADER + CALL3 + "\n" + ai.kubemoot.agent.chat.CallManifest.EMPTY_RESULT_TEXT),
+                new Message("human", "thread_start", QUESTION));
+
+        assertTrue(DiscussionFacts.noData(thread));
+    }
+
+    @Test
     void protocolWordsEmptyAgreesAndSignalsWithoutTextAreNotFacts() {
         var thread = List.of(
                 agree("k8s-workloads", DESCRIPTIONS),

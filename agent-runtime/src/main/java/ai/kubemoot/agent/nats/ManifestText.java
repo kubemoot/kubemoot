@@ -23,8 +23,8 @@ final class ManifestText {
     }
 
     private static String withoutCalls(String text) {
-        String noBlocks = CallManifest.FAILED_RESULT_BLOCK.matcher(
-                CallManifest.RESULT_BLOCK.matcher(text).replaceAll("")).replaceAll("");
+        String noBlocks = CallManifest.EMPTY_RESULT_BLOCK.matcher(CallManifest.FAILED_RESULT_BLOCK.matcher(
+                CallManifest.RESULT_BLOCK.matcher(text).replaceAll("")).replaceAll("")).replaceAll("");
         return CallManifest.CALL_LINE.matcher(
                 CallManifest.NOT_STORED_LINE.matcher(noBlocks).replaceAll("")).replaceAll("");
     }

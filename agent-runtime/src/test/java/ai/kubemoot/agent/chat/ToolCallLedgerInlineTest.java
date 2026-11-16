@@ -162,7 +162,7 @@ class ToolCallLedgerInlineTest {
     }
 
     @Test
-    void anEmptyOrBlankResultIsNotPosted() {
+    void anEmptyOrBlankResultGetsTheEmptyBlock() {
         var ledger = ledger(WINDOW_32K);
         record(ledger, "a", "", false);
         record(ledger, "b", "  \n ", false);
@@ -170,8 +170,48 @@ class ToolCallLedgerInlineTest {
 
         String manifest = ledger.manifest();
 
-        assertFalse(manifest.contains("[RESULT]"), manifest);
+        assertEquals(3, manifest.split(java.util.regex.Pattern.quote(CallManifest.EMPTY_RESULT_TEXT), -1).length - 1,
+                manifest);
+        assertFalse(manifest.contains("[RESULT]"), "an empty result is not a result block: " + manifest);
         assertTrue(manifest.contains("calls=3"));
+    }
+
+    @Test
+    void theEmptyBlockFollowsItsCallLine() {
+        var ledger = ledger(WINDOW_32K);
+        record(ledger, "workspace_grep", "", false);
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.contains("bytes=0 rows=unknown error=false]\n" + CallManifest.EMPTY_RESULT_TEXT), manifest);
+    }
+
+    @Test
+    void theEmptyBlockIsPostedEvenWhenTheContributionHasNoRoomLeft() {
+        var ledger = ledger(OptionalLong.of(1));
+        record(ledger, "big", "x".repeat(10), false);
+        record(ledger, "none", "", false);
+
+        assertTrue(ledger.manifest().contains(CallManifest.EMPTY_RESULT_TEXT), ledger.manifest());
+    }
+
+    @Test
+    void aFailedCallWithNoTextHasNoEmptyBlock() {
+        var ledger = ledger(WINDOW_32K);
+        record(ledger, "a", "", true);
+
+        assertFalse(ledger.manifest().contains(CallManifest.EMPTY_RESULT_OPEN), ledger.manifest());
+    }
+
+    @Test
+    void anEmptyJsonListStaysAResultBlockWithItsText() {
+        var ledger = ledger(WINDOW_32K);
+        record(ledger, "a", "[]", false);
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.contains("[RESULT]\n[]\n[END RESULT]"), manifest);
+        assertFalse(manifest.contains(CallManifest.EMPTY_RESULT_OPEN), manifest);
     }
 
     @Test

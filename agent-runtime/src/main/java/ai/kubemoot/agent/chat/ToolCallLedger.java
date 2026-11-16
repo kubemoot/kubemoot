@@ -88,12 +88,16 @@ final class ToolCallLedger {
 
     /**
      * The result as the block that posts it in the discussion, or null when it stays in its file
-     * only. A result goes in whole or not at all: it must fit one result's share of the room and
+     * only. A successful call with an empty result always gets the empty block, whatever the room.
+     * A result goes in whole or not at all: it must fit one result's share of the room and
      * what is left of the contribution's, and must not hold the closing marker itself. The room it
      * uses is taken from the contribution's.
      */
     private String inlineOf(String text, boolean error) {
-        if (text.isBlank() || text.length() > perResultChars || text.contains(CallManifest.RESULT_CLOSE)
+        if (text.isBlank()) {
+            return error ? null : CallManifest.EMPTY_RESULT_TEXT;
+        }
+        if (text.length() > perResultChars || text.contains(CallManifest.RESULT_CLOSE)
                 || text.contains(CallManifest.CALL_PREFIX)) {
             return null;
         }
@@ -225,12 +229,12 @@ final class ToolCallLedger {
 
     private String line(ToolCallRecord c, boolean withArgs, boolean withColumns) {
         if (!c.stored()) {
-            return CallManifest.NOT_STORED_PREFIX + c.tool() + (withArgs ? " args=" + summary(c.arguments()) : "")
+            return CallManifest.NOT_STORED_PREFIX + c.tool() + (withArgs ? " " + CallManifest.argsField(c.arguments()) : "")
                     + " error=" + c.error() + " - the result could not be written to the workspace and is not available]";
         }
         var sb = new StringBuilder(CallManifest.CALL_PREFIX).append(shortKey(c.key())).append(" tool=").append(c.tool());
         if (withArgs) {
-            sb.append(" args=").append(summary(c.arguments()));
+            sb.append(' ').append(CallManifest.argsField(c.arguments()));
         }
         sb.append(" type=").append(c.type());
         sb.append(" bytes=").append(c.bytes())
@@ -260,11 +264,6 @@ final class ToolCallLedger {
         }
         int more = names.size() - shown.size();
         return String.join(",", shown) + (more > 0 ? ",+" + more + "more" : "");
-    }
-
-    /** The arguments on one line, cut at {@link #ARGS_SUMMARY_CHARS}. */
-    static String summary(String arguments) {
-        return CallManifest.argsSummary(arguments);
     }
 
     /** The key prefix shared by this agent's calls in the thread, relative to the thread: {@code <agent>/}. */
