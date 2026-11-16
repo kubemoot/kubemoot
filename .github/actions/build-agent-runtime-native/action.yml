@@ -1,0 +1,43 @@
+# Builds the agent-runtime native binary and checks it targets every x86-64 CPU. The one
+# place the native build is defined: the release image build (build-image) and the native
+# check (native-check) both use it, so the check builds exactly what ships. Needs the
+# repository checked out.
+name: Build the agent-runtime native binary
+description: Set up GraalVM, build agent-runtime/build/*-runner, and check its machine target
+
+runs:
+  using: composite
+  steps:
+    - name: Set up GraalVM Community 25
+      uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173 # v1.6.7
+      with:
+        java-version: '25'
+        distribution: 'graalvm-community'
+        cache: 'gradle'
+        native-image-job-reports: 'false'
+
+    - name: Install native toolchain
+      shell: bash
+      run: |
+        sudo apt-get update -qq && sudo apt-get install -y -qq gcc zlib1g-dev
+
+    - name: Grant execute permission for gradlew
+      shell: bash
+      working-directory: agent-runtime
+      run: chmod +x gradlew
+
+    - name: Build native binary
+      shell: bash
+      working-directory: agent-runtime
+      run: |
+        ./gradlew quarkusBuild \
+          -Dquarkus.native.enabled=true \
+          -Dquarkus.native.container-build=false \
+          -Dquarkus.package.jar.enabled=false
+
+    # A build for x86-64-v3 (AVX2) crash-loops on a node without AVX2. The check reads the
+    # machine target from native-image's build-output report and fails unless it is
+    # compatibility, which -march=compatibility in application.properties pins.
+    - name: Check the binary targets every x86-64 CPU
+      shell: bash
+      run: .github/scripts/check-native-target.sh agent-runtime/build

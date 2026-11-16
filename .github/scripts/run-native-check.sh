@@ -44,7 +44,7 @@ tool_count() {
 # wait_live PID LOG: waits until /q/health/live answers; fails when the binary exits or the wait ends.
 wait_live() {
   local pid="$1" log="$2" waited=0
-  until curl -sf "http://localhost:${PORT}/q/health/live" >/dev/null; do
+  until curl -sf --max-time 5 "http://localhost:${PORT}/q/health/live" >/dev/null; do
     if ! kill -0 "$pid" 2>/dev/null; then
       cat "$log"
       fail "the native binary exited during startup"
@@ -59,9 +59,11 @@ wait_live() {
 }
 
 # Held outside main so the EXIT trap, which runs after main returns, can still stop them.
-work="" stub=0 runner=0
+work="" stub="" runner=""
 cleanup() {
-  kill "$stub" "$runner" 2>/dev/null || true
+  # Only a pid that was set: an empty or zero argument to kill would signal a process group.
+  [ -z "$stub" ] || kill "$stub" 2>/dev/null || true
+  [ -z "$runner" ] || kill "$runner" 2>/dev/null || true
   [ -z "$work" ] || rm -rf "$work"
 }
 
@@ -85,7 +87,7 @@ main() {
 
   wait_live "$runner" "${work}/runner.log"
   # The tools endpoint initializes the MCP client, which connects to the stub.
-  tools="$(curl -sf "http://localhost:${PORT}/tools")" || { cat "${work}/runner.log"; fail "the native binary did not answer /tools"; }
+  tools="$(curl -sf --max-time 90 "http://localhost:${PORT}/tools")" || { cat "${work}/runner.log"; fail "the native binary did not answer /tools"; }
   kill "$runner" 2>/dev/null || true
   cat "${work}/runner.log"
   judge_log "${work}/runner.log"
