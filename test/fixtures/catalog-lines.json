@@ -183,6 +183,16 @@
    "name": "an astral character at the cut",
    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀😀😀",
    "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀😀..."
+  },
+  {
+   "name": "an escape character is neutralized",
+   "input": "{\"a\":\"x\u001b[31my\"}",
+   "output": "{\"a\":\"x (31my\"}"
+  },
+  {
+   "name": "a line separator is neutralized",
+   "input": "{\"a\":\"x y\"}",
+   "output": "{\"a\":\"x y\"}"
   }
  ]
 }

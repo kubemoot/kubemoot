@@ -11,7 +11,11 @@ import java.nio.charset.StandardCharsets;
  * ASCII that does not start with {@link #MARKER} is written as it is. Any other value is written as
  * {@link #MARKER} followed by the text's UTF-8 bytes, each byte outside printable ASCII (and the
  * percent sign) as {@code %XX}. A value without the marker is read as it is, so objects stored before
- * the encoding existed read as before. Go's {@code store.DecodeHeaderValue} reads the same form;
+ * the encoding existed read as before; the one edge is a legacy plain value that starts with
+ * {@link #MARKER} and has only valid escapes after it, which reads as encoded in both languages.
+ * An unpaired surrogate has no UTF-8 form and is written as {@code ?} ({@code String.getBytes}
+ * replaces it), so it does not survive a round trip. A value grows at most 9 characters per
+ * character (three bytes, each {@code %XX}), so a CJK character takes 9. Go's {@code store.DecodeHeaderValue} reads the same form;
  * both run {@code test/fixtures/header-values.json}.
  */
 public final class HeaderValue {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/kubemoot/kubemoot/artifact-access/internal/store"
 )
@@ -127,7 +128,19 @@ func (e catalogEntry) line() string {
 		rows = strconv.FormatInt(e.rows, 10)
 	}
 	return fmt.Sprintf("%s%s tool=%s args=%s type=%s rows=%s bytes=%d error=%t started=%s]",
-		catalogCallStart, e.key, e.tool, argsSummary(e.args), e.typ, rows, e.bytes, e.failed, e.started)
+		catalogCallStart, e.key, neutralize(e.tool), argsSummary(e.args), e.typ, rows, e.bytes, e.failed, e.started)
+}
+
+// neutralize turns every control character (an escape, a line separator) into a space, so header
+// text read from the store cannot act on a terminal or end a catalog line. The stored value is
+// not changed; only what is shown.
+func neutralize(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 // isASCIISpace is what the runtime's \s matches.
@@ -137,7 +150,8 @@ func isASCIISpace(r rune) bool { return strings.ContainsRune(" \t\n\v\f\r", r) }
 // parentheses so a list cannot end the line early, cut at argsSummaryChars. The runtime's
 // CallManifest.argsSummary does the same.
 func argsSummary(args string) string {
-	one := strings.NewReplacer("[", "(", "]", ")").Replace(strings.Join(strings.FieldsFunc(args, isASCIISpace), " "))
+	folded := strings.Join(strings.FieldsFunc(neutralize(args), isASCIISpace), " ")
+	one := strings.NewReplacer("[", "(", "]", ")").Replace(folded)
 	if one == "" {
 		return "{}"
 	}

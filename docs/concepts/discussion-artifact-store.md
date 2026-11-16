@@ -94,6 +94,14 @@ rule decodes any value, and a value stays readable in `nats object info`. The Ja
 (`HeaderValue`) and the Go decoder (`store.DecodeHeaderValue`) both run
 `test/fixtures/header-values.json`.
 
+The 1,000-character cap on `gen_ai.tool.call.arguments` applies before encoding, so an encoded
+value is longer than the cap: up to 9 characters for each character that needs three UTF-8 bytes (a CJK
+character), 12 for an emoji, so at worst about 9,000 to 12,000 characters, far below a NATS header
+limit. A line break in the arguments is kept (encoded as `%0A`), so pretty-printed arguments read back as
+written; the catalog and the call columns show a control character (an escape, a line separator) as a
+space. A plain value that was stored before the encoding and starts with `utf8-pct:` followed only by
+valid escapes reads as encoded, the one case where an old value is read differently.
+
 ### What an agent posts: the descriptions of its files, and its small results
 
 A contribution is what the agent states, followed by the description of each file it
