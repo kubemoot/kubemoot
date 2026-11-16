@@ -50,6 +50,16 @@ public final class WorkspaceTools {
         return name != null && DATA_TOOLS.contains(canonical(baseName(name)));
     }
 
+    /** The workspace tools by their current names: a copy, for the check against the shared fixture. */
+    public static Set<String> currentNames() {
+        return Set.copyOf(ALL);
+    }
+
+    /** Each old tool name and the tool that replaces it: a copy, for the check against the shared fixture. */
+    public static Map<String, String> legacyNames() {
+        return Map.copyOf(LEGACY);
+    }
+
     private static String baseName(String name) {
         int dot = name.lastIndexOf('.');
         return dot >= 0 ? name.substring(dot + 1) : name;

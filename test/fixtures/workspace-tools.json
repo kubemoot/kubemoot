@@ -1,0 +1,20 @@
+{
+ "description": "The tools that read the discussion workspace and the old names they replace. operator/pkg/workspacetools (Go) and agent-runtime WorkspaceTools.java both check their lists against this file.",
+ "readTools": [
+  "workspace_list",
+  "workspace_describe",
+  "workspace_query",
+  "workspace_head",
+  "workspace_tail",
+  "workspace_grep"
+ ],
+ "legacy": {
+  "artifact_head": "workspace_head",
+  "artifact_tail": "workspace_tail",
+  "artifact_grep": "workspace_grep",
+  "artifact_count": "workspace_query",
+  "artifact_rows": "workspace_query",
+  "artifact_select": "workspace_query",
+  "artifact_jq": "workspace_query"
+ }
+}

@@ -63,11 +63,11 @@ const (
 const workspaceQueryTool = workspacetools.Query
 
 // workspaceReadTools are the tools that read the workspace, by their current names.
-var workspaceReadTools = workspacetools.ReadTools
+func workspaceReadTools() []string { return workspacetools.ReadTools() }
 
 // legacyWorkspaceTools maps each old tool name to the tool that replaces it. They keep working
 // for one release, so a declared access governs them too.
-var legacyWorkspaceTools = workspacetools.Legacy
+func legacyWorkspaceTools() map[string]string { return workspacetools.Legacy() }
 
 // workspaceDecision is the access resolved for one Agent. An empty access is implicit.
 type workspaceDecision struct {
@@ -100,13 +100,9 @@ type workspaceTools struct {
 }
 
 // canonicalWorkspaceTool returns the current name of a workspace tool, old or new, and whether
-// the name is a workspace tool at all.
-func canonicalWorkspaceTool(name string) (string, bool) {
-	if current, ok := legacyWorkspaceTools[name]; ok {
-		return current, true
-	}
-	return name, slices.Contains(workspaceReadTools, name)
-}
+// the name is a workspace tool at all. A name is matched exactly: an access list names tools
+// as they are configured, so a server-prefixed name (direct MCP mode) is not a workspace tool here.
+func canonicalWorkspaceTool(name string) (string, bool) { return workspacetools.Canonical(name) }
 
 // allowedWorkspaceTools are the workspace tools an access grants. workspace_query is offered
 // only when the query engine is on.
@@ -114,8 +110,9 @@ func allowedWorkspaceTools(access kubemootv1alpha1.WorkspaceAccess, engine kubem
 	if !access.CanRead() {
 		return nil
 	}
-	allowed := make([]string, 0, len(workspaceReadTools))
-	for _, t := range workspaceReadTools {
+	tools := workspaceReadTools()
+	allowed := make([]string, 0, len(tools))
+	for _, t := range tools {
 		if t != workspaceQueryTool || queryEngineOn(engine) {
 			allowed = append(allowed, t)
 		}
@@ -134,7 +131,7 @@ func applyWorkspaceAccess(enabled, disabled []string, d workspaceDecision, engin
 	}
 	allowed := allowedWorkspaceTools(d.access, engine)
 	out.disabled = slices.Clone(disabled)
-	for _, name := range append(slices.Clone(workspaceReadTools), sortedKeys(legacyWorkspaceTools)...) {
+	for _, name := range append(workspaceReadTools(), sortedKeys(legacyWorkspaceTools())...) {
 		if current, _ := canonicalWorkspaceTool(name); !slices.Contains(allowed, current) && !slices.Contains(out.disabled, name) {
 			out.disabled = append(out.disabled, name)
 		}
