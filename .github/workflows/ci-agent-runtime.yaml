@@ -16,6 +16,7 @@ on:
       - '.github/scripts/check-native-libs.sh'
       - '.github/scripts/check-native-target.sh'
       - '.github/scripts/run-native-check.sh'
+      - '.github/actions/build-agent-runtime-native/**'
       - '.github/scripts/stub-mcp-server.py'
       - '.github/workflows/ci-agent-runtime.yaml'
   workflow_dispatch:
@@ -90,7 +91,7 @@ jobs:
 
   # The native image is built and started on pull requests only through the native-check job,
   # and only when the change can break it: the dependencies, the native configuration, the
-  # result type detection or the check itself. The scope job decides.
+  # result type detection the chat REST records or the check itself. The scope job decides.
   native-scope:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' || inputs.native_check
@@ -112,7 +113,7 @@ jobs:
             echo "run=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          pattern='^(agent-runtime/(build\.gradle\.kts|settings\.gradle\.kts|gradle\.properties|gradle/|src/main/resources/application\.properties|src/main/resources/META-INF/native-image/|src/main/java/ai/kubemoot/agent/chat/(ResultType|NativeSelfTest)\.java)|\.github/scripts/(run-native-check\.sh|stub-mcp-server\.py|check-native-target\.sh)|\.github/workflows/ci-agent-runtime\.yaml)'
+          pattern='^(agent-runtime/(build\.gradle\.kts|settings\.gradle\.kts|gradle\.properties|gradle/|src/main/resources/application\.properties|src/main/resources/META-INF/native-image/|src/main/java/ai/kubemoot/agent/chat/(ChatController|ResultType|NativeSelfTest)\.java)|\.github/actions/build-agent-runtime-native/|\.github/scripts/(run-native-check\.sh|stub-mcp-server\.py|check-native-target\.sh)|\.github/workflows/ci-agent-runtime\.yaml)'
           if git diff --name-only "origin/${BASE_REF}...HEAD" | grep -Eq "${pattern}"; then
             echo "run=true" >> "${GITHUB_OUTPUT}"
           else
@@ -132,32 +133,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up GraalVM Community 25
-        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173 # v1.6.7
+      - name: Build the native binary
+        uses: ./.github/actions/build-agent-runtime-native
+
+      # The stub MCP server runs on the runner's Python (standard library only, 3.8 or newer);
+      # the version is pinned so a runner image change cannot move it.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          java-version: '25'
-          distribution: 'graalvm-community'
-          cache: 'gradle'
-          native-image-job-reports: 'false'
-
-      - name: Install native toolchain
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq gcc zlib1g-dev
-
-      - name: Grant execute permission for gradlew
-        working-directory: agent-runtime
-        run: chmod +x gradlew
-
-      - name: Build native binary
-        working-directory: agent-runtime
-        run: |
-          ./gradlew quarkusBuild \
-            -Dquarkus.native.enabled=true \
-            -Dquarkus.native.container-build=false \
-            -Dquarkus.package.jar.enabled=false
-
-      - name: Check the binary targets every x86-64 CPU
-        run: .github/scripts/check-native-target.sh agent-runtime/build
+          python-version: '3.13'
 
       # Checks what native compilation can break (startup, the MCP SDK's JSON and reflection,
       # result type detection, record binding), not NATS or model server connectivity: the
@@ -183,22 +167,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up GraalVM Community 25
-        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173 # v1.6.7
-        with:
-          java-version: '25'
-          distribution: 'graalvm-community'
-          cache: 'gradle'
-          native-image-job-reports: 'false'
-
-      - name: Install native toolchain
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq gcc zlib1g-dev
-
-      - name: Grant execute permission for gradlew
-        working-directory: agent-runtime
-        run: chmod +x gradlew
-
       - name: Install kubectl and crane
         env:
           KUBECTL_VERSION: v1.37.1
@@ -213,19 +181,8 @@ jobs:
           echo "${CRANE_SHA256}  crane.tar.gz" | sha256sum -c -
           tar -xzf crane.tar.gz crane && sudo mv crane /usr/local/bin/ && rm crane.tar.gz
 
-      - name: Build native binary
-        working-directory: agent-runtime
-        run: |
-          ./gradlew quarkusBuild \
-            -Dquarkus.native.enabled=true \
-            -Dquarkus.native.container-build=false \
-            -Dquarkus.package.jar.enabled=false
-
-      # A build for x86-64-v3 (AVX2) crash-loops on a node without AVX2. The check reads the
-      # machine target from native-image's build-output report and fails unless it is
-      # compatibility, which -march=compatibility in application.properties pins.
-      - name: Check the binary targets every x86-64 CPU
-        run: .github/scripts/check-native-target.sh agent-runtime/build
+      - name: Build the native binary
+        uses: ./.github/actions/build-agent-runtime-native
 
       - name: Set up the build helpers
         uses: kubemoot/release-actions/setup@b78d1a218811e2a0376eed26240451b2f353f367 # v0.11.4
