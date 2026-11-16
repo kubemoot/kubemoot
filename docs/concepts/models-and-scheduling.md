@@ -280,6 +280,9 @@ had instead wanted `qwen3:14b` while Accelerator 1 held a warm `qwen3:32b` that 
 regularly, and `qwen3:14b` were loaded on Accelerator 2 with one call about to finish, the
 researcher would wait a few seconds for Accelerator 2 rather than unload `qwen3:32b`.
 
+The models, servers, and tools a crew can use make up the realm, and the crew only asks
+for capabilities. See [The realm and the crew](../the-realm-and-the-crew/).
+
 ## Which models to actually pick
 
 Loose coupling decides *how* a model is bound. It does not decide *which* model belongs
