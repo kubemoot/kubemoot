@@ -1,0 +1,88 @@
+{
+  "description" : "The manifest an agent that stores no results posts (ToolCallLedger.unstoredForLoop), for the calls given. Java (ToolCallLedgerUnstoredTest) builds each manifest from the calls and compares it to manifest; Go (fitness-runner evidence tests) reads the same manifest. listedCalls is how many [CALL tool=...] lines the runner counts (-1: at least one); incomplete is whether the runner must not check a run holding it. Regenerate the manifests with UPDATE_UNSTORED_MANIFESTS=1 in agent-runtime.",
+  "cases" : [ {
+    "name" : "a result that fits",
+    "calls" : [ {
+      "tool" : "artifact_select",
+      "args" : "{\"q\": \"events\"}",
+      "result" : "node-a NotReady"
+    } ],
+    "listedCalls" : 1,
+    "incomplete" : false,
+    "evidence" : [ "node-a", "events" ],
+    "manifest" : "[WORKSPACE agent=obs-advisor calls=1 errors=0 stored=no]\n[CALL tool=artifact_select args={\"q\": \"events\"} type=text/plain bytes=15 rows=unknown error=false stored=no]\n[RESULT]\nnode-a NotReady\n[END RESULT]"
+  }, {
+    "name" : "empty and whitespace-only results",
+    "calls" : [ {
+      "tool" : "workspace_grep",
+      "args" : "{}",
+      "result" : ""
+    }, {
+      "tool" : "workspace_grep",
+      "args" : "{}",
+      "result" : "  \n"
+    } ],
+    "listedCalls" : 2,
+    "incomplete" : false,
+    "evidence" : [ ],
+    "manifest" : "[WORKSPACE agent=obs-advisor calls=2 errors=0 stored=no]\n[CALL tool=workspace_grep args={} type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=workspace_grep args={} type=text/plain bytes=3 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]"
+  }, {
+    "name" : "a failed result with text",
+    "calls" : [ {
+      "tool" : "pods_list",
+      "args" : "{}",
+      "result" : "connection refused",
+      "error" : true
+    } ],
+    "listedCalls" : 1,
+    "incomplete" : false,
+    "evidence" : [ "refused" ],
+    "manifest" : "[WORKSPACE agent=obs-advisor calls=1 errors=1 stored=no]\n[CALL tool=pods_list args={} type=text/plain bytes=18 rows=unknown error=true stored=no]\n[FAILED RESULT]\nconnection refused\n[END RESULT]"
+  }, {
+    "name" : "a failed call with no text",
+    "calls" : [ {
+      "tool" : "pods_list",
+      "args" : "{}",
+      "result" : "",
+      "error" : true
+    } ],
+    "listedCalls" : 1,
+    "incomplete" : false,
+    "evidence" : [ ],
+    "manifest" : "[WORKSPACE agent=obs-advisor calls=1 errors=1 stored=no]\n[CALL tool=pods_list args={} type=text/plain bytes=0 rows=unknown error=true stored=no]\n[FAILED RESULT]\n(the call failed and returned no text)\n[END RESULT]"
+  }, {
+    "name" : "a result too large to show from a raw tool",
+    "calls" : [ {
+      "tool" : "pods_list",
+      "args" : "{\"namespace\": \"all\"}",
+      "resultChars" : 9000
+    } ],
+    "listedCalls" : 0,
+    "incomplete" : true,
+    "evidence" : [ ],
+    "manifest" : "[WORKSPACE agent=obs-advisor calls=1 errors=0 stored=no]\n[NOT STORED tool=pods_list args={\"namespace\": \"all\"} error=false - the agent does not store results and this one is not shown here, so it is not available]"
+  }, {
+    "name" : "a result too large to show from a workspace read tool",
+    "calls" : [ {
+      "tool" : "workspace_grep",
+      "args" : "{\"pattern\": \"x\"}",
+      "resultChars" : 9000
+    } ],
+    "listedCalls" : 0,
+    "incomplete" : false,
+    "evidence" : [ ],
+    "manifest" : "[WORKSPACE agent=obs-advisor calls=1 errors=0 stored=no]\n[NOT STORED tool=workspace_grep args={\"pattern\": \"x\"} error=false - the agent does not store results and this one is not shown here, so it is not available]"
+  }, {
+    "name" : "many calls leave some out",
+    "calls" : [ {
+      "tool" : "events_list",
+      "args" : "{\"a\": \"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"}",
+      "result" : "",
+      "repeat" : 100
+    } ],
+    "listedCalls" : -1,
+    "incomplete" : true,
+    "evidence" : [ ],
+    "manifest" : "[WORKSPACE agent=obs-advisor calls=100 errors=0 stored=no]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[CALL tool=events_list type=text/plain bytes=0 rows=unknown error=false stored=no]\n[EMPTY RESULT]\n(empty: the call succeeded and returned nothing)\n[END RESULT]\n[76 more calls not listed; this agent stores no results, so theirs are not available]"
+  } ]
+}

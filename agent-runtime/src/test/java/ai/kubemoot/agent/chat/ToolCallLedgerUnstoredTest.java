@@ -1,7 +1,12 @@
 package ai.kubemoot.agent.chat;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 
+import java.io.File;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.OptionalLong;
 
@@ -102,6 +107,58 @@ class ToolCallLedgerUnstoredTest {
         record("t", "{}", "see " + CallManifest.UNSTORED_CALL_PREFIX + "x", false);
 
         assertTrue(ledger.manifest().contains("[NOT STORED tool=t"), ledger.manifest());
+    }
+
+    @Test
+    void aFailedCallWithNoTextPostsTheNoTextBlockSoEveryLineHasABlock() {
+        record("t", "{}", " ", true);
+
+        assertTrue(ledger.manifest().contains("error=true stored=no]\n" + CallManifest.FAILED_NO_TEXT_TEXT), ledger.manifest());
+    }
+
+    @Test
+    void droppedCallsSayTheirResultsAreNotStoredAndNotAvailable() {
+        for (int i = 0; i < 100; i++) {
+            record("events_list", "{\"n\": " + i + "}", "", false);
+        }
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.length() <= ToolCallLedger.MAX_MANIFEST_CHARS, "" + manifest.length());
+        assertTrue(CallManifest.OMITTED_UNSTORED_LINE.matcher(manifest).find(), manifest);
+        assertFalse(CallManifest.OMITTED_LINE.matcher(manifest).find(), "no prefix to point at: " + manifest);
+    }
+
+    @Test
+    void aSharedFixtureOfManifestsIsWhatTheLedgerWrites() throws IOException {
+        File file = new File("../test/fixtures/unstored-manifests.json");
+        var mapper = new ObjectMapper();
+        JsonNode fixture = mapper.readTree(file);
+        boolean update = System.getenv("UPDATE_UNSTORED_MANIFESTS") != null;
+        for (JsonNode c : fixture.get("cases")) {
+            String manifest = manifestOf(c.get("calls"));
+            if (update) {
+                ((ObjectNode) c).put("manifest", manifest);
+            } else {
+                assertEquals(c.get("manifest").asText(), manifest, c.get("name").asText());
+            }
+        }
+        if (update) {
+            mapper.writerWithDefaultPrettyPrinter().writeValue(file, fixture);
+        }
+    }
+
+    private static String manifestOf(JsonNode calls) {
+        var one = ToolCallLedger.unstoredForLoop("th", "obs-advisor", OptionalLong.empty());
+        for (JsonNode call : calls) {
+            String result = call.has("resultChars") ? "x".repeat(call.get("resultChars").asInt())
+                    : call.get("result").asText();
+            for (int i = 0; i < (call.has("repeat") ? call.get("repeat").asInt() : 1); i++) {
+                one.record(new ToolCallLedger.Call(call.get("tool").asText(), "id", call.get("args").asText(), T0, 4),
+                        result, call.path("error").asBoolean(false), 1_000_000);
+            }
+        }
+        return one.manifest();
     }
 
     @Test

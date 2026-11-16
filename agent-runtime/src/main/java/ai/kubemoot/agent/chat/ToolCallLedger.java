@@ -92,7 +92,7 @@ final class ToolCallLedger {
             calls.add(ToolCallRecord.notStored(call.tool(), call.arguments(), error));
             return null;
         }
-        calls.add(new ToolCallRecord(key, call.tool(), call.arguments(), body.length, shape.rows(), error,
+        calls.add(ToolCallRecord.stored(key, call.tool(), call.arguments(), body.length, shape.rows(), error,
                 storedType(shape, cut), cut ? List.of() : shape.columns(), cut ? null : inlineOf(text, error)));
         return key;
     }
@@ -115,10 +115,9 @@ final class ToolCallLedger {
      */
     private String inlineOf(String text, boolean error) {
         if (text.isBlank()) {
-            return error ? null : CallManifest.EMPTY_RESULT_TEXT;
+            return blankBlock(error);
         }
-        if (text.length() > perResultChars || text.contains(CallManifest.RESULT_CLOSE)
-                || text.contains(CallManifest.CALL_PREFIX) || text.contains(CallManifest.UNSTORED_CALL_PREFIX)) {
+        if (text.length() > perResultChars || CallManifest.holdsMarker(text)) {
             return null;
         }
         String open = error ? CallManifest.FAILED_RESULT_OPEN : CallManifest.RESULT_OPEN;
@@ -128,6 +127,18 @@ final class ToolCallLedger {
         }
         inlineRoomLeft -= block.length() + 1;
         return block;
+    }
+
+    /**
+     * The block of a result with no text: the empty block for a call that succeeded, and for a call
+     * that failed of an agent that stores nothing, so each of its lines has a block. A stored call
+     * that failed with no text has none: its file is empty.
+     */
+    private String blankBlock(boolean error) {
+        if (!error) {
+            return CallManifest.EMPTY_RESULT_TEXT;
+        }
+        return store == null ? CallManifest.FAILED_NO_TEXT_TEXT : null;
     }
 
     /** The type of the stored bytes: a result cut at the size cap no longer holds what it was, so it is text. */
@@ -242,8 +253,11 @@ final class ToolCallLedger {
         return shown.size() - 1;
     }
 
-    private static String omitted(int count) {
-        return count == 0 ? "" : CallManifest.omittedLine(count);
+    private String omitted(int count) {
+        if (count == 0) {
+            return "";
+        }
+        return store == null ? CallManifest.omittedUnstoredLine(count) : CallManifest.omittedLine(count);
     }
 
     private String joined(List<ToolCallRecord> shown, boolean withArgs, boolean withColumns, Posted posted) {
@@ -262,7 +276,7 @@ final class ToolCallLedger {
     }
 
     private String line(ToolCallRecord c, boolean withArgs, boolean withColumns) {
-        if (c.storeOff() && (c.hasInline() || c.bytes() == 0)) {
+        if (c.storeOff() && c.hasInline()) {
             return callLine(new StringBuilder(CallManifest.UNSTORED_CALL_PREFIX).append(c.tool()), c, withArgs)
                     .append(" stored=no]").toString();
         }

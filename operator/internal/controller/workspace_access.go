@@ -39,6 +39,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/workspacetools"
+
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
@@ -58,21 +60,14 @@ const (
 )
 
 // workspaceQueryTool is the one tool that replaces the four retired query tools.
-const workspaceQueryTool = "workspace_query"
+const workspaceQueryTool = workspacetools.Query
 
 // workspaceReadTools are the tools that read the workspace, by their current names.
-var workspaceReadTools = []string{
-	"workspace_list", "workspace_describe", workspaceQueryTool,
-	"workspace_head", "workspace_tail", "workspace_grep",
-}
+var workspaceReadTools = workspacetools.ReadTools
 
 // legacyWorkspaceTools maps each old tool name to the tool that replaces it. They keep working
 // for one release, so a declared access governs them too.
-var legacyWorkspaceTools = map[string]string{
-	"artifact_head": "workspace_head", "artifact_tail": "workspace_tail", "artifact_grep": "workspace_grep",
-	"artifact_count": workspaceQueryTool, "artifact_rows": workspaceQueryTool,
-	"artifact_select": workspaceQueryTool, "artifact_jq": workspaceQueryTool,
-}
+var legacyWorkspaceTools = workspacetools.Legacy
 
 // workspaceDecision is the access resolved for one Agent. An empty access is implicit.
 type workspaceDecision struct {
