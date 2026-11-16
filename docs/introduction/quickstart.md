@@ -99,7 +99,8 @@ kubectl edit promptmodule hello-facts-system -n hello   # change a rule, ask aga
 ```
 
 Ask another question by rerunning with `QUESTION="..." EXPECT=""` set, or with
-`kmctl conversation ask hello "..." -n hello`. The script is idempotent: rerunning it
+`kmctl conversation ask hello "..." -n hello` (install kmctl from
+[its README](https://github.com/kubemoot/kmctl#install) first). The script is idempotent: rerunning it
 against the same cluster upgrades in place rather than failing.
 
 CI runs this exact script on a fresh `kind` cluster against every release's images, so

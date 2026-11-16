@@ -80,8 +80,10 @@ the final answer. Pass `--conversation-id` to continue an existing thread.
 `kmctl conversation watch` live-tails an in-flight conversation by ID or a unique
 prefix of one, `kmctl conversation list` lists a crew's recent conversations, and
 `kmctl conversation artifact` fetches an artifact an agent attached. The command
-reaches the crew through the Kubernetes API server's service proxy using your
-kubeconfig credentials; no extra networking setup is required.
+reaches the crew's discussion gateway through a port-forward to a ready pod behind its
+Service, through the kubelet as `kubectl port-forward` does, using your kubeconfig
+credentials. It needs no extra networking setup and works under a default-deny network
+policy.
 
 **Fitness suite execution.** `kmctl fitness run <suite>` (`fitness` has the alias `fit`) polls an
 existing `CrewFitnessSuite` until every iteration has run, printing progress as it
@@ -90,7 +92,7 @@ deferred judge pass, and the exit code reflects timeouts and API errors only. `k
 suite status. `kmctl fitness scenarios <suite>` lists the scenarios in a suite.
 Pass `--scenario` to run a single scenario in isolation as a quick smoke test.
 `kmctl fitness download <suite>` retrieves the XLSX artifact for a completed suite
-through the Kubernetes API server's service proxy; use `-o FILE` to control the
+through a port-forward to a ready dashboard pod; use `-o FILE` to control the
 output path.
 
 **Crew memory export.** `kmctl memory export <crew>` writes the crew's long-term memory

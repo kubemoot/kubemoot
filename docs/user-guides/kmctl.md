@@ -214,8 +214,10 @@ kmctl agent list -n crew-demo
 kmctl conversation ask demo "List the pods in this namespace and their status." -n crew-demo
 ```
 
-`kmctl conversation` reaches the crew through the Kubernetes API server's service proxy,
-so no extra port-forwarding is required. Add `--quiet` to print only the final answer,
+`kmctl conversation` reaches the crew by opening a port-forward to a ready pod of the
+crew's discussion gateway Service, so you do not run `kubectl port-forward` yourself.
+Your kubeconfig identity needs `get` on services, `list` on pods, and `create` on
+`pods/portforward` in the crew's namespace. Add `--quiet` to print only the final answer,
 and `--conversation-id <id>` (the ID the first `ask` prints) to continue the same
 conversation.
 
@@ -245,6 +247,11 @@ change one rule and ask again.
 ## Shell completion
 
 `kmctl completion` generates completion scripts for bash, zsh, fish, and PowerShell.
+
+Completing a conversation ID (`kmctl conversation watch <crew> <Tab>`) lists the crew's
+recent conversations, so each press opens a short port-forward to the crew's gateway. It is
+a little slower than completing a name kmctl reads from the Kubernetes API, and it needs the
+same permissions as `kmctl conversation`.
 
 ### bash
 
