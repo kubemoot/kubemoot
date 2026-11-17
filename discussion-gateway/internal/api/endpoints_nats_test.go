@@ -350,3 +350,37 @@ func TestConversationIndexListsAThreadWithoutAConversation(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+// The list covers a thread a person started on its own channel with no conversationId (the
+// dashboard) as a one-turn conversation under its thread ID, next to the coordinator's
+// broadcast thread_start of a conversation. Signals on any channel, a thread_start published
+// twice, and other crews' threads are not conversations or extra turns.
+func TestListConversationsIncludesDashboardThreadsOnceEach(t *testing.T) {
+	nc, js := jetStreamServer(t)
+	publishDiscuss(t, js, turnStart("t1", "conv-a", "Describe the proxmox nodes."))
+	publishDiscuss(t, js, turnStart("t1", "conv-a", "Describe the proxmox nodes."))
+	human := map[string]interface{}{keyMessageID: "h1", keyMessageType: msgThreadStart, keyThreadID: "dash-1",
+		"agentName": "human", "metadata": map[string]interface{}{"userQuery": "What is new?"}}
+	publishOn(t, js, "kubemoot.discuss.ns.pilot.general.dash-1", human)
+	publishOn(t, js, "kubemoot.discuss.ns.pilot.general.dash-1", human)
+	publishOn(t, js, "kubemoot.discuss.ns.pilot.general.dash-1", msgOf("dash-1", "m1", signalAgree, "an agent speaks"))
+	publishOn(t, js, "kubemoot.discuss.ns.pilot.library.dash-1", msgOf("dash-1", "m2", signalAgree, "so does another"))
+	publishOn(t, js, "kubemoot.discuss.ns.other.general.dash-2", map[string]interface{}{
+		keyMessageType: msgThreadStart, keyThreadID: "dash-2", "content": "another crew"})
+	srv := gatewayServer(t, nc)
+
+	var got bus.ConversationList
+	if code := getJSON(t, srv.URL+"/api/v1/discussions/pilot", &got); code != http.StatusOK || len(got.Conversations) != 2 {
+		t.Fatalf("status %d, want 2 conversations: %+v", code, got.Conversations)
+	}
+	byID := map[string]bus.ConversationSummary{}
+	for _, c := range got.Conversations {
+		byID[c.ConversationID] = c
+	}
+	if a := byID["conv-a"]; a.Turns != 1 || a.Question != "Describe the proxmox nodes." {
+		t.Errorf("a conversation thread_start published twice: %+v", a)
+	}
+	if d := byID["dash-1"]; d.Turns != 1 || d.Question != "What is new?" {
+		t.Errorf("a dashboard thread: %+v", d)
+	}
+}

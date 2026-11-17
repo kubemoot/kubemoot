@@ -57,7 +57,7 @@ func jetStreamServer(t *testing.T) (*natsclient.Client, jetstream.JetStream) {
 func publishDiscuss(t *testing.T, js jetstream.JetStream, msg map[string]interface{}) uint64 {
 	t.Helper()
 	data, _ := json.Marshal(msg)
-	ack, err := js.Publish(context.Background(), "kubemoot.discuss.ns.pilot.broadcast."+msg["threadId"].(string), data)
+	ack, err := js.Publish(context.Background(), "kubemoot.discuss.ns.pilot.broadcast."+msg[keyThreadID].(string), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,13 +67,13 @@ func publishDiscuss(t *testing.T, js jetstream.JetStream, msg map[string]interfa
 // startOf is the thread_start of thread for the test conversation.
 func startOf(thread string) map[string]interface{} {
 	return map[string]interface{}{
-		keyMessageID: "start-" + thread, keyMessageType: msgThreadStart, "threadId": thread,
+		keyMessageID: "start-" + thread, keyMessageType: msgThreadStart, keyThreadID: thread,
 		"metadata": map[string]string{metaConversationID: testConv},
 	}
 }
 
 func msgOf(thread, id, messageType, content string) map[string]interface{} {
-	return map[string]interface{}{keyMessageID: id, "messageType": messageType, "threadId": thread, "agentName": testAgent, "content": content}
+	return map[string]interface{}{keyMessageID: id, "messageType": messageType, keyThreadID: thread, "agentName": testAgent, "content": content}
 }
 
 // readStream reads a stream to its end and returns its non-empty field lines.

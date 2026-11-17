@@ -33,6 +33,7 @@ const (
 	testStamp      = "2026-10-15T12:00:00Z"
 	testArtifact   = "ns/pilot/t1/k8s/agree-1"
 	keyMessageID   = "messageId"
+	keyThreadID    = "threadId"
 )
 
 func TestMessageDeduper_DropsDuplicateMessageID(t *testing.T) {
@@ -307,15 +308,18 @@ func TestTranslateAndEmit_IgnoresNoiseAndUnknown(t *testing.T) {
 	}
 }
 
+// dashboardThread is the ID of a thread a person started without a conversation.
+const dashboardThread = "thread-9"
+
 // A thread a person started without a conversationId (the dashboard) is its own
 // conversation: streaming its thread ID finds it.
 func TestThreadFinderTakesAThreadByItsOwnIDWhenItHasNoConversation(t *testing.T) {
-	tf := &threadFinder{conversationID: "thread-9"}
+	tf := &threadFinder{conversationID: dashboardThread}
 	var events []SSEEvent
 	emit := func(e SSEEvent) { events = append(events, e) }
-	m := discussMsg{data: bus.DiscussionMessage{MessageType: msgThreadStart, ThreadID: "thread-9"}, seq: 4}
+	m := discussMsg{data: bus.DiscussionMessage{MessageType: msgThreadStart, ThreadID: dashboardThread}, seq: 4}
 	tf.process(m, emit)
-	if tf.threadID != "thread-9" || len(events) != 1 || events[0].Type != eventThreadFound {
+	if tf.threadID != dashboardThread || len(events) != 1 || events[0].Type != eventThreadFound {
 		t.Fatalf("threadID %q events %+v", tf.threadID, events)
 	}
 	other := &threadFinder{conversationID: "thread-8"}
