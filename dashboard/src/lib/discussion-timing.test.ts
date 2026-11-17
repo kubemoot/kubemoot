@@ -362,3 +362,36 @@ describe('summarizeThread', () => {
 		});
 	});
 });
+
+describe('message stats and the placement rule', () => {
+	const thread = [
+		msg('coord', 'advisory', 0, { gpuLabel: 'vllm-rig0', modelsUsed: ['m@vllm-rig0'] }),
+		msg('coord', 'review_ready', 5, { gpuLabel: 'vllm' }),
+		msg('a', 'agree', 6, {
+			modelsUsed: ['m@vllm-rig0', 'm@vllm-rig1'],
+			placementCalls: [
+				{ model: 'm', server: 'vllm-rig0' },
+				{ model: 'm', server: 'vllm-rig1' }
+			]
+		} as never)
+	];
+
+	it('metadataStats drops a label that names no server of the thread, given known', () => {
+		const known = new Set(['vllm-rig0', 'vllm-rig1']);
+		expect(metadataStats(thread[1], known).accelerator).toBeUndefined();
+		expect(metadataStats(thread[0], known).accelerator).toBe('vllm-rig0');
+	});
+
+	it('metadataStats keeps every label without known', () => {
+		expect(metadataStats(thread[1]).accelerator).toBe('vllm');
+	});
+
+	it('messageStats applies it to each message of the thread', () => {
+		const stats = messageStats(thread);
+		expect(thread.map((m) => stats.get(m)?.accelerator)).toEqual([
+			'vllm-rig0',
+			undefined,
+			'vllm-rig1'
+		]);
+	});
+});

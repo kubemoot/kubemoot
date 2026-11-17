@@ -285,8 +285,16 @@ function signalMarkers(msgs: DiscussionMessage[], t0: number, primary: string): 
 		}));
 }
 
-/** The ModelServer the agent's last placed call ran on, else its reported label when that names a server of the thread. */
-function agentPlacement(msgs: DiscussionMessage[], known: ReadonlySet<string>): string | undefined {
+/**
+ * Where the calls behind these messages ran: the ModelServer of the last placed call,
+ * else the last reported label when it names a server of the thread (see placementOf).
+ * The one rule the span graph, the per-message stats, and the copied agent summary share;
+ * `known` is threadServers of the whole thread.
+ */
+export function placementOfMessages(
+	msgs: DiscussionMessage[],
+	known: ReadonlySet<string>
+): string | undefined {
 	const ran = msgs.flatMap((m) => serversOfMessage(m.metadata)).at(-1);
 	return placementOf(ran, lastMeta(msgs, 'gpuLabel'), known);
 }
@@ -311,7 +319,7 @@ function agentSpan(
 		isHuman,
 		toolsUsed: toolsUsed(data.msgs),
 		messages: data.msgs,
-		gpuLabel: agentPlacement(data.msgs, known),
+		gpuLabel: placementOfMessages(data.msgs, known),
 		model: lastMeta(data.msgs, 'model'),
 		pickReason: lastMeta(data.msgs, 'pickReason'),
 		inferenceMs: maxMeta(data.msgs, 'inferenceMs'),
