@@ -1,0 +1,8 @@
+{
+ "note": "Shared fixture: the limit rule of the three list tools in templates/mcpserver-kubernetes.yaml and the values it must reject or let through. tests/test-prompt-tools.sh checks the rendered chart against it; the Kubemoot gateway runs a verbatim copy (mcp-gateway/src/test/resources/crew-rules/) with the real RE2 engine. Change both copies together.",
+ "tools": ["pods_list", "pods_list_in_namespace", "resources_list"],
+ "parameter": "limit",
+ "reject": "^\\s*0*[1-9]",
+ "rejectValues": ["1", "5", "10", "100", "01", " 7", "1000000", "9"],
+ "passValues": ["0", "00", "", "abc"]
+}

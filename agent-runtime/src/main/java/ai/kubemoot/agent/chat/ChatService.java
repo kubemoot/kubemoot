@@ -1447,7 +1447,8 @@ public class ChatService {
                     toolName, result, count,
                     "Tool '" + toolName + "' failed " + count + " times in this evaluation ("
                             + (verdict == ToolFailureTracker.Verdict.STUCK
-                                    ? "same call or error repeated" : "corrections exhausted") + ")");
+                                    ? "same call or error repeated" : "corrections exhausted") + ")"
+                            + lastErrorSuffix(result));
         }
         if (state.totalToolFailures >= MAX_TOTAL_TOOL_FAILURES) {
             throw new ToolCallFailure(
@@ -1677,6 +1678,32 @@ public class ChatService {
         return !t.isEmpty() && t.length() <= MAX_ERROR_TEXT_CHARS
                 && ERROR_TEXT_PREFIXES.stream().anyMatch(t::startsWith);
     }
+
+    /** Most characters of the last tool error that a failure message carries. */
+    static final int FAILURE_ERROR_CHARS = 300;
+
+    /**
+     * The failure message's tail: the last error the tool returned, so a reader of the failure
+     * (the coordinator, the dashboard) sees why the tool refused and does not read the repeat
+     * count alone as a missing tool. The error is the text inside the {"error": "..."} wrapper
+     * when it has one.
+     */
+    static String lastErrorSuffix(String result) {
+        if (result == null || result.isBlank()) return "";
+        String text = result.strip();
+        var m = ERROR_WRAPPER.matcher(text);
+        if (m.matches()) {
+            text = m.group(1).replace("\\n", " ").replace("\\\"", "\"");
+        }
+        text = text.replaceAll("\\s+", " ").strip();
+        if (text.length() > FAILURE_ERROR_CHARS) {
+            text = text.substring(0, FAILURE_ERROR_CHARS) + "...";
+        }
+        return text.isEmpty() ? "" : ". Last error: " + text;
+    }
+
+    private static final java.util.regex.Pattern ERROR_WRAPPER =
+            java.util.regex.Pattern.compile("(?s)\\{\\s*\"error\"\\s*:\\s*\"(.*)\"\\s*\\}");
 
     private static String truncateErrorForLog(String result) {
         if (result == null) return "";

@@ -237,4 +237,32 @@ class ArgumentRulesTest {
         assertEquals(Optional.of("metrics"), check(r, "status.allocatable.memory=4"));
         assertEquals(Optional.empty(), check(r, "metadata.namespace!=kube-system,status.phase=Running"));
     }
+
+    @Test
+    void theHomelabPilotLimitRuleBehavesAsTheSharedFixtureSays() throws Exception {
+        JsonNode fixture = new ObjectMapper().readTree(
+            getClass().getResourceAsStream("/crew-rules/homelab-pilot-list-limit.json"));
+        String param = fixture.get("parameter").asText();
+        Map<String, ParameterOverride> parameters = Map.of(param,
+            new ParameterOverride("d", List.of(new ArgumentRule(fixture.get("reject").asText(), "no limit"))));
+        List<ToolOverride> overrides = new ArrayList<>();
+        for (JsonNode tool : fixture.get("tools")) {
+            overrides.add(new ToolOverride(tool.asText(), null, parameters));
+        }
+        ArgumentRules compiled = ArgumentRules.compile(overrides, "k8s");
+        assertEquals(0, compiled.invalidRules());
+        for (ToolOverride override : overrides) {
+            for (JsonNode value : fixture.get("rejectValues")) {
+                assertEquals(Optional.of("no limit"),
+                    compiled.check(override.name(), Map.of(param, value.asText())),
+                    override.name() + " limit " + value.asText());
+            }
+            for (JsonNode value : fixture.get("passValues")) {
+                assertEquals(Optional.empty(),
+                    compiled.check(override.name(), Map.of(param, value.asText())),
+                    override.name() + " limit '" + value.asText() + "'");
+            }
+        }
+        assertEquals(3, overrides.size());
+    }
 }
