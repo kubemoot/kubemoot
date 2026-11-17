@@ -300,8 +300,7 @@ func (tf *threadFinder) startsThreadForTurn(m discussMsg) bool {
 	if m.data.MessageType != msgThreadStart || m.data.ThreadID == tf.threadID {
 		return false
 	}
-	conversationID, _ := m.data.Metadata[metaConversationID].(string)
-	return conversationID == tf.conversationID && tf.isThisTurn(m.published)
+	return conversationOf(m.data) == tf.conversationID && tf.isThisTurn(m.published)
 }
 
 // follow switches to m's thread, announces it, and replays its buffered messages.
