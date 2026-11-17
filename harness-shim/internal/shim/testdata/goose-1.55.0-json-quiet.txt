@@ -1,0 +1,43 @@
+{
+  "messages": [
+    {
+      "id": null,
+      "role": "user",
+      "created": 1794952771,
+      "content": [
+        {
+          "type": "text",
+          "text": "Say hi in one word.\n"
+        }
+      ],
+      "metadata": {
+        "userVisible": true,
+        "agentVisible": true
+      }
+    },
+    {
+      "id": "msg_bff45484-f2b7-49b6-9d5f-0aca9bf9a25e",
+      "role": "assistant",
+      "created": 1794952771,
+      "content": [
+        {
+          "type": "error",
+          "kind": "authentication",
+          "message": "Ran into this error: Authentication error: Authentication failed for http://127.0.0.1:8081/v1/chat/completions. Status: 403 Forbidden. Response: the model door serves the agent's turns only.\n\nPlease retry if you think this is a transient or recoverable error."
+        }
+      ],
+      "metadata": {
+        "userVisible": true,
+        "agentVisible": false
+      }
+    }
+  ],
+  "metadata": {
+    "total_tokens": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "status": "error"
+  }
+}
