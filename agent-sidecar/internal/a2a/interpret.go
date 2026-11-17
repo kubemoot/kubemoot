@@ -50,8 +50,24 @@ func Interpret(r Result, sendErr error) Outcome {
 	case sdk.TaskStateCanceled:
 		return Outcome{Signal: SignalFailure, FailureType: "harness_canceled"}
 	default:
-		return Outcome{Signal: SignalFailure, FailureType: "harness_failed", Reason: r.State.String()}
+		return Outcome{Signal: SignalFailure, FailureType: "harness_failed", Reason: failureReason(r)}
 	}
+}
+
+// failureReason is why a harness task did not finish: the state, and the harness's own words
+// (its status message) when it gave any, so a failed turn says what failed.
+func failureReason(r Result) string {
+	if r.Message == nil {
+		return r.State.String()
+	}
+	var text strings.Builder
+	for _, p := range r.Message.Parts {
+		text.WriteString(p.Text())
+	}
+	if said := strings.Join(strings.Fields(text.String()), " "); said != "" {
+		return r.State.String() + ": " + said
+	}
+	return r.State.String()
 }
 
 // parts are the content parts of a finished result: the artifacts', else the final message's.

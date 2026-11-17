@@ -277,3 +277,19 @@ func TestInterpretTable(t *testing.T) {
 		}
 	}
 }
+
+func TestInterpretFailedKeepsTheHarnessMessage(t *testing.T) {
+	msg := sdk.NewMessage(sdk.MessageRoleAgent, sdk.NewTextPart("goose: exit status 1:\n  Error: the model door said no"))
+	o := Interpret(Result{State: sdk.TaskStateFailed, Message: msg}, nil)
+	if o.FailureType != "harness_failed" || !strings.Contains(o.Reason, "TASK_STATE_FAILED") ||
+		!strings.Contains(o.Reason, "goose: exit status 1: Error: the model door said no") {
+		t.Fatalf("reason %q", o.Reason)
+	}
+	if o := Interpret(Result{State: sdk.TaskStateFailed}, nil); o.Reason != "TASK_STATE_FAILED" {
+		t.Fatalf("no message: reason %q", o.Reason)
+	}
+	empty := sdk.NewMessage(sdk.MessageRoleAgent, sdk.NewTextPart("  "))
+	if o := Interpret(Result{State: sdk.TaskStateFailed, Message: empty}, nil); o.Reason != "TASK_STATE_FAILED" {
+		t.Fatalf("blank message: reason %q", o.Reason)
+	}
+}
