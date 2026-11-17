@@ -15,7 +15,7 @@
 	import { formatDuration, formatElapsed } from '#lib/duration-format.js';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
 	import { aggregateAgents, type AgentAgg } from '#lib/discussion-agent-summary.js';
-	import { placementOf, threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
+	import { placementOf, threadServers, threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
 	import * as tips from '#lib/discussion-actions.js';
 	import { isPaused, publishDiscussionMessage, sendTracked, threadIsOpen, unsentMessages } from '#lib/send-state.js';
@@ -245,7 +245,7 @@
 		return text;
 	}
 
-	function renderAgentSummary(agentMap: Map<string, AgentAgg>): string {
+	function renderAgentSummary(agentMap: Map<string, AgentAgg>, known: ReadonlySet<string>): string {
 		let text = `## Agent Summary\n`;
 		text += `| Agent | Signal | Accelerator | Duration | Inference | Tools |\n`;
 		text += `|-------|--------|-----|----------|-----------|-------|\n`;
@@ -259,7 +259,7 @@
 			// truth of where this inference actually ran. FitPredictor v2's
 			// pickReason (if present) carries the per-call decision narrative
 			// ("warm, slot 1/2 | SR=0.92 over 23 samples, EMA latency 4200ms").
-			const where = placementOf(data.server, data.gpu) ?? '-';
+			const where = placementOf(data.server, data.gpu, known) ?? '-';
 			const why = data.pickReason ? `<br/>_${data.pickReason}_` : '';
 			text += `| ${name} | ${data.signal} | ${where}${why} | ${dur} | ${inf} | ${tools} |\n`;
 		}
@@ -285,7 +285,7 @@
 		const version = await fetchDashboardVersion(fetch, resolve('/api/version'));
 		const t0 = messagesStartMs(thread.messages);
 		const agentMap = aggregateAgents(thread.messages, t0);
-		return buildThreadHeader(thread, version) + renderAgentSummary(agentMap) + renderMessageTimeline(thread);
+		return buildThreadHeader(thread, version) + renderAgentSummary(agentMap, threadServers(thread.messages)) + renderMessageTimeline(thread);
 	}
 
 	async function copyThread() {

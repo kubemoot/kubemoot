@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 	import { showStandAsides } from '#lib/stores/index.js';
-	import { buildAgentSpans, placementOf, type AgentSpan } from '#lib/discussion-spans.js';
+	import { buildAgentSpans, type AgentSpan } from '#lib/discussion-spans.js';
 	import { versionLabel } from '#lib/dashboard-version.js';
 
 	let {
@@ -62,14 +62,14 @@
 		{ label: 'Queue Depth', color: '#ef4444', type: 'queue' as const, tooltip: 'Number of other agents running inference on the same GPU concurrently' }
 	];
 
-	// Derive GPU color map from actual message data
+	// The color of each server an agent's span names, in the order the spans first name them
+	const spans = $derived(buildAgentSpans(messages));
 	const gpuColors = $derived.by(() => {
 		const map: Record<string, string> = {};
 		let idx = 0;
-		for (const msg of messages) {
-			const label = placementOf(msg.metadata?.server, msg.metadata?.gpuLabel);
-			if (label && !(label in map)) {
-				map[label] = gpuColorPalette[idx % gpuColorPalette.length];
+		for (const { gpuLabel } of spans) {
+			if (gpuLabel && !(gpuLabel in map)) {
+				map[gpuLabel] = gpuColorPalette[idx % gpuColorPalette.length];
 				idx++;
 			}
 		}
@@ -79,8 +79,6 @@
 	let containerEl = $state<HTMLDivElement | null>(null);
 	let containerWidth = $state(600);
 	let hoveredAgent = $state<string | null>(null);
-
-	const spans = $derived(buildAgentSpans(messages));
 
 	// Hide agents that immediately stand_aside with no inference. Driven by the
 	// global "Show stand-asides" preference (Config page) so the graph matches

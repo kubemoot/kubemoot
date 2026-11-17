@@ -8,6 +8,7 @@ import {
 	primarySignal,
 	queueDepth,
 	signalColor,
+	threadServers,
 	threadStartMs,
 	type AgentSpan
 } from './discussion-spans';
@@ -221,5 +222,62 @@ describe('buildAgentSpans without signal timings', () => {
 
 	it('falls back to the earliest known timestamp for the thread start', () => {
 		expect(threadStartMs([untimed('human', 'thread_start'), msg('a', 'agree', 4000)])).toBe(T0 + 4000);
+	});
+});
+
+describe('placement from the thread own call data', () => {
+	const call = (server: string, alternative?: string) => ({
+		phase: 'evaluation' as const,
+		model: 'qwen3:32b',
+		server,
+		alternatives: alternative ? [{ server: alternative, model: 'qwen3:14b' }] : undefined
+	});
+
+	it('names the server a call ran on, never one the scheduler only weighed', () => {
+		const messages = [
+			msg('a', 'agree', 5, {
+				server: 'vllm-rig0',
+				modelsUsed: ['qwen3:32b@vllm-rig0'],
+				placementCalls: [call('vllm-rig0', 'vllm-rig1')]
+			} as never)
+		];
+		expect([...threadServers(messages)]).toEqual(['vllm-rig0']);
+	});
+
+	it('ignores an engine-named label on a message sent without a placed call', () => {
+		const spans = buildAgentSpans([
+			msg('coord', 'advisory', 0, { gpuLabel: 'vllm-rig0', modelsUsed: ['qwen3:32b@vllm-rig0'] }),
+			msg('coord', 'review_ready', 9, { gpuLabel: 'vllm' }),
+			msg('scout', 'failure', 8, { gpuLabel: 'vllm' }),
+			msg('curator', 'agree', 7, { server: 'vllm-rig1', gpuLabel: 'vllm-rig1' })
+		]);
+		const by = Object.fromEntries(spans.map((s) => [s.agent, s.gpuLabel]));
+		expect(by).toEqual({ coord: 'vllm-rig0', scout: undefined, curator: 'vllm-rig1' });
+	});
+
+	it('takes the latest placed call over an earlier one', () => {
+		const [span] = buildAgentSpans([
+			msg('a', 'evaluating', 0, { modelsUsed: ['m@vllm-rig0'] }),
+			msg('a', 'agree', 5, { modelsUsed: ['m@vllm-rig0', 'm@vllm-rig1'] })
+		]);
+		expect(span.gpuLabel).toBe('vllm-rig1');
+	});
+
+	it('keeps a reported label when it names a server of the thread', () => {
+		const [span] = buildAgentSpans([
+			msg('a', 'agree', 0, { gpuLabel: 'vllm-rig0' }),
+			msg('b', 'agree', 1, { server: 'vllm-rig0' })
+		]);
+		expect(span.gpuLabel).toBe('vllm-rig0');
+	});
+
+	it('keeps the reported labels of a thread whose messages name no server', () => {
+		const [span] = buildAgentSpans([msg('a', 'agree', 0, { gpuLabel: 'gpu-0' })]);
+		expect(span.gpuLabel).toBe('gpu-0');
+	});
+
+	it('uses a bare model name without a server', () => {
+		const [span] = buildAgentSpans([msg('a', 'agree', 0, { modelsUsed: ['qwen3:32b'] })]);
+		expect(span.gpuLabel).toBeUndefined();
 	});
 });
