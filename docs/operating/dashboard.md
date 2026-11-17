@@ -127,7 +127,7 @@ The thread toolbar and the thread list share their actions, and every action's t
 - **Pin** marks a discussion you want to find again. The pin is stored in the `kubemoot_pinned_threads` bucket, so it stays after a reload and shows in other browsers. A pin does not stop a delete.
 - **New discussion** is enabled only when one crew is selected in the top bar, because a discussion is asked of a single crew. With All crews selected the button is disabled and its tooltip says to pick a crew.
 
-The span graph draws one bar per agent from its first to its last message. A thread started straight on the bus, such as a smoke test, may carry messages with no timestamp. The graph draws the agents whose start and end are known and labels each of the others "no timing recorded" instead of drawing a bar.
+The span graph draws one bar per agent from its first to its last message. Each bar names the ModelServer that ran the agent's latest call, taken from the placement the messages carry. A server the scheduler weighed but did not choose is not named, and the label of an agent's static endpoint, which a message sent without a placed call carries, is not shown as a server. A thread started straight on the bus, such as a smoke test, may carry messages with no timestamp. The graph draws the agents whose start and end are known and labels each of the others "no timing recorded" instead of drawing a bar.
 
 ### Memory
 

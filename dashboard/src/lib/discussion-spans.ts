@@ -127,9 +127,44 @@ export const NO_ACCELERATOR = 'none';
 /**
  * Where a call ran: the ModelServer that served it, chosen per call, else the
  * accelerator the sender reports; undefined when neither is set or it ran on none.
+ * With `known`, the sender's accelerator label counts only when it names one of those
+ * servers: a message sent without a placed call carries the label of the agent's
+ * static endpoint (such as the engine's namespace), which is not a ModelServer. A thread
+ * whose messages name no server (older ones) keeps its labels.
  */
-export function placementOf(server?: string, gpuLabel?: string): string | undefined {
-	return [server, gpuLabel].find((p) => !!p && p !== NO_ACCELERATOR);
+export function placementOf(
+	server?: string,
+	gpuLabel?: string,
+	known?: ReadonlySet<string>
+): string | undefined {
+	const label = known?.size && gpuLabel && !known.has(gpuLabel) ? undefined : gpuLabel;
+	return [server, label].find((p) => !!p && p !== NO_ACCELERATOR);
+}
+
+/** The server in a model@server entry; undefined for a model alone. */
+function serverOfModelUse(use: string): string | undefined {
+	const at = use.lastIndexOf('@');
+	return at >= 0 && at < use.length - 1 ? use.slice(at + 1) : undefined;
+}
+
+/** Every ModelServer a message says a call ran on, in call order. */
+function serversOfMessage(meta: MessageMeta | undefined): string[] {
+	if (!meta) return [];
+	const named = [
+		meta.server,
+		...(meta.modelsUsed ?? []).map(serverOfModelUse),
+		...(meta.placementCalls ?? []).map((c) => c.server)
+	];
+	return named.filter((s): s is string => !!s && s !== NO_ACCELERATOR);
+}
+
+/**
+ * The ModelServers the thread's calls actually ran on, from the per-call placement
+ * the messages carry. A server the scheduler only weighed as an alternative is not
+ * in it.
+ */
+export function threadServers(messages: DiscussionMessage[]): Set<string> {
+	return new Set(messages.flatMap((m) => serversOfMessage(m.metadata)));
 }
 
 /** When a message was published, in epoch milliseconds; NaN when it carries no timestamp. */
@@ -250,7 +285,18 @@ function signalMarkers(msgs: DiscussionMessage[], t0: number, primary: string): 
 		}));
 }
 
-function agentSpan(agent: string, data: AgentMessages, t0: number): AgentSpan {
+/** The ModelServer the agent's last placed call ran on, else its reported label when that names a server of the thread. */
+function agentPlacement(msgs: DiscussionMessage[], known: ReadonlySet<string>): string | undefined {
+	const ran = msgs.flatMap((m) => serversOfMessage(m.metadata)).at(-1);
+	return placementOf(ran, lastMeta(msgs, 'gpuLabel'), known);
+}
+
+function agentSpan(
+	agent: string,
+	data: AgentMessages,
+	t0: number,
+	known: ReadonlySet<string>
+): AgentSpan {
 	const primary = primarySignal(data.msgs);
 	const isHuman = agent === 'human';
 	const timed = Number.isFinite(data.minMs) && Number.isFinite(data.maxMs);
@@ -265,7 +311,7 @@ function agentSpan(agent: string, data: AgentMessages, t0: number): AgentSpan {
 		isHuman,
 		toolsUsed: toolsUsed(data.msgs),
 		messages: data.msgs,
-		gpuLabel: placementOf(lastMeta(data.msgs, 'server'), lastMeta(data.msgs, 'gpuLabel')),
+		gpuLabel: agentPlacement(data.msgs, known),
 		model: lastMeta(data.msgs, 'model'),
 		pickReason: lastMeta(data.msgs, 'pickReason'),
 		inferenceMs: maxMeta(data.msgs, 'inferenceMs'),
@@ -303,8 +349,9 @@ function compareSpans(a: AgentSpan, b: AgentSpan): number {
 export function buildAgentSpans(messages: DiscussionMessage[]): AgentSpan[] {
 	if (messages.length === 0) return [];
 	const t0 = threadStartMs(messages);
+	const known = threadServers(messages);
 	const spans = Array.from(groupByAgent(messages, t0), ([agent, data]) =>
-		agentSpan(agent, data, t0)
+		agentSpan(agent, data, t0, known)
 	);
 	for (const span of spans) span.queueDepth = queueDepth(span, spans);
 	return spans.sort(compareSpans);

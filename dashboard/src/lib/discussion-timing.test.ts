@@ -108,6 +108,8 @@ describe('placementOf', () => {
 		expect(placementOf('none', 'gpu-0')).toBe('gpu-0');
 		expect(placementOf(undefined, 'none')).toBeUndefined();
 		expect(placementOf()).toBeUndefined();
+		expect(placementOf(undefined, 'vllm', new Set(['vllm-rig0']))).toBeUndefined();
+		expect(placementOf(undefined, 'vllm-rig0', new Set(['vllm-rig0']))).toBe('vllm-rig0');
 	});
 });
 

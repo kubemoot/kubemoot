@@ -7,7 +7,7 @@
 // message does not carry stay undefined; nothing is shown as zero in their place.
 
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
-import { messageTimeMs, placementOf, threadStartMs } from '#lib/discussion-spans.js';
+import { messageTimeMs, placementOf, threadServers, threadStartMs } from '#lib/discussion-spans.js';
 
 /**
  * The signals that end an agent's part in a round: its contribution. These are the
@@ -92,14 +92,17 @@ function modelOf(meta: NonNullable<DiscussionMessage['metadata']>): string | und
 }
 
 /** What a message's own metadata says about how it was made. */
-export function metadataStats(msg: DiscussionMessage): MessageStats {
+export function metadataStats(
+	msg: DiscussionMessage,
+	known?: ReadonlySet<string>
+): MessageStats {
 	const meta = msg.metadata ?? {};
 	return {
 		inferenceMs: positive(meta.inferenceMs),
 		inputTokens: positive(meta.inputTokens),
 		outputTokens: positive(meta.outputTokens),
 		model: modelOf(meta),
-		accelerator: placementOf(meta.server, meta.gpuLabel)
+		accelerator: placementOf(meta.server, meta.gpuLabel, known)
 	};
 }
 
@@ -168,13 +171,14 @@ function stepsOf(byAgent: Map<string, AgentSteps>, agent: string): AgentSteps {
  */
 export function messageStats(messages: DiscussionMessage[]): Map<DiscussionMessage, MessageStats> {
 	const t0 = messages.length > 0 ? threadStartMs(messages) : Number.NaN;
+	const known = threadServers(messages);
 	const byAgent = new Map<string, AgentSteps>();
 	const stats = new Map<DiscussionMessage, MessageStats>();
 	for (const msg of messages) {
 		const at = messageTimeMs(msg);
 		const entry: MessageStats = {
 			elapsedMs: finite(at - t0),
-			...metadataStats(msg)
+			...metadataStats(msg, known)
 		};
 		const start = STEP_STARTS[msg.messageType];
 		if (start) start(stepsOf(byAgent, msg.agentName), at);
