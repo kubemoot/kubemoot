@@ -67,7 +67,7 @@ The info icon next to the version opens the Kubemoot components panel. Its first
 
 | Section | Pages | Shows |
 |---------|-------|-------|
-| Top | Overview, Nodes | Ready-of-total counts for nodes, GPUs, crews, and every other resource type (a tile shows a small spinner until its first count arrives, never a zero); Kubernetes nodes with GPU detection and model-loading state |
+| Top | Overview, Nodes | Ready-of-total counts for nodes, GPUs, crews, and every other resource type (a tile shows a small spinner until its first count arrives, never a zero); Kubernetes nodes with GPU detection and model-loading state. The Overview has the same **Crew** selector as the other pages: it narrows the counts to one crew, while nodes, model servers, models, and embedding models are shared by every crew and always counted in full |
 | Messaging | Discussions, Messages | Multi-agent discussion threads with a timeline view; your chat with a crew |
 | Crews | Crews, Agents, Prompts, Memory, Fitness | Crew and agent configuration, PromptModule contents, crew memory, and fitness suite runs |
 | Models | ModelServers, Models, Embeddings | ModelServer backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed; an embedding model shows as skipped and a model that could not be measured as failed, each with its reason and no speeds), Model state, and EmbeddingModel configuration. The Models page also lists each ModelServer's catalog (the models a crew selects by label), because crews ship no Model resources |
