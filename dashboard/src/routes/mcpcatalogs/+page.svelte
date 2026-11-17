@@ -16,7 +16,7 @@
 	});
 </script>
 
-<ResourceList title="MCP Catalogs" count={live.items.length} loading={live.loading} error={live.error} helpText="MCP Catalogs discover MCP servers from external registries and apply quality policies before deploying them.">
+<ResourceList title="Catalogs" count={live.items.length} loading={live.loading} error={live.error} helpText="MCP Catalogs discover MCP servers from external registries and apply quality policies before deploying them.">
 	{#snippet children()}
 		{#each live.items as catalog (catalog.metadata.namespace + '/' + catalog.metadata.name)}
 			<MCPCatalogCard {catalog} showNamespace={$namespace === ''} />

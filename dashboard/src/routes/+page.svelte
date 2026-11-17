@@ -89,11 +89,11 @@
 		{ key: 'nodes', label: 'Nodes', href: resolve('/nodes'), icon: 'server' },
 		{ key: 'gpus', label: 'GPUs', href: resolve('/nodes'), icon: 'zap' },
 		{ key: 'crews', label: 'Crews', href: resolve('/crews'), icon: 'users' },
-		{ key: 'modelservers', label: 'Model Servers', href: resolve('/modelservers'), icon: 'cloud' },
+		{ key: 'modelservers', label: 'Model servers', href: resolve('/modelservers'), icon: 'cloud' },
 		{ key: 'models', label: 'Models', href: resolve('/models'), icon: 'box' },
-		{ key: 'embeddingmodels', label: 'Embedding Models', href: resolve('/embeddingmodels'), icon: 'layers' },
-		{ key: 'mcpservers', label: 'MCP Servers', href: resolve('/mcpservers'), icon: 'terminal' },
-		{ key: 'mcpgateways', label: 'MCP Gateways', href: resolve('/mcpgateways'), icon: 'merge' },
+		{ key: 'embeddingmodels', label: 'Embeddings', href: resolve('/embeddingmodels'), icon: 'layers' },
+		{ key: 'mcpservers', label: 'MCP servers', href: resolve('/mcpservers'), icon: 'terminal' },
+		{ key: 'mcpgateways', label: 'MCP gateways', href: resolve('/mcpgateways'), icon: 'merge' },
 		{ key: 'ragsources', label: 'RAG Sources', href: resolve('/ragsources'), icon: 'database' },
 		{ key: 'agents', label: 'Agents', href: resolve('/agents'), icon: 'cpu' }
 	] as const;

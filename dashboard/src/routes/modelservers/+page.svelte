@@ -5,7 +5,7 @@
 	import type { ModelServer } from '#lib/types/kubemoot.js';
 	import { LiveList } from '#lib/client/liveList.svelte.js';
 
-	// Push-based live list (watch→SSE); no polling. Model servers belong to the cluster,
+	// Push-based live list (a watch streamed to the page); no polling. Model servers belong to the cluster,
 	// not to a crew, so they are listed across all namespaces whatever crew is selected;
 	// scoping them to a crew's namespace would hide every one of them.
 	const live = new LiveList<ModelServer>('modelservers');
