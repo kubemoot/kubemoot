@@ -2,20 +2,14 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { routeSection } from '#lib/route-section.js';
+	import { showsCrewSelector } from '#lib/route-section.js';
 	import { page } from '$app/state';
 	import { Sidebar } from '#lib/components/layout/index.js';
 	import { NamespaceSelector } from '#lib/components/common/index.js';
 	import { crewDirectory, dashboardMode, loadCrewDirectory, refresh } from '#lib/stores/index.js';
 	import { fetchDashboardVersion } from '#lib/dashboard-version.js';
 
-	// Pages where the crew selector doesn't apply. Discussions IS crew-scoped
-	// (threads carry a crew), so it shows the selector and filters by crew.
-	const NO_NAMESPACE_PAGES = new Set(['', 'nodes', 'messages', 'verify', 'config']);
-	let showNamespace = $derived(() => {
-		const section = routeSection(page.route.id);
-		return section === null || !NO_NAMESPACE_PAGES.has(section);
-	});
+	let showNamespace = $derived(showsCrewSelector(page.route.id));
 
 	interface Props {
 		children: import('svelte').Snippet;
@@ -61,7 +55,7 @@
 	<div class="main">
 		<header class="topbar">
 			<div class="topbar-left">
-				{#if showNamespace()}
+				{#if showNamespace}
 					<NamespaceSelector crews={$crewDirectory} loading={namespacesLoading} />
 				{/if}
 			</div>

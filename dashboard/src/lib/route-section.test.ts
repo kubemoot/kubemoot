@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { routeSection } from './route-section';
+import { routeSection, showsCrewSelector } from './route-section';
 
 describe('routeSection', () => {
 	it('is the first segment of a route id', () => {
@@ -17,5 +17,23 @@ describe('routeSection', () => {
 
 	it('is null when no route matched', () => {
 		expect(routeSection(null)).toBeNull();
+	});
+});
+
+describe('showsCrewSelector', () => {
+	it('shows on the Overview and on crew-scoped pages', () => {
+		expect(showsCrewSelector('/')).toBe(true);
+		expect(showsCrewSelector('/discussions')).toBe(true);
+		expect(showsCrewSelector('/mcpservers/[name]')).toBe(true);
+	});
+
+	it('hides on the pages that are not crew-scoped', () => {
+		for (const id of ['/nodes', '/messages', '/verify', '/config']) {
+			expect(showsCrewSelector(id)).toBe(false);
+		}
+	});
+
+	it('shows on an error page', () => {
+		expect(showsCrewSelector(null)).toBe(true);
 	});
 });

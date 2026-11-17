@@ -4,7 +4,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
 	import { StatusBadge, LoadingSpinner } from '#lib/components/common/index.js';
-	import { nodeCounts, readyCount, type CountEntry } from '#lib/overview-counts.js';
+	import { nodeCounts, overviewNamespace, readyCount, type CountEntry } from '#lib/overview-counts.js';
 	import { readyCountStatus } from '#lib/resource-status.js';
 
 	type ResourceCounts = Record<string, CountEntry>;
@@ -58,7 +58,7 @@
 		try {
 			const [nodes, ...lists] = await Promise.all([
 				getJson(resolve('/api/nodes')),
-				...CRD_PLURALS.map((plural) => getJson(resolve(`/api/kubemoot/${plural}`) + `?namespace=${$namespace}`))
+				...CRD_PLURALS.map((plural) => getJson(resolve(`/api/kubemoot/${plural}`) + `?namespace=${overviewNamespace(plural, $namespace)}`))
 			]);
 			counts = {
 				...nodeCounts(nodes.nodes || []),
@@ -103,9 +103,11 @@
 	<header class="header">
 		<h1>Overview</h1>
 		{#if $namespace === ''}
-			<p class="subtitle">Kubemoot resources across <em>all namespaces</em></p>
+			<p class="subtitle">Kubemoot resources across <em>all crews</em></p>
 		{:else}
-			<p class="subtitle">Kubemoot resources in namespace <code>{$namespace}</code></p>
+			<p class="subtitle">
+				Kubemoot resources of crew namespace <code>{$namespace}</code>. Nodes, model servers, models, and embedding models are shared by every crew and always counted in full.
+			</p>
 		{/if}
 	</header>
 

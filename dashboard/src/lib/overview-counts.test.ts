@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nodeCounts, readyCount } from './overview-counts';
+import { nodeCounts, overviewNamespace, readyCount } from './overview-counts';
 
 describe('readyCount', () => {
 	it('counts all items and the ready ones', () => {
@@ -44,5 +44,18 @@ describe('nodeCounts', () => {
 
 	it('is zero without nodes', () => {
 		expect(nodeCounts([])).toEqual({ nodes: { total: 0, ready: 0 }, gpus: { total: 0, ready: 0 } });
+	});
+});
+
+describe('overviewNamespace', () => {
+	it('counts cluster-owned resources across all namespaces whatever crew is selected', () => {
+		for (const plural of ['modelservers', 'models', 'embeddingmodels']) {
+			expect(overviewNamespace(plural, 'crew-oguide')).toBe('');
+		}
+	});
+
+	it('scopes every other resource to the selected crew', () => {
+		expect(overviewNamespace('mcpservers', 'crew-oguide')).toBe('crew-oguide');
+		expect(overviewNamespace('agents', '')).toBe('');
 	});
 });
