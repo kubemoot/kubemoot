@@ -336,3 +336,17 @@ func TestOldArtifactRouteStillAnswersAndSaysItIsDeprecated(t *testing.T) {
 		t.Errorf("the new route is marked deprecated")
 	}
 }
+
+// A thread started without a conversationId lists as a one-turn conversation under its
+// thread ID, and a thread_start published on two channels counts once.
+func TestConversationIndexListsAThreadWithoutAConversation(t *testing.T) {
+	t0 := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	idx := conversationIndex{}
+	start := bus.DiscussionMessage{MessageType: msgThreadStart, ThreadID: "t-1", Content: "what is new?"}
+	idx.observe(discussMsg{data: start, published: t0})
+	idx.observe(discussMsg{data: start, published: t0})
+	got := idx.newestFirst(10)
+	if len(got) != 1 || got[0].ConversationID != "t-1" || got[0].Turns != 1 || got[0].Question != "what is new?" {
+		t.Fatalf("got %+v", got)
+	}
+}

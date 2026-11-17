@@ -229,7 +229,9 @@ their latest turn, at most `limit` (default 20, at most 100):
 The gateway reads the crew's `thread_start` messages from the discussion stream, so
 the list covers what the stream still holds (about a day). `question` is the first
 question the stream holds for the conversation, and `turns` counts its threads; a
-question the coordinator started again counts twice.
+question the coordinator started again counts twice. A thread a person starts with no
+conversation (the dashboard does) lists as a one-turn conversation whose ID is the thread's
+ID, and streaming that ID follows the thread.
 
 ### Fetching a stored result
 

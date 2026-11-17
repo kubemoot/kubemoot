@@ -306,3 +306,21 @@ func TestTranslateAndEmit_IgnoresNoiseAndUnknown(t *testing.T) {
 		t.Errorf("concern: got %+v", got)
 	}
 }
+
+// A thread a person started without a conversationId (the dashboard) is its own
+// conversation: streaming its thread ID finds it.
+func TestThreadFinderTakesAThreadByItsOwnIDWhenItHasNoConversation(t *testing.T) {
+	tf := &threadFinder{conversationID: "thread-9"}
+	var events []SSEEvent
+	emit := func(e SSEEvent) { events = append(events, e) }
+	m := discussMsg{data: bus.DiscussionMessage{MessageType: msgThreadStart, ThreadID: "thread-9"}, seq: 4}
+	tf.process(m, emit)
+	if tf.threadID != "thread-9" || len(events) != 1 || events[0].Type != eventThreadFound {
+		t.Fatalf("threadID %q events %+v", tf.threadID, events)
+	}
+	other := &threadFinder{conversationID: "thread-8"}
+	other.process(m, emit)
+	if other.threadID != "" {
+		t.Fatal("another thread ID must not match")
+	}
+}

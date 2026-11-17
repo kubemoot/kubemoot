@@ -33,11 +33,19 @@ type conversationAcc struct {
 	first      time.Time
 	last       time.Time
 	turns      int64
+	threads    map[string]struct{}
 }
 
 // add records one turn, a thread_start published at, with its question.
 // The question kept is that of the earliest turn that has one.
-func (c *conversationAcc) add(question string, at time.Time) {
+// A thread seen again (its thread_start is published on more than one channel) is one turn.
+func (c *conversationAcc) add(thread, question string, at time.Time) {
+	if thread != "" {
+		if _, seen := c.threads[thread]; seen {
+			return
+		}
+		c.threads[thread] = struct{}{}
+	}
 	c.turns++
 	if question != "" && (c.question == "" || at.Before(c.questionAt)) {
 		c.question, c.questionAt = question, at
@@ -58,16 +66,26 @@ func (idx conversationIndex) observe(m discussMsg) {
 	if m.data.MessageType != msgThreadStart {
 		return
 	}
-	id, _ := m.data.Metadata[metaConversationID].(string)
+	id := conversationOf(m.data)
 	if id == "" {
 		return
 	}
 	acc, ok := idx[id]
 	if !ok {
-		acc = &conversationAcc{id: id}
+		acc = &conversationAcc{id: id, threads: map[string]struct{}{}}
 		idx[id] = acc
 	}
-	acc.add(questionOf(m.data), m.published)
+	acc.add(m.data.ThreadID, questionOf(m.data), m.published)
+}
+
+// conversationOf is the conversation a thread_start belongs to: its conversationId, or,
+// for a thread a person started without one (the dashboard does), the thread's own ID,
+// so that thread is a one-turn conversation under that ID.
+func conversationOf(data bus.DiscussionMessage) string {
+	if id, _ := data.Metadata[metaConversationID].(string); id != "" {
+		return id
+	}
+	return data.ThreadID
 }
 
 // questionOf is the user's question a thread_start carries: metadata.userQuery, else
@@ -106,8 +124,8 @@ func (idx conversationIndex) newestFirst(limit int) []bus.ConversationSummary {
 }
 
 // listConversations reads the crew's thread_start messages the discussion stream still
-// holds and returns its most recent conversations. thread_start goes to the broadcast
-// channel, so only that channel is read.
+// holds and returns its most recent conversations. A coordinator's thread_start is on the
+// broadcast channel and a person's on the thread's own channel, so every channel is read.
 func listConversations(
 	ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, limit int,
 ) ([]bus.ConversationSummary, error) {
@@ -116,7 +134,7 @@ func listConversations(
 	consumer, err := js.CreateConsumer(ctx, streamName, jetstream.ConsumerConfig{
 		AckPolicy:         jetstream.AckNonePolicy,
 		DeliverPolicy:     jetstream.DeliverAllPolicy,
-		FilterSubject:     scope.DiscussSubject(errorChannel, "*"),
+		FilterSubject:     scope.DiscussFilter(),
 		InactiveThreshold: inactiveThreshold,
 	})
 	if err != nil {
