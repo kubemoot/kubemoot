@@ -5,6 +5,7 @@
 	import KubemootLogo from './KubemootLogo.svelte';
 	import { KUBEMOOT_SITE } from '#lib/brand-links.js';
 	import { isReleaseCandidate } from '#lib/release-candidate.js';
+	import { isActivePath } from '#lib/nav-active.js';
 	import { versionLabel } from '#lib/dashboard-version.js';
 
 	const githubUrl = 'https://github.com/kubemoot/kubemoot';
@@ -32,25 +33,20 @@
 		{ href: resolve('/promptmodules'), label: 'Prompts', icon: 'align-left' },
 		{ href: resolve('/crew-memory'), label: 'Memory', icon: 'database' },
 		{ href: resolve('/fitness'), label: 'Fitness', icon: 'activity' },
-		{ href: resolve('/modelservers'), label: 'Servers', icon: 'cloud', section: 'Models' },
-		{ href: resolve('/models'), label: 'Models', icon: 'box' },
+		{ href: resolve('/models'), label: 'Models', icon: 'box', section: 'Models' },
+		{ href: resolve('/modelservers'), label: 'Model servers', icon: 'cloud' },
 		{ href: resolve('/embeddingmodels'), label: 'Embeddings', icon: 'layers' },
-		{ href: resolve('/mcpservers'), label: 'MCP Servers', icon: 'terminal', section: 'MCPs' },
-		{ href: resolve('/mcpgateways'), label: 'MCP Gateways', icon: 'git-merge' },
-		{ href: resolve('/mcpqualitypolicies'), label: 'Quality Policies', icon: 'shield' },
+		{ href: resolve('/mcpservers'), label: 'MCP servers', icon: 'terminal', section: 'Tools' },
+		{ href: resolve('/mcpgateways'), label: 'MCP gateways', icon: 'git-merge' },
 		{ href: resolve('/mcpcatalogs'), label: 'Catalogs', icon: 'book' },
+		{ href: resolve('/mcpqualitypolicies'), label: 'Quality policies', icon: 'shield' },
 		{ href: resolve('/mcpreports'), label: 'Reports', icon: 'file-text' },
 		{ href: resolve('/ragsources'), label: 'RAG Sources', icon: 'database', section: 'Knowledge' },
 		{ href: resolve('/config'), label: 'Config', icon: 'settings', section: 'System' }
 	];
 
-	function isActive(href: string, currentPath: string): boolean {
-		const root = resolve('/');
-		if (href === root) {
-			return currentPath === root || currentPath === root.slice(0, -1);
-		}
-		return currentPath.startsWith(href);
-	}
+	const isActive = (href: string, currentPath: string) =>
+		isActivePath(href, currentPath, resolve('/'));
 
 </script>
 
