@@ -107,7 +107,7 @@
 </script>
 
 <ResourceList
-	title="MCP Server Reports"
+	title="Reports"
 	count={filteredReports.length}
 	{loading}
 	{error}
