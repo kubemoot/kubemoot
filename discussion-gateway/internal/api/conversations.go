@@ -126,6 +126,10 @@ func (idx conversationIndex) newestFirst(limit int) []bus.ConversationSummary {
 // listConversations reads the crew's thread_start messages the discussion stream still
 // holds and returns its most recent conversations. A coordinator's thread_start is on the
 // broadcast channel and a person's on the thread's own channel, so every channel is read.
+// The message type is not in the subject, so the crew's whole stream is read and the thread_starts
+// kept. The read is bounded by the discussion stream itself (at most 5,000 messages across all crews
+// and one day; 343 messages, 655 KiB, on the homelab stream when measured), which is at most ten
+// fetches of listFetchBatch within listReadTimeout.
 func listConversations(
 	ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, limit int,
 ) ([]bus.ConversationSummary, error) {
