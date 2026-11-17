@@ -1,0 +1,88 @@
+[
+  {
+    "name": "bearer header",
+    "input": "Authorization: Bearer abcdefgh12345678",
+    "expected": "Authorization [redacted] [redacted]"
+  },
+  {
+    "name": "bearer bare",
+    "input": "bearer abcdefgh12345678 more",
+    "expected": "bearer [redacted] more"
+  },
+  {
+    "name": "api key assignment",
+    "input": "OPENAI_API_KEY=sk-abcdefghijklmnop12345678",
+    "expected": "OPENAI_API_KEY [redacted]"
+  },
+  {
+    "name": "quoted password",
+    "input": "password: \"hunter2hunter2\"",
+    "expected": "password [redacted]"
+  },
+  {
+    "name": "token assignment",
+    "input": "token=abc123",
+    "expected": "token [redacted]"
+  },
+  {
+    "name": "github token",
+    "input": "gh token ghp_abcdefghijklmnopqrstuvwxyz0123",
+    "expected": "gh token [redacted]"
+  },
+  {
+    "name": "jwt",
+    "input": "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0.sig",
+    "expected": "jwt [redacted]"
+  },
+  {
+    "name": "aws key",
+    "input": "key AKIAABCDEFGHIJKLMNOP end",
+    "expected": "key [redacted] end"
+  },
+  {
+    "name": "long hex",
+    "input": "id 0123456789abcdef0123456789abcdef",
+    "expected": "id [redacted]"
+  },
+  {
+    "name": "github pat",
+    "input": "github_pat_abcdefghijklmnopqrstuvwxyz",
+    "expected": "[redacted]"
+  },
+  {
+    "name": "exact secret of any shape",
+    "input": "failed with key kmt_turn_Zq81xx here",
+    "secrets": [
+      "kmt_turn_Zq81xx"
+    ],
+    "expected": "failed with key [redacted] here"
+  },
+  {
+    "name": "a short secret is not matched blindly",
+    "input": "short abc",
+    "secrets": [
+      "abc"
+    ],
+    "expected": "short abc"
+  },
+  {
+    "name": "empty",
+    "input": "",
+    "expected": ""
+  },
+  {
+    "name": "ordinary error",
+    "input": "Error: the model door said no",
+    "expected": "Error: the model door said no"
+  },
+  {
+    "name": "ordinary count",
+    "input": "exit status 1: tokens used 12",
+    "expected": "exit status 1: tokens used 12"
+  },
+  {
+    "name": "short number",
+    "input": "a 1234 b",
+    "expected": "a 1234 b"
+  }
+]

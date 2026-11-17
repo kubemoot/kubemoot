@@ -1,35 +1,37 @@
 package redact
 
 import (
-	"strings"
+	"encoding/json"
+	"os"
 	"testing"
 )
 
-func TestRedactRemovesCredentialShapes(t *testing.T) {
-	cases := map[string]string{
-		"Authorization: Bearer abcdefgh12345678":        "abcdefgh12345678",
-		"bearer abcdefgh12345678 more":                  "abcdefgh12345678",
-		"OPENAI_API_KEY=sk-abcdefghijklmnop12345678":    "abcdefghijklmnop12345678",
-		`password: "hunter2hunter2"`:                    "hunter2hunter2",
-		"token=abc123":                                  "abc123",
-		"gh token ghp_abcdefghijklmnopqrstuvwxyz0123":   "ghp_abcdefghijklmnop",
-		"jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0.sig": "eyJhbGciOiJIUzI1NiJ9",
-		"key AKIAABCDEFGHIJKLMNOP end":                  "AKIAABCDEFGHIJKLMNOP",
-		"id 0123456789abcdef0123456789abcdef":           "0123456789abcdef0123456789abcdef",
-		"github_pat_abcdefghijklmnopqrstuvwxyz":         "github_pat_abcdefghijklmnop",
-	}
-	for in, secret := range cases {
-		got := Redact(in)
-		if strings.Contains(got, secret) || !strings.Contains(got, redacted) {
-			t.Errorf("%q -> %q still shows %q", in, got, secret)
-		}
-	}
+// redactCases is the fixture both redaction lists are held to: harness-shim/internal/shim and
+// agent-sidecar/internal/redact load the same file, so a change to one list fails the other's test.
+type redactCase struct {
+	Name     string   `json:"name"`
+	Input    string   `json:"input"`
+	Secrets  []string `json:"secrets"`
+	Expected string   `json:"expected"`
 }
 
-func TestRedactKeepsOrdinaryText(t *testing.T) {
-	for _, in := range []string{"", "Error: the model door said no", "exit status 1: tokens used 12", "a 1234 b"} {
-		if got := Redact(in); got != in {
-			t.Errorf("%q changed to %q", in, got)
+func loadRedactCases(t *testing.T) []redactCase {
+	t.Helper()
+	raw, err := os.ReadFile("../../../testdata/redact-cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []redactCase
+	if err := json.Unmarshal(raw, &cases); err != nil || len(cases) == 0 {
+		t.Fatalf("redact-cases.json: %v (%d cases)", err, len(cases))
+	}
+	return cases
+}
+
+func TestRedactMatchesTheSharedCases(t *testing.T) {
+	for _, c := range loadRedactCases(t) {
+		if got := Redact(c.Input, c.Secrets...); got != c.Expected {
+			t.Errorf("%s: %q -> %q, want %q", c.Name, c.Input, got, c.Expected)
 		}
 	}
 }
