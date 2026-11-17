@@ -42,7 +42,7 @@ func loadCRD(t *testing.T, path ...string) apiextensionsv1.CustomResourceDefinit
 // An EmbeddingModel names its model and no server; the chart's copy of the CRD
 // must say the same as the generated one.
 func TestEmbeddingModelCRDDoesNotRequireAServer(t *testing.T) {
-	for _, dir := range [][]string{{"..", "..", "config", "crd", "bases"}, {"..", "..", "chart", "kubemoot-operator", "crds"}} {
+	for _, dir := range [][]string{{"..", "..", "config", crdDir, "bases"}, {"..", "..", "chart", "kubemoot-operator", crdsDir}} {
 		crd := loadCRD(t, append(dir, "kubemoot.ai_embeddingmodels.yaml")...)
 		spec := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
 		if !slices.Equal(spec.Required, []string{"model"}) {

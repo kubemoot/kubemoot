@@ -29,7 +29,7 @@ import (
 // reuses one makes kubectl warn "short name is ambiguous" on every use of it, for
 // example every `kubectl get ns` on a cluster with Kubemoot installed.
 var builtinShortNames = map[string]string{
-	"cm": "configmaps", "crd": "customresourcedefinitions", "crds": "customresourcedefinitions",
+	"cm": "configmaps", crdDir: "customresourcedefinitions", crdsDir: "customresourcedefinitions",
 	"cs": "componentstatuses", "csr": "certificatesigningrequests", "cj": "cronjobs",
 	"deploy": "deployments", "ds": "daemonsets", "ep": "endpoints", "ev": "events",
 	"hpa": "horizontalpodautoscalers", "ing": "ingresses", "limits": "limitranges",
