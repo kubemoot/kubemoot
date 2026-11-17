@@ -273,7 +273,7 @@ func (t *turnRun) finish(out a2a.Outcome, span trace.Span) {
 	}
 	content := out.Content
 	if out.Signal == a2a.SignalFailure && content == "" {
-		content = "The harness did not produce an answer: " + out.FailureType
+		content = failureContent(out)
 	}
 	if t.r.Metrics != nil {
 		t.r.Metrics.Turn(out.Signal, took)
@@ -308,4 +308,14 @@ func annotate(md map[string]any, out a2a.Outcome) {
 	if len(out.Evidence) > 0 {
 		md["evidence"] = out.Evidence
 	}
+}
+
+// failureContent is the finding a failed turn without an answer publishes: what kind of failure it
+// was, and the reason the harness gave when there is one.
+func failureContent(out a2a.Outcome) string {
+	content := "The harness did not produce an answer: " + out.FailureType
+	if out.Reason != "" {
+		content += " (" + truncate(out.Reason, 300) + ")"
+	}
+	return content
 }

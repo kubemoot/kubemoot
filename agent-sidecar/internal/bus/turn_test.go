@@ -318,3 +318,17 @@ func TestAMessageOnAChannelTheAgentDoesNotListenOnIsIgnored(t *testing.T) {
 	}
 	p.quiet(t, 400*time.Millisecond)
 }
+
+func TestAFailedTaskPublishesTheHarnessMessageAsTheReasonAndInTheFinding(t *testing.T) {
+	p := newPod(t, options{}, func(context.Context, *sdk.Message, *turn.Meter) (a2a.Result, error) {
+		msg := sdk.NewMessage(sdk.MessageRoleAgent, sdk.NewTextPart("goose ended with status \"error\": 403 Forbidden"))
+		return a2a.Result{State: sdk.TaskStateFailed, Message: msg}, nil
+	})
+	p.advisory(t, "tfm", agent)
+	m := p.nextOf(t, failure)
+	last, _ := m.Metadata["lastError"].(string)
+	if !contains(last, "403 Forbidden") || !contains(m.Content, "harness_failed") ||
+		!contains(m.Content, "403 Forbidden") {
+		t.Fatalf("content %q metadata %+v", m.Content, m.Metadata)
+	}
+}

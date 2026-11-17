@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,12 @@ import (
 // echoes the environment the shim gave it so the test can see it arrived.
 const fakeGoose = `#!/bin/sh
 case "$*" in *--no-profile*) profile=none;; *) profile=default;; esac
+for last; do :; done
+if grep -q FAILTURN "$last"; then
+  printf '\n    __( O)>  new session\n     L L     goose is ready\n'
+  printf '{"messages":[{"role":"assistant","content":[{"type":"error","kind":"authentication","message":"Ran into this error: 403 Forbidden"}]}],"metadata":{"status":"error"}}'
+  exit 0
+fi
 printf '{"messages":[{"role":"user","content":[{"type":"text","text":"q"}]},{"role":"assistant","content":[{"type":"text","text":"answer profile=%s key=%s tz=%s model=%s"}]}],"metadata":{"status":"completed"}}' \
   "$profile" "$OPENAI_API_KEY" "$KUBEMOOT_TIME_ZONE" "$OPENAI_HOST"
 `
@@ -122,5 +129,23 @@ func TestTheHarnessShimReportsAFailedTurnAsAFailure(t *testing.T) {
 	r, err := c.Do(ctx, NewTurn("thread-2", "", TurnInput{TurnKey: "k"}), nil)
 	if out := Interpret(r, err); out.Signal != SignalFailure {
 		t.Fatalf("signal = %s", out.Signal)
+	}
+}
+
+// A turn goose ends in error reaches the sidecar's outcome with the reason goose gave, through the
+// shim's real task message and the sidecar's real client, after goose's banner on stdout.
+func TestTheHarnessShimCarriesGoosesErrorToTheFailureReason(t *testing.T) {
+	root := startShim(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	c, err := Discover(ctx, root, http.DefaultClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := c.Do(ctx, NewTurn("thread-3", "FAILTURN", TurnInput{TurnKey: "k", DeadlineSeconds: 20}), nil)
+	out := Interpret(r, err)
+	if out.Signal != SignalFailure || out.FailureType != FailureHarness ||
+		!strings.Contains(out.Reason, `goose ended with status "error"`) || !strings.Contains(out.Reason, "403 Forbidden") {
+		t.Fatalf("outcome %+v", out)
 	}
 }

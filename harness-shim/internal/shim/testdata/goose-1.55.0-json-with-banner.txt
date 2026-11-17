@@ -1,0 +1,47 @@
+
+    __( O)>  ● new session · openai default
+   \____)    20261117_1 · /tmp/g
+     L L     goose is ready
+{
+  "messages": [
+    {
+      "id": null,
+      "role": "user",
+      "created": 1794952761,
+      "content": [
+        {
+          "type": "text",
+          "text": "Say hi in one word.\n"
+        }
+      ],
+      "metadata": {
+        "userVisible": true,
+        "agentVisible": true
+      }
+    },
+    {
+      "id": "msg_83a54797-f5a5-450c-806b-99ab7f54d5fc",
+      "role": "assistant",
+      "created": 1794952761,
+      "content": [
+        {
+          "type": "error",
+          "kind": "authentication",
+          "message": "Ran into this error: Authentication error: Authentication failed for http://127.0.0.1:8081/v1/chat/completions. Status: 403 Forbidden. Response: the model door serves the agent's turns only.\n\nPlease retry if you think this is a transient or recoverable error."
+        }
+      ],
+      "metadata": {
+        "userVisible": true,
+        "agentVisible": false
+      }
+    }
+  ],
+  "metadata": {
+    "total_tokens": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "status": "error"
+  }
+}
