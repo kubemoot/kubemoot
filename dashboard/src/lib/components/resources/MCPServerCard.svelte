@@ -28,6 +28,9 @@
 	namespace={showNamespace ? server.metadata.namespace : undefined}
 >
 	{#snippet children()}
+		{#if server.spec.description}
+			<p class="description">{server.spec.description}</p>
+		{/if}
 		<div class="info">
 			<div class="row">
 				<span class="label">Transport</span>
@@ -74,6 +77,13 @@
 </ResourceCard>
 
 <style>
+	.description {
+		margin: 0 0 0.75rem;
+		font-size: 0.8rem;
+		line-height: 1.4;
+		color: var(--color-text-muted);
+	}
+
 	.info {
 		display: flex;
 		flex-direction: column;

@@ -205,6 +205,13 @@ const (
 // MCPServerSpec defines the desired state of MCPServer
 // +kubebuilder:validation:XValidation:rule="(has(self.image) ? 1 : 0) + (has(self.externalEndpoint) ? 1 : 0) + (has(self.kubemootImage) ? 1 : 0) <= 1",message="image, externalEndpoint, and kubemootImage are mutually exclusive, set only one"
 type MCPServerSpec struct {
+	// Description says in a sentence or two what the server is for, in words a person
+	// reads in the dashboard and in a catalog. It is not shown to agents; agents see the
+	// tool descriptions the server reports.
+	// +kubebuilder:validation:MaxLength=500
+	// +optional
+	Description string `json:"description,omitempty"`
+
 	// Image is the container image for the MCP server (for managed/private MCPs)
 	// Exactly one of Image, KubemootImage, or ExternalEndpoint must be specified
 	// +optional

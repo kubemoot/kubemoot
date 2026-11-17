@@ -55,6 +55,9 @@
 			<div class="title-section">
 				<span class="kind">MCPServer</span>
 				<h1 class="title">{name}</h1>
+				{#if server?.spec.description}
+					<p class="description">{server.spec.description}</p>
+				{/if}
 			</div>
 			{#if server}
 				<StatusBadge {status} label={server.status?.phase || 'Unknown'} />
@@ -144,6 +147,12 @@
 		font-weight: 500;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+		color: var(--color-text-muted);
+	}
+
+	.description {
+		margin: 0.25rem 0 0;
+		max-width: 60ch;
 		color: var(--color-text-muted);
 	}
 
