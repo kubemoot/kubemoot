@@ -230,6 +230,8 @@ class ChatServiceToolLoopTest {
         assertEquals(ChatService.MAX_SAME_TOOL_FAILURES, thrown.failureCount());
         assertTrue(thrown.lastErrorContent().contains("request timed out"),
                 "Should carry the last error content for visibility");
+        assertTrue(thrown.getMessage().contains("Last error: request timed out"),
+                "the failure message says why, not only how often: " + thrown.getMessage());
         // Tool executor called exactly MAX_SAME_TOOL_FAILURES times before abort
         verify(toolExecutor, times(ChatService.MAX_SAME_TOOL_FAILURES)).execute(any(), any());
     }
