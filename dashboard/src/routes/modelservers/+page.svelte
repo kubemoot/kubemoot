@@ -1,38 +1,32 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { namespace } from '#lib/stores/index.js';
 	import { ResourceList } from '#lib/components/layout/index.js';
 	import { ModelServerCard } from '#lib/components/resources/index.js';
 	import type { ModelServer } from '#lib/types/kubemoot.js';
 	import { LiveList } from '#lib/client/liveList.svelte.js';
 
-	// Push-based live list (watch→SSE); no polling.
+	// Push-based live list (watch→SSE); no polling. Model servers belong to the cluster,
+	// not to a crew, so they are listed across all namespaces whatever crew is selected;
+	// scoping them to a crew's namespace would hide every one of them.
 	const live = new LiveList<ModelServer>('modelservers');
 	onMount(() => {
-		live.start($namespace);
+		live.start('');
 		return () => live.stop();
-	});
-	$effect(() => {
-		live.setNamespace($namespace);
 	});
 </script>
 
-<ResourceList title="Model Servers" count={live.items.length} loading={live.loading} error={live.error} helpText="Model Servers are the inference backends (e.g., Ollama) that host and serve AI models. The operator validates connectivity.">
+<ResourceList title="Model servers" count={live.items.length} loading={live.loading} error={live.error} helpText="Model Servers are the inference backends (such as vLLM) that host and serve AI models. The operator validates connectivity.">
 	{#snippet children()}
 		{#each live.items as server (server.metadata.namespace + '/' + server.metadata.name)}
 			<ModelServerCard
 				{server}
-				showNamespace={$namespace === ''}
+				showNamespace
 				onAction={() => live.refresh()}
 			/>
 		{/each}
 	{/snippet}
 
 	{#snippet empty()}
-		{#if $namespace === ''}
-			<p>No model servers found in any namespace.</p>
-		{:else}
-			<p>No model servers found in namespace <code>{$namespace}</code>.</p>
-		{/if}
+		<p>No model servers found in any namespace.</p>
 	{/snippet}
 </ResourceList>
