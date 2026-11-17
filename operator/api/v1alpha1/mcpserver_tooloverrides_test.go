@@ -63,7 +63,7 @@ func checkToolOverrideItemSchema(t *testing.T, item *apiextensionsv1.JSONSchemaP
 		t.Errorf("an empty tool name must be rejected")
 	}
 	param := item.Properties["parameters"].AdditionalProperties.Schema
-	if len(param.Required) != 1 || param.Required[0] != "description" {
+	if len(param.Required) != 1 || param.Required[0] != descriptionKey {
 		t.Errorf("a parameter override requires its description, got %v", param.Required)
 	}
 }
@@ -121,7 +121,7 @@ func TestMCPServerCRDToolArgumentRulesSchema(t *testing.T) {
 	if reject.MaxLength == nil || len(reject.XValidations) != 1 {
 		t.Errorf("reject needs a length cap and the regex check, got %+v", reject)
 	}
-	if len(param.Required) != 1 || param.Required[0] != "description" {
+	if len(param.Required) != 1 || param.Required[0] != descriptionKey {
 		t.Errorf("adding rules must not change what a parameter requires, got %v", param.Required)
 	}
 }

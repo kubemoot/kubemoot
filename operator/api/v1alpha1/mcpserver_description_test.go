@@ -21,13 +21,19 @@ import (
 	"testing"
 )
 
+const (
+	crdDir         = "crd"
+	crdsDir        = "crds"
+	descriptionKey = "description"
+)
+
 // The description is optional, and the chart's copy of the CRD carries it as the
 // generated one does.
 func TestMCPServerDescriptionIsAnOptionalBoundedString(t *testing.T) {
-	for _, dir := range [][]string{{"..", "..", "config", "crd", "bases"}, {"..", "..", "chart", "kubemoot-operator", "crds"}} {
+	for _, dir := range [][]string{{"..", "..", "config", crdDir, "bases"}, {"..", "..", "chart", "kubemoot-operator", crdsDir}} {
 		crd := loadCRD(t, append(dir, "kubemoot.ai_mcpservers.yaml")...)
 		spec := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
-		description, ok := spec.Properties["description"]
+		description, ok := spec.Properties[descriptionKey]
 		if !ok {
 			t.Fatalf("%v: spec has no description field", dir)
 		}
@@ -35,7 +41,7 @@ func TestMCPServerDescriptionIsAnOptionalBoundedString(t *testing.T) {
 			t.Errorf("%v: description = %+v, want a string of at most 500 characters", dir, description)
 		}
 		for _, required := range spec.Required {
-			if required == "description" {
+			if required == descriptionKey {
 				t.Errorf("%v: description must be optional", dir)
 			}
 		}
@@ -47,14 +53,14 @@ func TestMCPServerDescriptionIsOmittedWhenEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !jsonHasNoKey(t, empty, "description") {
+	if !jsonHasNoKey(t, empty, descriptionKey) {
 		t.Errorf("empty spec marshals with a description: %s", empty)
 	}
 	set, err := json.Marshal(MCPServerSpec{Description: "Searches the catalog."})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if jsonHasNoKey(t, set, "description") {
+	if jsonHasNoKey(t, set, descriptionKey) {
 		t.Errorf("set description missing from %s", set)
 	}
 }
