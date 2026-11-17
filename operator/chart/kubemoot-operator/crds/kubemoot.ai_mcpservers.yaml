@@ -80,6 +80,13 @@ spec:
                 items:
                   type: string
                 type: array
+              description:
+                description: |-
+                  Description says in a sentence or two what the server is for, in words a person
+                  reads in the dashboard and in a catalog. It is not shown to agents; agents see the
+                  tool descriptions the server reports.
+                maxLength: 500
+                type: string
               egress:
                 description: |-
                   Egress declares where this server may connect (hosts, address ranges, the API

@@ -81,6 +81,8 @@ Pages refresh on a timer. A page shows its loading indicator only until its firs
 
 Every page that shows one custom resource (a crew, agent, PromptModule, model server, MCP server, and so on) ends with a collapsed **YAML** section. It shows the resource read-only, without `managedFields`, with a **Copy** button.
 
+An MCP server's tile and detail page show its `spec.description`, a sentence on what the server is for, when the manifest sets one.
+
 An MCP server reached with a key shows **key from Secret `<name>`** (from `registry.authSecretRef`). The dashboard names the Secret and never reads or shows its value.
 
 The Kubemoot logo and **Powered by Kubemoot** open [kubemoot.org](https://kubemoot.org) in a new tab.

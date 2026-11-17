@@ -181,6 +181,8 @@ export interface MCPServer {
 }
 
 export interface MCPServerSpec {
+	/** What the server is for, in a sentence or two, for people. */
+	description?: string;
 	image?: string;
 	externalEndpoint?: string;
 	transport?: 'http' | 'sse' | 'stdio';
