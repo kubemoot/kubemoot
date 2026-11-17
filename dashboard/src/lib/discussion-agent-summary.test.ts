@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
-import { aggregateAgents } from './discussion-agent-summary';
+import { aggregateAgents, renderAgentSummary } from './discussion-agent-summary';
 
 const T0 = Date.parse('2026-09-30T12:00:00Z');
 
@@ -26,8 +26,7 @@ describe('aggregateAgents', () => {
 		);
 		expect(rows.get('sre')).toEqual({
 			signal: 'advisory',
-			gpu: 'g1',
-			server: '',
+			placement: 'g1',
 			pickReason: '',
 			startMs: 500,
 			endMs: 500,
@@ -38,7 +37,7 @@ describe('aggregateAgents', () => {
 
 	it('defaults the metadata fields when a message has none', () => {
 		const row = aggregateAgents([msg('sre', 'stand_aside', 0)], T0).get('sre');
-		expect(row).toMatchObject({ gpu: '', server: '', pickReason: '', inferenceMs: 0 });
+		expect(row).toMatchObject({ placement: undefined, pickReason: '', inferenceMs: 0 });
 		expect(row?.tools.size).toBe(0);
 	});
 
@@ -58,8 +57,7 @@ describe('aggregateAgents', () => {
 		).get('sre');
 		expect(row).toMatchObject({
 			signal: 'concern',
-			gpu: 'g2',
-			server: 'ollama-gpu',
+			placement: 'ollama-gpu',
 			pickReason: 'warm',
 			startMs: 200,
 			endMs: 4000,
@@ -89,5 +87,52 @@ describe('aggregateAgents', () => {
 			T0
 		);
 		expect([...rows.keys()]).toEqual(['a', 'b']);
+	});
+});
+
+describe('aggregateAgents placement', () => {
+	it('follows the span graph: an engine label of a message without a placed call is not a server', () => {
+		const rows = aggregateAgents(
+			[
+				msg('coord', 'advisory', 0, { gpuLabel: 'vllm-rig0', modelsUsed: ['m@vllm-rig0'] }),
+				msg('coord', 'review_ready', 5, { gpuLabel: 'vllm' }),
+				msg('scout', 'failure', 6, { gpuLabel: 'vllm' })
+			],
+			T0
+		);
+		expect(rows.get('coord')?.placement).toBe('vllm-rig0');
+		expect(rows.get('scout')?.placement).toBeUndefined();
+	});
+
+	it('takes the last placed call of a message carrying modelsUsed and placementCalls', () => {
+		const call = (server: string) => ({ model: 'm', server });
+		const rows = aggregateAgents(
+			[
+				msg('a', 'agree', 0, {
+					modelsUsed: ['m@vllm-rig0', 'm@vllm-rig1'],
+					placementCalls: [call('vllm-rig0'), call('vllm-rig1')]
+				} as never)
+			],
+			T0
+		);
+		expect(rows.get('a')?.placement).toBe('vllm-rig1');
+	});
+});
+
+describe('renderAgentSummary', () => {
+	it('shows the placement, with the pick reason beneath, and a dash when unknown', () => {
+		const rows = aggregateAgents(
+			[
+				msg('a', 'agree', 0, { server: 'vllm-rig0', pickReason: 'warm', inferenceMs: 2000, toolsUsed: ['t'] }),
+				msg('b', 'failure', 1, { gpuLabel: 'vllm' }),
+				msg('c', 'agree', 2, { server: 'vllm-rig0' })
+			],
+			T0
+		);
+		const text = renderAgentSummary(rows, (agent) => agent.toUpperCase());
+		const lines = text.split('\n');
+		expect(lines[0]).toBe('## Agent Summary');
+		expect(lines.find((l) => l.startsWith('| A '))).toContain('| vllm-rig0<br/>_warm_ |');
+		expect(lines.find((l) => l.startsWith('| B '))).toMatch(/\| failure \| - \|/);
 	});
 });

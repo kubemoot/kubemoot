@@ -12,10 +12,10 @@
 	import { debugMessageCount, visibleMessages, afterAnswerMessages } from '#lib/conversation-view.js';
 	import { placementCallsOf } from '#lib/placement-panel.js';
 	import { formatTimestamp, messageStats, summarizeThread } from '#lib/discussion-timing.js';
-	import { formatDuration, formatElapsed } from '#lib/duration-format.js';
+	import { formatElapsed } from '#lib/duration-format.js';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
-	import { aggregateAgents, type AgentAgg } from '#lib/discussion-agent-summary.js';
-	import { placementOf, threadServers, threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
+	import { aggregateAgents, renderAgentSummary } from '#lib/discussion-agent-summary.js';
+	import { threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
 	import * as tips from '#lib/discussion-actions.js';
 	import { isPaused, publishDiscussionMessage, sendTracked, threadIsOpen, unsentMessages } from '#lib/send-state.js';
@@ -245,28 +245,6 @@
 		return text;
 	}
 
-	function renderAgentSummary(agentMap: Map<string, AgentAgg>, known: ReadonlySet<string>): string {
-		let text = `## Agent Summary\n`;
-		text += `| Agent | Signal | Accelerator | Duration | Inference | Tools |\n`;
-		text += `|-------|--------|-----|----------|-----------|-------|\n`;
-		for (const [agent, data] of agentMap) {
-			const name = agentLabel(agent);
-			const dur = formatDuration(data.endMs - data.startMs) || '-';
-			const inf = data.inferenceMs > 0 ? formatDuration(data.inferenceMs) : '-';
-			const tools = data.tools.size > 0 ? Array.from(data.tools).join(', ') : '-';
-			// Per-call server attribution wins over reconcile-time gpuLabel
-			// when present - shows the JIT-selected ModelServer name, the
-			// truth of where this inference actually ran. FitPredictor v2's
-			// pickReason (if present) carries the per-call decision narrative
-			// ("warm, slot 1/2 | SR=0.92 over 23 samples, EMA latency 4200ms").
-			const where = placementOf(data.server, data.gpu, known) ?? '-';
-			const why = data.pickReason ? `<br/>_${data.pickReason}_` : '';
-			text += `| ${name} | ${data.signal} | ${where}${why} | ${dur} | ${inf} | ${tools} |\n`;
-		}
-		text += `\n`;
-		return text;
-	}
-
 	function renderMessageTimeline(thread: Thread): string {
 		let text = `## Messages\n`;
 		const stats = messageStats(thread.messages);
@@ -285,7 +263,7 @@
 		const version = await fetchDashboardVersion(fetch, resolve('/api/version'));
 		const t0 = messagesStartMs(thread.messages);
 		const agentMap = aggregateAgents(thread.messages, t0);
-		return buildThreadHeader(thread, version) + renderAgentSummary(agentMap, threadServers(thread.messages)) + renderMessageTimeline(thread);
+		return buildThreadHeader(thread, version) + renderAgentSummary(agentMap, agentLabel) + renderMessageTimeline(thread);
 	}
 
 	async function copyThread() {

@@ -1,12 +1,13 @@
 // Per-agent aggregation behind the "Agent Summary" table of a copied discussion.
 
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
-import { SIGNAL_PRIORITY, messageTimeMs } from '#lib/discussion-spans.js';
+import { formatDuration } from '#lib/duration-format.js';
+import { SIGNAL_PRIORITY, messageTimeMs, placementOfMessages, threadServers } from '#lib/discussion-spans.js';
 
 export interface AgentAgg {
 	signal: string;
-	gpu: string;
-	server: string;
+	/** Where the agent's calls ran, by the rule the span graph uses; absent when unknown. */
+	placement?: string;
 	pickReason: string;
 	startMs: number;
 	endMs: number;
@@ -34,8 +35,6 @@ export function newAgentAgg(msg: DiscussionMessage, ts: number): AgentAgg {
 	const meta = msg.metadata ?? {};
 	return {
 		signal: msg.messageType,
-		gpu: meta.gpuLabel || '',
-		server: meta.server || '',
 		// FitPredictor v2 reasoning ("warm, slot 1/2 | SR=0.92 ..."), shown as a hover
 		// tooltip on the GPU/server column rather than a wider table.
 		pickReason: meta.pickReason || '',
@@ -48,8 +47,6 @@ export function newAgentAgg(msg: DiscussionMessage, ts: number): AgentAgg {
 
 /** Folds a later message's placement, timing, and tools into the agent's row. */
 function mergeMetadata(existing: AgentAgg, meta: NonNullable<DiscussionMessage['metadata']>) {
-	if (meta.gpuLabel) existing.gpu = meta.gpuLabel;
-	if (meta.server) existing.server = meta.server;
 	if (meta.pickReason) existing.pickReason = meta.pickReason;
 	if (meta.inferenceMs && meta.inferenceMs > existing.inferenceMs)
 		existing.inferenceMs = meta.inferenceMs;
@@ -63,20 +60,48 @@ export function mergeAgentMessage(existing: AgentAgg, msg: DiscussionMessage, ts
 	if (msg.metadata) mergeMetadata(existing, msg.metadata);
 }
 
-// `server` (e.g. "ollama-gpu", "ollama-rig1") is the JIT-selected ModelServer
-// name from the agent runtime's ServerSelector: which server this agent used for
-// this inference. The summary falls back to the static `gpuLabel` when a message
-// lacks it (older messages and stand-aside paths without inference).
+// Each agent's row, with where its calls ran: the ModelServer of its last placed call,
+// else its reported accelerator label when that names a server of the thread (the same
+// rule as the span graph; older messages carry only the label).
 export function aggregateAgents(messages: DiscussionMessage[], t0: number): Map<string, AgentAgg> {
 	const agentMap = new Map<string, AgentAgg>();
+	const messagesOf = new Map<string, DiscussionMessage[]>();
 	for (const msg of messages) {
 		const ts = messageTimeMs(msg) - t0;
 		const existing = agentMap.get(msg.agentName);
 		if (existing) {
 			mergeAgentMessage(existing, msg, ts);
+			messagesOf.get(msg.agentName)?.push(msg);
 		} else {
 			agentMap.set(msg.agentName, newAgentAgg(msg, ts));
+			messagesOf.set(msg.agentName, [msg]);
 		}
 	}
+	const known = threadServers(messages);
+	for (const [agent, row] of agentMap) {
+		row.placement = placementOfMessages(messagesOf.get(agent) ?? [], known);
+	}
 	return agentMap;
+}
+
+/**
+ * The "Agent Summary" table of a copied discussion, one row per agent. The accelerator
+ * column is where the agent's calls ran (its placement); FitPredictor's pickReason, when
+ * present, rides under it as the per-call decision narrative.
+ */
+export function renderAgentSummary(
+	agentMap: Map<string, AgentAgg>,
+	agentLabel: (agent: string) => string
+): string {
+	let text = `## Agent Summary\n`;
+	text += `| Agent | Signal | Accelerator | Duration | Inference | Tools |\n`;
+	text += `|-------|--------|-----|----------|-----------|-------|\n`;
+	for (const [agent, data] of agentMap) {
+		const dur = formatDuration(data.endMs - data.startMs) || '-';
+		const inf = data.inferenceMs > 0 ? formatDuration(data.inferenceMs) : '-';
+		const tools = data.tools.size > 0 ? Array.from(data.tools).join(', ') : '-';
+		const why = data.pickReason ? `<br/>_${data.pickReason}_` : '';
+		text += `| ${agentLabel(agent)} | ${data.signal} | ${data.placement ?? '-'}${why} | ${dur} | ${inf} | ${tools} |\n`;
+	}
+	return text + `\n`;
 }

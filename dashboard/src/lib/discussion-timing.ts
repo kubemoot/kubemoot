@@ -7,7 +7,12 @@
 // message does not carry stay undefined; nothing is shown as zero in their place.
 
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
-import { messageTimeMs, placementOf, threadServers, threadStartMs } from '#lib/discussion-spans.js';
+import {
+	messageTimeMs,
+	placementOfMessages,
+	threadServers,
+	threadStartMs
+} from '#lib/discussion-spans.js';
 
 /**
  * The signals that end an agent's part in a round: its contribution. These are the
@@ -94,7 +99,7 @@ function modelOf(meta: NonNullable<DiscussionMessage['metadata']>): string | und
 /** What a message's own metadata says about how it was made. */
 export function metadataStats(
 	msg: DiscussionMessage,
-	known?: ReadonlySet<string>
+	known: ReadonlySet<string> = new Set()
 ): MessageStats {
 	const meta = msg.metadata ?? {};
 	return {
@@ -102,7 +107,7 @@ export function metadataStats(
 		inputTokens: positive(meta.inputTokens),
 		outputTokens: positive(meta.outputTokens),
 		model: modelOf(meta),
-		accelerator: placementOf(meta.server, meta.gpuLabel, known)
+		accelerator: placementOfMessages([msg], known)
 	};
 }
 
