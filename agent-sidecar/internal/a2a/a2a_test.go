@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	sdk "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -266,8 +267,8 @@ func TestInterpretTable(t *testing.T) {
 		{"input required", Result{State: sdk.TaskStateInputRequired}, nil, SignalFailure, "input_required"},
 		{"auth required", Result{State: sdk.TaskStateAuthRequired}, nil, SignalFailure, "input_required"},
 		{"canceled", Result{State: sdk.TaskStateCanceled}, nil, SignalFailure, "harness_canceled"},
-		{"failed", Result{State: sdk.TaskStateFailed}, nil, SignalFailure, "harness_failed"},
-		{"a stream that ended early", Result{State: sdk.TaskStateWorking}, nil, SignalFailure, "harness_failed"},
+		{"failed", Result{State: sdk.TaskStateFailed}, nil, SignalFailure, FailureHarness},
+		{"a stream that ended early", Result{State: sdk.TaskStateWorking}, nil, SignalFailure, FailureHarness},
 		{"a transport error", Result{}, errors.New("refused"), SignalFailure, "harness_error"},
 	}
 	for _, c := range cases {
@@ -281,7 +282,7 @@ func TestInterpretTable(t *testing.T) {
 func TestInterpretFailedKeepsTheHarnessMessage(t *testing.T) {
 	msg := sdk.NewMessage(sdk.MessageRoleAgent, sdk.NewTextPart("goose: exit status 1:\n  Error: the model door said no"))
 	o := Interpret(Result{State: sdk.TaskStateFailed, Message: msg}, nil)
-	if o.FailureType != "harness_failed" || !strings.Contains(o.Reason, "TASK_STATE_FAILED") ||
+	if o.FailureType != FailureHarness || !strings.Contains(o.Reason, "TASK_STATE_FAILED") ||
 		!strings.Contains(o.Reason, "goose: exit status 1: Error: the model door said no") {
 		t.Fatalf("reason %q", o.Reason)
 	}
@@ -291,5 +292,18 @@ func TestInterpretFailedKeepsTheHarnessMessage(t *testing.T) {
 	empty := sdk.NewMessage(sdk.MessageRoleAgent, sdk.NewTextPart("  "))
 	if o := Interpret(Result{State: sdk.TaskStateFailed, Message: empty}, nil); o.Reason != "TASK_STATE_FAILED" {
 		t.Fatalf("blank message: reason %q", o.Reason)
+	}
+}
+
+func TestInterpretFailedReasonIsRedactedAndBounded(t *testing.T) {
+	long := strings.Repeat("é", 2*reasonRunes)
+	msg := sdk.NewMessage(sdk.MessageRoleAgent, sdk.NewTextPart("goose: Authorization: Bearer abcdefgh12345678 failed "+long))
+	o := Interpret(Result{State: sdk.TaskStateFailed, Message: msg}, nil)
+	if strings.Contains(o.Reason, "abcdefgh12345678") {
+		t.Fatalf("a token reached the reason: %q", o.Reason)
+	}
+	body := strings.TrimPrefix(o.Reason, "TASK_STATE_FAILED: ")
+	if n := len([]rune(body)); n > reasonRunes+3 || !strings.HasSuffix(body, "...") || !utf8.ValidString(o.Reason) {
+		t.Fatalf("reason has %d runes, valid=%v", n, utf8.ValidString(o.Reason))
 	}
 }

@@ -10,10 +10,14 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // killGrace is how long Wait lets the command's output pipes drain after the process is killed.
 const killGrace = 2 * time.Second
+
+// tailBytes is the most of the command's stderr, from its end, that an error carries.
+const tailBytes = 1000
 
 const (
 	// promptFileName is the turn's prompt, written to the private turn directory.
@@ -139,7 +143,7 @@ func (r *Runner) Run(ctx context.Context, t Turn) (string, error) {
 		if ctx.Err() != nil {
 			return "", context.Cause(ctx)
 		}
-		return "", fmt.Errorf("%s: %w: %s", argv[0], err, tail(stderr.String()))
+		return "", fmt.Errorf("%s: %w: %s", argv[0], err, Redact(tail(stderr.String()), t.TurnKey))
 	}
 	return Extract(r.cfg.Output, stdout.String())
 }
@@ -147,10 +151,14 @@ func (r *Runner) Run(ctx context.Context, t Turn) (string, error) {
 // tail keeps the end of the command's stderr, where the reason is.
 func tail(s string) string {
 	s = strings.TrimSpace(s)
-	if len(s) > 1000 {
-		return "..." + s[len(s)-1000:]
+	if len(s) <= tailBytes {
+		return s
 	}
-	return s
+	start := len(s) - tailBytes
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return "..." + s[start:]
 }
 
 // capWriter keeps at most max bytes of what is written. It always accepts the write, so a chatty

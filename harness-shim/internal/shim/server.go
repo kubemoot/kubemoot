@@ -107,7 +107,7 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 	defer stop()
 	answer, err := s.runner.Run(ctx, turn)
 	if outcome(err) == stateFailed {
-		slog.Warn("turn failed", "task", id, "error", err)
+		slog.Warn("turn failed", "task", id, "error", Redact(err.Error(), turn.TurnKey))
 	}
 	writeTask(w, id, turn.ContextID, outcome(err), pick(err, answer))
 }
@@ -126,7 +126,7 @@ func outcome(err error) string {
 
 func pick(err error, answer string) string {
 	if err != nil {
-		return err.Error()
+		return Redact(err.Error())
 	}
 	return answer
 }

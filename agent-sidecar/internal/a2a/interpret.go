@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	sdk "github.com/a2aproject/a2a-go/v2/a2a"
+
+	"github.com/kubemoot/kubemoot/agent-sidecar/internal/redact"
 )
 
 // Signals the sidecar publishes for a turn, as the bus contract names them.
@@ -16,6 +18,8 @@ const (
 	SignalStandAside = "stand_aside"
 	// FailureEmpty is the failureType of a reply with no content; empty is never a silent stand aside.
 	FailureEmpty = "empty_result"
+	// FailureHarness is the failureType of a harness task that ended failed or unfinished.
+	FailureHarness = "harness_failed"
 )
 
 // Evidence is what a harness says its answer rests on.
@@ -50,8 +54,20 @@ func Interpret(r Result, sendErr error) Outcome {
 	case sdk.TaskStateCanceled:
 		return Outcome{Signal: SignalFailure, FailureType: "harness_canceled"}
 	default:
-		return Outcome{Signal: SignalFailure, FailureType: "harness_failed", Reason: failureReason(r)}
+		return Outcome{Signal: SignalFailure, FailureType: FailureHarness, Reason: failureReason(r)}
 	}
+}
+
+// reasonRunes is the most characters of the harness's own message a failure reason carries.
+const reasonRunes = 500
+
+// truncateRunes cuts s to at most n characters, marking the cut.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "..."
 }
 
 // failureReason is why a harness task did not finish: the state, and the harness's own words
@@ -64,8 +80,8 @@ func failureReason(r Result) string {
 	for _, p := range r.Message.Parts {
 		text.WriteString(p.Text())
 	}
-	if said := strings.Join(strings.Fields(text.String()), " "); said != "" {
-		return r.State.String() + ": " + said
+	if said := strings.Join(strings.Fields(redact.Redact(text.String())), " "); said != "" {
+		return r.State.String() + ": " + truncateRunes(said, reasonRunes)
 	}
 	return r.State.String()
 }

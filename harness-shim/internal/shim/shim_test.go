@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+const keyTurnKey = "turnKey"
+
 const (
 	binSh       = "/bin/sh"
 	modeNone    = "none"
@@ -111,7 +113,7 @@ func TestATurnRunsTheCommandWithTheMeshEnvironment(t *testing.T) {
 		Env:  []string{"MYKEY={{turnKey}}"},
 	}
 	_, ts := newTestServer(t, cfg, testEnv)
-	code, r := post(t, ts.URL+"/message:send", body("what time is it?", map[string]any{"turnKey": "k-1", "timeZone": "America/New_York"}))
+	code, r := post(t, ts.URL+"/message:send", body("what time is it?", map[string]any{keyTurnKey: "k-1", "timeZone": "America/New_York"}))
 	if code != 200 || r.Task.Status.State != stateCompleted {
 		t.Fatalf("code %d state %s: %s", code, r.Task.Status.State, r.text())
 	}
@@ -300,7 +302,7 @@ func TestATurnOverTheLimitIsRejected(t *testing.T) {
 func TestBadRequestsAreRefused(t *testing.T) {
 	_, ts := newTestServer(t, Config{Argv: sh("echo x")}, testEnv)
 	for name, b := range map[string][]byte{
-		"not json": []byte("{"), "empty": []byte(""), "no text": body("", map[string]any{"turnKey": "k"}),
+		"not json": []byte("{"), "empty": []byte(""), "no text": body("", map[string]any{keyTurnKey: "k"}),
 		"text is blank": body("  \n", nil),
 	} {
 		if code, _ := post(t, ts.URL+"/message:send", b); code != http.StatusBadRequest {
