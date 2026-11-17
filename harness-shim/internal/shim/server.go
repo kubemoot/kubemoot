@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -105,6 +106,9 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 	ctx, stop := context.WithTimeoutCause(ctx, turn.Deadline, fmt.Errorf("the turn deadline of %s passed", turn.Deadline))
 	defer stop()
 	answer, err := s.runner.Run(ctx, turn)
+	if outcome(err) == stateFailed {
+		slog.Warn("turn failed", "task", id, "error", err)
+	}
 	writeTask(w, id, turn.ContextID, outcome(err), pick(err, answer))
 }
 

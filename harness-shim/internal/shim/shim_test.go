@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -412,5 +413,23 @@ func TestExtract(t *testing.T) {
 		if (err != nil) != c.fails || got != c.want {
 			t.Errorf("%s: %q, %v", c.name, got, err)
 		}
+	}
+}
+
+func TestAFailedTurnIsLoggedWithItsReason(t *testing.T) {
+	var logged strings.Builder
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	_, ts := newTestServer(t, Config{Argv: sh(`echo boom >&2; exit 3`)}, testEnv)
+	post(t, ts.URL+"/message:send", body("q", nil))
+	if !strings.Contains(logged.String(), "turn failed") || !strings.Contains(logged.String(), "boom") {
+		t.Fatalf("log %q", logged.String())
+	}
+	logged.Reset()
+	_, ts = newTestServer(t, Config{Argv: sh(`echo fine`)}, testEnv)
+	post(t, ts.URL+"/message:send", body("q", nil))
+	if logged.Len() != 0 {
+		t.Fatalf("a good turn logged %q", logged.String())
 	}
 }
