@@ -116,7 +116,11 @@ The stream survives restarts. The POST reply also carries `requestedAt`; pass it
 `?since=` on the stream so any gateway replica can tell this turn's thread from an
 earlier turn's. Each thread event carries an SSE `id`; a client whose connection drops
 reconnects with that id as the `Last-Event-ID` header (or the `lastEventId` query
-parameter) and receives only what it missed. If the coordinator is replaced while it
+parameter) and receives only what it missed. If NATS restarts while a stream is open, the
+gateway waits for NATS and continues the stream after the last message it handled, so an
+answer published once NATS is back still arrives; if NATS does not come back within five
+minutes the stream ends with an `error` event, never silently. The coordinator likewise
+waits for NATS and JetStream before it publishes the answer and the close. If the coordinator is replaced while it
 works on a question, its successor starts the question again on a new thread, and the
 stream announces it with a second `thread_found`; the earlier thread will not close.
 

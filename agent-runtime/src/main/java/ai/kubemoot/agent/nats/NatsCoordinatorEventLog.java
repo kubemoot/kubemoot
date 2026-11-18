@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.nats.CoordinatorEventLog.AppendResult.Outcome;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
@@ -11,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -21,8 +23,12 @@ import java.util.concurrent.atomic.AtomicLong;
  * another writer got there first.
  *
  * <p>A refusal for a wrong last sequence is {@code FENCED}; anything else that fails is
- * {@code FAILED} and nothing is thrown. A {@code FAILED} publish may have been stored (a
- * timeout); the recorder stops appending to that thread, so it is never mistaken for a fence.
+ * {@code FAILED} and nothing is thrown. A publish that fails because NATS or JetStream is
+ * unreachable (a restart) is tried again, paced by a growing pause, until it is acknowledged;
+ * the event id makes a repeat of one that was stored but not acknowledged safe. The wait is
+ * bounded as a safety net, and only an outage that outlasts the bound is {@code FAILED}; the
+ * recorder then stops appending to that thread, so a possibly stored event is never mistaken
+ * for a fence.
  */
 final class NatsCoordinatorEventLog implements CoordinatorEventLog {
 
@@ -33,13 +39,27 @@ final class NatsCoordinatorEventLog implements CoordinatorEventLog {
     private static final long LOG_EVERY = 100;
     private static final Duration ACK_TIMEOUT = Duration.ofSeconds(2);
 
+    /** How long an append waits for NATS to come back before the event counts as lost: a safety net. */
+    static final Duration OUTAGE_BOUND = Duration.ofMinutes(2);
+    private static final Duration FIRST_PAUSE = Duration.ofMillis(250);
+    private static final Duration MAX_PAUSE = Duration.ofSeconds(3);
+
     private final NatsConnectionProvider natsProvider;
     private final ObjectMapper mapper;
+    private final Duration outageBound;
+    private final Duration firstPause;
     private final AtomicLong failures = new AtomicLong();
 
     NatsCoordinatorEventLog(NatsConnectionProvider natsProvider, ObjectMapper mapper) {
+        this(natsProvider, mapper, OUTAGE_BOUND, FIRST_PAUSE);
+    }
+
+    NatsCoordinatorEventLog(NatsConnectionProvider natsProvider, ObjectMapper mapper, Duration outageBound,
+                            Duration firstPause) {
         this.natsProvider = natsProvider;
         this.mapper = mapper;
+        this.outageBound = outageBound;
+        this.firstPause = firstPause;
     }
 
     @Override
@@ -52,18 +72,52 @@ final class NatsCoordinatorEventLog implements CoordinatorEventLog {
         }
         var options = PublishOptions.builder().messageId(event.eventId())
                 .expectedLastSubjectSequence(expectedLastSequence).build();
+        Instant deadline = Instant.now().plus(outageBound);
+        Duration pause = firstPause;
+        while (true) {
+            Attempt attempt = tryAppend(subject, body, options);
+            if (attempt.result != null) {
+                return attempt.result.outcome() == Outcome.FAILED ? failed(event, attempt.reason, attempt.cause)
+                        : attempt.result;
+            }
+            // NATS or JetStream is not there (a restart): the same event id makes a repeat safe.
+            if (!Instant.now().plus(pause).isBefore(deadline) || !sleep(pause)) {
+                return failed(event, attempt.reason, attempt.cause);
+            }
+            pause = pause.multipliedBy(2).compareTo(MAX_PAUSE) > 0 ? MAX_PAUSE : pause.multipliedBy(2);
+        }
+    }
+
+    /** One try: a final result, or (result null) the reason NATS could not take it yet. */
+    private record Attempt(AppendResult result, String reason, Throwable cause) {
+    }
+
+    private Attempt tryAppend(String subject, byte[] body, PublishOptions options) {
         Connection conn = natsProvider.getConnection();
         if (conn == null) {
-            return failed(event, "no NATS connection", null);
+            return new Attempt(null, "no NATS connection", null);
         }
         try {
             var js = conn.jetStream(JetStreamOptions.builder().requestTimeout(ACK_TIMEOUT).build());
-            return AppendResult.appended(js.publish(subject, body, options).getSeqno());
+            return new Attempt(AppendResult.appended(js.publish(subject, body, options).getSeqno()), null, null);
         } catch (JetStreamApiException e) {
-            return e.getApiErrorCode() == WRONG_LAST_SEQUENCE ? AppendResult.fenced()
-                    : failed(event, e.getMessage(), e);
-        } catch (IOException | RuntimeException e) {
-            return failed(event, e.getMessage(), e);
+            // A refusal is the stream's answer, not an outage: wrong last sequence fences, others fail.
+            return new Attempt(e.getApiErrorCode() == WRONG_LAST_SEQUENCE ? AppendResult.fenced()
+                    : AppendResult.failed(), e.getMessage(), e);
+        } catch (IOException e) {
+            return new Attempt(null, e.getMessage(), e);
+        } catch (RuntimeException e) {
+            return new Attempt(AppendResult.failed(), e.getMessage(), e);
+        }
+    }
+
+    private static boolean sleep(Duration pause) {
+        try {
+            Thread.sleep(pause.toMillis());
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

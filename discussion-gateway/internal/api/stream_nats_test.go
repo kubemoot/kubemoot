@@ -43,13 +43,18 @@ func jetStreamServer(t *testing.T) (*natsclient.Client, jetstream.JetStream) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	createStreams(t, js)
+	return nc, js
+}
+
+// createStreams creates the discussion and request streams.
+func createStreams(t *testing.T, js jetstream.JetStream) {
+	t.Helper()
 	for name, subject := range map[string]string{streamName: "kubemoot.discuss.>", "KUBEMOOT_REQUEST": "kubemoot.request.>"} {
-		if _, err := js.CreateStream(ctx, jetstream.StreamConfig{Name: name, Subjects: []string{subject}}); err != nil {
+		if _, err := js.CreateStream(context.Background(), jetstream.StreamConfig{Name: name, Subjects: []string{subject}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return nc, js
 }
 
 // publishDiscuss publishes one discussion message of crew "pilot" in namespace "ns"
