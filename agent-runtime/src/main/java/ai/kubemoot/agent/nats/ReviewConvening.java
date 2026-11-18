@@ -22,8 +22,9 @@ import java.util.TreeSet;
  * names who reviews, so a crew that has analysts never reviews with none. In {@code all}
  * mode the coordinator's own analyst selection stands, or every analyst when it made none.
  *
- * <p>An agent's domains are the {@code domains} of its resume; an agent that declares none
- * is never matched by domain. Terms are compared as lower-case alphanumeric tokens.
+ * <p>An agent's domains are the {@code domains} of its resume. An analyst that declares none is a
+ * generalist (a cross-cutting reviewer such as arithmetic over any data) and reviews every
+ * discussion in domain mode. Terms are compared as lower-case alphanumeric tokens.
  * Parsed with readTree only, never records or readValue (GraalVM native).
  */
 final class ReviewConvening {
@@ -66,7 +67,7 @@ final class ReviewConvening {
     }
 
     /**
-     * Plans the review.
+     * Plans the review. In domain mode an analyst that declares no domains reviews every discussion.
      *
      * @param resumes         the crew resumes array (agents and skills)
      * @param questionDomains the domains the coordinator named for the question
@@ -84,13 +85,27 @@ final class ReviewConvening {
         }
         var terms = termsByAgent(resumes);
         var context = context(questionDomains, gatherers, terms);
-        var matches = namesWithOverlap(analysts, terms, context);
-        if (!chosen.isEmpty() || !matches.isEmpty()) {
-            var union = new LinkedHashSet<>(chosen);
-            union.addAll(matches);
-            return new Plan(List.copyOf(union), BASIS_DOMAIN);
+        var base = new LinkedHashSet<>(chosen);
+        base.addAll(namesWithOverlap(analysts, terms, context));
+        String basis = BASIS_DOMAIN;
+        if (base.isEmpty()) {
+            var fallback = fallback(policy.fallback(), analysts, terms, context, userQuery);
+            if (fallback.circle().isEmpty()) return fallback;
+            base.addAll(fallback.circle());
+            basis = fallback.basis();
         }
-        return fallback(policy.fallback(), analysts, terms, context, userQuery);
+        base.addAll(generalists(analysts, terms));
+        return new Plan(List.copyOf(base), basis);
+    }
+
+    /** The analysts that declare no domain: they review every discussion in domain mode. */
+    private static List<String> generalists(List<JsonNode> analysts, Map<String, Set<String>> terms) {
+        var names = new ArrayList<String>();
+        for (var node : analysts) {
+            String name = node.path(FIELD_NAME).asText();
+            if (terms.getOrDefault(name, Set.of()).isEmpty()) names.add(name);
+        }
+        return names;
     }
 
     private static Plan fallback(Fallback fallback, List<JsonNode> analysts, Map<String, Set<String>> terms,

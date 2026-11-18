@@ -4684,7 +4684,7 @@ public class DiscussionOrchestrator {
                     state.innerCircle, analysts);
             return ReviewConvening.plan(reviewPolicy, resumes, state.advisoryTechnologies, gatherers,
                     selected, state.userQuery);
-        } catch (Exception e) {
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             log.warn("Thread {} - review convening could not read the crew resumes ({}); using the coordinator's selection",
                     state.threadId, e.getMessage());
             return new ReviewConvening.Plan(selected, selected.isEmpty()
