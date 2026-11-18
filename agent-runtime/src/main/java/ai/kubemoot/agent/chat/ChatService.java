@@ -1448,7 +1448,7 @@ public class ChatService {
                     "Tool '" + toolName + "' failed " + count + " times in this evaluation ("
                             + (verdict == ToolFailureTracker.Verdict.STUCK
                                     ? "same call or error repeated" : "corrections exhausted") + ")"
-                            + lastErrorSuffix(result));
+                            + lastErrorSuffix(objectMapper, result));
         }
         if (state.totalToolFailures >= MAX_TOTAL_TOOL_FAILURES) {
             throw new ToolCallFailure(
@@ -1685,30 +1685,29 @@ public class ChatService {
     /**
      * The failure message's tail: the last error the tool returned, so a reader of the failure
      * (the coordinator, the dashboard) sees why the tool refused and does not read the repeat
-     * count alone as a missing tool. The error is the text inside the {"error": "..."} wrapper
-     * when it has one.
+     * count alone as a missing tool. The error is the decoded string of the {"error": "..."}
+     * wrapper when the result has one, otherwise the result text, on one line and cut by
+     * {@link TextCut}. The same text goes into the failure signal's lastError metadata
+     * (DiscussionSubscriber), on purpose: the message is what the coordinator reads, the
+     * metadata is what the dashboard reads.
      */
-    static String lastErrorSuffix(String result) {
+    static String lastErrorSuffix(ObjectMapper mapper, String result) {
         if (result == null || result.isBlank()) return "";
-        String text = result.strip();
-        var m = ERROR_WRAPPER.matcher(text);
-        if (m.matches()) {
-            text = m.group(1).replace("\\n", " ").replace("\\\"", "\"");
-        }
-        text = text.replaceAll("\\s+", " ").strip();
-        if (text.length() > FAILURE_ERROR_CHARS) {
-            text = text.substring(0, FAILURE_ERROR_CHARS) + "...";
-        }
-        return text.isEmpty() ? "" : ". Last error: " + text;
+        String text = unwrapError(mapper, result.strip()).replaceAll("\\s+", " ").strip();
+        return text.isEmpty() ? "" : ". Last error: " + TextCut.truncate(text, FAILURE_ERROR_CHARS);
     }
 
-    private static final java.util.regex.Pattern ERROR_WRAPPER =
-            java.util.regex.Pattern.compile("(?s)\\{\\s*\"error\"\\s*:\\s*\"(.*)\"\\s*\\}");
+    private static String unwrapError(ObjectMapper mapper, String text) {
+        try {
+            var error = mapper.readTree(text).path("error");
+            return error.isTextual() ? error.asText() : text;
+        } catch (IOException | RuntimeException e) {
+            return text;
+        }
+    }
 
     private static String truncateErrorForLog(String result) {
-        if (result == null) return "";
-        int max = 200;
-        return result.length() > max ? result.substring(0, max) + "..." : result;
+        return TextCut.truncate(result, 200);
     }
 
     /**
