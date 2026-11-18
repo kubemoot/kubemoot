@@ -260,6 +260,13 @@ var (
 		"$O.kubemoot_workspace.C.*", "$O.kubemoot_workspace.M.*",
 		"$JS.API.STREAM.CREATE.OBJ_kubemoot_workspace",
 	}
+	// What a writer needs to list both buckets, so its call numbers carry on across the move.
+	writerListSubjects = []string{
+		"$JS.API.STREAM.INFO.OBJ_kubemoot_discussion_artifacts", "$JS.API.CONSUMER.CREATE.OBJ_kubemoot_discussion_artifacts",
+		"$JS.API.CONSUMER.CREATE.OBJ_kubemoot_discussion_artifacts.>",
+		"$JS.API.STREAM.INFO.OBJ_kubemoot_workspace", "$JS.API.CONSUMER.CREATE.OBJ_kubemoot_workspace",
+		"$JS.API.CONSUMER.CREATE.OBJ_kubemoot_workspace.>",
+	}
 	readSubjects = []string{
 		"$JS.API.STREAM.INFO.OBJ_kubemoot_discussion_artifacts", "$JS.API.CONSUMER.CREATE.OBJ_kubemoot_discussion_artifacts.>",
 		"$JS.API.STREAM.INFO.OBJ_kubemoot_workspace", "$JS.API.CONSUMER.CREATE.OBJ_kubemoot_workspace.>",
@@ -282,6 +289,20 @@ func TestWriteGrantFollowsTheDeclaredAccess(t *testing.T) {
 	}
 	if !slices.Contains(id.PermissionsFor(false).Publish, "kubemoot.discuss.homelab.homelab-pilot.>") {
 		t.Error("dropping the workspace grant must keep the discussion grant")
+	}
+}
+
+func TestAWriterCanListBothBucketsButNotReadOrDeleteThem(t *testing.T) {
+	id := valid().Identity
+	p := id.PermissionsFor(true)
+	if !holdsAll(p, writerListSubjects) {
+		t.Error("a writer lacks a list subject: a refused listing would restart its call numbers at 1")
+	}
+	if holdsAny(p, []string{"$JS.API.DIRECT.GET.OBJ_kubemoot_workspace", "$JS.API.STREAM.PURGE.OBJ_kubemoot_workspace"}) {
+		t.Error("a writer holds a read or purge subject beyond the listing")
+	}
+	if holdsAny(id.PermissionsFor(false), writerListSubjects[2:3]) {
+		t.Error("an agent without write holds a list subject")
 	}
 }
 

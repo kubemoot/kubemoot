@@ -49,7 +49,7 @@ class DiscussionArtifactsTest {
         var o1 = objectInfo(call1, false);
         var o2 = objectInfo(call2, false);
         var o3 = objectInfo(otherThread, false);
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(o1, o2, o3));
 
         assertEquals(2, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1")));
@@ -88,7 +88,7 @@ class DiscussionArtifactsTest {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
         var otherNs = objectInfo("ns-b/homelab-pilot/dead/agent/agree-a", false, NOW.minus(Duration.ofHours(3)));
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(otherNs));
 
         assertEquals(0, DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW));
@@ -119,7 +119,7 @@ class DiscussionArtifactsTest {
         var match2 = objectInfo("ns-a/homelab-pilot/t1/net/agree-b", false);       // other agent, same thread
         var otherThread = objectInfo("ns-a/homelab-pilot/t2/k8s-config/agree-c", false);
         var alreadyDeleted = objectInfo("ns-a/homelab-pilot/t1/gone/agree-d", true); // matches prefix but deleted
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(match1, match2, otherThread, alreadyDeleted));
 
         int deleted = DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1"));
@@ -138,7 +138,7 @@ class DiscussionArtifactsTest {
         var o1 = objectInfo("ns-a/homelab-pilot/t1/a/agree-1", false);
         var o2 = objectInfo("ns-a/homelab-pilot/t2/a/agree-2", false);
         var o3 = objectInfo("ns-a/homelab-pilot/t3/a/agree-3", false);
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(o1, o2, o3));
 
         int deleted = DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1", "t2"));
@@ -154,7 +154,7 @@ class DiscussionArtifactsTest {
     void deleteThreadArtifacts_swallowsFailure() throws Exception {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenThrow(new RuntimeException("nats down"));
         // GC must never break the lifecycle path; failure returns 0, no exception.
         assertEquals(0, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1")));
@@ -179,7 +179,7 @@ class DiscussionArtifactsTest {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
         var orphan = objectInfo("ns-a/homelab-pilot/dead/agent/agree-a", false, NOW.minus(Duration.ofHours(3)));
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(orphan));
 
         int reaped = DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW);
@@ -193,7 +193,7 @@ class DiscussionArtifactsTest {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
         var live = objectInfo("ns-a/homelab-pilot/t-live/agent/agree-a", false, NOW.minus(Duration.ofHours(5)));
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(live));
 
         // A live thread's artifacts are never reaped, no matter how old - this is the
@@ -209,7 +209,7 @@ class DiscussionArtifactsTest {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
         var recent = objectInfo("ns-a/homelab-pilot/dead/agent/agree-a", false, NOW.minus(Duration.ofMinutes(30)));
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(recent));
 
         int reaped = DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW);
@@ -225,7 +225,7 @@ class DiscussionArtifactsTest {
         var otherCrew = objectInfo("ns-a/other/dead/agent/agree-a", false, NOW.minus(Duration.ofHours(3)));
         var alreadyDeleted = objectInfo("ns-a/homelab-pilot/dead/agent/agree-b", true, NOW.minus(Duration.ofHours(3)));
         var unknownAge = objectInfo("ns-a/homelab-pilot/dead/agent/agree-c", false, null);
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(otherCrew, alreadyDeleted, unknownAge));
 
         int reaped = DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW);
@@ -245,7 +245,7 @@ class DiscussionArtifactsTest {
         var store = mock(ObjectStore.class);
         var bad = objectInfo("ns-a/homelab-pilot/dead/agent/agree-bad", false, NOW.minus(Duration.ofHours(3)));
         var good = objectInfo("ns-a/homelab-pilot/dead/agent/agree-good", false, NOW.minus(Duration.ofHours(3)));
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenReturn(List.of(bad, good));
         when(store.delete("ns-a/homelab-pilot/dead/agent/agree-bad")).thenThrow(new RuntimeException("locked"));
 
@@ -260,7 +260,7 @@ class DiscussionArtifactsTest {
     void reapOrphans_swallowsFailure() throws Exception {
         var conn = mock(Connection.class);
         var store = mock(ObjectStore.class);
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(store);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(store);
         when(store.getList()).thenThrow(new RuntimeException("nats down"));
         assertEquals(0, DiscussionArtifacts.reapOrphans(conn, SCOPE, t -> false, GRACE, NOW));
     }
@@ -270,7 +270,7 @@ class DiscussionArtifactsTest {
         var conn = mock(Connection.class);
         var oldStore = mock(ObjectStore.class);
         var newStore = mock(ObjectStore.class);
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(oldStore);
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(newStore);
         var inOld = objectInfo("ns-a/homelab-pilot/t1/a/001-pods", false);
         var inNew = objectInfo("ns-a/homelab-pilot/t1/b/001-pods", false);
@@ -287,7 +287,7 @@ class DiscussionArtifactsTest {
         var conn = mock(Connection.class);
         var oldStore = mock(ObjectStore.class);
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenThrow(new java.io.IOException("stream not found"));
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(oldStore);
         var inOld = objectInfo("ns-a/homelab-pilot/t1/a/001-pods", false);
         when(oldStore.getList()).thenReturn(List.of(inOld));
 
@@ -305,7 +305,7 @@ class DiscussionArtifactsTest {
         var inOld = objectInfo("ns-a/homelab-pilot/t1/a/001-pods", false);
         when(oldStore.getList()).thenReturn(List.of(inOld));
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(lazy);
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(oldStore);
 
         assertEquals(1, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1")));
         verify(oldStore).delete("ns-a/homelab-pilot/t1/a/001-pods");
@@ -315,7 +315,7 @@ class DiscussionArtifactsTest {
     void deleteThreadArtifacts_theOldBucketFailingStillFailsThePass() throws Exception {
         var conn = mock(Connection.class);
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenThrow(new java.io.IOException("stream not found"));
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenThrow(new java.io.IOException("nats down"));
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenThrow(new java.io.IOException("nats down"));
 
         assertEquals(0, DiscussionArtifacts.deleteThreadArtifacts(conn, SCOPE, List.of("t1")));
     }
@@ -326,7 +326,7 @@ class DiscussionArtifactsTest {
         var oldStore = mock(ObjectStore.class);
         var newStore = mock(ObjectStore.class);
         var info = objectInfo("k", false);
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(oldStore);
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(newStore);
         when(oldStore.getInfo("k")).thenReturn(info);
 
@@ -342,7 +342,7 @@ class DiscussionArtifactsTest {
         var conn = mock(Connection.class);
         var oldStore = mock(ObjectStore.class);
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenThrow(new java.io.IOException("stream not found"));
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(oldStore);
 
         assertNull(DiscussionArtifacts.storeHolding(conn, "absent"));
 

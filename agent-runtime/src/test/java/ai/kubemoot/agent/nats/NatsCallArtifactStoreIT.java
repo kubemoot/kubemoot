@@ -81,7 +81,7 @@ class NatsCallArtifactStoreIT {
 
     private static byte[] read(Connection conn, String key) throws Exception {
         var out = new ByteArrayOutputStream();
-        conn.objectStore(DiscussionArtifacts.BUCKET).get(key, out);
+        conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET).get(key, out);
         return out.toByteArray();
     }
 
@@ -115,7 +115,7 @@ class NatsCallArtifactStoreIT {
             assertTrue(store.put("t1", "k8s-workloads", "pods_list", key, body, headers));
 
             assertEquals(new String(body, StandardCharsets.UTF_8), new String(read(conn, key), StandardCharsets.UTF_8));
-            var info = conn.objectStore(DiscussionArtifacts.BUCKET).getInfo(key);
+            var info = conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET).getInfo(key);
             assertEquals("pods_list", info.getHeaders().getFirst(CallHeaders.TOOL_NAME));
             assertEquals("2", info.getHeaders().getFirst(CallHeaders.ROWS));
             assertEquals("application/json", info.getHeaders().getFirst(CallHeaders.CONTENT_TYPE));
@@ -123,10 +123,10 @@ class NatsCallArtifactStoreIT {
                     "a line break in a value is encoded, so the value reads back as written");
             assertEquals("{\"a\":\n\"b\"}", HeaderValue.decode(info.getHeaders().getFirst(CallHeaders.TOOL_CALL_ARGUMENTS)));
             // The wire form other clients (artifact-access, in Go) read: headers as name -> list of values.
-            String metaSubject = "$O." + DiscussionArtifacts.BUCKET + ".M."
+            String metaSubject = "$O." + DiscussionArtifacts.WORKSPACE_BUCKET + ".M."
                     + java.util.Base64.getUrlEncoder().encodeToString(key.getBytes(StandardCharsets.UTF_8));
             String rawMeta = new String(conn.jetStreamManagement()
-                    .getLastMessage("OBJ_" + DiscussionArtifacts.BUCKET, metaSubject).getData(), StandardCharsets.UTF_8);
+                    .getLastMessage("OBJ_" + DiscussionArtifacts.WORKSPACE_BUCKET, metaSubject).getData(), StandardCharsets.UTF_8);
             assertTrue(rawMeta.contains("\"gen_ai.tool.name\":[\"pods_list\"]"), rawMeta);
             String reference = references.poll(5, TimeUnit.SECONDS);
             assertTrue(reference != null && reference.contains("\"key\":\"" + key + "\"")
@@ -160,7 +160,7 @@ class NatsCallArtifactStoreIT {
             assertEquals(1, catalog.calls());
             String line = catalog.callLine(catalog.entries().get(0));
             assertTrue(line.contains("caf\u00e9 \u65e5\u672c \ud83d\ude80 100%"), line);
-            conn.objectStore(DiscussionArtifacts.BUCKET).delete(key);
+            conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET).delete(key);
         }
     }
 

@@ -1,13 +1,13 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ArtifactReference",
-  "description": "A contribution spilled whole to the kubemoot_discussion_artifacts Object Store, carried as metadata.artifact on the signal and in the ArtifactNotice on kubemoot.artifacts.",
+  "description": "A contribution spilled whole to the kubemoot_workspace Object Store, carried as metadata.artifact on the signal and in the ArtifactNotice on kubemoot.artifacts.",
   "type": "object",
   "required": ["bucket", "key", "bytes", "agent", "tool", "createdAt", "preview"],
   "properties": {
     "bucket": {
       "type": "string",
-      "description": "The Object Store bucket, kubemoot_discussion_artifacts."
+      "description": "The Object Store bucket: kubemoot_workspace, or kubemoot_discussion_artifacts for an object stored before the workspace was renamed."
     },
     "key": {
       "type": "string",

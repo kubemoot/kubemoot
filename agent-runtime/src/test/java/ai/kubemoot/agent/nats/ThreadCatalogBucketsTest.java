@@ -39,7 +39,7 @@ class ThreadCatalogBucketsTest {
         var inBoth = call(PREFIX + "k8s/001-pods_list");
         var onlyOld = call(PREFIX + "k8s/002-pods_list");
         var onlyNew = call(PREFIX + "k8s/003-pods_list");
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(oldStore);
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(newStore);
         when(oldStore.getList()).thenReturn(List.of(inBoth, onlyOld));
         when(newStore.getList()).thenReturn(List.of(inBoth, onlyNew));
@@ -56,7 +56,7 @@ class ThreadCatalogBucketsTest {
         var oldStore = mock(ObjectStore.class);
         var onlyOld = call(PREFIX + "k8s/001-pods_list");
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenThrow(new java.io.IOException("stream not found"));
-        when(conn.objectStore(DiscussionArtifacts.BUCKET)).thenReturn(oldStore);
+        when(conn.objectStore(DiscussionArtifacts.LEGACY_BUCKET)).thenReturn(oldStore);
         when(oldStore.getList()).thenReturn(List.of(onlyOld));
 
         assertEquals(1, ThreadCatalog.load(conn, PREFIX).calls());

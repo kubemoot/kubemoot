@@ -38,7 +38,7 @@ context lean; it does not replace asking for less.
 ## The producer pattern
 
 Every agent with tools writes **each tool call's result as its own object** in the NATS
-JetStream Object Store bucket `kubemoot_discussion_artifacts`, under the thread's key prefix:
+JetStream Object Store bucket `kubemoot_workspace`, under the thread's key prefix:
 
 ```
 {namespace}/{crew}/{threadId}/{agent}/{nnn}-{tool}
@@ -435,7 +435,7 @@ no files outside the named artifacts and no network ([Limits and safety](#limits
 
 | Thing | Persists? |
 |-------|-----------|
-| The artifact in the NATS object store (`kubemoot_discussion_artifacts`) | Yes. This is the only persistence for artifacts, until [garbage collection](#garbage-collection) removes it. |
+| The artifact in the NATS object store (`kubemoot_workspace`) | Yes. This is the only persistence for artifacts, until [garbage collection](#garbage-collection) removes it. |
 | The files under `/artifacts` | No. A local copy that artifact-access reads from. It is lost with the pod and fetched again from the store on next use ([Workspace directory](#workspace-directory)). |
 | The SQLite database | No. It exists for one query. |
 
@@ -691,7 +691,7 @@ The discussion's artifacts are the discussion's workspace, and the names follow.
 | `artifact_head`, `artifact_tail`, `artifact_grep` | `workspace_head`, `workspace_tail`, `workspace_grep` | Both are served and answer the same. The old tools say they are deprecated in their descriptions, and the first call of each logs a warning. |
 | `artifact_count`, `artifact_rows`, `artifact_select`, `artifact_jq` | `workspace_query` | The four still work. Their descriptions say to use `workspace_query`, and the first call of each logs a warning. |
 | `ARTIFACT_MODE`, `ARTIFACT_DIR`, `ARTIFACT_SUBJECT`, `ARTIFACT_QUERY_*`, `ARTIFACT_DUCKDB_BIN` | the same names with `WORKSPACE_` | The service reads the new name first and the old name second. |
-| bucket `kubemoot_discussion_artifacts` | bucket `kubemoot_workspace` | Writers still use the old bucket. Readers (the workspace server, and the agent runtime's catalog, stored-result read and clean-up) look in the new bucket first and the old one second, skipping a bucket that does not exist, so they keep working when writers move. Data in the old bucket expires within 48 hours; nothing is copied. |
+| bucket `kubemoot_discussion_artifacts` | bucket `kubemoot_workspace` | Every writer stores into the new bucket; the agent runtime creates it with the 48-hour TTL, and nothing else creates it. Readers (the workspace server, and the agent runtime's catalog, stored-result read and clean-up) look in the new bucket first and the old one second, skipping a bucket that does not exist, so a discussion that spans the change keeps its calls, and call numbers continue across both buckets. Data in the old bucket expires within 48 hours; nothing is copied. Start the change with no discussion running. |
 
 A crew that declares workspace access governs both sets of tool names: a tool the access does not grant is disabled under either name.
 
@@ -784,7 +784,7 @@ the coordinator's in-memory state, the coordinator issues a prefix-delete for th
 thread's artifact key prefix (`{namespace}/{crew}/{threadId}/`). All objects for the thread are
 removed immediately.
 
-**Layer 2: bucket TTL.** The `kubemoot_discussion_artifacts` bucket carries a
+**Layer 2: bucket TTL.** The `kubemoot_workspace` bucket carries a
 48-hour object TTL. Any object that Layer 1 misses (coordinator restart mid-thread,
 exceptional close paths) is reaped by the NATS server automatically.
 

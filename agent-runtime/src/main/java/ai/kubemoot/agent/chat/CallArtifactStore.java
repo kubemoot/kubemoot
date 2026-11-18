@@ -19,7 +19,8 @@ public interface CallArtifactStore {
     /**
      * The key the next call of {@code tool} by {@code agent} in the thread is stored under:
      * {@code <thread prefix><agent>/<call number>-<tool>}. Each call to this method takes the
-     * next call number, so no two calls of one agent in one thread share a key.
+     * next call number, so no two calls of one agent in one thread share a key. Returns null when
+     * the numbers already stored cannot be read: the call is then not stored, never numbered from 1.
      */
     String reserveKey(String threadId, String agent, String tool);
 

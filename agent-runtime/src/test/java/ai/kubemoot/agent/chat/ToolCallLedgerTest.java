@@ -25,6 +25,19 @@ class ToolCallLedgerTest {
     }
 
     @Test
+    void aCallWhoseNumberCannotBeReservedIsListedAsNotStoredAndWritesNothing() {
+        var unreadable = new ChatServiceCallFilesTest.FakeStore();
+        unreadable.failReserve = true;
+        var l = new ToolCallLedger(unreadable, "th", "agent-x");
+
+        String key = l.record(new ToolCallLedger.Call("pods_list", "id", "{}", T0, 12), "[{\"x\":1}]", false, 1_000_000);
+
+        assertNull(key);
+        assertTrue(unreadable.bodies.isEmpty(), "nothing is written under a number that could repeat an earlier one");
+        assertTrue(l.manifest().contains("NOT STORED"), l.manifest());
+    }
+
+    @Test
     void theManifestIsTheSameTextForTheSameCalls() {
         record("pods_list", "{\"namespace\":\"a\"}", "[{\"x\":1}]", false);
         var other = new ToolCallLedger(new ChatServiceCallFilesTest.FakeStore(), "th", "agent-x");
