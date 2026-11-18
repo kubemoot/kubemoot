@@ -26,6 +26,8 @@ var secretShapes = []secretShape{
 	{regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{20,}`), redacted},
 	{regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`), redacted},
 	{regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*`), redacted},
+	{regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`), redacted},
+	{regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^\s/:@]+:[^\s/@]+@`), "$1" + redacted + "@"},
 	{regexp.MustCompile(`\b[A-Fa-f0-9]{32,}\b`), redacted},
 }
 

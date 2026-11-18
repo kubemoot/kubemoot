@@ -9,6 +9,8 @@ on:
       # The sidecar builds against the operator's bus contract and the shared mesh package.
       - 'operator/pkg/bus/**'
       - 'operator/pkg/mesh/**'
+      # The sidecar redacts what it publishes with the shared secret shapes.
+      - 'operator/pkg/secretscreen/**'
       - '.golangci.yml'
       - '.github/scripts/golangci-lint.sh'
       - 'operator/Makefile'

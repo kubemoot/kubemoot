@@ -1101,10 +1101,12 @@ Each entry that could not be turned into a fact is printed with its reason, and 
 manifest says `selection` instead of `snapshot`. A fact whose value, topic or key holds a
 credential (a bearer or basic token, an API
 key, a token or password assignment, a JSON Web Token, a cloud access key, or a long
-hexadecimal string) is left out the same way, printed with the shape it matched and never
-its text, because the spec says credentials must not be exported as memory. When the
-credential is in the topic or key, the fact is listed by an opaque id
-(`<namespace>.<crew>.#<id>`) so the key does not print it. The screen does not flag
+hexadecimal string, a private key header, a password in a URL) is left out the same way,
+never printed as text, because the spec says credentials must not be exported as memory.
+A credential in the value is listed with the shape it matched. A credential in the topic
+or key is found with the strict redaction, and the fact is listed by an opaque id
+(`<namespace>.<crew>.#<id>`, a truncated one-way hash of the store key) so the key does
+not print it. The screen does not flag
 ordinary words such as "basic authentication", content digests, or a bare commit hash,
 but it matches shapes, so a fact that only looks like a credential can be left out.
 `--allow-unscreened` turns the screen off: the export then holds every fact as stored,

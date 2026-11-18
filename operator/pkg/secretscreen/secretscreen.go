@@ -40,6 +40,10 @@ var (
 	reAWS    = regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)
 	reJWT    = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*`)
 	reHex    = regexp.MustCompile(`\b[A-Fa-f0-9]{32,}\b`)
+	// rePrivateKey is the header line of a PEM private key.
+	rePrivateKey = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)
+	// reURLUser is the user:password part of a URL; $1 is what precedes it.
+	reURLUser = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^\s/:@]+:[^\s/@]+@`)
 
 	// reLabelBefore ends a text with a word that names a credential.
 	reLabelBefore = regexp.MustCompile(`(?i)(?:key|secret|token|passw(?:or)?d)[\w.-]*[\s=:"']{0,4}$`)
@@ -58,7 +62,8 @@ func Redact(text string, secrets ...string) string {
 	}
 	text = reBearer.ReplaceAllString(text, "$1 "+redacted)
 	text = reAssign.ReplaceAllString(text, "$1 "+redacted)
-	for _, re := range []*regexp.Regexp{reAPIKey, reGitHub, rePAT, reAWS, reJWT, reHex} {
+	text = reURLUser.ReplaceAllString(text, "$1"+redacted+"@")
+	for _, re := range []*regexp.Regexp{reAPIKey, reGitHub, rePAT, reAWS, reJWT, rePrivateKey, reHex} {
 		text = re.ReplaceAllString(text, redacted)
 	}
 	return text
@@ -78,6 +83,8 @@ var screens = []screen{
 	{"GitHub fine-grained token", func(t string) bool { return rePAT.MatchString(t) }},
 	{"AWS access key id", func(t string) bool { return reAWS.MatchString(t) }},
 	{"JSON Web Token", func(t string) bool { return reJWT.MatchString(t) }},
+	{"private key", func(t string) bool { return rePrivateKey.MatchString(t) }},
+	{"password in a URL", func(t string) bool { return reURLUser.MatchString(t) }},
 	{"long hexadecimal string", hitHex},
 }
 
