@@ -37,7 +37,7 @@ jobs:
             agent-sidecar/go.sum
             fitness-runner/go.sum
             discussion-gateway/go.sum
-            artifact-access/go.sum
+            workspace-access/go.sum
             code-sandbox/go.sum
 
       - name: Install build tools
@@ -77,8 +77,8 @@ jobs:
         run: go test -coverprofile=cover.out ./...
         continue-on-error: true
 
-      - name: Artifact Access tests with coverage
-        working-directory: artifact-access
+      - name: Workspace Access tests with coverage
+        working-directory: workspace-access
         run: go test -coverprofile=cover.out ./...
         continue-on-error: true
 

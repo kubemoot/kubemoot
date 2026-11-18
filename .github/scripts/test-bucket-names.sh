@@ -15,7 +15,7 @@ sources=(
   agent-runtime/src/main/java/ai/kubemoot/agent/nats/DiscussionArtifacts.java
   discussion-gateway/internal/api/artifacts.go
   operator/pkg/mesh/names.go
-  artifact-access/internal/envcompat/envcompat.go
+  workspace-access/internal/envcompat/envcompat.go
 )
 
 failures=0

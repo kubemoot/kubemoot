@@ -49,7 +49,7 @@ type imageResolution struct {
 	Reason  string
 	Message string
 	// QueryEngine is the artifact query engine KubemootConfig asks the server to run;
-	// empty when the server does not select the artifact-access image.
+	// empty when the server does not select the workspace-access image.
 	QueryEngine kubemootv1alpha1.ArtifactQueryEngine
 }
 
@@ -107,7 +107,7 @@ func (r *MCPServerReconciler) resolveMCPServerImage(ctx context.Context, mcpServ
 	return res, nil
 }
 
-// The variables artifact-access reads to choose its query engine: the operator sets the current
+// The variables workspace-access reads to choose its query engine: the operator sets the current
 // one; the old one is still read by the server for one release, so a server that sets it keeps its value.
 const (
 	workspaceQueryEngineEnv = "WORKSPACE_QUERY_ENGINE"
@@ -137,14 +137,14 @@ func effectiveQueryEngine(engine kubemootv1alpha1.ArtifactQueryEngine) kubemootv
 
 // queryEngineOn reports whether a resolved engine asks for a query engine. The
 // resolution has already read an unset KubemootConfig value as sqlite, so the empty
-// engine here belongs to a server that does not select the artifact-access image.
+// engine here belongs to a server that does not select the workspace-access image.
 func queryEngineOn(engine kubemootv1alpha1.ArtifactQueryEngine) bool {
 	return engine != "" && engine != kubemootv1alpha1.ArtifactQueryEngineNone
 }
 
 // withQueryEngineEnv returns mcpServer with WORKSPACE_QUERY_ENGINE set to the engine
 // KubemootConfig asks for, as resolved by resolveMCPServerImage. Nothing is added for none or
-// for a server that does not select the artifact-access image, so a server
+// for a server that does not select the workspace-access image, so a server
 // behaves as it did before the setting existed, and a server that sets the variable
 // itself keeps its value. The original is left alone.
 func withQueryEngineEnv(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.ArtifactQueryEngine) *kubemootv1alpha1.MCPServer {
@@ -158,7 +158,7 @@ func withQueryEngineEnv(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1
 }
 
 const (
-	// artifactWorkspaceDir is where artifact-access materializes the artifacts a query
+	// artifactWorkspaceDir is where workspace-access materializes the artifacts a query
 	// names (its ARTIFACT_DIR default) and the engine keeps its scratch files.
 	artifactWorkspaceDir = "/artifacts"
 

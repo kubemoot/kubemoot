@@ -48,7 +48,7 @@ dependencies {
     // Jackson for JSON serialization
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
-    // ResultType tells a YAML result from plain text by parsing it, as artifact-access does. SnakeYAML
+    // ResultType tells a YAML result from plain text by parsing it, as workspace-access does. SnakeYAML
     // is already on the classpath (Quarkus config); it is read with SafeConstructor, which builds only
     // maps, lists and scalars, so the native image needs no reflection for it.
     implementation("org.yaml:snakeyaml")

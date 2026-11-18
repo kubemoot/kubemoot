@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	artifactAccessV1 = "ghcr.io/kubemoot/artifact-access:1.0.0"
-	artifactAccessV2 = "ghcr.io/kubemoot/artifact-access:1.1.0"
+	artifactAccessV1 = "ghcr.io/kubemoot/workspace-access:1.0.0"
+	artifactAccessV2 = "ghcr.io/kubemoot/workspace-access:1.1.0"
 	readOpsName      = "readops"
 	specImage        = "registry/mcp:1"
 	unknownImage     = "nope"

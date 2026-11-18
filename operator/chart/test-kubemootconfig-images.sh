@@ -15,19 +15,19 @@ out="$(config_images)"
 
 # Every Kubemoot-built image is pinned to an explicit tag (0.0.0 in git, stamped at
 # release), never latest. artifactAccess is how a crew's read-ops MCPServer runs the
-# artifact-access image without naming a version.
+# workspace-access image without naming a version.
 for key in indexer queryService agentRuntime agentSidecar harnessGoose mcpGateway mcpBridge discussionGateway fitnessRunner artifactAccess; do
   value="$(yq -N ".$key" <<<"$out")"
   [ -n "$value" ] && [ "$value" != null ] || fail "KubemootConfig spec.images.$key is not rendered"
   case "$value" in *:latest) fail "spec.images.$key floats: $value" ;; esac
 done
 
-[ "$(yq -N .artifactAccess <<<"$out")" = "ghcr.io/kubemoot/artifact-access:0.0.0" ] \
-  || fail "artifactAccess should be the registry-prefixed artifact-access image"
+[ "$(yq -N .artifactAccess <<<"$out")" = "ghcr.io/kubemoot/workspace-access:0.0.0" ] \
+  || fail "artifactAccess should be the registry-prefixed workspace-access image"
 
 # A private mirror prefixes it like every other Kubemoot image.
 mirrored="$(config_images --set global.imageRegistry=harbor.example/kubemoot | yq -N .artifactAccess)"
-[ "$mirrored" = "harbor.example/kubemoot/artifact-access:0.0.0" ] \
+[ "$mirrored" = "harbor.example/kubemoot/workspace-access:0.0.0" ] \
   || fail "artifactAccess ignores global.imageRegistry: $mirrored"
 
 # The placement service reaches the operator only when the chart names it.

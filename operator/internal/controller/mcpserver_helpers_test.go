@@ -489,7 +489,7 @@ func TestBuildUserSidecars(t *testing.T) {
 	ms := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			Sidecars: []corev1.Container{
-				{Name: "artifact-access", Image: "img:1", VolumeMounts: []corev1.VolumeMount{{Name: "artifacts", MountPath: testArtifactsDir}}},
+				{Name: "workspace-access", Image: "img:1", VolumeMounts: []corev1.VolumeMount{{Name: "artifacts", MountPath: testArtifactsDir}}},
 			},
 		},
 	}
@@ -500,7 +500,7 @@ func TestBuildUserSidecars(t *testing.T) {
 	if got[0].RestartPolicy == nil || *got[0].RestartPolicy != corev1.ContainerRestartPolicyAlways {
 		t.Fatalf("expected RestartPolicy=Always, got %v", got[0].RestartPolicy)
 	}
-	if got[0].Name != "artifact-access" || got[0].Image != "img:1" || len(got[0].VolumeMounts) != 1 {
+	if got[0].Name != "workspace-access" || got[0].Image != "img:1" || len(got[0].VolumeMounts) != 1 {
 		t.Fatalf("sidecar fields not preserved: %+v", got[0])
 	}
 	// Source must not be mutated (DeepCopy).

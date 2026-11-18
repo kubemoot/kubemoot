@@ -4,7 +4,7 @@
 //
 // IMPORTANT: the subject formats, token validation and namespace resolution are
 // shared with kubemoot/operator/pkg/crewscope, kubemoot/scheduling-mcp/internal/scope
-// and kubemoot/artifact-access/internal/scope (per-module builds cannot share
+// and kubemoot/workspace-access/internal/scope (per-module builds cannot share
 // source). If you change one, change the others.
 package crewscope
 

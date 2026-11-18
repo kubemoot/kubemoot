@@ -197,7 +197,7 @@ func inlineEvidenceOf(events []SignalEvent) inlineEvidence {
 // writes a value that is not printable ASCII as "utf8-pct:" and the UTF-8 bytes
 // with each byte outside printable ASCII, and every percent sign, as %XX. A value
 // that is not validly encoded is returned as it is. It follows
-// artifact-access/internal/store DecodeHeaderValue; both run
+// workspace-access/internal/store DecodeHeaderValue; both run
 // test/fixtures/header-values.json.
 func decodeHeader(v string) string {
 	rest, ok := strings.CutPrefix(v, headerEncoded)

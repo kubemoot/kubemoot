@@ -795,7 +795,7 @@ spec:
                   restartPolicy=Always - the operator sets this regardless of what is
                   supplied). They share the pod's volumes (e.g. an EmptyDirVolume), so a
                   sidecar can stage data on a path the main container reads. Used by the
-                  artifact-access materializer beside the no-network code sandbox.
+                  workspace-access materializer beside the no-network code sandbox.
                 items:
                   description: A single application container that you want to run
                     within a pod.

@@ -1,5 +1,5 @@
 {
- "description": "How a header value is carried in a NATS header, shared by agent-runtime (Java, HeaderValue) and artifact-access (Go, store.DecodeHeaderValue). roundTrip: encode(value) is encoded and decode(encoded) is value. decodeOnly: decode(encoded) is value, though no encoder makes that encoded form. A value that is a plain legacy value starting with the marker and holding only valid escapes reads as encoded.",
+ "description": "How a header value is carried in a NATS header, shared by agent-runtime (Java, HeaderValue) and workspace-access (Go, store.DecodeHeaderValue). roundTrip: encode(value) is encoded and decode(encoded) is value. decodeOnly: decode(encoded) is value, though no encoder makes that encoded form. A value that is a plain legacy value starting with the marker and holding only valid escapes reads as encoded.",
  "roundTrip": [
   {
    "name": "plain ASCII is unchanged",

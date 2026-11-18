@@ -184,7 +184,7 @@ func TestBucketMissing(t *testing.T) {
 }
 
 // TestDecodeHeaderSharedFixture runs the cases the agent runtime (Java) and
-// artifact-access (Go) run, so the three decoders cannot drift apart.
+// workspace-access (Go) run, so the three decoders cannot drift apart.
 func TestDecodeHeaderSharedFixture(t *testing.T) {
 	raw, err := os.ReadFile("../test/fixtures/header-values.json")
 	if err != nil {

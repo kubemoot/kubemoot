@@ -1,0 +1,182 @@
+package workspace
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/kubemoot/kubemoot/workspace-access/internal/artifact"
+	"github.com/kubemoot/kubemoot/workspace-access/internal/materializer"
+	"github.com/kubemoot/kubemoot/workspace-access/internal/store"
+)
+
+const (
+	// MaxArtifacts is the most artifacts one query may name.
+	MaxArtifacts = 8
+	// workDirPrefix names the per-query directory for converted copies; it is removed
+	// when the query ends.
+	workDirPrefix = ".query-"
+)
+
+var tableName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
+
+// Service runs queries over the artifacts of a discussion.
+type Service struct {
+	// Store fetches an artifact that is not yet a file under Dir.
+	Store store.Getter
+	// Dir is the artifact directory (/artifacts), where artifacts are materialized.
+	Dir    string
+	Engine Engine
+	Limits Limits
+	// MaxArtifactBytes is the largest artifact a query may read.
+	MaxArtifactBytes int64
+	// Namespace, when set, is the only namespace a key with * may reach: the pattern must start
+	// with it. It is the pod's namespace, so a crew's query never lists another namespace's objects.
+	Namespace string
+}
+
+// Query runs sql over the named artifacts and returns the rendered rows. artifacts
+// maps the table name the SQL uses to the artifact's object key.
+func (s *Service) Query(ctx context.Context, artifacts map[string]string, sql string) (string, error) {
+	if strings.TrimSpace(sql) == "" {
+		return "", errors.New("sql is required")
+	}
+	if err := checkTables(artifacts); err != nil {
+		return "", err
+	}
+	return s.withRelations(ctx, artifacts, func(rels []Relation, notes []string) (string, error) {
+		res, err := s.Engine.Query(ctx, rels, sql, s.Limits)
+		if err != nil {
+			return "", err
+		}
+		return Render(res) + renderNotes(notes), nil
+	})
+}
+
+// withRelations makes the tables the named artifacts become, in a work directory that is removed
+// when use returns.
+func (s *Service) withRelations(ctx context.Context, artifacts map[string]string,
+	use func(rels []Relation, notes []string) (string, error)) (string, error) {
+	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
+		return "", fmt.Errorf("artifact directory: %w", err)
+	}
+	workDir, err := os.MkdirTemp(s.Dir, workDirPrefix)
+	if err != nil {
+		return "", fmt.Errorf("work directory: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(workDir) }()
+
+	rels, notes, err := s.relations(ctx, artifacts, workDir)
+	if err != nil {
+		return "", err
+	}
+	return use(rels, notes)
+}
+
+// renderNotes puts what the model should know about how artifacts were read after
+// the rows, one line each.
+func renderNotes(notes []string) string {
+	var b strings.Builder
+	for _, n := range notes {
+		b.WriteString("note: " + n + "\n")
+	}
+	return b.String()
+}
+
+// hinter is implemented by an engine that tells the model how its SQL differs.
+type hinter interface{ Hint() string }
+
+// Hint is one sentence on the engine's SQL dialect, for the tool description.
+func (s *Service) Hint() string {
+	if h, ok := s.Engine.(hinter); ok {
+		return h.Hint()
+	}
+	return ""
+}
+
+// checkTables checks the artifacts a request names: at least one, no more than MaxArtifacts, and
+// table names the engine reads as distinct.
+func checkTables(artifacts map[string]string) error {
+	if len(artifacts) == 0 {
+		return errors.New("artifacts is required: map each table name to an artifact key")
+	}
+	if len(artifacts) > MaxArtifacts {
+		return fmt.Errorf("at most %d artifacts per query, got %d", MaxArtifacts, len(artifacts))
+	}
+	seen := make(map[string]string, len(artifacts))
+	for name := range artifacts {
+		if !tableName.MatchString(name) {
+			return fmt.Errorf("table name %q must be letters, digits and underscores, not starting with a digit", name)
+		}
+		// The engine treats table names without regard to case.
+		lower := strings.ToLower(name)
+		if other, dup := seen[lower]; dup {
+			return fmt.Errorf("table names %q and %q are the same name; use distinct names", other, name)
+		}
+		seen[lower] = name
+	}
+	return nil
+}
+
+// relations makes the Relations for the named artifacts, in name order, and the
+// notes on how any of them was read. An artifact is usually one Relation; a tooler's
+// artifact with sections of different shapes is several (see prepareSections).
+func (s *Service) relations(ctx context.Context, artifacts map[string]string,
+	workDir string) ([]Relation, []string, error) {
+	names := make([]string, 0, len(artifacts))
+	taken := make(map[string]bool, len(artifacts))
+	for name := range artifacts {
+		names = append(names, name)
+		taken[strings.ToLower(name)] = true
+	}
+	sort.Strings(names)
+	var rels []Relation
+	var notes []string
+	for _, name := range names {
+		r, n, err := s.relation(ctx, name, artifacts[name], workDir, taken)
+		if err != nil {
+			return nil, nil, fmt.Errorf("artifact %q: %w", name, err)
+		}
+		rels = append(rels, r...)
+		notes = append(notes, n...)
+	}
+	return rels, notes, nil
+}
+
+// relation finds the artifact's file under Dir, fetching it first when it is not
+// there yet, and prepares it for the engine.
+func (s *Service) relation(ctx context.Context, name, key, workDir string,
+	taken map[string]bool) ([]Relation, []string, error) {
+	if strings.Contains(key, "*") {
+		return s.callGroup(ctx, name, key, workDir, taken)
+	}
+	path, data, err := s.readObject(ctx, key, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	if ci, ok := s.describe(ctx, key); ok {
+		return singleCall(name, data, workDir, taken, ci)
+	}
+	return PrepareArtifact(name, path, data, workDir, taken)
+}
+
+// materialized returns the local file for key, materializing it when absent.
+func (s *Service) materialized(ctx context.Context, key string) (string, error) {
+	path, err := artifact.LocalPath(s.Dir, key)
+	if err != nil || strings.HasPrefix(key, workDirPrefix) {
+		return "", fmt.Errorf("bad key %q: %w", key, artifact.ErrUnsafeKey)
+	}
+	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+		return path, nil
+	}
+	m := &materializer.Materializer{Store: s.Store, BaseDir: s.Dir}
+	path, err = m.Materialize(ctx, artifact.Reference{Key: key})
+	if err != nil {
+		return "", fmt.Errorf("not found or unreadable (%s): %w", key, err)
+	}
+	return path, nil
+}

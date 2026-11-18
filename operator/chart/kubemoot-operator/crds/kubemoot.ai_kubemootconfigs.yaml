@@ -76,7 +76,7 @@ spec:
                     description: |-
                       QueryEngine is the engine that answers workspace_query on every MCPServer that
                       selects spec.kubemootImage artifactAccess. sqlite (the default, also when
-                      unset) runs in the artifact-access process and needs nothing added to the image;
+                      unset) runs in the workspace-access process and needs nothing added to the image;
                       duckdb needs its program on the image; none offers no query tool.
                       The operator sets ARTIFACT_QUERY_ENGINE on those servers; a server that sets the variable itself keeps its own value.
                     enum:
@@ -339,7 +339,7 @@ spec:
                     type: string
                   artifactAccess:
                     description: |-
-                      ArtifactAccess is the artifact-access image: the read-ops MCP server a crew
+                      ArtifactAccess is the workspace-access image: the read-ops MCP server a crew
                       runs (ARTIFACT_MODE=mcp) to read the artifact store when a tool result spills
                       over the inline limit. An MCPServer selects it with spec.kubemootImage
                       instead of naming an image. The operator chart stamps it from the release;

@@ -14,7 +14,7 @@ FROM docker.io/library/python:3.14-slim@sha256:f85c5697265c178cc6887276c55fe16cf
 # zombies under the server for the life of the pod.
 RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /build/code-sandbox /usr/local/bin/code-sandbox
-# uid:gid 1000:1000 matches the artifact-access materializer that writes /artifacts.
+# uid:gid 1000:1000 matches the workspace-access materializer that writes /artifacts.
 USER 1000:1000
 WORKDIR /tmp
 ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/code-sandbox"]

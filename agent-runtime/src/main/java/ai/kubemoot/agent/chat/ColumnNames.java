@@ -8,7 +8,7 @@ import java.util.Set;
 /**
  * The names a table's columns are shown and queried by: ASCII lowercase letters, digits and
  * underscore, so SQL needs no quoting ({@code NODE SELECTOR} is {@code node_selector}). The
- * same rule runs in artifact-access ({@code internal/colname}); both test suites run the cases
+ * same rule runs in workspace-access ({@code internal/colname}); both test suites run the cases
  * of {@code test/fixtures/column-names.json}, so the description in the discussion and the
  * table a query reads cannot drift apart.
  *

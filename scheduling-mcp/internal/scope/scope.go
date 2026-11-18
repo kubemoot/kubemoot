@@ -4,7 +4,7 @@
 //
 // IMPORTANT: namespace resolution and token validation are shared with
 // kubemoot/operator/pkg/crewscope, kubemoot/discussion-gateway/internal/crewscope
-// and kubemoot/artifact-access/internal/scope (per-module builds cannot share
+// and kubemoot/workspace-access/internal/scope (per-module builds cannot share
 // source). If you change one, change the others.
 package scope
 

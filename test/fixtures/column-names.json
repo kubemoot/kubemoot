@@ -1,5 +1,5 @@
 {
-  "description": "Column name rule shared by artifact-access (Go, internal/colname) and agent-runtime (Java, ColumnNames). Each case maps the headers of a table to the names a query and a [CALL ...] description show.",
+  "description": "Column name rule shared by workspace-access (Go, internal/colname) and agent-runtime (Java, ColumnNames). Each case maps the headers of a table to the names a query and a [CALL ...] description show.",
   "cases": [
     {"name": "kubectl headers", "input": ["NAME", "READY", "UP-TO-DATE", "NODE SELECTOR", "AGE"], "output": ["name", "ready", "up_to_date", "node_selector", "age"]},
     {"name": "allocatable memory", "input": ["NODE", "ALLOCATABLE MEMORY", "TAINTS"], "output": ["node", "allocatable_memory", "taints"]},
