@@ -522,11 +522,12 @@ func TestBuildUserSidecars_SharesEmptyDir(t *testing.T) {
 	if len(got) != 1 || len(got[0].VolumeMounts) != 2 {
 		t.Fatalf("expected the emptyDir auto-mounted into the sidecar at its path and its alias, got %+v", got)
 	}
+	fx := loadMountFixture(t)
 	vm := got[0].VolumeMounts[0]
-	if vm.Name != "empty-vol-0" || vm.MountPath != testWorkspaceDir {
+	if vm.Name != "empty-vol-0" || vm.MountPath != fx.MountPath {
 		t.Fatalf("expected empty-vol-0 at the workspace dir, got %+v", vm)
 	}
-	if alias := got[0].VolumeMounts[1]; alias.Name != "empty-vol-0" || alias.MountPath != legacyWorkspaceDir {
+	if alias := got[0].VolumeMounts[1]; alias.Name != "empty-vol-0" || alias.MountPath != fx.LegacyMountPath {
 		t.Fatalf("expected the same volume at /artifacts, got %+v", alias)
 	}
 }
