@@ -40,19 +40,20 @@ func builtinAgentResources() corev1.ResourceRequirements {
 	}
 }
 
-// builtinGooseResources is the built-in default of the goose harness. The container itself is
-// small, but it runs `goose run` for every request and that process, with its tool
-// subprocesses, needs far more than the agent runtime does. The request reserves a working set
-// for one run and the memory limit leaves room for the extensions a run starts. No CPU limit,
-// for the reason given at builtinAgentResources.
+// builtinGooseResources is the built-in default of the goose harness. The container runs
+// `goose run` for every request, and that process with its tool subprocesses needs more than the
+// agent runtime does. Measured over answered turns, the container's memory peak was 59 to 64 MiB
+// (goose process RSS about 103 MB during a turn). The 128Mi request is twice that peak and the
+// 512Mi limit leaves room for the extensions a run starts and for a larger tool result. No CPU
+// limit, for the reason given at builtinAgentResources.
 func builtinGooseResources() corev1.ResourceRequirements {
 	return corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    resource.MustParse("100m"),
-			corev1.ResourceMemory: resource.MustParse("256Mi"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
 		},
 		Limits: corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("1Gi"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
 		},
 	}
 }
