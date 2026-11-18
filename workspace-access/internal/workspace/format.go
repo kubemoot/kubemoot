@@ -39,8 +39,10 @@ const sniffLines = 5
 var (
 	// headerCell matches one kubectl column title; titles are separated by two or
 	// more spaces and a title may hold single spaces ("NOMINATED NODE").
-	headerCell    = regexp.MustCompile(`\S+(?: \S+)*`)
-	headerTitle   = regexp.MustCompile(`^[A-Z][A-Z0-9 _/().-]*$`)
+	headerCell = regexp.MustCompile(`\S+(?: \S+)*`)
+	// headerTitle is capital letters, with any lower-case only inside parentheses, the unit
+	// kubectl top prints: CPU(cores), MEMORY(bytes).
+	headerTitle   = regexp.MustCompile(`^[A-Z](?:[A-Z0-9 _/.-]|\([^()]*\))*$`)
 	mdSeparator   = regexp.MustCompile(`^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$`)
 	yamlFirstLine = regexp.MustCompile(`^(---|- |[A-Za-z_][\w.-]*:(\s|$))`)
 )
