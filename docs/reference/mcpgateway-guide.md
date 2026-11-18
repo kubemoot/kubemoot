@@ -259,7 +259,7 @@ Agents use it to give a tool the requester's date and time zone, and to give the
 | `timeZone` | the requester's IANA time zone, such as `America/Los_Angeles` |
 | `localDateTime` | the requester's local date and time, ISO 8601 without an offset |
 | `requestDate` | the requester's date, `YYYY-MM-DD` |
-| `workspacePrefix` | the key prefix of the discussion thread, `{namespace}/{crew}/{threadId}/`. The agent runtime sends it only to `workspace_query`, `workspace_list` and `workspace_describe`, the `artifact_*` tools and `execute_code`; the artifact tools resolve a short key such as `k8s-workloads/002-resources_list` inside that thread and refuse a key of another thread, see [Short keys](../../concepts/discussion-artifact-store/#short-keys) |
+| `workspacePrefix` | the key prefix of the discussion thread, `{namespace}/{crew}/{threadId}/`. The agent runtime sends it only to `workspace_query`, `workspace_list` and `workspace_describe`, the `artifact_*` tools and `execute_code`; the artifact tools resolve a short key such as `k8s-workloads/002-resources_list` inside that thread and refuse a key of another thread, see [Short keys](../../concepts/workspace/#short-keys) |
 
 A requester key is present only when the requester's client sent it (and `requestDate` whenever either of the other two is); `workspacePrefix` only inside a discussion. A tool that needs "today" should read it from here and not from its own clock; see [Read the requester's date in a tool](../../user-guides/onboard-mcp-tools/#read-the-requesters-date-in-a-tool).
 

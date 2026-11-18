@@ -11,6 +11,13 @@ import (
 	"github.com/kubemoot/kubemoot/workspace-access/internal/workspace"
 )
 
+// The tools that read a stored result when it cannot be selected from; mcpserver registers them
+// under the same names.
+const (
+	ToolGrep  = "workspace_grep"
+	ToolQuery = "workspace_query"
+)
+
 var errEmptyArtifact = errors.New("artifact is empty; it has no header row")
 
 // SelectCSV projects the named columns from a table artifact, preserving requested column
@@ -29,8 +36,8 @@ func SelectCSV(r io.Reader, hint workspace.Format, columns []string, delimiter r
 		return "", err
 	}
 	if len(data) > workspace.DefaultMaxArtifactBytes {
-		return "", fmt.Errorf("artifact exceeds %d bytes; use artifact_grep or artifact_rows",
-			workspace.DefaultMaxArtifactBytes)
+		return "", fmt.Errorf("artifact exceeds %d bytes; use %s or %s",
+			workspace.DefaultMaxArtifactBytes, ToolGrep, ToolQuery)
 	}
 	format, rows, err := workspace.ReadTableAs(hint, data, delimiter)
 	if err != nil {
@@ -55,9 +62,9 @@ func tableError(format workspace.Format, data []byte, err error) error {
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return errEmptyArtifact
 	}
-	use := "artifact_grep or artifact_rows"
+	use := ToolGrep + " or " + ToolQuery
 	if format == workspace.FormatJSON {
-		use = "artifact_jq"
+		use = ToolQuery
 	}
 	return fmt.Errorf("artifact is %s, not a table (kubectl table, Markdown table or CSV); use %s",
 		format, use)

@@ -514,18 +514,20 @@ public class ChatService {
     // answered without running execute_code before failing (never emit an
     // in-head number). See AgentProperties.Discuss.computeContract().
     static final int MAX_COMPUTE_RETRIES = 2;
-    // The sidecar artifact mount, and the [CALL key=...] lines that describe the stored files in a
-    // contribution. The contract uses them to require that the compute agent reads the FILE.
-    private static final String ARTIFACT_MOUNT = "/artifacts/";
-    // The artifact read-ops tools (artifact-readops-mcp) read a spilled artifact
-    // SERVER-SIDE from its object key - the compute agent passes key=<key> and the
-    // server reads the file, rather than the model authoring open('/artifacts/<key>')
-    // in sandbox code (which qwen3:32b flakily skips). A call to any of these over an
-    // artifact present in the input satisfies the read-the-file half of the contract
-    // exactly as an execute_code that opens /artifacts/ does.
+    // The workspace mount, and the [CALL key=...] lines that describe the stored files in a
+    // contribution. The contract uses them to require that the compute agent reads the FILE. The
+    // old mount, /artifacts/, is mounted beside it for one release, so code that opens either path
+    // counts as reading the file.
+    private static final String WORKSPACE_MOUNT = "/workspace/";
+    private static final String LEGACY_WORKSPACE_MOUNT = "/artifacts/";
+    // The workspace read tools read a stored result SERVER-SIDE from its object key - the compute
+    // agent passes key=<key> and the server reads the file, rather than the model authoring
+    // open('/workspace/<key>') in sandbox code (which qwen3:32b flakily skips). A call to any of
+    // these over a result present in the input satisfies the read-the-file half of the contract
+    // exactly as an execute_code that opens /workspace/ does.
     // Captures the exact object key from a file description "[CALL key=<key> ...]" so the compute
-    // re-prompt can name the precise file at /artifacts/<key> rather than a generic "<key>" placeholder.
-    private static final java.util.regex.Pattern ARTIFACT_KEY_PATTERN =
+    // re-prompt can name the precise file at /workspace/<key> rather than a generic "<key>" placeholder.
+    private static final java.util.regex.Pattern WORKSPACE_KEY_PATTERN =
             java.util.regex.Pattern.compile("\\[CALL key=([^\\]\\s]+)");
     // A line of the file descriptions in a contribution ("[CALL key=<key> ..."), which names a stored tool result.
     private static final String CALL_MARKER = CallManifest.CALL_PREFIX;
@@ -536,7 +538,7 @@ public class ChatService {
     private static final String COMPUTE_CONTRACT_REPROMPT =
             "You produced an answer without running execute_code. You MUST compute the result by "
             + "calling execute_code over the data. If a contribution references an artifact file "
-            + "(/artifacts/<key>), read that FILE in your code - do not answer from the inline "
+            + "(/workspace/<key>), read that FILE in your code - do not answer from the inline "
             + "preview. Call execute_code now. If there is genuinely no data to compute over, "
             + "reply with exactly NO_DATA.";
 
@@ -1051,7 +1053,7 @@ public class ChatService {
      * retry budget is spent. Two violations are policed: (1) answering with no
      * tool call at all, and (2) running a tool but never reading the spilled
      * artifact - the read must be either an artifact read-ops tool over the key
-     * or execute_code that opens /artifacts/... An exact NO_DATA / TOOL_GAP answer
+     * or execute_code that opens /workspace/... (or the old /artifacts/...) An exact NO_DATA / TOOL_GAP answer
      * is the honest escape.
      */
     private boolean computeContractNeedsRetry(AiMessage aiMessage, ToolLoopState state) {
@@ -1179,7 +1181,7 @@ public class ChatService {
         return msg instanceof SystemMessage ? null : messageText(msg);
     }
 
-    /** Exact /artifacts/&lt;key&gt; paths named by file descriptions in the input, so the
+    /** Exact /workspace/&lt;key&gt; paths named by file descriptions in the input, so the
      *  compute re-prompt can point the model at the precise file rather than a
      *  generic "&lt;key&gt;" placeholder. Order-preserving and de-duplicated. */
     //  Package-private for unit testing.
@@ -1190,9 +1192,9 @@ public class ChatService {
             if (text == null) {
                 continue;
             }
-            var m = ARTIFACT_KEY_PATTERN.matcher(text);
+            var m = WORKSPACE_KEY_PATTERN.matcher(text);
             while (m.find()) {
-                paths.add(ARTIFACT_MOUNT + m.group(1));
+                paths.add(WORKSPACE_MOUNT + m.group(1));
             }
         }
         return new java.util.ArrayList<>(paths);
@@ -1208,7 +1210,7 @@ public class ChatService {
         if (paths.isEmpty()) {
             return COMPUTE_CONTRACT_REPROMPT;
         }
-        String firstKey = paths.get(0).substring(ARTIFACT_MOUNT.length());
+        String firstKey = paths.get(0).substring(WORKSPACE_MOUNT.length());
         return "You answered without reading the data FILE. The full data lives in: "
                 + String.join(", ", paths) + ". You MUST read it before answering. PREFERRED: call an "
                 + "artifact read-ops tool with the object key - the server reads the file for you, so "
@@ -1394,14 +1396,14 @@ public class ChatService {
     private void recordReadAndMetricSignals(String toolName, String arguments, String result,
                                             ToolLoopState state) {
         // Two ways the compute agent legitimately reads the spilled FILE:
-        //   (1) execute_code whose code opens /artifacts/<key>, or
+        //   (1) execute_code whose code opens /workspace/<key>, or
         //   (2) an artifact read-ops tool (workspace_query, workspace_head, workspace_grep, ...) that
         //       reads the artifact server-side from its key.
         // A validate_code or a call that merely names /artifacts/ in unrelated args
         // does NOT count - it must be one of these two real reads.
         boolean readViaCode = "execute_code".equals(toolName)
                 && arguments != null
-                && arguments.contains(ARTIFACT_MOUNT);
+                && (arguments.contains(WORKSPACE_MOUNT) || arguments.contains(LEGACY_WORKSPACE_MOUNT));
         boolean readViaReadOps = WorkspaceTools.readsData(toolName);
         // Only a SUCCESSFUL read satisfies the contract - a key-not-found / errored
         // read-ops or execute_code call must not let the agent answer from nothing.
@@ -1527,7 +1529,7 @@ public class ChatService {
         int emptyNoToolsRetries = 0;
         int computeRetries = 0;
         // True once an execute_code call's arguments referenced the artifact mount
-        // (/artifacts/...), i.e. the agent read the materialized FILE rather than
+        // (/workspace/...), i.e. the agent read the materialized FILE rather than
         // computing over the inline preview. Drives the compute contract.
         boolean codeReferencedArtifact = false;
         // Metrics drill contract signals. metricQueryReturnedEmpty tracks the LAST

@@ -40,14 +40,14 @@ var _ = Describe("MCPServer admission validation", func() {
 
 	It("accepts kubemootImage alone", func() {
 		Expect(create("cel-kubemoot-only", kubemootv1alpha1.MCPServerSpec{
-			KubemootImage: kubemootv1alpha1.KubemootImageArtifactAccess,
+			KubemootImage: kubemootv1alpha1.KubemootImageWorkspaceAccess,
 		})).To(Succeed())
 	})
 
 	It("rejects kubemootImage with image", func() {
 		err := create("cel-image-and-kubemoot", kubemootv1alpha1.MCPServerSpec{
 			Image:         "registry/mcp:1",
-			KubemootImage: kubemootv1alpha1.KubemootImageArtifactAccess,
+			KubemootImage: kubemootv1alpha1.KubemootImageWorkspaceAccess,
 		})
 		Expect(apierrors.IsInvalid(err)).To(BeTrue(), "got %v", err)
 		Expect(err.Error()).To(ContainSubstring("mutually exclusive"))
@@ -56,7 +56,7 @@ var _ = Describe("MCPServer admission validation", func() {
 	It("rejects kubemootImage with externalEndpoint", func() {
 		err := create("cel-external-and-kubemoot", kubemootv1alpha1.MCPServerSpec{
 			ExternalEndpoint: "http://external:9000",
-			KubemootImage:    kubemootv1alpha1.KubemootImageArtifactAccess,
+			KubemootImage:    kubemootv1alpha1.KubemootImageWorkspaceAccess,
 		})
 		Expect(apierrors.IsInvalid(err)).To(BeTrue(), "got %v", err)
 	})
@@ -68,7 +68,7 @@ var _ = Describe("MCPServer admission validation", func() {
 
 	argumentRules := func(rules ...kubemootv1alpha1.ToolArgumentRule) kubemootv1alpha1.MCPServerSpec {
 		return kubemootv1alpha1.MCPServerSpec{
-			KubemootImage: kubemootv1alpha1.KubemootImageArtifactAccess,
+			KubemootImage: kubemootv1alpha1.KubemootImageWorkspaceAccess,
 			ToolOverrides: []kubemootv1alpha1.ToolOverride{{
 				Name: "resources_list",
 				Parameters: map[string]kubemootv1alpha1.ToolParameterOverride{

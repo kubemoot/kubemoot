@@ -351,10 +351,18 @@ coordinator:
 # artifacts of a discussion. sqlite (the default) runs queries inside the workspace-access process
 # (pure Go, nothing to add to the image). none offers no query tool. duckdb runs them with the duckdb
 # program, which the workspace-access image must carry. See
-# docs/concepts/discussion-artifact-store.md.
-# Every MCPServer that selects kubemootImage artifactAccess gets ARTIFACT_QUERY_ENGINE.
-artifacts:
-  queryEngine: sqlite   # sqlite | duckdb | none
+# docs/concepts/workspace.md.
+# Every MCPServer that selects kubemootImage workspaceAccess gets WORKSPACE_QUERY_ENGINE.
+# defaultAccess is the workspace access of every agent whose Agent and Crew declare none: none,
+# read, write or readWrite. Leave it out and such an agent keeps storing every tool result and
+# reading the workspace only through the tools in its enabledTools.
+# The old artifacts.queryEngine is still read when workspace.queryEngine is not set, and is
+# removed in the next release.
+# Both are left out here so the chart can tell a set value from the default: queryEngine is sqlite
+# when neither workspace.queryEngine nor the old artifacts.queryEngine is set.
+workspace: {}
+  # queryEngine: sqlite   # sqlite | duckdb | none
+  # defaultAccess: read
 
 # Scale-to-zero configuration for KEDA-based agent autoscaling
 scaleToZero:
@@ -501,7 +509,7 @@ kubemootConfig:
     mcpBridge: mcp-bridge:0.0.0
     discussionGateway: discussion-gateway:0.0.0
     fitnessRunner: fitness-runner:0.0.0
-    artifactAccess: workspace-access:0.0.0
+    workspaceAccess: workspace-access:0.0.0
     doclingServe: quay.io/docling-project/docling-serve-cpu:latest
   # Default configurations
   defaults:

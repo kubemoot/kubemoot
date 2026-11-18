@@ -400,6 +400,7 @@ spec:
                   KubemootConfig image changes, which rolls the server to the new image.
                   Exactly one of Image, KubemootImage, or ExternalEndpoint must be specified
                 enum:
+                - workspaceAccess
                 - artifactAccess
                 type: string
               port:

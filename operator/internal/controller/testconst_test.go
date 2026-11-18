@@ -18,7 +18,7 @@ const (
 	testAllow               = "allow"
 	testAlpha               = "alpha"
 	testAlphaDescription    = "Alpha agent"
-	testArtifactsDir        = "/artifacts"
+	testWorkspaceDir        = "/workspace"
 	testBaseline            = "baseline"
 	testBeta                = "beta"
 	testBetaDescription     = "Beta agent"

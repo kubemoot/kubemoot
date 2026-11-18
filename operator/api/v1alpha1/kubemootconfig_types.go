@@ -77,11 +77,17 @@ type ImageConfig struct {
 	// +optional
 	FitnessRunner string `json:"fitnessRunner,omitempty"`
 
-	// ArtifactAccess is the workspace-access image: the read-ops MCP server a crew
-	// runs (ARTIFACT_MODE=mcp) to read the artifact store when a tool result spills
+	// WorkspaceAccess is the workspace-access image: the MCP server a crew runs
+	// (WORKSPACE_MODE=mcp) to read the discussion's workspace when a tool result spills
 	// over the inline limit. An MCPServer selects it with spec.kubemootImage
 	// instead of naming an image. The operator chart stamps it from the release;
 	// there is no default, because a floating tag would break version pinning.
+	// +optional
+	WorkspaceAccess string `json:"workspaceAccess,omitempty"`
+
+	// ArtifactAccess is the old name of workspaceAccess. It is read only when
+	// workspaceAccess is empty and is removed in the next release.
+	// Deprecated: use workspaceAccess.
 	// +optional
 	ArtifactAccess string `json:"artifactAccess,omitempty"`
 }
@@ -206,8 +212,9 @@ type KubemootConfigSpec struct {
 	// +optional
 	Defaults DefaultConfig `json:"defaults,omitempty"`
 
-	// Artifacts configures the discussion's shared artifacts.
-	// +kubebuilder:default={}
+	// Artifacts is the old home of the workspace settings. Its queryEngine is read only when
+	// workspace.queryEngine is empty, and the field is removed in the next release.
+	// Deprecated: use workspace.
 	// +optional
 	Artifacts ArtifactsConfig `json:"artifacts,omitempty"`
 
@@ -266,31 +273,28 @@ type CoordinatorConfig struct {
 	Lease bool `json:"lease,omitempty"`
 }
 
-// ArtifactQueryEngine names the engine behind the workspace-access workspace_query tool.
+// WorkspaceQueryEngine names the engine behind the workspace-access workspace_query tool.
 // +kubebuilder:validation:Enum=none;sqlite;duckdb
-type ArtifactQueryEngine string
+type WorkspaceQueryEngine string
 
 const (
-	// ArtifactQueryEngineNone offers no query tool; workspace-access offers no workspace_query.
-	ArtifactQueryEngineNone ArtifactQueryEngine = "none"
-	// ArtifactQueryEngineSQLite runs read-only SQL over artifacts with SQLite inside the
+	// WorkspaceQueryEngineNone offers no query tool; workspace-access offers no workspace_query.
+	WorkspaceQueryEngineNone WorkspaceQueryEngine = "none"
+	// WorkspaceQueryEngineSQLite runs read-only SQL over the workspace with SQLite inside the
 	// workspace-access process. It needs nothing added to the image.
-	ArtifactQueryEngineSQLite ArtifactQueryEngine = "sqlite"
-	// ArtifactQueryEngineDuckDB runs read-only SQL over artifacts with DuckDB. The
+	WorkspaceQueryEngineSQLite WorkspaceQueryEngine = "sqlite"
+	// WorkspaceQueryEngineDuckDB runs read-only SQL over the workspace with DuckDB. The
 	// workspace-access image must carry the duckdb program.
-	ArtifactQueryEngineDuckDB ArtifactQueryEngine = "duckdb"
+	WorkspaceQueryEngineDuckDB WorkspaceQueryEngine = "duckdb"
 )
 
-// ArtifactsConfig configures the artifact query seam.
+// ArtifactsConfig is the old home of the workspace settings.
+// Deprecated: use WorkspaceConfig.
 type ArtifactsConfig struct {
-	// QueryEngine is the engine that answers workspace_query on every MCPServer that
-	// selects spec.kubemootImage artifactAccess. sqlite (the default, also when
-	// unset) runs in the workspace-access process and needs nothing added to the image;
-	// duckdb needs its program on the image; none offers no query tool.
-	// The operator sets ARTIFACT_QUERY_ENGINE on those servers; a server that sets the variable itself keeps its own value.
-	// +kubebuilder:default=sqlite
+	// QueryEngine is the old name of workspace.queryEngine.
+	// Deprecated: use workspace.queryEngine.
 	// +optional
-	QueryEngine ArtifactQueryEngine `json:"queryEngine,omitempty"`
+	QueryEngine WorkspaceQueryEngine `json:"queryEngine,omitempty"`
 }
 
 // KubemootConfigStatus defines the observed state of KubemootConfig

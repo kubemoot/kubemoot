@@ -28,7 +28,7 @@ var tableName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 type Service struct {
 	// Store fetches an artifact that is not yet a file under Dir.
 	Store store.Getter
-	// Dir is the artifact directory (/artifacts), where artifacts are materialized.
+	// Dir is the artifact directory (/workspace), where artifacts are materialized.
 	Dir    string
 	Engine Engine
 	Limits Limits

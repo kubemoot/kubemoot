@@ -38,7 +38,7 @@ func configWithArtifactAccess(image string) *kubemootv1alpha1.KubemootConfig {
 	return &kubemootv1alpha1.KubemootConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: DefaultKubemootConfigName},
 		Spec: kubemootv1alpha1.KubemootConfigSpec{
-			Images: kubemootv1alpha1.ImageConfig{ArtifactAccess: image},
+			Images: kubemootv1alpha1.ImageConfig{WorkspaceAccess: image},
 		},
 	}
 }
@@ -47,7 +47,7 @@ func readOpsServer() *kubemootv1alpha1.MCPServer {
 	return &kubemootv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: readOpsName, Namespace: testNS1},
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			KubemootImage: kubemootv1alpha1.KubemootImageArtifactAccess,
+			KubemootImage: kubemootv1alpha1.KubemootImageWorkspaceAccess,
 			Transport:     kubemootv1alpha1.TransportHTTP,
 		},
 	}
@@ -100,9 +100,9 @@ func TestResolveMCPServerImage(t *testing.T) {
 		wantReason string
 	}{
 		{"spec.image wins as written", nil, kubemootv1alpha1.MCPServerSpec{Image: specImage}, specImage, reasonImageFromSpec},
-		{"kubemootImage resolves to the KubemootConfig image", configured, kubemootv1alpha1.MCPServerSpec{KubemootImage: kubemootv1alpha1.KubemootImageArtifactAccess}, artifactAccessV1, reasonImageFromKubemootConfig},
-		{"no KubemootConfig", nil, kubemootv1alpha1.MCPServerSpec{KubemootImage: kubemootv1alpha1.KubemootImageArtifactAccess}, "", reasonKubemootConfigMissing},
-		{"KubemootConfig without the image", unstamped, kubemootv1alpha1.MCPServerSpec{KubemootImage: kubemootv1alpha1.KubemootImageArtifactAccess}, "", reasonKubemootImageUnset},
+		{"kubemootImage resolves to the KubemootConfig image", configured, kubemootv1alpha1.MCPServerSpec{KubemootImage: kubemootv1alpha1.KubemootImageWorkspaceAccess}, artifactAccessV1, reasonImageFromKubemootConfig},
+		{"no KubemootConfig", nil, kubemootv1alpha1.MCPServerSpec{KubemootImage: kubemootv1alpha1.KubemootImageWorkspaceAccess}, "", reasonKubemootConfigMissing},
+		{"KubemootConfig without the image", unstamped, kubemootv1alpha1.MCPServerSpec{KubemootImage: kubemootv1alpha1.KubemootImageWorkspaceAccess}, "", reasonKubemootImageUnset},
 		{"unknown kubemootImage name", configured, kubemootv1alpha1.MCPServerSpec{KubemootImage: unknownImage}, "", reasonKubemootImageUnset},
 		{"nothing selected", configured, kubemootv1alpha1.MCPServerSpec{}, "", reasonImageNotSpecified},
 	}
@@ -128,10 +128,10 @@ func TestResolveMCPServerImage(t *testing.T) {
 }
 
 func TestKubemootImageFor_NeverFallsBack(t *testing.T) {
-	if got := kubemootImageFor(configWithArtifactAccess(""), kubemootv1alpha1.KubemootImageArtifactAccess); got != "" {
+	if got := kubemootImageFor(configWithArtifactAccess(""), kubemootv1alpha1.KubemootImageWorkspaceAccess); got != "" {
 		t.Errorf("an unstamped config must give no image, got %q", got)
 	}
-	if got := kubemootImageFor(configWithArtifactAccess(artifactAccessV1), kubemootv1alpha1.KubemootImageArtifactAccess); got != artifactAccessV1 {
+	if got := kubemootImageFor(configWithArtifactAccess(artifactAccessV1), kubemootv1alpha1.KubemootImageWorkspaceAccess); got != artifactAccessV1 {
 		t.Errorf("got %q, want %q", got, artifactAccessV1)
 	}
 	if got := kubemootImageFor(configWithArtifactAccess(artifactAccessV1), unknownImage); got != "" {
@@ -185,7 +185,7 @@ func TestMCPServerReconcile_KubemootImageUnavailableReportsCondition(t *testing.
 		wantText   string
 	}{
 		{"no KubemootConfig", nil, reasonKubemootConfigMissing, "KubemootConfig"},
-		{"image not stamped", configWithArtifactAccess(""), reasonKubemootImageUnset, "spec.images.artifactAccess"},
+		{"image not stamped", configWithArtifactAccess(""), reasonKubemootImageUnset, "spec.images.workspaceAccess"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -235,7 +235,7 @@ func TestMCPServerReconcile_RerollsOnKubemootConfigChange(t *testing.T) {
 		if err := cli.Get(ctx, client.ObjectKey{Name: DefaultKubemootConfigName}, got); err != nil {
 			t.Fatal(err)
 		}
-		got.Spec.Images.ArtifactAccess = image
+		got.Spec.Images.WorkspaceAccess = image
 		if err := cli.Update(ctx, got); err != nil {
 			t.Fatal(err)
 		}

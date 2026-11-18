@@ -50,7 +50,7 @@ type imageResolution struct {
 	Message string
 	// QueryEngine is the artifact query engine KubemootConfig asks the server to run;
 	// empty when the server does not select the workspace-access image.
-	QueryEngine kubemootv1alpha1.ArtifactQueryEngine
+	QueryEngine kubemootv1alpha1.WorkspaceQueryEngine
 }
 
 // ok reports whether an image was resolved.
@@ -61,7 +61,10 @@ func (r imageResolution) ok() bool { return r.Image != "" }
 // Kubemoot image without a stamped version would float.
 func kubemootImageFor(cfg *kubemootv1alpha1.KubemootConfig, name kubemootv1alpha1.KubemootImage) string {
 	switch name {
-	case kubemootv1alpha1.KubemootImageArtifactAccess:
+	case kubemootv1alpha1.KubemootImageWorkspaceAccess, kubemootv1alpha1.KubemootImageArtifactAccess:
+		if cfg.Spec.Images.WorkspaceAccess != "" {
+			return cfg.Spec.Images.WorkspaceAccess
+		}
 		return cfg.Spec.Images.ArtifactAccess
 	default:
 		return ""
@@ -101,8 +104,8 @@ func (r *MCPServerReconciler) resolveMCPServerImage(ctx context.Context, mcpServ
 		}, nil
 	}
 	res := imageResolution{Image: image, Reason: reasonImageFromKubemootConfig, Message: fmt.Sprintf("spec.images.%s of KubemootConfig %q", name, DefaultKubemootConfigName)}
-	if name == kubemootv1alpha1.KubemootImageArtifactAccess {
-		res.QueryEngine = effectiveQueryEngine(cfg.Spec.Artifacts.QueryEngine)
+	if isWorkspaceAccessImage(name) {
+		res.QueryEngine = configuredQueryEngine(cfg)
 	}
 	return res, nil
 }
@@ -124,13 +127,29 @@ func hasEnv(env []corev1.EnvVar, name string) bool {
 	return false
 }
 
+// isWorkspaceAccessImage reports whether name selects the workspace-access image, under its
+// current or its old name.
+func isWorkspaceAccessImage(name kubemootv1alpha1.KubemootImage) bool {
+	return name == kubemootv1alpha1.KubemootImageWorkspaceAccess || name == kubemootv1alpha1.KubemootImageArtifactAccess
+}
+
+// configuredQueryEngine returns the engine a KubemootConfig asks for: spec.workspace.queryEngine,
+// else the old spec.artifacts.queryEngine, else sqlite.
+func configuredQueryEngine(cfg *kubemootv1alpha1.KubemootConfig) kubemootv1alpha1.WorkspaceQueryEngine {
+	engine := cfg.Spec.Artifacts.QueryEngine
+	if cfg.Spec.Workspace != nil && cfg.Spec.Workspace.QueryEngine != "" {
+		engine = cfg.Spec.Workspace.QueryEngine
+	}
+	return effectiveQueryEngine(engine)
+}
+
 // effectiveQueryEngine returns the engine a KubemootConfig asks for. An unset engine
 // is sqlite, the default; none is the explicit way to turn the query tool off. The API
 // default covers a config the apiserver defaulted; this covers one that reaches the
 // controller without it.
-func effectiveQueryEngine(engine kubemootv1alpha1.ArtifactQueryEngine) kubemootv1alpha1.ArtifactQueryEngine {
+func effectiveQueryEngine(engine kubemootv1alpha1.WorkspaceQueryEngine) kubemootv1alpha1.WorkspaceQueryEngine {
 	if engine == "" {
-		return kubemootv1alpha1.ArtifactQueryEngineSQLite
+		return kubemootv1alpha1.WorkspaceQueryEngineSQLite
 	}
 	return engine
 }
@@ -138,8 +157,8 @@ func effectiveQueryEngine(engine kubemootv1alpha1.ArtifactQueryEngine) kubemootv
 // queryEngineOn reports whether a resolved engine asks for a query engine. The
 // resolution has already read an unset KubemootConfig value as sqlite, so the empty
 // engine here belongs to a server that does not select the workspace-access image.
-func queryEngineOn(engine kubemootv1alpha1.ArtifactQueryEngine) bool {
-	return engine != "" && engine != kubemootv1alpha1.ArtifactQueryEngineNone
+func queryEngineOn(engine kubemootv1alpha1.WorkspaceQueryEngine) bool {
+	return engine != "" && engine != kubemootv1alpha1.WorkspaceQueryEngineNone
 }
 
 // withQueryEngineEnv returns mcpServer with WORKSPACE_QUERY_ENGINE set to the engine
@@ -147,7 +166,7 @@ func queryEngineOn(engine kubemootv1alpha1.ArtifactQueryEngine) bool {
 // for a server that does not select the workspace-access image, so a server
 // behaves as it did before the setting existed, and a server that sets the variable
 // itself keeps its value. The original is left alone.
-func withQueryEngineEnv(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.ArtifactQueryEngine) *kubemootv1alpha1.MCPServer {
+func withQueryEngineEnv(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.WorkspaceQueryEngine) *kubemootv1alpha1.MCPServer {
 	if !queryEngineOn(engine) || hasEnv(mcpServer.Spec.Env, workspaceQueryEngineEnv) ||
 		hasEnv(mcpServer.Spec.Env, artifactQueryEngineEnv) {
 		return mcpServer
@@ -158,39 +177,39 @@ func withQueryEngineEnv(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1
 }
 
 const (
-	// artifactWorkspaceDir is where workspace-access materializes the artifacts a query
-	// names (its ARTIFACT_DIR default) and the engine keeps its scratch files.
-	artifactWorkspaceDir = "/artifacts"
+	// workspaceDir is where workspace-access materializes the objects a query names (its
+	// WORKSPACE_DIR default) and the engine keeps its scratch files.
+	workspaceDir = "/workspace"
 
-	// artifactWorkspaceSizeLimit bounds the workspace emptyDir. A query names at most 8
+	// workspaceSizeLimit bounds the workspace emptyDir. A query names at most 8
 	// artifacts of at most 32 MiB each (256 MiB), and the DuckDB engine may spill up to
 	// 512 MiB of temporary data, so 768 MiB is the most one query writes; 1Gi leaves
 	// headroom for a query that overlaps a slow cleanup. The kubelet evicts a pod that
 	// exceeds it, so a runaway query cannot fill the node.
-	artifactWorkspaceSizeLimit = "1Gi"
+	workspaceSizeLimit = "1Gi"
 
 	// tmpDirEnv is the variable Go and the engines read for scratch space; the root
 	// filesystem of a hardened pod has no writable /tmp.
 	tmpDirEnv = "TMPDIR"
 )
 
-// withQueryWorkspace returns mcpServer with a size-limited emptyDir at /artifacts and
+// withQueryWorkspace returns mcpServer with a size-limited emptyDir at /workspace and
 // TMPDIR pointing at it, so a pod with a read-only root filesystem has a writable,
 // bounded place for the materialized artifacts and the engine's scratch files. It
 // reuses the EmptyDirVolumes path the code sandbox uses. Nothing is added for none or
-// no engine, a volume the server already mounts at /artifacts is kept, and a
+// no engine, a volume the server already mounts at /workspace or /artifacts is kept, and a
 // TMPDIR the server sets itself wins. The original is left alone.
-func withQueryWorkspace(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.ArtifactQueryEngine) *kubemootv1alpha1.MCPServer {
+func withQueryWorkspace(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.WorkspaceQueryEngine) *kubemootv1alpha1.MCPServer {
 	if !queryEngineOn(engine) {
 		return mcpServer
 	}
 	out := mcpServer.DeepCopy()
-	if !mountsPath(out.Spec.EmptyDirVolumes, artifactWorkspaceDir) {
+	if !mountsPath(out.Spec.EmptyDirVolumes, workspaceDir) && !mountsPath(out.Spec.EmptyDirVolumes, legacyWorkspaceDir) {
 		out.Spec.EmptyDirVolumes = append(out.Spec.EmptyDirVolumes,
-			kubemootv1alpha1.EmptyDirVolume{MountPath: artifactWorkspaceDir, SizeLimit: artifactWorkspaceSizeLimit})
+			kubemootv1alpha1.EmptyDirVolume{MountPath: workspaceDir, SizeLimit: workspaceSizeLimit})
 	}
 	if !hasEnv(out.Spec.Env, tmpDirEnv) {
-		out.Spec.Env = append(out.Spec.Env, corev1.EnvVar{Name: tmpDirEnv, Value: artifactWorkspaceDir})
+		out.Spec.Env = append(out.Spec.Env, corev1.EnvVar{Name: tmpDirEnv, Value: workspaceDir})
 	}
 	return out
 }

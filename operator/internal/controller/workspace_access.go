@@ -17,7 +17,7 @@ You may obtain a copy of the License at
 // stores nothing without write access. NATS permissions (mesh.PermissionsFor) describe the
 // matching grants, but nothing provisions NATS users from them yet, so NATS does not enforce
 // either until user provisioning lands. Other routes read the workspace regardless of the tool
-// list: the code sandbox's /artifacts mount (the materializer sidecar copies every object of its
+// list: the code sandbox's /workspace mount (the materializer sidecar copies every object of its
 // namespace), the coordinator's review catalog of keys, and direct MCP mode, where tool names
 // carry a server prefix (server.tool) and so are not matched by the workspace tool names here.
 // An agent with nothing declared is implicit: its tool lists and behavior are left as they are.
@@ -106,7 +106,7 @@ func canonicalWorkspaceTool(name string) (string, bool) { return workspacetools.
 
 // allowedWorkspaceTools are the workspace tools an access grants. workspace_query is offered
 // only when the query engine is on.
-func allowedWorkspaceTools(access kubemootv1alpha1.WorkspaceAccess, engine kubemootv1alpha1.ArtifactQueryEngine) []string {
+func allowedWorkspaceTools(access kubemootv1alpha1.WorkspaceAccess, engine kubemootv1alpha1.WorkspaceQueryEngine) []string {
 	if !access.CanRead() {
 		return nil
 	}
@@ -124,7 +124,7 @@ func allowedWorkspaceTools(access kubemootv1alpha1.WorkspaceAccess, engine kubem
 // returns the lists untouched. Otherwise every workspace tool the access does not grant is added
 // to disabledTools, and a read access adds the tools it grants to a non-empty enabledTools (an
 // empty one already means every tool).
-func applyWorkspaceAccess(enabled, disabled []string, d workspaceDecision, engine kubemootv1alpha1.ArtifactQueryEngine) workspaceTools {
+func applyWorkspaceAccess(enabled, disabled []string, d workspaceDecision, engine kubemootv1alpha1.WorkspaceQueryEngine) workspaceTools {
 	out := workspaceTools{enabled: enabled, disabled: disabled}
 	if d.implicit() {
 		return out
@@ -220,7 +220,7 @@ func (r *AgentReconciler) resolveWorkspace(ctx context.Context, agent *kubemootv
 			logf.FromContext(ctx).Error(err, "Reading the Crew for its workspace access failed", "agent", agent.Name)
 		}
 	}
-	engine := kubemootv1alpha1.ArtifactQueryEngineSQLite
+	engine := kubemootv1alpha1.WorkspaceQueryEngineSQLite
 	if r.ConfigCache != nil {
 		configAccess = r.ConfigCache.GetWorkspaceDefaultAccess()
 		engine = r.ConfigCache.GetWorkspaceQueryEngine()
@@ -247,7 +247,7 @@ func (r *AgentReconciler) hasWorkspaceServer(ctx context.Context, namespace stri
 		return false, err
 	}
 	for i := range servers.Items {
-		if servers.Items[i].Spec.KubemootImage == kubemootv1alpha1.KubemootImageArtifactAccess {
+		if isWorkspaceAccessImage(servers.Items[i].Spec.KubemootImage) {
 			return true, nil
 		}
 	}
@@ -271,7 +271,7 @@ func workspaceCondition(agent *kubemootv1alpha1.Agent, d workspaceDecision, tool
 	}
 	if serverMissing {
 		cond.Status, cond.Reason = metav1.ConditionFalse, reasonNoWorkspaceServer
-		cond.Message += "; no MCPServer in the namespace uses spec.kubemootImage artifactAccess, so the read tools have no server"
+		cond.Message += "; no MCPServer in the namespace uses spec.kubemootImage workspaceAccess, so the read tools have no server"
 	}
 	return cond
 }

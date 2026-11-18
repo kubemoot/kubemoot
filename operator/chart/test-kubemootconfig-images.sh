@@ -14,21 +14,38 @@ out="$(config_images)"
 [ -n "$out" ] || fail "no KubemootConfig rendered"
 
 # Every Kubemoot-built image is pinned to an explicit tag (0.0.0 in git, stamped at
-# release), never latest. artifactAccess is how a crew's read-ops MCPServer runs the
+# release), never latest. workspaceAccess is how a crew's workspace MCPServer runs the
 # workspace-access image without naming a version.
-for key in indexer queryService agentRuntime agentSidecar harnessGoose mcpGateway mcpBridge discussionGateway fitnessRunner artifactAccess; do
+for key in indexer queryService agentRuntime agentSidecar harnessGoose mcpGateway mcpBridge discussionGateway fitnessRunner workspaceAccess; do
   value="$(yq -N ".$key" <<<"$out")"
   [ -n "$value" ] && [ "$value" != null ] || fail "KubemootConfig spec.images.$key is not rendered"
   case "$value" in *:latest) fail "spec.images.$key floats: $value" ;; esac
 done
 
-[ "$(yq -N .artifactAccess <<<"$out")" = "ghcr.io/kubemoot/workspace-access:0.0.0" ] \
-  || fail "artifactAccess should be the registry-prefixed workspace-access image"
+[ "$(yq -N .workspaceAccess <<<"$out")" = "ghcr.io/kubemoot/workspace-access:0.0.0" ] \
+  || fail "workspaceAccess should be the registry-prefixed workspace-access image"
+
+# The old artifactAccess value is never rendered under its old name. kubemootConfig.images.workspaceAccess
+# wins over it; the old value is the workspace image only when workspaceAccess is empty.
+[ "$(yq -N '.artifactAccess // "absent"' <<<"$out")" = "absent" ] \
+  || fail "spec.images.artifactAccess is rendered"
+both="$(config_images --set kubemootConfig.images.artifactAccess=workspace-access:9.9.9)"
+[ "$(yq -N .workspaceAccess <<<"$both")" = "ghcr.io/kubemoot/workspace-access:0.0.0" ] \
+  || fail "workspaceAccess must win over the old artifactAccess value"
+old_only="$(config_images --set kubemootConfig.images.workspaceAccess= --set kubemootConfig.images.artifactAccess=workspace-access:9.9.9)"
+[ "$(yq -N .workspaceAccess <<<"$old_only")" = "ghcr.io/kubemoot/workspace-access:9.9.9" ] \
+  || fail "the old artifactAccess value must be the workspace image when workspaceAccess is empty"
+new_pin="$(config_images --set kubemootConfig.images.workspaceAccess=workspace-access:8.8.8 --set kubemootConfig.images.artifactAccess=workspace-access:9.9.9)"
+[ "$(yq -N .workspaceAccess <<<"$new_pin")" = "ghcr.io/kubemoot/workspace-access:8.8.8" ] \
+  || fail "a workspaceAccess pin must win over the old value"
+for rendered in "$both" "$old_only" "$new_pin"; do
+  [ "$(yq -N '.artifactAccess // "absent"' <<<"$rendered")" = "absent" ] || fail "spec.images.artifactAccess is rendered for an old value"
+done
 
 # A private mirror prefixes it like every other Kubemoot image.
-mirrored="$(config_images --set global.imageRegistry=harbor.example/kubemoot | yq -N .artifactAccess)"
+mirrored="$(config_images --set global.imageRegistry=harbor.example/kubemoot | yq -N .workspaceAccess)"
 [ "$mirrored" = "harbor.example/kubemoot/workspace-access:0.0.0" ] \
-  || fail "artifactAccess ignores global.imageRegistry: $mirrored"
+  || fail "workspaceAccess ignores global.imageRegistry: $mirrored"
 
 # The placement service reaches the operator only when the chart names it.
 placement_env() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
@@ -137,37 +154,60 @@ done
   "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "string" ] \
   || fail "the KubemootConfig CRD has no string spec.coordinator.resumeMaxAge"
 
-# The artifact query engine defaults to sqlite, takes duckdb, takes none (no query tool),
+# The workspace query engine defaults to sqlite, takes duckdb, takes none (no query tool),
 # and refuses any other value at render time.
 query_engine() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
-  | yq -N 'select(.kind == "KubemootConfig") | .spec.artifacts.queryEngine'; }
-[ "$(query_engine)" = "sqlite" ] || fail "artifacts.queryEngine should default to sqlite"
+  | yq -N 'select(.kind == "KubemootConfig") | .spec.workspace.queryEngine'; }
+[ "$(query_engine)" = "sqlite" ] || fail "workspace.queryEngine should default to sqlite"
 for engine in sqlite duckdb none; do
-  [ "$(query_engine --set artifacts.queryEngine=$engine)" = "$engine" ] \
-    || fail "artifacts.queryEngine=$engine does not reach KubemootConfig"
+  [ "$(query_engine --set workspace.queryEngine=$engine)" = "$engine" ] \
+    || fail "workspace.queryEngine=$engine does not reach KubemootConfig"
 done
-# The CRD defaults the field the same way, also when spec.artifacts is absent.
-crd_artifacts=".spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.artifacts"
-[ "$(yq -N "$crd_artifacts.properties.queryEngine.default" "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "sqlite" ] \
-  || fail "CRD queryEngine default is not sqlite"
-[ "$(yq -N "$crd_artifacts.default | tag" "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "!!map" ] \
-  || fail "CRD artifacts has no object default, so an absent artifacts would skip the queryEngine default"
+# The old artifacts.queryEngine is read when workspace.queryEngine is not set, and the new value
+# wins when both are set. The old block is no longer rendered into the KubemootConfig.
+[ "$(query_engine --set artifacts.queryEngine=duckdb)" = "duckdb" ] \
+  || fail "a values file that sets the old artifacts.queryEngine must still reach spec.workspace.queryEngine"
+[ "$(query_engine --set artifacts.queryEngine=duckdb --set workspace.queryEngine=none)" = "none" ] \
+  || fail "workspace.queryEngine must win over artifacts.queryEngine"
+[ "$(helm template kubemoot-operator "$chart" --namespace kubemoot --set artifacts.queryEngine=duckdb \
+  | yq -N 'select(.kind == "KubemootConfig") | .spec | has("artifacts")')" = "false" ] \
+  || fail "KubemootConfig spec.artifacts is rendered"
+# The CRD has no default for either engine field, so an unset engine is told from a chosen one.
+crd_spec=".spec.versions[0].schema.openAPIV3Schema.properties.spec.properties"
+crd_file_config="$chart/crds/kubemoot.ai_kubemootconfigs.yaml"
+[ "$(yq -N "$crd_spec.workspace.properties.queryEngine | has(\"default\")" "$crd_file_config")" = "false" ] \
+  || fail "CRD workspace.queryEngine has a default"
+[ "$(yq -N "$crd_spec.artifacts.properties.queryEngine | has(\"default\")" "$crd_file_config")" = "false" ] \
+  || fail "CRD artifacts.queryEngine has a default"
 # The engines the chart accepts are the engines the KubemootConfig CRD accepts.
-crd_engines="$(yq -N '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.artifacts.properties.queryEngine.enum | join(",")' \
-  "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")"
+crd_engines="$(yq -N "$crd_spec.workspace.properties.queryEngine.enum | join(\",\")" "$crd_file_config")"
 [ "$crd_engines" = "none,sqlite,duckdb" ] || fail "CRD queryEngine enum is $crd_engines, the chart accepts none,sqlite,duckdb"
+if helm template kubemoot-operator "$chart" --namespace kubemoot --set workspace.queryEngine=oracle >/dev/null 2>&1; then
+  fail "workspace.queryEngine=oracle should fail the render"
+fi
 if helm template kubemoot-operator "$chart" --namespace kubemoot --set artifacts.queryEngine=oracle >/dev/null 2>&1; then
   fail "artifacts.queryEngine=oracle should fail the render"
 fi
 
-# The removed artifacts.perCallArtifacts value: a values file that still sets it renders, and the
-# KubemootConfig and its CRD no longer carry the field (every tool result is always stored).
-has_per_call() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
-  | yq -N 'select(.kind == "KubemootConfig") | .spec.artifacts | has("perCallArtifacts")'; }
-[ "$(has_per_call)" = "false" ] || fail "KubemootConfig still carries artifacts.perCallArtifacts"
-[ "$(has_per_call --set artifacts.perCallArtifacts=true)" = "false" ] \
-  || fail "a values file that sets the removed artifacts.perCallArtifacts must render without the field"
-[ "$(yq -N "$crd_artifacts.properties | has(\"perCallArtifacts\")" "$chart/crds/kubemoot.ai_kubemootconfigs.yaml")" = "false" ] \
-  || fail "CRD still has perCallArtifacts"
+# The cluster-wide default workspace access is rendered only when the chart sets it, takes the four
+# access values, and refuses any other.
+default_access() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
+  | yq -N 'select(.kind == "KubemootConfig") | .spec.workspace.defaultAccess // "unset"'; }
+[ "$(default_access)" = "unset" ] || fail "workspace.defaultAccess is rendered without a value"
+for access in none read write readWrite; do
+  [ "$(default_access --set workspace.defaultAccess=$access)" = "$access" ] \
+    || fail "workspace.defaultAccess=$access does not reach KubemootConfig"
+done
+if helm template kubemoot-operator "$chart" --namespace kubemoot --set workspace.defaultAccess=all >/dev/null 2>&1; then
+  fail "workspace.defaultAccess=all should fail the render"
+fi
+
+# The install notes name an old value a values file still sets, and stay quiet without one.
+notes() { helm install --dry-run --generate-name "$chart" "$@" 2>&1; }
+notes --set artifacts.queryEngine=duckdb | grep -q "artifacts.queryEngine is workspace.queryEngine" \
+  || fail "the install notes do not name the old artifacts.queryEngine"
+notes --set kubemootConfig.images.artifactAccess=workspace-access:1 | grep -q "images.artifactAccess is kubemootConfig.images.workspaceAccess (it is ignored while workspaceAccess is set" \
+  || fail "the install notes do not say the old images.artifactAccess is ignored while workspaceAccess is set"
+if notes | grep -q "Old workspace names"; then fail "the install notes name old workspace names without any"; fi
 
 echo "all KubemootConfig image render tests passed"

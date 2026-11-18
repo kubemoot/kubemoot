@@ -189,12 +189,25 @@ duration such as 30m or 1h30m. Empty or 0 turns the limit off and renders as "0"
 {{- end }}
 
 {{/*
-The artifact query engine, none, sqlite or duckdb; any other value fails the render.
+The workspace query engine, none, sqlite or duckdb; any other value fails the render. It is
+workspace.queryEngine, else the old artifacts.queryEngine, else sqlite.
 */}}
-{{- define "kubemoot-operator.artifactQueryEngine" -}}
-{{- $engine := (.Values.artifacts | default dict).queryEngine | default "sqlite" -}}
+{{- define "kubemoot-operator.workspaceQueryEngine" -}}
+{{- $engine := (.Values.workspace | default dict).queryEngine | default ((.Values.artifacts | default dict).queryEngine) | default "sqlite" -}}
 {{- if not (has $engine (list "none" "sqlite" "duckdb")) -}}
-{{- fail (printf "artifacts.queryEngine must be none, sqlite or duckdb, got %q" $engine) -}}
+{{- fail (printf "workspace.queryEngine must be none, sqlite or duckdb, got %q" $engine) -}}
 {{- end -}}
 {{- $engine -}}
+{{- end }}
+
+{{/*
+The cluster-wide default workspace access, or empty when none is set. Any value but none, read,
+write or readWrite fails the render.
+*/}}
+{{- define "kubemoot-operator.workspaceDefaultAccess" -}}
+{{- $access := (.Values.workspace | default dict).defaultAccess | default "" -}}
+{{- if and $access (not (has $access (list "none" "read" "write" "readWrite"))) -}}
+{{- fail (printf "workspace.defaultAccess must be none, read, write or readWrite, got %q" $access) -}}
+{{- end -}}
+{{- $access -}}
 {{- end }}

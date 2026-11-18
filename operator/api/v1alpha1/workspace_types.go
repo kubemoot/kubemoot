@@ -71,6 +71,14 @@ type WorkspaceConfig struct {
 	// leave such an agent implicit; an empty string is refused by the enum.
 	// +optional
 	DefaultAccess WorkspaceAccess `json:"defaultAccess,omitempty"`
+
+	// QueryEngine is the engine that answers workspace_query on every MCPServer that
+	// selects spec.kubemootImage workspaceAccess. sqlite (the default, also when unset) runs in
+	// the workspace-access process and needs nothing added to the image; duckdb needs its program
+	// on the image; none offers no query tool. The operator sets WORKSPACE_QUERY_ENGINE on those
+	// servers; a server that sets the variable itself keeps its own value.
+	// +optional
+	QueryEngine WorkspaceQueryEngine `json:"queryEngine,omitempty"`
 }
 
 // WorkspaceAccessSource names where an Agent's resolved workspace access was declared.

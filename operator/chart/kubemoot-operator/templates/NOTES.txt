@@ -39,3 +39,13 @@ Crews ship no Models: they select from the catalog by label. See what the cluste
 
   kubectl get modelservers -n {{ .Release.Namespace }}
   kubectl get modelservers -n {{ .Release.Namespace }} -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.status.models[*].name}{"\n"}{end}'
+{{- if or (and .Values.artifacts .Values.artifacts.queryEngine) .Values.kubemootConfig.images.artifactAccess }}
+
+Old workspace names in your values still work for this release and are removed in the next:
+{{- if and .Values.artifacts .Values.artifacts.queryEngine }}
+  - artifacts.queryEngine is workspace.queryEngine
+{{- end }}
+{{- if .Values.kubemootConfig.images.artifactAccess }}
+  - kubemootConfig.images.artifactAccess is kubemootConfig.images.workspaceAccess{{ if .Values.kubemootConfig.images.workspaceAccess }} (it is ignored while workspaceAccess is set: move a pin to workspaceAccess){{ end }}
+{{- end }}
+{{- end }}

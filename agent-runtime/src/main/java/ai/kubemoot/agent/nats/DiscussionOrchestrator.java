@@ -151,7 +151,7 @@ public class DiscussionOrchestrator {
     // artifact-aware. Unlike a finding it is published WHOLE (a generous cap well
     // under the NATS payload limit) so the user always sees the complete answer,
     // and the internal file descriptions are stripped so the user is never
-    // handed an /artifacts/<key> path they cannot open. See [[Measurement
+    // handed an /workspace/<key> path they cannot open. See [[Measurement
     // Integrity - Grade Inflation and Fabrication]].
     private static final int SYNTHESIS_CONTENT_CHARS = 200_000;
     // Absolute floor of a table's names that must appear in a draft for the synthesis

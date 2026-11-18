@@ -28,40 +28,56 @@ import (
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-const sqliteEngine = string(aiv1alpha1.ArtifactQueryEngineSQLite)
+const (
+	queryEngineKey  = "queryEngine"
+	legacyArtifacts = "artifacts"
+	workspaceKey    = "workspace"
+)
 
-// The apiserver defaults spec.artifacts.queryEngine to sqlite whether the artifacts
-// object is absent, empty, or already carries the field; an explicit value is kept.
-var _ = Describe("KubemootConfig artifacts.queryEngine default", func() {
+// spec.workspace.queryEngine and the old spec.artifacts.queryEngine are stored as written and
+// never defaulted by the apiserver, so the operator can tell an unset engine (sqlite) from one
+// the user chose.
+var _ = Describe("KubemootConfig workspace.queryEngine", func() {
 	cases := []struct {
-		name      string
-		artifacts map[string]any // nil leaves spec.artifacts out
-		want      string
+		name          string
+		spec          map[string]any
+		wantWorkspace string
+		wantArtifacts string
 	}{
-		{"artifacts absent", nil, sqliteEngine},
-		{"artifacts empty", map[string]any{}, sqliteEngine},
-		{"none is explicit", map[string]any{"queryEngine": coreTestNone}, coreTestNone},
-		{"duckdb is explicit", map[string]any{"queryEngine": duckdbEngine}, duckdbEngine},
+		{"nothing set", map[string]any{}, "", ""},
+		{"workspace none", map[string]any{workspaceKey: map[string]any{queryEngineKey: coreTestNone}}, coreTestNone, ""},
+		{"workspace duckdb", map[string]any{workspaceKey: map[string]any{queryEngineKey: duckdbEngine}}, duckdbEngine, ""},
+		{"old artifacts duckdb", map[string]any{legacyArtifacts: map[string]any{queryEngineKey: duckdbEngine}}, "", duckdbEngine},
 	}
 
 	for i, tc := range cases {
-		It("resolves "+tc.name, func() {
+		It("stores "+tc.name, func() {
 			cfgObj := &unstructured.Unstructured{}
 			cfgObj.SetGroupVersionKind(aiv1alpha1.GroupVersion.WithKind("KubemootConfig"))
 			cfgObj.SetName(fmt.Sprintf("query-engine-default-%d", i))
-			spec := map[string]any{}
-			if tc.artifacts != nil {
-				spec["artifacts"] = tc.artifacts
-			}
-			Expect(unstructured.SetNestedMap(cfgObj.Object, spec, "spec")).To(Succeed())
+			Expect(unstructured.SetNestedMap(cfgObj.Object, tc.spec, "spec")).To(Succeed())
 			Expect(k8sClient.Create(ctx, cfgObj)).To(Succeed())
 			DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, cfgObj))).To(Succeed()) })
 
 			got := &aiv1alpha1.KubemootConfig{}
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cfgObj), got)).To(Succeed())
-			Expect(string(got.Spec.Artifacts.QueryEngine)).To(Equal(tc.want))
+			workspace := ""
+			if got.Spec.Workspace != nil {
+				workspace = string(got.Spec.Workspace.QueryEngine)
+			}
+			Expect(workspace).To(Equal(tc.wantWorkspace))
+			Expect(string(got.Spec.Artifacts.QueryEngine)).To(Equal(tc.wantArtifacts))
 		})
 	}
+
+	It("refuses an engine that is not none, sqlite or duckdb", func() {
+		cfgObj := &unstructured.Unstructured{}
+		cfgObj.SetGroupVersionKind(aiv1alpha1.GroupVersion.WithKind("KubemootConfig"))
+		cfgObj.SetName("query-engine-invalid")
+		spec := map[string]any{workspaceKey: map[string]any{queryEngineKey: "postgres"}}
+		Expect(unstructured.SetNestedMap(cfgObj.Object, spec, "spec")).To(Succeed())
+		Expect(k8sClient.Create(ctx, cfgObj)).NotTo(Succeed())
+	})
 })
 
 // spec.artifacts.perCallArtifacts was removed: every tool result is always stored as its own
@@ -81,13 +97,12 @@ var _ = Describe("KubemootConfig with the removed artifacts.perCallArtifacts fie
 			cfgObj := &unstructured.Unstructured{}
 			cfgObj.SetGroupVersionKind(aiv1alpha1.GroupVersion.WithKind("KubemootConfig"))
 			cfgObj.SetName(fmt.Sprintf("removed-per-call-artifacts-%d", i))
-			Expect(unstructured.SetNestedMap(cfgObj.Object, map[string]any{"artifacts": tc.artifacts}, "spec")).To(Succeed())
+			Expect(unstructured.SetNestedMap(cfgObj.Object, map[string]any{legacyArtifacts: tc.artifacts}, "spec")).To(Succeed())
 			Expect(k8sClient.Create(ctx, cfgObj)).To(Succeed())
 			DeferCleanup(func() { Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, cfgObj))).To(Succeed()) })
 
 			got := &aiv1alpha1.KubemootConfig{}
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cfgObj), got)).To(Succeed())
-			Expect(got.Spec.Artifacts.QueryEngine).NotTo(BeEmpty())
 		})
 	}
 })

@@ -29,11 +29,11 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-const duckdbEngine = string(kubemootv1alpha1.ArtifactQueryEngineDuckDB)
+const duckdbEngine = string(kubemootv1alpha1.WorkspaceQueryEngineDuckDB)
 
-func configWithQueryEngine(engine kubemootv1alpha1.ArtifactQueryEngine) *kubemootv1alpha1.KubemootConfig {
+func configWithQueryEngine(engine kubemootv1alpha1.WorkspaceQueryEngine) *kubemootv1alpha1.KubemootConfig {
 	cfg := configWithArtifactAccess(artifactAccessV1)
-	cfg.Spec.Artifacts.QueryEngine = engine
+	cfg.Spec.Workspace = &kubemootv1alpha1.WorkspaceConfig{QueryEngine: engine}
 	return cfg
 }
 
@@ -49,15 +49,15 @@ func queryEngineEnv(env []corev1.EnvVar) (string, bool) {
 func TestWithQueryEngineEnv(t *testing.T) {
 	plain := readOpsServer()
 
-	for _, engine := range []kubemootv1alpha1.ArtifactQueryEngine{"", kubemootv1alpha1.ArtifactQueryEngineNone} {
+	for _, engine := range []kubemootv1alpha1.WorkspaceQueryEngine{"", kubemootv1alpha1.WorkspaceQueryEngineNone} {
 		if got := withQueryEngineEnv(plain, engine); got != plain {
 			t.Errorf("engine %q must leave the server untouched", engine)
 		}
 	}
 
-	want := map[kubemootv1alpha1.ArtifactQueryEngine]string{
-		kubemootv1alpha1.ArtifactQueryEngineSQLite: string(kubemootv1alpha1.ArtifactQueryEngineSQLite),
-		kubemootv1alpha1.ArtifactQueryEngineDuckDB: duckdbEngine,
+	want := map[kubemootv1alpha1.WorkspaceQueryEngine]string{
+		kubemootv1alpha1.WorkspaceQueryEngineSQLite: string(kubemootv1alpha1.WorkspaceQueryEngineSQLite),
+		kubemootv1alpha1.WorkspaceQueryEngineDuckDB: duckdbEngine,
 	}
 	for engine, value := range want {
 		got := withQueryEngineEnv(plain, engine)
@@ -73,11 +73,11 @@ func TestWithQueryEngineEnv(t *testing.T) {
 }
 
 func TestEffectiveQueryEngine(t *testing.T) {
-	cases := map[kubemootv1alpha1.ArtifactQueryEngine]kubemootv1alpha1.ArtifactQueryEngine{
-		"":                                       kubemootv1alpha1.ArtifactQueryEngineSQLite,
-		kubemootv1alpha1.ArtifactQueryEngineNone: kubemootv1alpha1.ArtifactQueryEngineNone,
-		kubemootv1alpha1.ArtifactQueryEngineSQLite: kubemootv1alpha1.ArtifactQueryEngineSQLite,
-		kubemootv1alpha1.ArtifactQueryEngineDuckDB: kubemootv1alpha1.ArtifactQueryEngineDuckDB,
+	cases := map[kubemootv1alpha1.WorkspaceQueryEngine]kubemootv1alpha1.WorkspaceQueryEngine{
+		"": kubemootv1alpha1.WorkspaceQueryEngineSQLite,
+		kubemootv1alpha1.WorkspaceQueryEngineNone:   kubemootv1alpha1.WorkspaceQueryEngineNone,
+		kubemootv1alpha1.WorkspaceQueryEngineSQLite: kubemootv1alpha1.WorkspaceQueryEngineSQLite,
+		kubemootv1alpha1.WorkspaceQueryEngineDuckDB: kubemootv1alpha1.WorkspaceQueryEngineDuckDB,
 	}
 	for in, want := range cases {
 		if got := effectiveQueryEngine(in); got != want {
@@ -90,17 +90,17 @@ func TestResolveReadsAnUnsetEngineAsSQLite(t *testing.T) {
 	cfg := configWithQueryEngine("")
 	r := &MCPServerReconciler{Client: fake.NewClientBuilder().WithScheme(gatewayScheme(t)).WithObjects(cfg).Build()}
 	got, err := r.resolveMCPServerImage(context.Background(), readOpsServer())
-	if err != nil || got.QueryEngine != kubemootv1alpha1.ArtifactQueryEngineSQLite {
+	if err != nil || got.QueryEngine != kubemootv1alpha1.WorkspaceQueryEngineSQLite {
 		t.Fatalf("unset engine resolved to %q, err %v", got.QueryEngine, err)
 	}
 }
 
 func TestResolveCarriesTheQueryEngineOnlyForArtifactAccess(t *testing.T) {
-	cfg := configWithQueryEngine(kubemootv1alpha1.ArtifactQueryEngineDuckDB)
+	cfg := configWithQueryEngine(kubemootv1alpha1.WorkspaceQueryEngineDuckDB)
 	r := &MCPServerReconciler{Client: fake.NewClientBuilder().WithScheme(gatewayScheme(t)).WithObjects(cfg).Build()}
 
 	got, err := r.resolveMCPServerImage(context.Background(), readOpsServer())
-	if err != nil || got.QueryEngine != kubemootv1alpha1.ArtifactQueryEngineDuckDB {
+	if err != nil || got.QueryEngine != kubemootv1alpha1.WorkspaceQueryEngineDuckDB {
 		t.Fatalf("artifactAccess: engine %q err %v", got.QueryEngine, err)
 	}
 	own := &kubemootv1alpha1.MCPServer{Spec: kubemootv1alpha1.MCPServerSpec{Image: specImage}}
@@ -122,14 +122,14 @@ func deploymentEnv(t *testing.T, cli client.Client) []corev1.EnvVar {
 func TestReconcileSetsTheQueryEngineOnTheDeployment(t *testing.T) {
 	cases := []struct {
 		name   string
-		engine kubemootv1alpha1.ArtifactQueryEngine
+		engine kubemootv1alpha1.WorkspaceQueryEngine
 		want   string
 		set    bool
 	}{
-		{"sqlite", kubemootv1alpha1.ArtifactQueryEngineSQLite, string(kubemootv1alpha1.ArtifactQueryEngineSQLite), true},
-		{"duckdb", kubemootv1alpha1.ArtifactQueryEngineDuckDB, duckdbEngine, true},
-		{coreTestNone, kubemootv1alpha1.ArtifactQueryEngineNone, "", false},
-		{"unset", "", string(kubemootv1alpha1.ArtifactQueryEngineSQLite), true},
+		{"sqlite", kubemootv1alpha1.WorkspaceQueryEngineSQLite, string(kubemootv1alpha1.WorkspaceQueryEngineSQLite), true},
+		{"duckdb", kubemootv1alpha1.WorkspaceQueryEngineDuckDB, duckdbEngine, true},
+		{coreTestNone, kubemootv1alpha1.WorkspaceQueryEngineNone, "", false},
+		{"unset", "", string(kubemootv1alpha1.WorkspaceQueryEngineSQLite), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -149,9 +149,9 @@ func assertServerOwnEngineWins(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{workspaceQueryEngineEnv, artifactQueryEngineEnv} {
 		own := readOpsServer()
-		own.Spec.Env = []corev1.EnvVar{{Name: name, Value: string(kubemootv1alpha1.ArtifactQueryEngineNone)}}
-		got := withQueryEngineEnv(own, kubemootv1alpha1.ArtifactQueryEngineDuckDB).Spec.Env
-		if len(got) != 1 || got[0].Name != name || got[0].Value != string(kubemootv1alpha1.ArtifactQueryEngineNone) {
+		own.Spec.Env = []corev1.EnvVar{{Name: name, Value: string(kubemootv1alpha1.WorkspaceQueryEngineNone)}}
+		got := withQueryEngineEnv(own, kubemootv1alpha1.WorkspaceQueryEngineDuckDB).Spec.Env
+		if len(got) != 1 || got[0].Name != name || got[0].Value != string(kubemootv1alpha1.WorkspaceQueryEngineNone) {
 			t.Errorf("a server that sets %s itself must keep it and gain no second engine variable, got %v", name, got)
 		}
 	}

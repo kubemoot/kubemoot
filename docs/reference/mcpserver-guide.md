@@ -159,7 +159,7 @@ spec:
 |-------|------|---------|-------------|
 | `description` | string | | What the server is for, in a sentence or two (up to 500 characters). The dashboard shows it on the server's tile and detail page. Agents do not see it; they see the tool descriptions the server reports |
 | `image` | string | | Container image. Exactly one of `image`, `kubemootImage`, or `externalEndpoint` is required |
-| `kubemootImage` | enum | | Run a Kubemoot-built image without naming a version: `artifactAccess`. The operator uses the matching `spec.images` entry of [KubemootConfig](../kubemootconfig-guide/). Mutually exclusive with `image` and `externalEndpoint` |
+| `kubemootImage` | enum | | Run a Kubemoot-built image without naming a version: `workspaceAccess` (`artifactAccess` is its old name and is removed in the next release). The operator uses the matching `spec.images` entry of [KubemootConfig](../kubemootconfig-guide/). Mutually exclusive with `image` and `externalEndpoint` |
 | `externalEndpoint` | string | | URL of an external MCP server (no deployment created) |
 | `command` | []string | | Override container entrypoint |
 | `args` | []string | | Arguments to the MCP server |
@@ -280,7 +280,7 @@ crew's gateway and the operator to the server's port.
 | `tools` | []MCPTool | Discovered tool names and descriptions |
 | `discoverable` | bool | Registered with at least one gateway |
 | `registeredWith` | []RegistryStatus | Gateway registration details |
-| `conditions` | []Condition | `Ready`; `ImageResolved` on a managed server (False with the reason when `kubemootImage` cannot resolve); `CredentialReady` on an external server with `registry.authSecretRef`; `EgressEnforced` when the server sets `egress` and the operator generates network policies (False with reason `FQDNNotSupported` when the CNI cannot enforce `allowedHosts`, or `ServiceNotResolved` when an `allowedServices` entry has no Service, no pod selector or no matching port yet); `RuntimeClassAvailable` on a managed server that asks for a RuntimeClass (`True` when the class exists, `False` with reason `RuntimeClassMissing` and phase `Pending` when it does not) |
+| `conditions` | []Condition | `Ready`; `ImageResolved` on a managed server (False with the reason when `kubemootImage` cannot resolve); `DeprecatedNames` (True) on a managed server that still uses an old workspace name, with the names to change in its message: `kubemootImage: artifactAccess`, an `ARTIFACT_*` variable workspace-access reads, a pinned `artifact-access` image (which ignores `WORKSPACE_QUERY_ENGINE`), or an `emptyDirVolumes` mount at `/artifacts` on a workspace server; `CredentialReady` on an external server with `registry.authSecretRef`; `EgressEnforced` when the server sets `egress` and the operator generates network policies (False with reason `FQDNNotSupported` when the CNI cannot enforce `allowedHosts`, or `ServiceNotResolved` when an `allowedServices` entry has no Service, no pod selector or no matching port yet); `RuntimeClassAvailable` on a managed server that asks for a RuntimeClass (`True` when the class exists, `False` with reason `RuntimeClassMissing` and phase `Pending` when it does not) |
 
 ## Examples
 
@@ -395,7 +395,7 @@ metadata:
   name: artifact-readops-mcp
   namespace: my-crew
 spec:
-  kubemootImage: artifactAccess   # no image, no tag
+  kubemootImage: workspaceAccess   # no image, no tag
   transport: stdio
   command: ["/cnb/process/web"]
   port: 3000
@@ -405,8 +405,8 @@ spec:
       value: "mcp"
     - name: NATS_URL
       value: "nats://nats.nats.svc:4222"
-    - name: ARTIFACT_BUCKET
-      value: "kubemoot_discussion_artifacts"
+    - name: WORKSPACE_BUCKET
+      value: "kubemoot_workspace"
   capabilities: [data-access, data-analysis]
   securityContext:
     readOnlyRootFilesystem: true
@@ -418,7 +418,7 @@ spec:
 ```
 
 This is the read-ops server that agents call (`workspace_head`, `workspace_tail`, `workspace_grep`,
-`workspace_query`; the older `artifact_*` names are served too and are removed in the next release) to read a tool result, which is always stored as a file in the artifact store. See [Discussion artifact store](../../concepts/discussion-artifact-store/).
+`workspace_query`; the older `artifact_*` names are served too and are removed in the next release) to read a tool result, which is always stored as a file in the artifact store. See [Discussion workspace](../../concepts/workspace/).
 
 How it behaves:
 

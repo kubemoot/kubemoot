@@ -676,7 +676,7 @@ kmctl conversation ask <crew> "<message>" [-n <namespace>] [-o full|plain|json|q
 kmctl conversation watch <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
 kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml]
 kmctl conversation placements <crew> <conversation-id> [-n <namespace>] [-o table|yaml|json|kyaml] [--timeout <duration>]
-kmctl conversation artifact <crew> <key> [-n <namespace>] [-f <file>]
+kmctl conversation workspace <crew> <key> [-n <namespace>] [-f <file>]
 ```
 
 Start a conversation turn with a crew and stream the moot's deliberation in real
@@ -738,7 +738,7 @@ ANSWER:
 - Tokens: 15,740 in, 2,059 out
 - Models: qwen3:14b, qwen3:8b
 - Tool errors: pilot-storage: zfs_pool_status failed 3 times: connection refused
-- Artifact from pilot-metrics (8.3 KB): `kmctl conversation artifact homelab-pilot crew-homelab-pilot/homelab-pilot/t-42/pilot-metrics/agree-1b2c -n crew-homelab-pilot`
+- Workspace object from pilot-metrics (8.3 KB): `kmctl conversation workspace homelab-pilot crew-homelab-pilot/homelab-pilot/t-42/pilot-metrics/agree-1b2c -n crew-homelab-pilot`
 
 Next: kmctl conversation ask homelab-pilot "<next question>" -n crew-homelab-pilot --conversation-id 6733c361-aa0c-4bde-85c6-e143af23b251
 ```
@@ -866,16 +866,21 @@ argument offers the crew's recent conversations, each with its first question as
 the description. A discussion gateway that cannot list conversations needs the full
 ID, and kmctl says so.
 
-### kmctl conversation artifact
+### kmctl conversation workspace
 
 ```
-kmctl conversation artifact <crew> <key> [-n <namespace>] [-f <file>]
+kmctl conversation workspace <crew> <key> [-n <namespace>] [-f <file>]
 ```
 
-Write an artifact an agent attached to a discussion (a contribution too large for
-the stream) to stdout, or to a file with `-f`. The conversation output prints this
-command for each artifact. The coordinator deletes a thread's artifacts soon after
-the thread closes; after that kmctl reports the artifact as not found.
+Write an object from the discussion's [workspace](../../concepts/workspace/) (a stored
+tool result, or a contribution too large for the stream) to stdout, or to a file with
+`-f`. The conversation output prints this command for each stored object. The
+coordinator deletes a thread's workspace objects soon after the thread closes; after that
+kmctl reports the object as not found. `kmctl conversation artifact` is the old name of
+the command: it still works for one release, prints a warning on stderr, and is then
+removed. kmctl asks the gateway's `/workspace` route and falls back to the old `/artifact`
+route on a gateway that does not have it. In `-o json`, objects are under `workspace` and
+`workspaces`; the old `artifact` and `artifacts` keys carry the same content for one release.
 
 ### Still planned in kmctl conversation
 

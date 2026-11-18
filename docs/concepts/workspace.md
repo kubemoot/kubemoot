@@ -1,7 +1,9 @@
 ---
-title: "Discussion Artifact Store"
+title: "The Workspace"
 weight: 35
-description: "How Kubemoot stores every tool result as its own file, puts the file's description in the discussion, and posts a result as well when it is small enough."
+description: "How Kubemoot stores every tool result as its own file in the discussion's workspace, puts the file's description in the discussion, and posts a result as well when it is small enough."
+aliases:
+  - /docs/concepts/discussion-artifact-store/
 ---
 
 When a tooler fetches data from a live system, the result can be large: a full
@@ -50,7 +52,7 @@ JetStream Object Store bucket `kubemoot_workspace`, under the thread's key prefi
 tool returned JSON. A result over the runtime's size cap (1,000,000 characters) is cut
 and ends with ` ...[truncated]`. An error result is stored too, and flagged in its
 headers. Each object is announced to the materializer, so a compute
-sandbox finds it as a file under `/artifacts/{key}`.
+sandbox finds it as a file under `/workspace/{key}`.
 
 Call numbers keep counting after an agent restarts: the next number is found from the
 objects already stored, so a call never overwrites an earlier one.
@@ -127,7 +129,7 @@ No events found
 [EMPTY RESULT]
 (empty: the call succeeded and returned nothing)
 [END RESULT]
-The results are stored under these keys; a result not shown above is only in its file. Read a key with workspace_query (SQL; the columns are listed on the call line, and workspace_describe lists every one), the artifact_* tools, or execute_code over the file /artifacts/<key>; the key k8s-workloads/*-<tool> reads every call of one tool as one table.
+The results are stored under these keys; a result not shown above is only in its file. Read a key with workspace_query (SQL; the columns are listed on the call line, and workspace_describe lists every one), the artifact_* tools, or execute_code over the file /workspace/<key>; the key k8s-workloads/*-<tool> reads every call of one tool as one table.
 ```
 
 The keys in the lines are relative to the thread: `{agent}/{nnn}-{tool}` ([Short
@@ -144,7 +146,7 @@ These are the names `workspace_query` reads the table by, so a query can use the
 A `workspace_query` that names a column the table does not have fails with `no such column`
 and the error lists the actual columns of every table in the query.
 The list has the shape of the `columns=` list (`name,status,+5more`, the same rule in the runtime and in
-artifact-access). When the name shares a word with real columns, the error also names the closest ones
+workspace-access). When the name shares a word with real columns, the error also names the closest ones
 (`closest to status_phase: pods.status`), and when a table was read as plain text lines
 (`line_no`, `line`) it says so. A name is never turned into a column silently: a query that
 names a column the table lacks fails, so a wrong column is never returned.
@@ -283,7 +285,7 @@ is three plain name parts. The tool resolves each key inside that thread:
 
 Without a thread in `_meta` (a call from outside a discussion), keys are used as given. `execute_code`
 runs in a sandbox that knows no thread, so the runtime writes the thread into each
-`/artifacts/{agent}/{nnn}-{tool}` path in the code before the call; a path that already names a
+`/workspace/{agent}/{nnn}-{tool}` path in the code before the call; a path that already names a
 thread is left alone. Short keys are resolved for the files of the thread the call runs in only; code
 that builds a path to another thread's file by hand can still read it from the sandbox's mount.
 
@@ -299,7 +301,7 @@ stored is missing from it, and the totals line shows if a line were:
 [GROUP agent=proxmox-qm tool=get_vm_rrd_data calls=9 errors=0 bytes=198000 rows=540 pattern=proxmox-qm/*-get_vm_rrd_data]
 [CATALOG-CALL key=proxmox-qm/002-get_vm_rrd_data tool=get_vm_rrd_data args={"node":"pve","vmid":101} type=text/plain rows=60 bytes=22000 error=false]
 ...
-Read one call by its key, or every call of a group by its pattern, with workspace_query (SQL) or the artifact_* tools, or with execute_code over the file /artifacts/<key>. A pattern reads the calls as one table with the columns _call (the call's key), _args (its arguments) and _arg_<name> for an argument that differs between the calls (for example _arg_vmid).
+Read one call by its key, or every call of a group by its pattern, with workspace_query (SQL) or the artifact_* tools, or with execute_code over the file /workspace/<key>. A pattern reads the calls as one table with the columns _call (the call's key), _args (its arguments) and _arg_<name> for an argument that differs between the calls (for example _arg_vmid).
 ```
 
 One `[GROUP ...]` line per agent and tool carries the call, error and byte counts, the sum of the
@@ -373,7 +375,7 @@ depending on the agent's network posture.
 Toolers, analysts, and the coordinator can reach NATS directly. They read a file's
 description (tool, arguments, rows, bytes, columns), decide which slice they need, and
 issue a targeted read through the **read-ops MCP service** (`workspace-access` in `mcp`
-mode; an MCPServer with `kubemootImage: artifactAccess` runs it without naming a version,
+mode; an MCPServer with `kubemootImage: workspaceAccess` runs it without naming a version,
 see the [MCPServer guide](../../reference/mcpserver-guide/#run-a-kubemoot-built-server-without-naming-a-version)). That service exposes output-bounded tools that extract only the slice an
 agent needs:
 
@@ -436,7 +438,7 @@ no files outside the named artifacts and no network ([Limits and safety](#limits
 | Thing | Persists? |
 |-------|-----------|
 | The artifact in the NATS object store (`kubemoot_workspace`) | Yes. This is the only persistence for artifacts, until [garbage collection](#garbage-collection) removes it. |
-| The files under `/artifacts` | No. A local copy that workspace-access reads from. It is lost with the pod and fetched again from the store on next use ([Workspace directory](#workspace-directory)). |
+| The files under `/workspace` | No. A local copy that workspace-access reads from. It is lost with the pod and fetched again from the store on next use ([Workspace directory](#workspace-directory)). |
 | The SQLite database | No. It exists for one query. |
 
 SQLite stores nothing. Crew memory is separate and lives in NATS KV; see
@@ -453,7 +455,7 @@ the tool off, set `artifacts.queryEngine: none` in the chart values (or
 no CPU or memory request or limit of the workspace-access pod: an MCPServer that sets no
 `spec.resources` keeps the operator's default MCPServer resources (see the
 [MCPServer reference](../../reference/mcpserver-guide/)), which hold the growth the memory watch allows for one query. The
-only addition is the 1Gi `/artifacts` volume described below. If you set `spec.resources`
+only addition is the 1Gi `/workspace` volume described below. If you set `spec.resources`
 yourself, keep the memory limit above the memory setting plus the base process. See
 [Query engines](#query-engines) for why and when. The engine sits behind a seam:
 another engine can replace these through the chart value without a change to crews or
@@ -576,17 +578,17 @@ community extension that downloads at run time, which a server with no network c
 - **Errors say what to fix.** A missing artifact, an unknown column or a refused
   statement comes back as a tool error naming the cause.
 
-The service reads these variables; the chart value sets only the engine. Each one is also read as `WORKSPACE_<name>` (`WORKSPACE_QUERY_ENGINE`, `WORKSPACE_DIR`, `WORKSPACE_MODE`, `WORKSPACE_SUBJECT`, `WORKSPACE_BUCKET`), and the `WORKSPACE_` name wins. The `ARTIFACT_` names keep working for one release and each logs a warning the first time it supplies a value; set the new names in new manifests. The operator sets `WORKSPACE_QUERY_ENGINE` on every server that selects the workspace image; a server that sets either name itself keeps its own value.
+The service reads these variables; the chart value sets only the engine. Each one is also read under its old `ARTIFACT_` name (`ARTIFACT_QUERY_ENGINE`, `ARTIFACT_DIR`, `ARTIFACT_MODE`, `ARTIFACT_SUBJECT`, `ARTIFACT_BUCKET`), and the `WORKSPACE_` name wins. The `ARTIFACT_` names keep working for one release and each logs a warning the first time it supplies a value; set the new names in new manifests. The operator sets `WORKSPACE_QUERY_ENGINE` on every server that selects the workspace image; a server that sets either name itself keeps its own value.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `ARTIFACT_QUERY_ENGINE` | `none` | `none`, `sqlite` or `duckdb`. The service itself defaults to `none` when run on its own; the operator sets it from the KubemootConfig `spec.artifacts.queryEngine` (`sqlite` when unset) unless the MCPServer sets it. |
-| `ARTIFACT_DUCKDB_BIN` | `duckdb` | The `duckdb` program. The workspace-access image that serves `duckdb` must carry it; when it is missing the service logs the reason and offers no query tool. |
-| `ARTIFACT_QUERY_TIMEOUT` | `10s` | Time limit per query. |
-| `ARTIFACT_QUERY_MAX_ROWS` | `100` | Rows per result. |
-| `ARTIFACT_QUERY_MEMORY` | `256MB` | DuckDB memory limit. For SQLite, the growth of the process that stops a query, and a quarter of it is the ceiling on any one value. |
-| `ARTIFACT_QUERY_MAX_ARTIFACT_BYTES` | `33554432` | Largest artifact a query may read. |
-| `ARTIFACT_DIR` | `/artifacts` | Where artifacts are materialized; the server needs a writable volume there. |
+| `WORKSPACE_QUERY_ENGINE` | `none` | `none`, `sqlite` or `duckdb`. The service itself defaults to `none` when run on its own; the operator sets it from the KubemootConfig `spec.artifacts.queryEngine` (`sqlite` when unset) unless the MCPServer sets it. |
+| `WORKSPACE_DUCKDB_BIN` | `duckdb` | The `duckdb` program. The workspace-access image that serves `duckdb` must carry it; when it is missing the service logs the reason and offers no query tool. |
+| `WORKSPACE_QUERY_TIMEOUT` | `10s` | Time limit per query. |
+| `WORKSPACE_QUERY_MAX_ROWS` | `100` | Rows per result. |
+| `WORKSPACE_QUERY_MEMORY` | `256MB` | DuckDB memory limit. For SQLite, the growth of the process that stops a query, and a quarter of it is the ceiling on any one value. |
+| `WORKSPACE_QUERY_MAX_ARTIFACT_BYTES` | `33554432` | Largest artifact a query may read. |
+| `WORKSPACE_DIR` | `/workspace` | Where artifacts are materialized; the server needs a writable volume there. |
 
 An artifact the sandbox sidecar has not materialized yet is fetched from the object store
 on first use.
@@ -594,15 +596,15 @@ on first use.
 #### Workspace directory
 
 When the engine is `sqlite` or `duckdb`, the operator gives the MCPServer pod an
-`emptyDir` mounted at `/artifacts` with a size limit of 1Gi, and sets `TMPDIR=/artifacts`,
+`emptyDir` mounted at `/workspace` with a size limit of 1Gi, and sets `TMPDIR=/workspace`,
 so a pod with a read-only root filesystem has a writable place for the materialized
 artifacts and the engine's scratch files (the DuckDB program's home and temporary
 directory). One query names at most 8 artifacts of at most 32 MiB each and DuckDB may spill
 up to 512 MiB, so 1Gi holds the most one query writes; the kubelet evicts a pod that
 exceeds it. With `none` nothing is added. A volume the MCPServer already mounts at
-`/artifacts`, or a `TMPDIR` it sets, is kept. Raising
-`ARTIFACT_QUERY_MAX_ARTIFACT_BYTES` raises what a query writes, so declare a larger
-`/artifacts` `emptyDirVolumes` entry with it.
+`/workspace`, or a `TMPDIR` it sets, is kept. Raising
+`WORKSPACE_QUERY_MAX_ARTIFACT_BYTES` raises what a query writes, so declare a larger
+`/workspace` `emptyDirVolumes` entry with it.
 
 #### Query engines
 
@@ -661,7 +663,7 @@ A crew that declares nothing keeps today's behavior: every result is stored and 
 
 The agent-runtime reads the declared access from `KUBEMOOT_WORKSPACE_ACCESS`. With `none` or `read` it stores nothing: it does not write a file for any tool call, so its calls have no key, and every tool result returns to the model inline under the tool result budget, with a large result cut, exactly as a tool loop does outside a discussion. The agent still lists its calls in its contribution ([Calls of an agent that stores nothing](#calls-of-an-agent-that-stores-nothing)), so the coordinator and the other agents see what it asked and what it got. A raw-output tooler with `none` or `read` has no such list: its contribution is the tool output it gathered. With `write` or `readWrite`, or when the variable is absent, it stores every result as before. A value the runtime does not recognize is logged once and treated as absent, so a typo cannot silence an agent that used to store. An agent with `none` or `read` still receives the coordinator's catalog of stored keys in the discussion; the access limits what it stores and which tools it has, not what the coordinator posts.
 
-In 0.94 read is enforced through the agent's tool list, not per caller, and write by the agent-runtime. NATS enforcement lands with NATS user provisioning; the NATS column above is the grant that provisioning will give, and it is not applied yet. The workspace server scopes reads by discussion, so access does not isolate two agents of one crew. The code sandbox's `/artifacts` mount, the coordinator's catalog of stored keys, and direct MCP mode (tool names with a `server.` prefix) reach the workspace whatever the tool list says; see [Agent](../../reference/agent/#specworkspaceaccess).
+Read is enforced through the agent's tool list, not per caller, and write by the agent-runtime. NATS enforcement lands with NATS user provisioning; the NATS column above is the grant that provisioning will give, and it is not applied yet. The workspace server scopes reads by discussion, so access does not isolate two agents of one crew. The code sandbox's `/workspace` mount, the coordinator's catalog of stored keys, and direct MCP mode (tool names with a `server.` prefix) reach the workspace whatever the tool list says; see [Agent](../../reference/agent/#specworkspaceaccess).
 
 ### Calls of an agent that stores nothing
 
@@ -692,6 +694,10 @@ The discussion's artifacts are the discussion's workspace, and the names follow.
 | `artifact_count`, `artifact_rows`, `artifact_select`, `artifact_jq` | `workspace_query` | The four still work. Their descriptions say to use `workspace_query`, and the first call of each logs a warning. |
 | image and component `artifact-access` (its image `ghcr.io/kubemoot/artifact-access`, its release tags) | `workspace-access` | The workspace server is built, tagged and published as `workspace-access`. Name the new image wherever a crew or a registry mirror names the old one. |
 | `ARTIFACT_MODE`, `ARTIFACT_DIR`, `ARTIFACT_SUBJECT`, `ARTIFACT_QUERY_*`, `ARTIFACT_DUCKDB_BIN` | the same names with `WORKSPACE_` | The service reads the new name first and the old name second. |
+| MCPServer `spec.kubemootImage: artifactAccess` | `workspaceAccess` | Both select the same image. The server's status carries a `DeprecatedNames` condition while it uses the old name. |
+| KubemootConfig `spec.images.artifactAccess`, chart value `kubemootConfig.images.artifactAccess` | `spec.images.workspaceAccess`, `kubemootConfig.images.workspaceAccess` | The chart renders only the new field. `kubemootConfig.images.workspaceAccess` wins; a value under the old name is the workspace image only when the new one is empty, and the install notes say when it is ignored. A KubemootConfig written by hand that sets only the old field is still read. |
+| KubemootConfig `spec.artifacts.queryEngine`, chart value `artifacts.queryEngine` | `spec.workspace.queryEngine`, `workspace.queryEngine` | The new value wins; the old one is read when the new one is not set. The chart renders only the new field. |
+| mount `/artifacts` | mount `/workspace` | On a workspace server and on a pod with sidecars (the code sandbox with its materializer), a volume mounted at either path is also mounted at the other in the same containers unless another volume holds that path, so crews and sandbox code that name either path find the files. The agent runtime writes `/workspace` in the paths it hands out and reads both in code. |
 | bucket `kubemoot_discussion_artifacts` | bucket `kubemoot_workspace` | Every writer stores into the new bucket; the agent runtime creates it with the 48-hour TTL, and nothing else creates it. Readers (the workspace server, and the agent runtime's catalog, stored-result read and clean-up) look in the new bucket first and the old one second, skipping a bucket that does not exist, so a discussion that spans the change keeps its calls, and call numbers continue across both buckets. Data in the old bucket expires within 48 hours; nothing is copied. Start the change with no discussion running. |
 
 A crew that declares workspace access governs both sets of tool names: a tool the access does not grant is disabled under either name.
@@ -763,12 +769,12 @@ an MCP stdio server that exposes `execute_code` and `validate_code` for Python
 programs holds no credentials and talks to nothing itself, and the crew's network policy
 limits the pod's egress to the message bus. A **materializer sidecar** (the same
 `workspace-access` binary in its default mode) is the only part of the pod that reads
-NATS. It fetches referenced objects from the store and writes them into a shared local volume under `/artifacts`. The sandbox
+NATS. It fetches referenced objects from the store and writes them into a shared local volume under `/workspace`. The sandbox
 reads the materialised file and computes over it locally, then publishes its
 result through the normal discussion signal path.
 
 Each run happens in a fresh temporary directory that is removed afterwards, with
-no stdin: data goes in the code itself or in a file under `/artifacts`, never
+no stdin: data goes in the code itself or in a file under `/workspace`, never
 piped in. A time limit kills the program's whole process group, and stdout and
 stderr are each capped.
 

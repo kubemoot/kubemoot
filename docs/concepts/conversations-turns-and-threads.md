@@ -249,7 +249,7 @@ route; it is removed in the next release. The gateway reads the workspace bucket
 bucket the workspace was stored in before it was renamed second. The key must belong to the crew in the
 gateway's namespace (`<namespace>/<crew>/<thread>/<agent>/<object>`); any other key is
 answered as not found. The coordinator deletes a thread's artifacts soon after the
-thread closes ([Discussion Artifact Store](../discussion-artifact-store/)), and the
+thread closes ([The workspace](../workspace/)), and the
 gateway then answers `404`.
 
 Both endpoints are reached the same way as the stream, through the crew's
@@ -263,5 +263,5 @@ same permission (`services/proxy` in the crew's namespace).
 - [The Moot - Consensus Model](../consensus-model/) - how a discussion is organized and settles.
 - [Crews & Agents](../crews-and-agents/) - the team a conversation talks to.
 - [Signals & Protocol](../signals-and-protocol/) - the messages exchanged on a thread.
-- [Discussion Artifact Store](../discussion-artifact-store/) - how large tool outputs are passed by reference within a discussion.
+- [The workspace](../workspace/) - how large tool outputs are passed by reference within a discussion.
 - [Quickstart](../../introduction/quickstart/) - open a conversation and ask a question.
