@@ -118,20 +118,56 @@ func isKubectlTable(_ []byte, lines []string) bool {
 // a larger text is not tried. The runtime's ResultType has the same limit.
 const maxYAMLBytes = 1_000_000
 
-// isYAML decides by the first line that is not a comment, so a list a tool introduces with a
-// "# The following events (YAML format) were found:" line is still read as a table.
+// isYAML decides by the first line that is not a comment. Text that opens with comment lines is
+// YAML only when it is the structured list or mapping a tool prints under a header such as
+// "# The following events (YAML format) were found:" (see structuredYAML); a Markdown title
+// over a bullet list is plain text.
 func isYAML(data []byte, lines []string) bool {
 	if len(data) > maxYAMLBytes || !yamlFirstLine.MatchString(firstNonComment(lines)) {
 		return false
 	}
-	_, err := yamlToJSON(data)
-	return err == nil
+	doc, err := yamlToJSON(data)
+	if err != nil {
+		return false
+	}
+	return !isComment(lines[0]) || structuredYAML(doc)
+}
+
+// structuredYAML reports whether a JSON document is a non-empty list of mappings, or a mapping
+// that holds a list or a mapping.
+func structuredYAML(doc []byte) bool {
+	var v any
+	if json.Unmarshal(doc, &v) != nil {
+		return false
+	}
+	switch t := v.(type) {
+	case []any:
+		for _, item := range t {
+			if _, ok := item.(map[string]any); !ok {
+				return false
+			}
+		}
+		return len(t) > 0
+	case map[string]any:
+		for _, item := range t {
+			switch item.(type) {
+			case map[string]any, []any:
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isComment reports whether a line starts with # after the space Go trims.
+func isComment(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), "#")
 }
 
 // firstNonComment is the first of lines that does not start with #, or "" when every one does.
 func firstNonComment(lines []string) string {
 	for _, l := range lines {
-		if !strings.HasPrefix(strings.TrimSpace(l), "#") {
+		if !isComment(l) {
 			return l
 		}
 	}

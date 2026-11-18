@@ -25,6 +25,9 @@ const (
 	minPartChars = 3
 )
 
+// brackets turns square brackets into parentheses so a name cannot end a [CALL ...] line.
+var brackets = strings.NewReplacer("[", "(", "]", ")")
+
 // List is the column list shown on a [CALL ...] line and in a no such column error: the names
 // joined by commas, at most MaxListed of them, then ",+<n>more" for the rest.
 func List(names []string) string {
@@ -40,7 +43,7 @@ func ListMax(names []string, limit int) string {
 	shown := names[:min(len(names), limit)]
 	parts := make([]string, len(shown))
 	for i, n := range shown {
-		n = strings.NewReplacer("[", "(", "]", ")").Replace(n)
+		n = brackets.Replace(n)
 		if r := []rune(n); len(r) > maxNameChars {
 			n = string(r[:maxNameChars]) + "..."
 		}

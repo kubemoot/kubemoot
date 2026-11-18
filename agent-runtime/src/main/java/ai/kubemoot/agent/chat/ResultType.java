@@ -125,7 +125,7 @@ final class ResultType {
         if (!kubectlTitles(lines.get(0)).isEmpty()) {
             return KUBECTL_TABLE;
         }
-        if (isYaml(text, firstNonComment(lines))) {
+        if (isYaml(text, lines)) {
             return YAML;
         }
         return isCsv(lines) ? CSV : TEXT;
@@ -189,34 +189,52 @@ final class ResultType {
         return false;
     }
 
+    private static boolean isComment(String line) {
+        return trim(line).startsWith("#");
+    }
+
     /** The first of the lines that does not start with {@code #}, or "" when every one does. */
     private static String firstNonComment(List<String> lines) {
         for (String line : lines) {
-            if (!line.strip().startsWith("#")) {
+            if (!isComment(line)) {
                 return line;
             }
         }
         return "";
     }
 
-    /** YAML (after any comment lines) starts like YAML, fits the size limit, and parses as one mapping or list, or as several documents. */
-    private static boolean isYaml(String text, String firstLine) {
-        if (!YAML_FIRST_LINE.matcher(firstLine).find() || utf8Bytes(text) > MAX_YAML_BYTES) {
+    /**
+     * YAML starts like YAML (after any comment lines), fits the size limit, and parses as one
+     * mapping or list, or as several documents. Text that opens with comment lines is YAML only
+     * when it is the structured list or mapping a tool prints under a header
+     * ({@link #structuredYaml}); a Markdown title over a bullet list is plain text.
+     */
+    private static boolean isYaml(String text, List<String> lines) {
+        if (!YAML_FIRST_LINE.matcher(firstNonComment(lines)).find() || utf8Bytes(text) > MAX_YAML_BYTES) {
             return false;
         }
         try {
-            int count = 0;
-            Object only = null;
+            List<Object> docs = new ArrayList<>();
             for (Object doc : yaml().loadAll(text)) {
                 if (doc != null) {
-                    only = count == 0 ? doc : only;
-                    count++;
+                    docs.add(doc);
                 }
             }
-            return count > 1 || (count == 1 && (only instanceof Map || only instanceof List));
+            Object value = docs.size() == 1 ? docs.get(0) : docs;
+            boolean parsed = docs.size() > 1 || (docs.size() == 1 && (value instanceof Map || value instanceof List));
+            return parsed && (!isComment(lines.get(0)) || structuredYaml(value));
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    /** A non-empty list of mappings, or a mapping that holds a list or a mapping. */
+    private static boolean structuredYaml(Object value) {
+        if (value instanceof List<?> list) {
+            return !list.isEmpty() && list.stream().allMatch(Map.class::isInstance);
+        }
+        return value instanceof Map<?, ?> map
+                && map.values().stream().anyMatch(v -> v instanceof Map || v instanceof List);
     }
 
     /** The length of the text in UTF-8, counted only when it could be near the limit. */
