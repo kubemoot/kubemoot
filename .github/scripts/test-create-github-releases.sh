@@ -183,9 +183,10 @@ run broken && status=0 || status=$?
 check "a file that is not a Sigstore bundle fails" "1|1" "$((status != 0))|$(grep -c 'is not a Sigstore bundle' "${root}/broken.log")"
 check "and creates no release" none "$(state alpha-v0.5.0)"
 
-GH_LIST_FAIL=1 run broken && status=0 || status=$?
+setup listfail
+GH_LIST_FAIL=1 run listfail && status=0 || status=$?
 check "a release list that cannot be read fails" "1|1|none" \
-  "$((status != 0))|$(grep -c 'cannot list the releases of kubemoot/test' "${root}/broken.log")|$(state alpha-v0.5.0)"
+  "$((status != 0))|$(grep -c 'cannot list the releases of kubemoot/test' "${root}/listfail.log")|$(state alpha-v0.5.0)"
 
 setup notjson
 echo 'not json' > "${root}/notjson/prov/sha256-aaa.jsonl"
@@ -216,7 +217,7 @@ bash "${here}/create-github-releases.sh" >/dev/null 2>&1 && status=0 || status=$
 check "a run without arguments fails" 1 "$((status != 0))"
 
 # 5. Kubemoot's own release goes last and is the only one marked Latest.
-rm -rf "${GH_STATE:?}"/*
+rm -rf "${GH_STATE:?}"/* "${root}/order"
 setup order
 printf 'operator-chart-v0.94.0\tKubemoot 0.94.0\top.md\nalpha-v0.5.0\talpha 0.5.0\talpha.md\nbeta-v0.30.1\tbeta 0.30.1\tbeta.md\n' \
   > "${root}/order/files/releases.tsv"
@@ -242,6 +243,29 @@ run order && status=0 || status=$?
 check "a resumed run succeeds" "0|published|published" "${status}|$(state operator-chart-v0.94.0)|$(state beta-v0.30.1)"
 check "leaves the published release alone" "beta-v0.30.1 operator-chart-v0.94.0" \
   "$(grep '^gh release edit ' "$LOG" | awk '{print $4}' | paste -sd' ')"
+
+# 5d. Operator already published, alpha new: alpha is not Latest, and the operator is
+# handed Latest again at the end.
+rm -rf "${GH_STATE:?}"/*
+mkdir -p "${GH_STATE}/operator-chart-v0.94.0"; echo published > "${GH_STATE}/operator-chart-v0.94.0/state"
+mkdir -p "${GH_STATE}/beta-v0.30.1"; echo published > "${GH_STATE}/beta-v0.30.1/state"
+run order && status=0 || status=$?
+check "a run with the operator already published succeeds" "0|published" "${status}|$(state alpha-v0.5.0)"
+check "alpha is created and published as not Latest" "--latest=false|--latest=false" \
+  "$(cat "${GH_STATE}/alpha-v0.5.0/create-latest")|$(grep -o '[-]-latest[^ ]*$' "${GH_STATE}/alpha-v0.5.0/edit-args")"
+check "the operator release is given Latest again, last" "alpha-v0.5.0 operator-chart-v0.94.0|operator-chart-v0.94.0 --repo kubemoot/test --latest" \
+  "$(grep '^gh release edit ' "$LOG" | awk '{print $4}' | paste -sd' ')|$(grep '^gh release edit ' "$LOG" | tail -1 | cut -d' ' -f4-)"
+
+# 5e. A broken bundle of any release stops the run before anything is published.
+rm -rf "${GH_STATE:?}"/* "${root}/order"
+setup order
+printf 'operator-chart-v0.94.0\tKubemoot 0.94.0\top.md\nalpha-v0.5.0\talpha 0.5.0\talpha.md\nbeta-v0.30.1\tbeta 0.30.1\tbeta.md\n' \
+  > "${root}/order/files/releases.tsv"
+echo "op notes" > "${root}/order/files/op.md"
+printf 'operator-chart-v0.94.0\top_0.94.0.intoto.jsonl\tghcr.test/kubemoot/charts/op\tsha256:ddd\n' >> "${root}/order/files/provenance.tsv"
+run order && status=0 || status=$?
+check "a missing operator bundle fails the run" "1|1" "$((status != 0))|$(grep -c 'no provenance bundle for ghcr.test/kubemoot/charts/op' "${root}/order.log")"
+check "before any component is created" "0|none" "$(grep -c '^gh release create' "$LOG" || true)|$(state alpha-v0.5.0)"
 
 # 5c. Components only: nothing is Latest.
 rm -rf "${GH_STATE:?}"/*

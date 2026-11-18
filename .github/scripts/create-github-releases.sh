@@ -82,12 +82,12 @@ release_assets() {
   done < "${files}/assets.tsv"
 }
 
+# is_operator_tag TAG: TAG is Kubemoot's own release.
+is_operator_tag() { case "$1" in operator-chart-v*) return 0 ;; *) return 1 ;; esac; }
+
 # latest_flag TAG: the release Latest is Kubemoot's own; every other release is not.
 latest_flag() {
-  case "$1" in
-    operator-chart-v*) echo --latest ;;
-    *) echo --latest=false ;;
-  esac
+  if is_operator_tag "$1"; then echo --latest; else echo --latest=false; fi
 }
 
 # publish_release TAG TITLE NOTES: the release as a draft, its provenance and assets,
@@ -98,6 +98,8 @@ publish_release() {
   state="$(release_state "$tag")"
   if [ "$state" = published ]; then
     echo "${tag} is already published"
+    # Latest is given back to Kubemoot's release when a component took it in an earlier run.
+    if is_operator_tag "$tag"; then gh release edit "$tag" --repo "$repo" --latest; fi
     return 0
   fi
   dir="${work}/${tag}"
@@ -119,15 +121,26 @@ publish_matching() {
   local want="$1" tag title notes kind
   # gh reads stdin, so the release list comes in on its own descriptor.
   while IFS=$'\t' read -r -u 3 tag title notes; do
-    case "$tag" in operator-chart-v*) kind=operator ;; *) kind=other ;; esac
+    if is_operator_tag "$tag"; then kind=operator; else kind=other; fi
     [ "$kind" = "$want" ] || continue
     publish_release "$tag" "$title" "$notes"
+  done 3< "${files}/releases.tsv"
+}
+
+# preflight: the provenance of every release is checked into a throwaway directory before
+# anything is published, so a missing or broken bundle stops the run with nothing written.
+preflight() {
+  local tag title notes
+  while IFS=$'\t' read -r -u 3 tag title notes; do
+    mkdir -p "${work}/preflight/${tag}"
+    provenance_assets "$tag" "${work}/preflight/${tag}"
   done 3< "${files}/releases.tsv"
 }
 
 main() {
   [ -f "${files}/releases.tsv" ] || die "${files}/releases.tsv not found"
   [ -f "${files}/provenance.tsv" ] || die "${files}/provenance.tsv not found"
+  preflight
   publish_matching other
   publish_matching operator
 }
