@@ -16,7 +16,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Shared NATS connection server used by ChatEventPublisher, DiscussionSubscriber,
- * and DiscussionOrchestrator. Lazy connection with retry — no-op when NATS_URL is not set.
+ * and DiscussionOrchestrator. Lazy connection with retry; no-op when NATS_URL is not set.
  */
 @ApplicationScoped
 public class NatsConnectionProvider implements NatsLink {
@@ -24,7 +24,7 @@ public class NatsConnectionProvider implements NatsLink {
     private static final Logger log = LoggerFactory.getLogger(NatsConnectionProvider.class);
     private static final int MAX_INITIAL_RETRIES = 5;
     private static final Duration RETRY_INTERVAL = Duration.ofSeconds(3);
-    private static final Duration RECONNECT_BACKOFF = Duration.ofSeconds(30);
+    private static final Duration DEFAULT_RECONNECT_BACKOFF = Duration.ofSeconds(30);
 
     private final String natsUrl;
     private final String agentName;
@@ -32,6 +32,7 @@ public class NatsConnectionProvider implements NatsLink {
     private final ReentrantLock connectLock = new ReentrantLock();
     private final Connector connector;
     private final Duration retryInterval;
+    private final Duration reconnectBackoff;
     private volatile Connection connection;
     private volatile Instant lastFailedAttempt;
 
@@ -43,17 +44,19 @@ public class NatsConnectionProvider implements NatsLink {
 
     @Inject
     public NatsConnectionProvider(AgentProperties properties) {
-        this(properties, Nats::connect, RETRY_INTERVAL);
+        this(properties, Nats::connect, RETRY_INTERVAL, DEFAULT_RECONNECT_BACKOFF);
     }
 
-    NatsConnectionProvider(AgentProperties properties, Connector connector, Duration retryInterval) {
+    NatsConnectionProvider(AgentProperties properties, Connector connector, Duration retryInterval,
+                           Duration reconnectBackoff) {
+        this.reconnectBackoff = reconnectBackoff;
         this.connector = connector;
         this.retryInterval = retryInterval;
         this.natsUrl = properties.nats().url().orElse("");
         this.agentName = properties.agentName();
         if (natsUrl.isEmpty()) {
             this.scope = null;
-            log.info("NATS URL not configured — NATS features disabled");
+            log.info("NATS URL not configured - NATS features disabled");
         } else {
             // Fails startup when the namespace is unknown: an unscoped subject or key
             // would cross into every other namespace running the same crew name.
@@ -121,7 +124,7 @@ public class NatsConnectionProvider implements NatsLink {
 
     private boolean inBackoff() {
         var failed = lastFailedAttempt;
-        return failed != null && Instant.now().isBefore(failed.plus(RECONNECT_BACKOFF));
+        return failed != null && Instant.now().isBefore(failed.plus(reconnectBackoff));
     }
 
     private Connection replaceWith(Connection fresh, Connection old) {
@@ -140,10 +143,13 @@ public class NatsConnectionProvider implements NatsLink {
         }
         try {
             conn.close();
+            log.info("Closed NATS connection for agent {}", agentName);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.warn("Interrupted while closing NATS connection for agent {}", agentName);
         } catch (RuntimeException e) {
-            log.warn("Failed to close replaced NATS connection for agent {}: {}", agentName, e.toString());
+            // Log rather than swallow: a failed close is still worth a record.
+            log.warn("Failed to close NATS connection for agent {}: {}", agentName, e.toString());
         }
     }
 
@@ -173,7 +179,7 @@ public class NatsConnectionProvider implements NatsLink {
     private boolean afterFailedAttempt(int attempt, Exception e) {
         if (attempt >= MAX_INITIAL_RETRIES) {
             log.warn("NATS connection failed after {} attempts: {} - will retry in {}s",
-                    MAX_INITIAL_RETRIES, e.getMessage(), RECONNECT_BACKOFF.toSeconds());
+                    MAX_INITIAL_RETRIES, e.getMessage(), reconnectBackoff.toSeconds());
             lastFailedAttempt = Instant.now();
             return false;
         }
@@ -194,18 +200,6 @@ public class NatsConnectionProvider implements NatsLink {
 
     @PreDestroy
     public void close() {
-        if (connection == null) {
-            return;
-        }
-        try {
-            connection.close();
-            log.info("Closed shared NATS connection for agent {}", agentName);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.warn("Interrupted while closing NATS connection for agent {}", agentName);
-        } catch (RuntimeException e) {
-            // Log rather than swallow: a failed close during shutdown is still worth a record.
-            log.warn("Failed to close NATS connection for agent {}: {}", agentName, e.toString());
-        }
+        closeQuietly(connection);
     }
 }

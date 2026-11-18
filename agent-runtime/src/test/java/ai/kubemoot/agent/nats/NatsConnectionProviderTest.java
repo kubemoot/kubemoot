@@ -7,9 +7,8 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
@@ -59,7 +58,7 @@ class NatsConnectionProviderTest {
                 throw e;
             }
             return (Connection) next;
-        }, Duration.ofMillis(1));
+        }, Duration.ofMillis(1), Duration.ofSeconds(30));
     }
 
     private static Deque<Object> queue(Object... items) {
@@ -132,12 +131,34 @@ class NatsConnectionProviderTest {
     }
 
     @Test
+    void afterBackoffExpires_retries() throws Exception {
+        var calls = new AtomicInteger();
+        var ok = conn(Connection.Status.CONNECTED);
+        var results = queue(new java.io.IOException("1"), new java.io.IOException("2"),
+                new java.io.IOException("3"), new java.io.IOException("4"), new java.io.IOException("5"), ok);
+        var p = new NatsConnectionProvider(props("nats://nats:4222", "ns", "crew"), o -> {
+            calls.incrementAndGet();
+            var next = results.poll();
+            if (next instanceof Exception e) {
+                throw e;
+            }
+            return (Connection) next;
+        }, Duration.ofMillis(1), Duration.ofMillis(50));
+        assertNull(p.getConnection());
+        assertNull(p.getConnection());
+        assertEquals(5, calls.get());
+        Thread.sleep(80);
+        assertSame(ok, p.getConnection());
+        assertEquals(6, calls.get());
+    }
+
+    @Test
     void notConfigured_neverConnects() {
         var calls = new AtomicInteger();
         var p = new NatsConnectionProvider(props(null, "ns", "crew"), o -> {
             calls.incrementAndGet();
             return null;
-        }, Duration.ofMillis(1));
+        }, Duration.ofMillis(1), Duration.ofSeconds(30));
         assertNull(p.getConnection());
         assertEquals(0, calls.get());
     }
