@@ -58,6 +58,11 @@ abstract class CoordinatorThreadTestBase {
         return RESUMES;
     }
 
+    /** Lets a test set more of the coordinator's discussion settings before the orchestrator is built. */
+    protected void configureDiscuss(AgentProperties.Discuss discuss) {
+        // The defaults stand.
+    }
+
     /** True when the orchestrator should get a connection that records its publishes. */
     protected boolean withBus() {
         return false;
@@ -138,6 +143,7 @@ abstract class CoordinatorThreadTestBase {
         when(discuss.conversationTtlMinutes()).thenReturn(1440);
         when(discuss.conversationKvBucket()).thenReturn("kubemoot_conversations");
         when(discuss.resumePreFilterTopK()).thenReturn(5);
+        configureDiscuss(discuss);
 
         orchestrator = new DiscussionOrchestrator(natsProvider, properties, chatService,
                 new DiscussionMetrics(new SimpleMeterRegistry()), mock(LatencyTracker.class),

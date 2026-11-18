@@ -57,6 +57,7 @@ spec:
 | `phases` | list of phase | yes (at least one) | The phase definitions. See [Phases](#phases). |
 | `signals` | list of string | no | The signal types agents may emit during a discussion. An open set of names; informational. |
 | `stateMachine` | object | no | The legal phase transitions. See [State machine](#state-machine). When absent, progression is sequential in the order the phases are declared. |
+| `review` | object | no | Which analysts the coordinator convenes for review. See [Review](#review). When absent, every analyst reviews. |
 
 ### Phases
 
@@ -65,6 +66,31 @@ spec:
 | `name` | string | yes | The phase name. `CrewSchedulingPolicy` rules reference it. |
 | `role` | string | no | What the phase accomplishes, such as `gatekeeping`, `deliberation`, or `closure`. Informational. |
 | `description` | string | no | A one-line explanation shown in dashboards. |
+
+### Review
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `convene` | `all` or `domain` | `all` | `all`: the analysts the coordinator itself selected, or every analyst when it selected none (the behavior before review was declared). `domain`: only the analysts whose declared [`domains`](../agent/#specdomains) touch the question or the data the toolers gathered. |
+| `fallback` | `primary` or `all` | `primary` | Applies when `convene` is `domain` and no analyst matches. `primary`: the one analyst that best matches the question's words and the gathering toolers' domains. `all`: every analyst. |
+
+A crew that has analysts never reviews with none. When `domain` matches nothing and nothing
+ranks the analysts either (no analyst declares a domain the question or the data touches), every
+analyst reviews, because choosing one would be arbitrary. See
+[Who reviews](../../architecture/tooler-analyst-architecture/#who-reviews) for how the match works.
+
+```yaml
+spec:
+  review:
+    convene: domain
+    fallback: primary
+```
+
+The operator reads the block of the crew's archetype (the `archetypeRef` of the
+`CrewSchedulingPolicy` naming the crew, `consent-3` without one) and gives it to the crew's
+coordinator as `KUBEMOOT_DISCUSS_REVIEW_CONVENE` and `KUBEMOOT_DISCUSS_REVIEW_FALLBACK`. The
+`consent-3` archetype the operator installs sets `convene: domain`. An edit to the block
+re-reconciles the coordinators. An Agent's own `spec.deployment.env` wins over both.
 
 ### State machine
 
@@ -109,8 +135,9 @@ phase names and validity.
 
 ## What it does not do yet
 
-- **The agent runtime does not read it.** No part of the agent runtime consumes a
-  `MootArchetype`. Editing one does not change how a discussion runs.
+- **The agent runtime reads only `review`.** Editing the phases, signals or state machine of
+  a `MootArchetype` does not change how a discussion runs; editing `review` changes which
+  analysts review.
 - **The discussion's phases and transitions are fixed in code.** The runtime moves a
   discussion through its own sequence: advisory, evaluating, review, and synthesis.
   That sequence does not come from the archetype.

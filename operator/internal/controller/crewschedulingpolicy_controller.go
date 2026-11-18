@@ -35,6 +35,14 @@ type CrewSchedulingPolicyReconciler struct {
 
 const defaultArchetypeName = "consent-3"
 
+// archetypeRefOrDefault is the archetype a policy names, or the default one when it names none.
+func archetypeRefOrDefault(ref string) string {
+	if ref == "" {
+		return defaultArchetypeName
+	}
+	return ref
+}
+
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewschedulingpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewschedulingpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewschedulingpolicies/finalizers,verbs=update
@@ -51,10 +59,7 @@ func (r *CrewSchedulingPolicyReconciler) Reconcile(ctx context.Context, req ctrl
 		return ctrl.Result{}, err
 	}
 
-	archetypeName := policy.Spec.ArchetypeRef
-	if archetypeName == "" {
-		archetypeName = defaultArchetypeName
-	}
+	archetypeName := archetypeRefOrDefault(policy.Spec.ArchetypeRef)
 
 	archetype := &kubemootv1alpha1.MootArchetype{}
 	if err := r.Get(ctx, types.NamespacedName{Name: archetypeName}, archetype); err != nil {

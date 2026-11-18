@@ -31,8 +31,11 @@ type AgentResume struct {
 	Keywords    []string `json:"keywords,omitempty"`
 	Tools       []string `json:"tools,omitempty"`
 	Channels    []string `json:"channels,omitempty"`
-	Role        string   `json:"role"`
-	Summary     string   `json:"triageSummary,omitempty"`
+	// Domains are the agent's declared subject areas; the coordinator matches
+	// reviewing analysts to a question by them.
+	Domains []string `json:"domains,omitempty"`
+	Role    string   `json:"role"`
+	Summary string   `json:"triageSummary,omitempty"`
 	// Prompt is the text of the agent's own PromptModules (those no other agent
 	// in the crew references), included for EMBEDDING only (the indexer folds it
 	// into the resume text for sharper top-K ranking).
@@ -55,6 +58,11 @@ func writeAgentHashSection(h io.Writer, agents []AgentResume) {
 			strings.Join(r.Channels, ","),
 			r.Prompt,
 		)
+		// Only an agent that declares domains adds to the hash, so a crew without
+		// them keeps the hash (and the embedding) it had.
+		if len(r.Domains) > 0 {
+			_, _ = fmt.Fprintf(h, "domains|%s|%s\n", r.Name, strings.Join(r.Domains, ","))
+		}
 	}
 }
 
@@ -86,6 +94,10 @@ func BuildResumeText(r AgentResume) string {
 	if len(r.Keywords) > 0 {
 		sb.WriteString("\nKeywords: ")
 		sb.WriteString(strings.Join(r.Keywords, ", "))
+	}
+	if len(r.Domains) > 0 {
+		sb.WriteString("\nDomains: ")
+		sb.WriteString(strings.Join(r.Domains, ", "))
 	}
 	if len(r.Tools) > 0 {
 		sb.WriteString("\nTools: ")

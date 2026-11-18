@@ -98,6 +98,30 @@ spec:
                   type: object
                 minItems: 1
                 type: array
+              review:
+                description: |-
+                  Review declares which analysts the coordinator convenes for the review
+                  phase. Optional; absent means every analyst reviews.
+                properties:
+                  convene:
+                    default: all
+                    description: |-
+                      Convene is "all" (every analyst reviews) or "domain" (only analysts whose
+                      declared domains touch the question or the gathered data).
+                    enum:
+                    - all
+                    - domain
+                    type: string
+                  fallback:
+                    default: primary
+                    description: |-
+                      Fallback applies when Convene is "domain" and no analyst matches: "primary"
+                      convenes the best-matching analyst alone, "all" convenes every analyst.
+                    enum:
+                    - primary
+                    - all
+                    type: string
+                type: object
               signals:
                 description: |-
                   Signals is the set of signal types agents may emit during a discussion

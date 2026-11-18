@@ -45,6 +45,12 @@ spec:
     - advisory
     - proposal
     - consent
+  # Only the analysts whose declared domains touch the question or the gathered data
+  # review. With no match, the best-matching analyst reviews alone. Set convene: all
+  # to have every analyst review.
+  review:
+    convene: domain
+    fallback: primary
   stateMachine:
     initial: triaging
     transitions:

@@ -123,8 +123,10 @@ In plain terms, the flow is:
 2. **EVALUATING** - selected Toolers call their domain MCP tools and publish findings,
    each carrying a signal.
 3. **REVIEW** - Analysts (if the crew has them) reason over the Toolers' gathered data
-   and contribute interpretive findings before synthesis. The coordinator waits for
-   every Analyst it woke to report; there is no fast path in this phase.
+   and contribute interpretive findings before synthesis. The coordinator wakes the
+   Analysts the archetype's `review` setting names, by declared domain
+   ([who reviews](../../architecture/tooler-analyst-architecture/#who-reviews)), and waits
+   for every one it woke to report; there is no fast path in this phase.
 4. **SYNTHESIZING** - the coordinator composes the answer from all contributions.
 5. **CLOSED** - the answer has been delivered and the thread is clean.
 
