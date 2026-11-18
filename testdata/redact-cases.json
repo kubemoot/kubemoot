@@ -25,6 +25,11 @@
     "expected": "token [redacted]"
   },
   {
+    "name": "bare api key",
+    "input": "key sk-abcdefghijklmnop12345678 x",
+    "expected": "key [redacted] x"
+  },
+  {
     "name": "github token",
     "input": "gh token ghp_abcdefghijklmnopqrstuvwxyz0123",
     "expected": "gh token [redacted]"

@@ -98,3 +98,24 @@ func TestRunRejectsDottedCrewName(t *testing.T) {
 		t.Errorf("run() = %v, want a crew token error", err)
 	}
 }
+
+func TestRunLeavesOutACredentialUnlessAllowed(t *testing.T) {
+	r := staticReader{
+		gpuKey:           `{"value":"RTX 5090","learnedBy":"a"}`,
+		"ns.c.ops.login": `{"value":"password: hunter2hunter2","learnedBy":"a"}`,
+	}
+	open := func(options) (crewmemory.EntryReader, func(), error) { return r, func() {}, nil }
+	cases := map[string][]string{"screened": nil, "unscreened": {"--allow-unscreened"}}
+	for name, extra := range cases {
+		args := append([]string{nsFlag, "ns", crewFlag, "c", outFlag, filepath.Join(t.TempDir(), "m")}, extra...)
+		var stdout strings.Builder
+		if err := runWith(args, &stdout, open); err != nil {
+			t.Fatal(err)
+		}
+		out := stdout.String()
+		left := strings.Contains(out, "holds a credential")
+		if left == (name == "unscreened") || strings.Contains(out, "hunter2") {
+			t.Errorf("%s: stdout = %q", name, out)
+		}
+	}
+}

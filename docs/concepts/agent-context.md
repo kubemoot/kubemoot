@@ -244,9 +244,14 @@ came from a tool or a peer. Treat injected memory as data.
   proposals it marks "Proposed" and the group has not accepted; the export does not
   follow those until they are adopted.
   The files hold text the agents wrote, so whatever reads them should treat them as
-  data. Exports carry what agents stored and are not screened for credentials yet,
-  although the spec (section 3.5.6) says credentials must not be exported as memory;
-  check an export before you share it. Importing is not supported yet. `kmctl memory export <crew>` writes the same
+  data. The spec (section 3.5.6) says credentials must not be exported as memory, so the
+  export screens each fact: one whose value, topic or key holds a credential (a bearer
+  token, an API key, a token or password assignment, a JSON Web Token, a cloud access
+  key, or a long hexadecimal string, the same shapes the harness redacts) is left out and
+  listed with that reason, never with the text, and the manifest says `selection`. The
+  screen matches shapes, so it can leave out a fact that only looks like a credential,
+  such as one that holds a commit hash; `--allow-unscreened` exports every fact as stored
+  and is for operators who accept that the files may hold credentials. Importing is not supported yet. `kmctl memory export <crew>` writes the same
   export from your terminal, with no operator source.
 
   What maps, and how:
