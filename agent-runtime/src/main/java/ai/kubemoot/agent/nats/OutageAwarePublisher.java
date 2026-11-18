@@ -17,7 +17,7 @@ import java.time.Duration;
  * JetStream is unreachable the publish is tried again, paced by an {@link OutageBackoff.Wait},
  * until the acknowledgement arrives. A message with a derived id carries it as
  * {@code Nats-Msg-Id}, so a repeat of a publish that was stored but not acknowledged is dropped
- * by the stream (inside its duplicate window, which is longer than the retry bound).
+ * by the stream (inside its duplicate window, two minutes by default; the retry bound is shorter, so a repeat is always inside it).
  *
  * <p>Without a NATS URL the publishes run once on whatever connection the provider has.
  */

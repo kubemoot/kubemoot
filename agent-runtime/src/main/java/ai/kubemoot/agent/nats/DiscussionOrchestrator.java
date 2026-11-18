@@ -1331,7 +1331,8 @@ public class DiscussionOrchestrator {
      * Signal-driven: transitions happen as soon as responses settle, not when
      * arbitrary timeouts expire. Timeouts are safety nets, not the primary driver.
      */
-    private void checkPhaseTransitions() {
+    // Visible for testing
+    void checkPhaseTransitions() {
         var now = Instant.now();
 
         // Each thread's check runs on the llmExecutor: a close can wait out a NATS outage, and that
@@ -1339,9 +1340,20 @@ public class DiscussionOrchestrator {
         // transitioning flag keeps one check per thread at a time.
         for (var entry : threads.entrySet()) {
             var state = entry.getValue();
+            // One check per thread is queued or running at a time; a tick that finds one skips the thread.
+            if (!state.checkQueued.compareAndSet(false, true)) {
+                continue;
+            }
             try {
-                llmExecutor.execute(() -> checkThreadTransition(state, now));
+                llmExecutor.execute(() -> {
+                    try {
+                        checkThreadTransition(state, now);
+                    } finally {
+                        state.checkQueued.set(false);
+                    }
+                });
             } catch (RejectedExecutionException e) {
+                state.checkQueued.set(false);
                 return; // shutting down
             }
         }
@@ -3054,9 +3066,30 @@ public class DiscussionOrchestrator {
      * Idempotent: completePending no-ops if the future is already completed.
      */
     void closeThread(ThreadState state, String channel, String response, String outcome) {
-        state.closeWait = outage.startWait();
-        events.synthesisDone(state, outcome, channel, response);
-        finishClose(state, channel, response, outcome);
+        boolean owner = beginClose(state);
+        try {
+            events.synthesisDone(state, outcome, channel, response);
+            finishClose(state, channel, response, outcome);
+        } finally {
+            endClose(state, owner);
+        }
+    }
+
+    /** Starts the close's outage wait unless a close of the thread already has one; true when this caller started it. */
+    private boolean beginClose(ThreadState state) {
+        synchronized (state) {
+            if (state.closeWait != null) {
+                return false;
+            }
+            state.closeWait = outage.startWait();
+            return true;
+        }
+    }
+
+    private void endClose(ThreadState state, boolean owner) {
+        if (owner) {
+            state.closeWait = null;
+        }
     }
 
     /**
@@ -3082,7 +3115,6 @@ public class DiscussionOrchestrator {
         events.closed(state, outcome, channel);
         events.checkAtClose(state);
         metrics.threadCompleted(Duration.between(state.threadCreated, Instant.now()));
-        state.closeWait = null;
         completePending(state.threadId, response);
         leases.release(state.threadId);
     }
@@ -4740,7 +4772,7 @@ public class DiscussionOrchestrator {
     // Visible for testing
     static class ThreadState {
         final String threadId;
-        final Instant threadCreated = Instant.now();
+        Instant threadCreated = Instant.now(); // not final: tests age a thread past the ceiling
         final List<MessageRecord> messages = new CopyOnWriteArrayList<>();
         /** What the thread cost and how it went, published on thread_close. */
         final DiscussionReceipt receipt = new DiscussionReceipt(threadCreated);
@@ -4754,6 +4786,8 @@ public class DiscussionOrchestrator {
         // Saved phase across PAUSED — restored on thread_resume.
         volatile Phase phaseBeforePause;
         final AtomicBoolean transitioning = new AtomicBoolean(false);
+        // True while a phase check of this thread is queued or running on the llmExecutor.
+        final AtomicBoolean checkQueued = new AtomicBoolean(false);
         // The one outage wait of the close in progress, shared by its log events and its publishes,
         // so a close waits out a NATS restart at most once. Null while the thread is open.
         volatile OutageBackoff.Wait closeWait;

@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>A refusal for a wrong last sequence is {@code FENCED}; anything else that fails is
  * {@code FAILED} and nothing is thrown. A publish that fails because NATS or JetStream is
  * unreachable (a restart) is tried again, paced by a growing pause, until it is acknowledged;
+ * the close of a thread passes its own longer {@link OutageBackoff.Wait}, other events wait briefly;
  * the event id makes a repeat of one that was stored but not acknowledged safe. The wait is
  * bounded as a safety net, and only an outage that outlasts the bound is {@code FAILED}; the
  * recorder then stops appending to that thread, so a possibly stored event is never mistaken
@@ -40,22 +41,23 @@ final class NatsCoordinatorEventLog implements CoordinatorEventLog {
 
     private final NatsConnectionProvider natsProvider;
     private final ObjectMapper mapper;
-    private final OutageBackoff backoff;
+    private final OutageBackoff brief;
     private final AtomicLong failures = new AtomicLong();
 
     NatsCoordinatorEventLog(NatsConnectionProvider natsProvider, ObjectMapper mapper) {
-        this(natsProvider, mapper, OutageBackoff.standard());
+        this(natsProvider, mapper, OutageBackoff.brief());
     }
 
-    NatsCoordinatorEventLog(NatsConnectionProvider natsProvider, ObjectMapper mapper, OutageBackoff backoff) {
+    NatsCoordinatorEventLog(NatsConnectionProvider natsProvider, ObjectMapper mapper, OutageBackoff brief) {
         this.natsProvider = natsProvider;
         this.mapper = mapper;
-        this.backoff = backoff;
+        this.brief = brief;
     }
 
     @Override
     public AppendResult append(String subject, CoordinatorEvent event, long expectedLastSequence) {
-        return append(subject, event, expectedLastSequence, backoff.start());
+        // Outside a close the caller is a bus dispatcher thread: wait only briefly for NATS.
+        return append(subject, event, expectedLastSequence, brief.start());
     }
 
     @Override
