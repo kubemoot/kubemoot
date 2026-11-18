@@ -17,9 +17,7 @@ spec:
     discussionGateway: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.discussionGateway) | quote }}
     fitnessRunner: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.fitnessRunner) | quote }}
     {{- /* kubemootConfig.images.workspaceAccess wins; the old artifactAccess is used only when it is empty. */}}
-    {{- with .Values.kubemootConfig.images.workspaceAccess }}
-    workspaceAccess: {{ include "kubemoot-operator.image" (dict "root" $ "image" .) | quote }}
-    {{- else with .Values.kubemootConfig.images.artifactAccess }}
+    {{- with (.Values.kubemootConfig.images.workspaceAccess | default .Values.kubemootConfig.images.artifactAccess) }}
     workspaceAccess: {{ include "kubemoot-operator.image" (dict "root" $ "image" .) | quote }}
     {{- end }}
     doclingServe: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.doclingServe) | quote }}
