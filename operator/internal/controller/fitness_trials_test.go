@@ -11,6 +11,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -192,5 +193,78 @@ func TestTrialsIndependentConditionSaysConcurrencyIgnored(t *testing.T) {
 	got := r.trialsIndependentCondition(suite)
 	if !strings.Contains(got.Message, "concurrency 3 does not apply") {
 		t.Errorf("message must say the concurrency is not used: %q", got.Message)
+	}
+}
+
+// staleCacheClient lists no CrewFitness from the cache, as an informer that has not
+// yet seen a child created on the previous tick.
+func staleCacheClient(cli client.WithWatch) client.Client {
+	return interceptor.NewClient(cli, interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*kubemootv1alpha1.CrewFitnessList); ok {
+				return nil
+			}
+			return c.List(ctx, list, opts...)
+		},
+	})
+}
+
+func TestAdvanceRunningDoesNotPurgeWhileATrialRunsUnseenByTheCache(t *testing.T) {
+	p := &fakePurger{}
+	scheme := reapScheme(t)
+	suite := trialSuite(3)
+	suite.Spec.Concurrency = 1
+	suite.Status.Phase = kubemootv1alpha1.CrewFitnessSuitePhaseRunning
+	suite.Status.IterationsTotal = 3
+	live := childCR(iterationCRName(testDeadbeef, 0, 1), testBaseline)
+	live.Labels[suiteIterationIndexLabel] = "1"
+	live.Labels[suiteScriptIndexLabel] = "0"
+	live.Status.Phase = kubemootv1alpha1.CrewFitnessPhaseRunning
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(suite, live).
+		WithStatusSubresource(&kubemootv1alpha1.CrewFitnessSuite{}).Build()
+	r := &CrewFitnessSuiteReconciler{Client: staleCacheClient(base), APIReader: base, Scheme: scheme, memory: p}
+
+	if _, err := r.advanceRunning(context.Background(), suite); err != nil {
+		t.Fatalf("advanceRunning: %v", err)
+	}
+	if len(p.prefixes) != 0 {
+		t.Fatalf("crew memory was cleared while trial 1 was running: %v", p.prefixes)
+	}
+	var list kubemootv1alpha1.CrewFitnessList
+	_ = base.List(context.Background(), &list)
+	if len(list.Items) != 1 {
+		t.Fatalf("no second trial may start while one is in flight, got %d", len(list.Items))
+	}
+}
+
+func TestAdvanceRunningRecordsAFailedClearOnTheCondition(t *testing.T) {
+	p := &fakePurger{err: errors.New("bus down")}
+	scheme := reapScheme(t)
+	suite := trialSuite(2)
+	suite.Status.Phase = kubemootv1alpha1.CrewFitnessSuitePhaseRunning
+	suite.Status.IterationsTotal = 2
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(suite).
+		WithStatusSubresource(&kubemootv1alpha1.CrewFitnessSuite{}).Build()
+	r := &CrewFitnessSuiteReconciler{Client: base, APIReader: base, Scheme: scheme, memory: p}
+
+	if _, err := r.advanceRunning(context.Background(), suite); err == nil {
+		t.Fatal("a failed clear must be retried")
+	}
+	got := &kubemootv1alpha1.CrewFitnessSuite{}
+	if err := base.Get(context.Background(), client.ObjectKeyFromObject(suite), got); err != nil {
+		t.Fatal(err)
+	}
+	c := meta.FindStatusCondition(got.Status.Conditions, kubemootv1alpha1.ConditionTrialsIndependent)
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != reasonPurgeFailed || !strings.Contains(c.Message, "bus down") {
+		t.Fatalf("condition = %+v", c)
+	}
+
+	p.err = nil // the bus recovers
+	if _, err := r.advanceRunning(context.Background(), got); err != nil {
+		t.Fatal(err)
+	}
+	c = meta.FindStatusCondition(got.Status.Conditions, kubemootv1alpha1.ConditionTrialsIndependent)
+	if c == nil || c.Status != metav1.ConditionTrue {
+		t.Fatalf("the condition must recover, got %+v", c)
 	}
 }

@@ -146,22 +146,25 @@ On a re-judge suite the rows come from the copied transcripts, with the duration
 The mean quality in `status.judge` says how good the answers are on average. It does not say whether every trial passed. For a crew people rely on, that is the number that matters, so each scenario row also carries:
 
 - `passRate`: the share of finished trials that passed.
-- `passAllK`: the chance that all k trials pass, estimated as the per-trial pass rate raised to the power k, where k is the number of finished trials of that scenario. It falls fast as k grows: a scenario that passes 75% of the time passes three trials in a row about 42% of the time.
+- `allPassed`: observed, true when every finished trial passed.
+- `passAllK`: an estimate of the chance that all k trials pass, from the per-trial pass rate raised to the power k, where k is the number of finished trials of that scenario. It falls fast as k grows: a scenario that passes 75% of the time passes three trials in a row about 42% of the time.
 - `checkScenario`: true when at least three trials finished and none passed. A scenario that never passes usually has a broken script or reference, not an incapable crew, so read its transcripts before judging the crew. Fewer than three trials are too few to call a pattern, so a scenario is not flagged before then.
 
 `status.consistency` rolls the rows up: `meanPassAllK` is the mean of the scenarios' `passAllK` over the scenarios with a finished trial, `scenariosToCheck` counts the flagged scenarios, and on a suite with `spec.purpose: Regression`, `regressions` counts the scenarios below a 100% pass rate. A trial passes when its assertions pass (phase `Passed`); a failed or errored trial does not. `kubectl get crewfitnesssuites` shows the mean in the `PassAllK` column.
 
-The XLSX carries the same figures: the Scenarios sheet has `pass_all_k` and `check_scenario` columns after `fabrication_pct`, and the Overview tab lists the trial isolation, the purpose, the mean pass^k, and the scenarios to check. The Overview tab reads them from the suite status, so they are absent on a suite that finished before the fields existed.
+The XLSX carries the same figures: the Scenarios sheet has `pass_all_k_estimated`, `check_scenario` and `all_passed` columns after `fabrication_pct`, and the Overview tab lists the trial isolation, the purpose, the estimated mean pass^k, and the scenarios to check. The Overview tab reads them from the suite status, so they are absent on a suite that finished before the fields existed.
 
 Balanced scenarios keep these numbers honest. Include scenarios where the right answer is to stand aside or to say the data is unavailable beside the ones where the crew should act, so tuning toward one side shows up as a drop in the other.
 
 ### Independent trials
 
+> **Changed default.** A suite without `trialIsolation` now clears the crew's memory before every trial and runs the trials one at a time, ignoring `spec.concurrency`. Earlier runs shared memory across trials, so their scores are not comparable with new ones: treat them as `PerSuite`. Set `trialIsolation: PerSuite` to restore the earlier behavior.
+
 A trial should start from a clean environment. State shared between trials makes failures correlated and can leak an answer from one trial to the next: a fact the crew stores in the first trial would help the second trial of the same scenario.
 
-With the default `trialIsolation: PerTrial`, the operator clears the crew's working memory before every trial, and runs trials one at a time whatever `spec.concurrency` says (crew memory is per crew, so two trials in flight would share it). If the clear fails, the trial is not created and the reconcile retries, because a trial on unclear memory would not be independent. Set `trialIsolation: PerSuite` to clear once before the first trial and let later trials build on earlier ones, which measures learning. Setting `purgeMemory: false` turns clearing off entirely.
+With the default `trialIsolation: PerTrial`, the operator clears the crew's working memory before every trial, and runs trials one at a time whatever `spec.concurrency` says (crew memory is per crew, so two trials in flight would share it). If the clear fails, the trial is not created, the `TrialsIndependent` condition reads `False` with reason `PurgeFailed`, and the reconcile retries (the condition returns to `True` once a clear succeeds), because a trial on unclear memory would not be independent. Set `trialIsolation: PerSuite` to clear once before the first trial and let later trials build on earlier ones, which measures learning. Setting `purgeMemory: false` turns clearing off entirely.
 
-The suite's `TrialsIndependent` condition says what held, from the moment the suite starts: `True` with reason `PerTrialPurge`, or `False` with reason `SharedAcrossTrials` (`PerSuite`), `PurgeDisabled` (`purgeMemory: false`), or `NoMemoryStore` (the operator has no message bus to clear memory with). The XLSX Overview tab repeats it, so a result says whether its trials were independent.
+The suite's `TrialsIndependent` condition says what held, from the moment the suite starts: `True` with reason `PerTrialPurge`, or `False` with reason `SharedAcrossTrials` (`PerSuite`), `PurgeDisabled` (`purgeMemory: false`), `NoMemoryStore` (the operator has no message bus to clear memory with), or `PurgeFailed` (a clear failed and the next trial is held). The XLSX Overview tab repeats it, so a result says whether its trials were independent.
 
 Crew memory is not the only state a trial can leave behind. The harness pods are per iteration, and the thread's workspace is deleted when the iteration ends.
 

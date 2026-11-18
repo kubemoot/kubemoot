@@ -787,7 +787,9 @@ export interface SuiteScenarioResult {
 	passed?: number;
 	/** Share of finished trials that passed, 0-100. */
 	passRate?: number;
-	/** Chance all k trials pass, 0-100 (pass rate raised to k). */
+	/** Every finished trial passed (observed). */
+	allPassed?: boolean;
+	/** Estimated chance all k trials pass, 0-100 (pass rate raised to k). */
 	passAllK?: number;
 	/** At least three trials finished and none passed: check the scenario. */
 	checkScenario?: boolean;

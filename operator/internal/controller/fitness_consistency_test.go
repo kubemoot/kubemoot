@@ -147,10 +147,10 @@ func TestOverviewAndScenariosReportConsistency(t *testing.T) {
 
 	assertOverviewRows(t, f, map[string]string{
 		"Trials independent": "true (PerTrialPurge)", "Purpose": "Capability",
-		"Mean pass^k (%)": "0", "Scenarios to check": "1",
+		"Mean pass^k (%, estimated)": "0", "Scenarios to check": "1",
 	})
 	rows, _ := f.GetRows(sheetScenarios)
-	if len(rows) < 2 || rows[0][19] != "pass_all_k" || rows[0][20] != "check_scenario" || rows[1][20] != checkFlag {
+	if len(rows) < 2 || rows[0][19] != "pass_all_k_estimated" || rows[0][20] != "check_scenario" || rows[1][20] != checkFlag || rows[0][21] != "all_passed" || rows[1][21] != "no" {
 		t.Errorf("Scenarios sheet must flag the broken scenario: %v", rows)
 	}
 }

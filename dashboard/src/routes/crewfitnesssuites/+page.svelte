@@ -125,7 +125,7 @@
 				<th>Crew</th>
 				<th>Progress</th>
 				<th>Pass / Fail / Err</th>
-				<th title="Chance all k trials pass, averaged over the scenarios">Pass^k</th>
+				<th title="Estimated chance all k trials pass (pass rate to the power k), averaged over the scenarios">Pass^k (est.)</th>
 				<th>Duration</th>
 				<th>Artifact</th>
 				<th>Age</th>

@@ -403,7 +403,12 @@ type SuiteScenarioResult struct {
 	// +kubebuilder:validation:Maximum=100
 	PassRate *int32 `json:"passRate,omitempty"`
 
-	// PassAllK is the chance that all k trials pass, 0 to 100, rounded: the
+	// AllPassed is the observed fact: true when every finished trial of this
+	// scenario passed. Absent until a trial finishes.
+	// +optional
+	AllPassed *bool `json:"allPassed,omitempty"`
+
+	// PassAllK is an estimate of the chance that all k trials pass, 0 to 100, rounded: the
 	// per-trial pass rate raised to k, where k is the number of finished trials
 	// of this scenario. At 75% per trial and three trials it is about 42%. It
 	// falls fast as k grows, so it is the number to read for a crew people rely

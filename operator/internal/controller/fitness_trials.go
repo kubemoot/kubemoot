@@ -15,6 +15,7 @@ You may obtain a copy of the License at
 package controller
 
 import (
+	"errors"
 	"fmt"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -28,6 +29,7 @@ const (
 	reasonPerTrialPurge = "PerTrialPurge"
 	reasonSharedMemory  = "SharedAcrossTrials"
 	reasonPurgeDisabled = "PurgeDisabled"
+	reasonPurgeFailed   = "PurgeFailed"
 	reasonNoMemoryStore = "NoMemoryStore"
 )
 
@@ -87,9 +89,23 @@ func (r *CrewFitnessSuiteReconciler) purgeBeforeTrial(suite *kubemootv1alpha1.Cr
 	}
 	scope := crewscope.Scope{Namespace: suite.Namespace, Crew: suite.Spec.CrewRef}
 	if _, err := purger.PurgeKVPrefix(crewMemoryBucket, scope.MemoryPrefix()); err != nil {
-		return fmt.Errorf("clearing crew memory before a trial: %w", err)
+		return fmt.Errorf("%w: %w", errMemoryClearFailed, err)
+	}
+	if c := meta.FindStatusCondition(suite.Status.Conditions, kubemootv1alpha1.ConditionTrialsIndependent); c != nil && c.Reason == reasonPurgeFailed {
+		r.recordTrialIsolation(suite) // the clear works again
 	}
 	return nil
+}
+
+// errMemoryClearFailed marks a failed clear of crew memory before a trial.
+var errMemoryClearFailed = errors.New("clearing crew memory before a trial")
+
+// recordPurgeFailure marks the trials as not independent while the clear fails.
+func (r *CrewFitnessSuiteReconciler) recordPurgeFailure(suite *kubemootv1alpha1.CrewFitnessSuite, err error) {
+	meta.SetStatusCondition(&suite.Status.Conditions, metav1.Condition{
+		Type: kubemootv1alpha1.ConditionTrialsIndependent, Status: metav1.ConditionFalse,
+		Reason: reasonPurgeFailed, Message: "the next trial is held until crew memory is cleared: " + err.Error(),
+	})
 }
 
 // trialsIndependentCondition says whether this suite's trials share crew memory,

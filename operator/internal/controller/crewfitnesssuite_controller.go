@@ -39,6 +39,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -284,15 +285,14 @@ func (r *CrewFitnessSuiteReconciler) startSuite(ctx context.Context, suite *kube
 // every iteration is terminal, Paused when suspended with nothing in flight,
 // otherwise Running.
 func (r *CrewFitnessSuiteReconciler) advanceRunning(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (ctrl.Result, error) {
-	children, err := r.listChildren(ctx, suite)
+	children, progress, err := r.runningChildren(ctx, suite)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("listing children: %w", err)
+		return ctrl.Result{}, err
 	}
-	progress := summarizeChildren(children)
 
 	if !suite.Spec.Suspend {
 		if err := r.scheduleBatch(ctx, suite, children, progress.inFlight); err != nil {
-			return ctrl.Result{}, err
+			return r.failScheduling(ctx, suite, err)
 		}
 	}
 
@@ -326,6 +326,35 @@ func (r *CrewFitnessSuiteReconciler) advanceRunning(ctx context.Context, suite *
 		return ctrl.Result{}, nil
 	}
 	return ctrl.Result{RequeueAfter: reconcileTickInterval}, nil
+}
+
+// runningChildren lists the suite's children for a tick. A suite that clears crew
+// memory per trial reads them from the API server: the informer cache can miss a
+// child created on the previous tick, and a purge while that trial runs would
+// wipe the memory it is using.
+func (r *CrewFitnessSuiteReconciler) runningChildren(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) ([]kubemootv1alpha1.CrewFitness, childProgress, error) {
+	if purgesPerTrial(suite) {
+		progress, children, err := r.liveProgress(ctx, suite)
+		return children, progress, err
+	}
+	children, err := r.listChildren(ctx, suite)
+	if err != nil {
+		return nil, childProgress{}, fmt.Errorf("listing children: %w", err)
+	}
+	return children, summarizeChildren(children), nil
+}
+
+// failScheduling returns a scheduling error. A failed memory clear is first
+// recorded on the TrialsIndependent condition, so it is visible on the suite and
+// not only in the operator log.
+func (r *CrewFitnessSuiteReconciler) failScheduling(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite, err error) (ctrl.Result, error) {
+	if errors.Is(err, errMemoryClearFailed) {
+		r.recordPurgeFailure(suite, err)
+		if uerr := r.Status().Update(ctx, suite); uerr != nil {
+			logf.FromContext(ctx).Info("could not record the failed memory clear", "err", uerr.Error())
+		}
+	}
+	return ctrl.Result{}, err
 }
 
 // runningNextPhase is the pure phase decision for a Running tick. Completion

@@ -71,6 +71,7 @@ func (a *scenarioRollup) result(name string) kubemootv1alpha1.SuiteScenarioResul
 	out.InventedNameRuns = a.inventedRuns
 	out.PassRate = ptr.To(passRatePercent(out.Passed, out.Iterations))
 	out.PassAllK = ptr.To(passAllKPercent(out.Passed, out.Iterations))
+	out.AllPassed = ptr.To(out.Passed == out.Iterations)
 	out.CheckScenario = scenarioNeedsCheck(out.Passed, out.Iterations)
 	return out
 }
