@@ -42,9 +42,9 @@ func builtinAgentResources() corev1.ResourceRequirements {
 
 // builtinGooseResources is the built-in default of the goose harness. The container runs
 // `goose run` for every request, and that process with its tool subprocesses needs more than the
-// agent runtime does. Measured over answered turns, the container's memory peak was 59 to 64 MiB
-// (goose process RSS about 103 MB during a turn). The 128Mi request is twice that peak and the
-// 512Mi limit leaves room for the extensions a run starts and for a larger tool result. No CPU
+// agent runtime does. Sized from the container's cgroup memory peak, which
+// was 59 to 64 MiB over answered turns. The 128Mi request is twice that peak and the 512Mi limit
+// leaves room for the extensions a run starts and for a larger tool result. No CPU
 // limit, for the reason given at builtinAgentResources.
 func builtinGooseResources() corev1.ResourceRequirements {
 	return corev1.ResourceRequirements{
