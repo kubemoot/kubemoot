@@ -49,6 +49,7 @@ case "$cmd" in
       case "$1" in
         --title) echo "$2" > "${dir}/title"; shift ;;
         --notes-file) cp "$2" "${dir}/notes" ;;
+        --latest*) echo "$1" > "${dir}/create-latest" ;;
       esac
       shift
     done ;;
@@ -58,7 +59,8 @@ case "$cmd" in
   edit)
     [ -z "${GH_EDIT_FAIL:-}" ] || exit 1
     [ -f "${dir}/state" ] || exit 1
-    echo published > "${dir}/state" ;;
+    echo published > "${dir}/state"
+    echo "$*" > "${dir}/edit-args" ;;
   *) exit 1 ;;
 esac
 EOF
@@ -212,6 +214,42 @@ setup norepo
 check "a run without GITHUB_REPOSITORY fails" 1 "$((status != 0))"
 bash "${here}/create-github-releases.sh" >/dev/null 2>&1 && status=0 || status=$?
 check "a run without arguments fails" 1 "$((status != 0))"
+
+# 5. Kubemoot's own release goes last and is the only one marked Latest.
+rm -rf "${GH_STATE:?}"/*
+setup order
+printf 'operator-chart-v0.94.0\tKubemoot 0.94.0\top.md\nalpha-v0.5.0\talpha 0.5.0\talpha.md\nbeta-v0.30.1\tbeta 0.30.1\tbeta.md\n' \
+  > "${root}/order/files/releases.tsv"
+echo "op notes" > "${root}/order/files/op.md"
+printf 'operator-chart-v0.94.0\top_0.94.0.intoto.jsonl\tghcr.test/kubemoot/charts/op\tsha256:ddd\n' >> "${root}/order/files/provenance.tsv"
+bundle "${root}/order/prov/sha256-ddd.jsonl" charts/op
+run order && status=0 || status=$?
+check "a run with the operator release first succeeds" 0 "$status"
+check "publishes the operator release last" "alpha-v0.5.0 beta-v0.30.1 operator-chart-v0.94.0" \
+  "$(grep '^gh release edit ' "$LOG" | awk '{print $4}' | paste -sd' ')"
+check "creates the operator release last" "alpha-v0.5.0 beta-v0.30.1 operator-chart-v0.94.0" \
+  "$(grep '^gh release create ' "$LOG" | awk '{print $4}' | paste -sd' ')"
+check "marks only the operator release Latest when publishing" "--latest=false|--latest=false|--latest" \
+  "$(grep -o '[-]-latest[^ ]*$' "${GH_STATE}/alpha-v0.5.0/edit-args")|$(grep -o '[-]-latest[^ ]*$' "${GH_STATE}/beta-v0.30.1/edit-args")|$(grep -o '[-]-latest[^ ]*$' "${GH_STATE}/operator-chart-v0.94.0/edit-args")"
+check "and when creating" "--latest=false|--latest=false|--latest" \
+  "$(cat "${GH_STATE}/alpha-v0.5.0/create-latest")|$(cat "${GH_STATE}/beta-v0.30.1/create-latest")|$(cat "${GH_STATE}/operator-chart-v0.94.0/create-latest")"
+
+# 5b. A rerun with the operator release still a draft completes it and still publishes it last.
+rm -rf "${GH_STATE:?}"/*
+mkdir -p "${GH_STATE}/operator-chart-v0.94.0/assets"; echo draft > "${GH_STATE}/operator-chart-v0.94.0/state"
+mkdir -p "${GH_STATE}/alpha-v0.5.0"; echo published > "${GH_STATE}/alpha-v0.5.0/state"
+run order && status=0 || status=$?
+check "a resumed run succeeds" "0|published|published" "${status}|$(state operator-chart-v0.94.0)|$(state beta-v0.30.1)"
+check "leaves the published release alone" "beta-v0.30.1 operator-chart-v0.94.0" \
+  "$(grep '^gh release edit ' "$LOG" | awk '{print $4}' | paste -sd' ')"
+
+# 5c. Components only: nothing is Latest.
+rm -rf "${GH_STATE:?}"/*
+setup components
+run components && status=0 || status=$?
+check "a components-only run succeeds" 0 "$status"
+check "marks none Latest" "2|0" \
+  "$(grep -c '^gh release edit .* --draft=false --latest=false$' "$LOG")|$(grep -cE '^gh release (edit|create) .* --latest( |$)' "$LOG" || true)"
 
 if [ "$failures" -ne 0 ]; then echo "${failures} test(s) failed"; exit 1; fi
 echo "all create-github-releases tests passed"

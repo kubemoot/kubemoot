@@ -11,6 +11,10 @@
 # provenance of a release is checked before its draft is created: a missing or broken
 # bundle stops the run with nothing written for that release.
 #
+# Kubemoot's own release (the operator-chart-v* tag) is published last and is the only
+# one marked Latest, so github.com/<repo>/releases lists it first and a component chart
+# never takes its place, not even briefly.
+#
 # Usage: create-github-releases.sh RELEASE_FILES PROVENANCE_DIR
 #   RELEASE_FILES/releases.tsv     tag, title, notes file (relative to RELEASE_FILES)
 #   RELEASE_FILES/provenance.tsv   tag, asset name, subject, subject digest
@@ -78,10 +82,19 @@ release_assets() {
   done < "${files}/assets.tsv"
 }
 
+# latest_flag TAG: the release Latest is Kubemoot's own; every other release is not.
+latest_flag() {
+  case "$1" in
+    operator-chart-v*) echo --latest ;;
+    *) echo --latest=false ;;
+  esac
+}
+
 # publish_release TAG TITLE NOTES: the release as a draft, its provenance and assets,
 # then published.
 publish_release() {
-  local tag="$1" title="$2" notes="$3" state dir asset
+  local tag="$1" title="$2" notes="$3" state dir asset latest
+  latest="$(latest_flag "$tag")"
   state="$(release_state "$tag")"
   if [ "$state" = published ]; then
     echo "${tag} is already published"
@@ -92,22 +105,31 @@ publish_release() {
   provenance_assets "$tag" "$dir"
   release_assets "$tag" "$dir"
   if [ "$state" = none ]; then
-    gh release create "$tag" --repo "$repo" --verify-tag --draft \
+    gh release create "$tag" --repo "$repo" --verify-tag --draft "$latest" \
       --title "$title" --notes-file "${files}/${notes}"
   fi
   gh release upload "$tag" --repo "$repo" --clobber "$dir"/*
-  gh release edit "$tag" --repo "$repo" --draft=false
+  gh release edit "$tag" --repo "$repo" --draft=false "$latest"
   for asset in "$dir"/*; do echo "${tag} published with ${asset##*/}"; done
 }
 
-main() {
-  local tag title notes
-  [ -f "${files}/releases.tsv" ] || die "${files}/releases.tsv not found"
-  [ -f "${files}/provenance.tsv" ] || die "${files}/provenance.tsv not found"
+# publish_matching WANT: publishes the releases.tsv entries that are (WANT=operator) or
+# are not (WANT=other) Kubemoot's own, in file order.
+publish_matching() {
+  local want="$1" tag title notes kind
   # gh reads stdin, so the release list comes in on its own descriptor.
   while IFS=$'\t' read -r -u 3 tag title notes; do
+    case "$tag" in operator-chart-v*) kind=operator ;; *) kind=other ;; esac
+    [ "$kind" = "$want" ] || continue
     publish_release "$tag" "$title" "$notes"
   done 3< "${files}/releases.tsv"
+}
+
+main() {
+  [ -f "${files}/releases.tsv" ] || die "${files}/releases.tsv not found"
+  [ -f "${files}/provenance.tsv" ] || die "${files}/provenance.tsv not found"
+  publish_matching other
+  publish_matching operator
 }
 
 main
