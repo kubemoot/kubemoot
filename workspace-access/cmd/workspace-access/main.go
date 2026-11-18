@@ -46,7 +46,7 @@ func env(key, def string) string {
 
 // defaultWorkspaceDir is where objects are materialized when WORKSPACE_DIR is not set. The operator
 // mounts the workspace volume here for a server it runs.
-const defaultWorkspaceDir = "/workspace"
+const defaultWorkspaceDir = "/kubemoot/workspace"
 
 func main() {
 	var (

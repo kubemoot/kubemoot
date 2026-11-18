@@ -1114,7 +1114,7 @@ class ChatServiceToolLoopTest {
                 "re-prompt must steer to the artifact read-ops tools");
         assertTrue(reprompt.contains("workspace_head(key=\"homelab/conv/k8s-config/list-0\""),
                 "re-prompt must give a concrete read-ops example with the bare object key (no /artifacts/ prefix)");
-        assertTrue(reprompt.contains("open('/workspace/homelab/conv/k8s-config/list-0')"),
+        assertTrue(reprompt.contains("open('/kubemoot/workspace/homelab/conv/k8s-config/list-0')"),
                 "re-prompt should still offer the exact open() path as the alternative");
         assertTrue(reprompt.toLowerCase().contains("description"),
                 "re-prompt must warn the model off answering from the file description");
@@ -1177,7 +1177,7 @@ class ChatServiceToolLoopTest {
     void artifactPathsInInput_extractsKeyBeforeBytes() {
         var msg = dev.langchain4j.data.message.UserMessage.from(
                 "x [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]");
-        assertEquals(java.util.List.of("/workspace/k1"),
+        assertEquals(java.util.List.of("/kubemoot/workspace/k1"),
                 ChatService.artifactPathsInInput(java.util.List.of(msg)),
                 "the key must be captured up to the space before bytes=");
     }

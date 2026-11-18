@@ -18,7 +18,7 @@ const (
 	testAllow               = "allow"
 	testAlpha               = "alpha"
 	testAlphaDescription    = "Alpha agent"
-	testWorkspaceDir        = "/workspace"
+	testWorkspaceDir        = "/kubemoot/workspace"
 	testBaseline            = "baseline"
 	testBeta                = "beta"
 	testBetaDescription     = "Beta agent"

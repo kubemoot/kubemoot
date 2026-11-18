@@ -122,7 +122,7 @@ class ThreadCatalogTest {
     void theLegendNamesTheThreeWaysToReadAndTheCallColumns() {
         String text = proxmox().render(1_000_000);
 
-        for (String part : List.of("workspace_query", "/workspace/<key>", "_call", "_args", "_arg_<name>")) {
+        for (String part : List.of("workspace_query", "/kubemoot/workspace/<key>", "_call", "_args", "_arg_<name>")) {
             assertTrue(text.contains(part), part);
         }
     }

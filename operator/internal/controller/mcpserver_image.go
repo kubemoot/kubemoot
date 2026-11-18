@@ -179,7 +179,7 @@ func withQueryEngineEnv(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1
 const (
 	// workspaceDir is where workspace-access materializes the objects a query names (its
 	// WORKSPACE_DIR default) and the engine keeps its scratch files.
-	workspaceDir = "/workspace"
+	workspaceDir = "/kubemoot/workspace"
 
 	// workspaceSizeLimit bounds the workspace emptyDir. A query names at most 8
 	// artifacts of at most 32 MiB each (256 MiB), and the DuckDB engine may spill up to
@@ -193,11 +193,11 @@ const (
 	tmpDirEnv = "TMPDIR"
 )
 
-// withQueryWorkspace returns mcpServer with a size-limited emptyDir at /workspace and
+// withQueryWorkspace returns mcpServer with a size-limited emptyDir at /kubemoot/workspace and
 // TMPDIR pointing at it, so a pod with a read-only root filesystem has a writable,
 // bounded place for the materialized artifacts and the engine's scratch files. It
 // reuses the EmptyDirVolumes path the code sandbox uses. Nothing is added for none or
-// no engine, a volume the server already mounts at /workspace or /artifacts is kept, and a
+// no engine, a volume the server already mounts at /kubemoot/workspace or /artifacts is kept, and a
 // TMPDIR the server sets itself wins. The original is left alone.
 func withQueryWorkspace(mcpServer *kubemootv1alpha1.MCPServer, engine kubemootv1alpha1.WorkspaceQueryEngine) *kubemootv1alpha1.MCPServer {
 	if !queryEngineOn(engine) {

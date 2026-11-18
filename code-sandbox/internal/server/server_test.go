@@ -102,7 +102,7 @@ func TestExecuteCodeDescriptionSaysItCannotFetch(t *testing.T) {
 	if !found {
 		t.Fatal("execute_code is not listed")
 	}
-	for _, want := range []string{"files other agents stored", "/workspace", "cannot fetch data",
+	for _, want := range []string{"files other agents stored", "/kubemoot/workspace", "cannot fetch data",
 		"no network", "no cluster API", "no kubectl", "no credentials", "stdin"} {
 		if !strings.Contains(description, want) {
 			t.Errorf("execute_code description lacks %q: %s", want, description)

@@ -23,6 +23,15 @@ class WorkspaceToolsTest {
     }
 
     @Test
+    void theMountPathsAreTheSharedFixturesAndNotTheBuildpacksAppDir() throws IOException {
+        JsonNode f = new ObjectMapper().readTree(new File("../test/fixtures/workspace-mount.json"));
+        assertEquals(f.get("mountPath").asText(), WorkspaceTools.MOUNT);
+        assertEquals(f.get("legacyMountPath").asText(), WorkspaceTools.LEGACY_MOUNT);
+        String cnb = f.get("cnbAppDir").asText();
+        assertTrue(!WorkspaceTools.MOUNT.equals(cnb) && !WorkspaceTools.MOUNT.startsWith(cnb + "/"));
+    }
+
+    @Test
     void theNamesAreTheSharedFixturesNames() throws IOException {
         JsonNode f = fixture();
         Set<String> read = new HashSet<>();

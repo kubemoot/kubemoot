@@ -33,12 +33,12 @@ comes to it:
    [workspace](../workspace/), announcing it on the bus.
 2. The workspace-access materializer, a sidecar in the sandbox pod, reads the referenced
    objects from the store over the message bus and writes them to a shared volume under
-   `/workspace`.
+   `/kubemoot/workspace`.
 3. The compute agent's program reads those files and computes over them locally.
 
 The materializer is the only part of the pod that talks to the bus. The sandbox container
 that runs programs holds no bus credentials and talks to nothing itself. Programs see only
-`/workspace`. Data goes in the program's code or in a file there, never through stdin.
+`/kubemoot/workspace`. Data goes in the program's code or in a file there, never through stdin.
 
 ## How a run is contained
 

@@ -1,0 +1,6 @@
+{
+  "description": "Where the discussion workspace is mounted and the path a model is told to open. Not /workspace: a Buildpacks (CNB) image keeps its program there, and a volume mounted over it hides the binary. The operator (workspaceDir), workspace-access (defaultWorkspaceDir) and agent-runtime (WorkspaceTools.MOUNT) each read this file in their tests.",
+  "mountPath": "/kubemoot/workspace",
+  "legacyMountPath": "/artifacts",
+  "cnbAppDir": "/workspace"
+}
