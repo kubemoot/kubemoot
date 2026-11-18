@@ -241,7 +241,7 @@ func TestGoosePodUsesTheGooseDefaultAndAgentOverrideWins(t *testing.T) {
 	wantQty(t, "goose request", h.Resources.Requests, corev1.ResourceMemory, "128Mi")
 }
 
-func TestGooseDefaultIsBurstableAndRequestBelowLimit(t *testing.T) {
+func TestGooseDefaultRequestIsBelowLimitAndARequestAboveItRaisesTheLimit(t *testing.T) {
 	got := builtinGooseResources()
 	req, lim := got.Requests[corev1.ResourceMemory], got.Limits[corev1.ResourceMemory]
 	if req.Cmp(lim) >= 0 {
