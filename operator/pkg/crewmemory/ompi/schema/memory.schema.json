@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kubemoot.org/ompi/schema/memory.schema.json",
-  "title": "OMPI memory object, interchange form (Kubemoot reading of working spec v0.2)",
-  "$comment": "Kubemoot's own schema, derived from section 3.2 (field table), section 4 (provenance, evidence) and section 6.1 (version) of the OMPI exchange-and-runtime working spec v0.2, editors' draft of 2026-10-14 (OMPI pull request #13, commit 20235eaa9f3cb27cdce9e86667aa56ac963abeae). It is not an official OMPI artifact: the spec has no official validator. It checks the minimal profile (section 10.1) and the types of every optional field. Implementations may add fields (section 3.2), so additional properties are allowed.",
+  "title": "OMPI memory object, interchange form (Kubemoot reading of working spec v0.6)",
+  "$comment": "Kubemoot's own schema, derived from section 1.3 (field table), section 3.1 (provenance, evidence), section 3.3.2 (version) and section 3.7 (minimal profile) of the OMPI exchange-and-runtime working spec v0.6, editors' draft of 2026-11-09 (commit 5fd045c5a492fd51aca4a65cdf817d5a9f37c8a1). It is not an official OMPI artifact: the spec has no official validator. It checks the minimal profile and the types of every optional field. It follows the spec's unmarked and agreed text only: text marked Proposed is not adopted, and the spec says a validator MUST NOT infer a requirement its table does not state (I-16). Implementations may add fields (section 1.3), so additional properties are allowed.",
   "type": "object",
   "required": ["identifier", "media_type", "created_at", "body"],
   "properties": {
     "identifier": { "type": "string", "minLength": 1 },
+    "protocol_version": { "type": "string", "minLength": 1 },
     "path": { "type": "string", "minLength": 1 },
     "title": { "type": "string" },
     "media_type": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$" },
@@ -17,12 +18,17 @@
     "valid_from": { "type": "string", "format": "date-time" },
     "valid_until": { "type": "string", "format": "date-time" },
     "version": {
-      "type": "object",
-      "required": ["value", "comparator"],
-      "properties": {
-        "value": {},
-        "comparator": { "type": "string", "minLength": 1 }
-      }
+      "oneOf": [
+        { "type": ["integer", "string"] },
+        {
+          "type": "object",
+          "required": ["value", "comparator"],
+          "properties": {
+            "value": { "type": ["integer", "string"] },
+            "comparator": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
     },
     "updated_at": { "type": "string", "format": "date-time" },
     "checksum": { "type": "string", "pattern": "^[a-z0-9-]+:[0-9a-f]+$" },
@@ -57,11 +63,12 @@
         "required": ["target", "rel"],
         "properties": {
           "target": { "type": "string" },
-          "rel": { "type": "string" }
+          "rel": { "type": "string" },
+          "version": { "type": ["integer", "string"] }
         }
       }
     },
-    "status": { "type": "string" },
+    "weight": { "type": "number" },
     "body": { "type": "string" }
   },
   "additionalProperties": true

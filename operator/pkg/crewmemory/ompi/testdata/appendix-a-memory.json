@@ -1,5 +1,6 @@
 {
   "identifier": "9b2e7c14-3f6a-4d1e-8a5b-2c7f9e0d4b31",
+  "protocol_version": "0.6",
   "path": "team/preferences/status-update-day.md",
   "title": "Status updates move to Friday",
   "media_type": "text/markdown",
@@ -22,5 +23,6 @@
   "links": [
     { "target": "9b2e7c14-3f6a-4d1e-8a5b-2c7f9e0d4b31", "version": 1, "rel": "supersedes" }
   ],
+  "weight": 1.7,
   "body": "Status updates are due Fridays from Sep 15. They were due Tuesdays before that."
 }

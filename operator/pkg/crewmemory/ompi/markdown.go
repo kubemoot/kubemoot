@@ -17,25 +17,26 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// runtimeFront is the front matter of the runtime projection (spec section 7.2
-// and Appendix B). It leaves out scope, checksum, the audit fields and the
+// runtimeFront is the front matter of the runtime projection (spec section 3.4
+// and Appendix A). It leaves out scope, checksum, the audit fields and the
 // Kubemoot extension, which stay in the interchange form.
 type runtimeFront struct {
-	Identifier string        `json:"identifier"`
-	Path       string        `json:"path,omitempty"`
-	Title      string        `json:"title,omitempty"`
-	MediaType  string        `json:"media_type"`
-	CreatedAt  string        `json:"created_at"`
-	Version    *uint64       `json:"version,omitempty"`
-	Provenance []Contributor `json:"provenance,omitempty"`
+	Identifier      string        `json:"identifier"`
+	ProtocolVersion string        `json:"protocol_version,omitempty"`
+	Path            string        `json:"path,omitempty"`
+	Title           string        `json:"title,omitempty"`
+	MediaType       string        `json:"media_type"`
+	CreatedAt       string        `json:"created_at"`
+	Version         *uint64       `json:"version,omitempty"`
+	Provenance      []Contributor `json:"provenance,omitempty"`
 }
 
 // Projection renders the runtime representation of a memory as Markdown with
-// YAML front matter (Appendix B). The body is text the agents wrote, so a
+// YAML front matter (Appendix A). The body is text the agents wrote, so a
 // reader must treat it as data.
 func Projection(m Memory) (string, error) {
 	front := runtimeFront{
-		Identifier: m.Identifier, Path: m.Path, Title: m.Title, MediaType: m.MediaType,
+		Identifier: m.Identifier, ProtocolVersion: m.ProtocolVersion, Path: m.Path, Title: m.Title, MediaType: m.MediaType,
 		CreatedAt: m.CreatedAt, Provenance: m.Provenance,
 	}
 	if m.Version != nil {

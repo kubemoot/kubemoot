@@ -43,14 +43,14 @@ func TestProjectionKeepsRuntimeFieldsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"---\n", "identifier: " + m.Identifier, "path: hardware/gpu0", "title: hardware / gpu0", "media_type: text/plain", "version: 41", "id: gpu-analyst", "---\n\nRTX 5090, 32 GB\n"} {
+	for _, want := range []string{"---\n", "identifier: " + m.Identifier, "path: hardware/gpu0", "title: hardware / gpu0", "media_type: text/plain", "version: 41", "protocol_version: \"0.6\"", "id: gpu-analyst", "---\n\nRTX 5090, 32 GB\n"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("projection lacks %q:\n%s", want, md)
 		}
 	}
 	for _, absent := range []string{"scope:", "crew:", "checksum", "x-kubemoot", "usedAt", "evidenceUnavailable"} {
 		if strings.Contains(md, absent) {
-			t.Errorf("projection carries %q (section 7.2):\n%s", absent, md)
+			t.Errorf("projection carries %q (section 3.4):\n%s", absent, md)
 		}
 	}
 }
