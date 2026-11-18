@@ -231,7 +231,9 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
                 .orElseThrow().data().path("outcome").asText();
     }
 
-    private String synthesisAnswer() {
+    /** The answer on the bus: it is published after its event is logged, so wait for it. */
+    private String synthesisAnswer() throws InterruptedException {
+        await(() -> !publishedOfType("synthesis").isEmpty(), "the synthesis was not published");
         return publishedOfType("synthesis").get(0).body().path("content").asText();
     }
 
