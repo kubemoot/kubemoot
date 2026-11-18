@@ -238,6 +238,7 @@ public class DiscussionOrchestrator {
     private final Map<Phase, PhaseRule> autoTransitions;
 
     private final NatsConnectionProvider natsProvider;
+    private OutageAwarePublisher outage;
     private final AgentProperties properties;
     private final ChatService chatService;
     private final DiscussionMetrics metrics;
@@ -348,6 +349,7 @@ public class DiscussionOrchestrator {
             ResumeSearchClient resumeSearchClient
     ) {
         this.natsProvider = natsProvider;
+        this.outage = new OutageAwarePublisher(natsProvider);
         this.properties = properties;
         this.chatService = chatService;
         this.metrics = metrics;
@@ -3696,11 +3698,9 @@ public class DiscussionOrchestrator {
         return truncate(cleaned, SYNTHESIS_CONTENT_CHARS);
     }
 
-    private void publishToThread(String threadId, String channel, String content, String messageType) {
+    // Visible for testing
+    void publishToThread(String threadId, String channel, String content, String messageType) {
         try {
-            var conn = natsProvider.getConnection();
-            if (conn == null) return;
-
             var thread = threads.get(threadId);
             String derivedId = events.messageId(thread, CoordinatorEvent.SYNTHESIS_DONE, messageType);
             var message = Map.of(
@@ -3718,20 +3718,30 @@ public class DiscussionOrchestrator {
             // Synthesis must reach ALL agents (not just the primary channel) so they
             // add the threadId to closedThreads and stop heartbeating.
             String crew = thread != null ? thread.crew : null;
-            if (MSG_SYNTHESIS.equals(messageType)) {
-                DerivedIds.publish(conn, broadcastSubject(crew, threadId), payload, derivedId);
-                if (!CHANNEL_BROADCAST.equals(channel)) {
-                    DerivedIds.publish(conn, channelSubject(crew, channel, threadId), payload, derivedId);
+            boolean synthesis = MSG_SYNTHESIS.equals(messageType);
+            List<String> subjects = synthesis
+                    ? answerSubjects(crew, channel, threadId)
+                    : List.of(channelSubject(crew, channel, threadId));
+            // The answer is the one message a restart of NATS must not lose, so it waits for NATS.
+            boolean sent = outage.run(messageType + " of thread " + threadId, conn -> {
+                for (String subject : subjects) {
+                    DerivedIds.publish(conn, subject, payload, derivedId);
                 }
-            } else {
-                DerivedIds.publish(conn, channelSubject(crew, channel, threadId), payload, derivedId);
+            });
+            if (sent) {
+                log.info("Published {} to {} for thread {}", messageType, synthesis ? "broadcast+" + channel : channel, threadId);
             }
-            log.info("Published {} to {} for thread {}", messageType,
-                    MSG_SYNTHESIS.equals(messageType) ? "broadcast+" + channel : channel, threadId);
 
         } catch (Exception e) {
             log.debug("Failed to publish to thread: {}", e.getMessage());
         }
+    }
+
+    /** The broadcast subject, and the channel's when the answer was asked on a channel. */
+    private List<String> answerSubjects(String crew, String channel, String threadId) {
+        return CHANNEL_BROADCAST.equals(channel)
+                ? List.of(broadcastSubject(crew, threadId))
+                : List.of(broadcastSubject(crew, threadId), channelSubject(crew, channel, threadId));
     }
 
     // Visible for testing
@@ -3839,6 +3849,11 @@ public class DiscussionOrchestrator {
                 state.advisoryOutputTokens + state.triageOutputTokens + state.synthesisOutputTokens);
     }
 
+    /** Replaces how the closing messages wait out a NATS outage; for tests. */
+    void outagePublisherForTest(OutageAwarePublisher publisher) {
+        this.outage = publisher;
+    }
+
     /** The state of {@code threadId}, or null; for tests. */
     ThreadState threadForTest(String threadId) {
         return threads.get(threadId);
@@ -3847,9 +3862,6 @@ public class DiscussionOrchestrator {
     // Visible for testing
     void publishThreadClose(String threadId, String channel) {
         try {
-            var conn = natsProvider.getConnection();
-            if (conn == null) return;
-
             // Build token totals metadata for observability
             var tokenMetadata = new HashMap<String, Object>();
             var state = threads.get(threadId);
@@ -3881,12 +3893,13 @@ public class DiscussionOrchestrator {
             // thread_start goes to broadcast — thread_close must too, otherwise agents on
             // other channels never learn the thread is closed and heartbeats continue forever.
             String crew = threads.containsKey(threadId) ? threads.get(threadId).crew : null;
-            DerivedIds.publish(conn, broadcastSubject(crew, threadId), payload, derivedId);
-
-            // Also publish to the primary channel for channel-specific consumers
-            if (!CHANNEL_BROADCAST.equals(channel)) {
-                DerivedIds.publish(conn, channelSubject(crew, channel, threadId), payload, derivedId);
-            }
+            // Also to the primary channel for channel-specific consumers.
+            List<String> subjects = answerSubjects(crew, channel, threadId);
+            outage.run("thread_close of thread " + threadId, conn -> {
+                for (String subject : subjects) {
+                    DerivedIds.publish(conn, subject, payload, derivedId);
+                }
+            });
         } catch (Exception e) {
             log.debug("Failed to publish thread close: {}", e.getMessage());
         }

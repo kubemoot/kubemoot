@@ -14,13 +14,16 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -35,7 +38,12 @@ class NatsCoordinatorEventLogTest {
     private static final String SUBJECT = "kubemoot.coordinator.ns.crew.t1";
 
     private final NatsConnectionProvider provider = mock(NatsConnectionProvider.class);
-    private final NatsCoordinatorEventLog log = new NatsCoordinatorEventLog(provider, MAPPER);
+    /** A log that does not wait for NATS: one try per append. */
+    private final NatsCoordinatorEventLog log =
+            new NatsCoordinatorEventLog(provider, MAPPER, Duration.ZERO, Duration.ofMillis(1));
+    /** A log that waits out an outage, with short pauses. */
+    private final NatsCoordinatorEventLog patient =
+            new NatsCoordinatorEventLog(provider, MAPPER, Duration.ofSeconds(10), Duration.ofMillis(1));
     private final JetStream js = mock(JetStream.class);
 
     private static CoordinatorEvent event() {
@@ -123,5 +131,66 @@ class NatsCoordinatorEventLogTest {
 
         assertEquals(Outcome.FAILED, assertDoesNotThrow(() -> log.append(SUBJECT, event(), 0)).outcome());
         assertEquals(1, log.failures());
+    }
+
+    @Test
+    void anAppendDuringANatsRestartIsRetriedUntilTheStreamAcknowledgesIt() throws Exception {
+        var stored = ack(9);
+        when(js.publish(any(String.class), any(byte[].class), any(PublishOptions.class)))
+                .thenThrow(new IOException("Error Publishing: 503 No Responders Available For Request"))
+                .thenThrow(new IOException("Error Publishing: 503 No Responders Available For Request"))
+                .thenReturn(stored);
+
+        AppendResult result = patient.append(SUBJECT, event(), 8);
+
+        assertEquals(AppendResult.appended(9), result, "the thread stays logged");
+        verify(js, times(3)).publish(eq(SUBJECT), any(byte[].class), any(PublishOptions.class));
+        assertEquals(0, patient.failures());
+    }
+
+    @Test
+    void everyRetryCarriesTheSameEventIdSoAStoredRepeatIsDroppedByTheStream() throws Exception {
+        var second = ack(2);
+        when(js.publish(any(String.class), any(byte[].class), any(PublishOptions.class)))
+                .thenThrow(new IOException("timeout")).thenReturn(second);
+
+        patient.append(SUBJECT, event(), 1);
+
+        var options = ArgumentCaptor.forClass(PublishOptions.class);
+        verify(js, times(2)).publish(eq(SUBJECT), any(byte[].class), options.capture());
+        assertEquals("t1/opened", options.getAllValues().get(0).getMessageId());
+        assertEquals("t1/opened", options.getAllValues().get(1).getMessageId());
+    }
+
+    @Test
+    void anAppendWaitsForTheConnectionToComeBack() throws Exception {
+        var conn = mock(Connection.class);
+        when(conn.jetStream(any(JetStreamOptions.class))).thenReturn(js);
+        when(provider.getConnection()).thenReturn(null, null, conn);
+        var stored = ack(4);
+        when(js.publish(any(String.class), any(byte[].class), any(PublishOptions.class))).thenReturn(stored);
+
+        assertEquals(AppendResult.appended(4), patient.append(SUBJECT, event(), 3));
+    }
+
+    @Test
+    void anOutageThatOutlastsTheBoundFailsTheAppendAndNothingThrows() throws Exception {
+        when(js.publish(any(String.class), any(byte[].class), any(PublishOptions.class)))
+                .thenThrow(new IOException("503"));
+        var impatient = new NatsCoordinatorEventLog(provider, MAPPER, Duration.ofMillis(60), Duration.ofMillis(5));
+
+        assertEquals(Outcome.FAILED, assertDoesNotThrow(() -> impatient.append(SUBJECT, event(), 0)).outcome());
+        assertEquals(1, impatient.failures());
+        assertTrue(mockingDetails(js).getInvocations().size() > 1, "it tried again before giving up");
+    }
+
+    @Test
+    void aFenceAfterARetryIsStillAFence() throws Exception {
+        var refusal = mock(JetStreamApiException.class);
+        when(refusal.getApiErrorCode()).thenReturn(NatsCoordinatorEventLog.WRONG_LAST_SEQUENCE);
+        when(js.publish(any(String.class), any(byte[].class), any(PublishOptions.class)))
+                .thenThrow(new IOException("503")).thenThrow(refusal);
+
+        assertEquals(Outcome.FENCED, patient.append(SUBJECT, event(), 3).outcome());
     }
 }

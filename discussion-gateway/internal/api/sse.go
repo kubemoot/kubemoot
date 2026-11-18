@@ -65,7 +65,7 @@ const (
 var streamLog = logf.Log.WithName("stream")
 
 // errSubscriptionEnded means the NATS subscription stopped before the thread closed,
-// for example because the connection dropped. The client reconnects and resumes.
+// for example because NATS restarted. The stream waits for NATS and continues.
 var errSubscriptionEnded = errors.New("the NATS subscription ended before the thread closed")
 
 // SSEEvent is an event sent to the client over SSE: the bus contract's stream event,
@@ -128,32 +128,100 @@ func parseResumePoint(id string) (*resumePoint, error) {
 	return &resumePoint{threadID: id[:i], afterSeq: seq}, nil
 }
 
+// resumeBound is how long a stream keeps trying to get its NATS subscription back after
+// it ended before the thread closed. Reaching NATS again is what ends the wait; the bound
+// only stops a stream that would otherwise wait forever.
+var resumeBound = 5 * time.Minute
+
+// pullHeartbeat is how long a stream waits for NATS to prove it is still serving the
+// subscription before it counts the subscription as ended.
+var pullHeartbeat = 5 * time.Second
+
+// resumeRetryMax caps the pause between attempts to get the subscription back.
+const resumeRetryMax = 5 * time.Second
+
 // streamDiscussion subscribes to NATS JetStream and writes SSE events to the
-// provided emit function. It blocks until the thread closes, the NATS subscription
-// ends, or ctx is cancelled. The thread is found via thread_start metadata.
+// provided emit function. It blocks until the thread closes, the subscription cannot be
+// recovered, or ctx is cancelled. The thread is found via thread_start metadata. When
+// the subscription ends before the thread closes (NATS restarted), the stream waits for
+// NATS and continues after the last message it handled, so an answer published once NATS
+// is back still reaches the client; the client never sees the stream end without a
+// terminal event.
 func streamDiscussion(
 	ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, req streamRequest, emit func(SSEEvent),
 ) error {
-	consumer, err := createDiscussConsumer(ctx, js, consumerConfig(scope, req, time.Now()), emit)
+	cfg := consumerConfig(scope, req, time.Now())
+	consumer, err := createDiscussConsumer(ctx, js, cfg, emit)
 	if err != nil {
 		return err
 	}
 
 	emit(sseEvent(bus.StreamEventBase{Type: "connected"}))
 
-	iter, err := consumer.Messages()
+	f := follower{
+		tf: newThreadFinder(req), dedup: resumeDeduper(ctx, js, req),
+		activity: newActivityReporter(livenessFor(ctx, js, scope.Namespace)),
+		progress: &streamProgress{},
+	}
+	for {
+		err = followConsumer(ctx, consumer, f, emit)
+		if !errors.Is(err, errSubscriptionEnded) {
+			return err
+		}
+		streamLog.Info("The NATS subscription ended before the thread closed; waiting for NATS",
+			"conversationId", req.conversationID, "threadId", f.tf.threadID, "afterSeq", f.progress.seq)
+		if consumer, err = recoverConsumer(ctx, js, cfg, f.progress.seq); err != nil {
+			emit(sseEvent(bus.StreamEventBase{Type: eventError, Error: fmt.Sprintf(
+				"The discussion stream was lost and did not come back: %v", err)}))
+			return err
+		}
+	}
+}
+
+// followConsumer reads consumer's messages until the thread closes or the subscription ends.
+func followConsumer(ctx context.Context, consumer jetstream.Consumer, f follower, emit func(SSEEvent)) error {
+	iter, err := consumer.Messages(jetstream.PullHeartbeat(pullHeartbeat))
 	if err != nil {
 		emit(sseEvent(bus.StreamEventBase{Type: eventError, Error: fmt.Sprintf("Failed to consume: %v", err)}))
 		return err
 	}
 	defer iter.Stop()
+	return processMessages(ctx, startMessagePump(ctx, iter), f, emit)
+}
 
-	msgCh := startMessagePump(ctx, iter)
-	f := follower{
-		tf: newThreadFinder(req), dedup: resumeDeduper(ctx, js, req),
-		activity: newActivityReporter(livenessFor(ctx, js, scope.Namespace)),
+// recoverConsumer creates a consumer that continues after stream sequence afterSeq (or
+// starts as cfg does when no message was handled yet). It retries until NATS answers,
+// the context ends, or resumeBound passes.
+func recoverConsumer(
+	ctx context.Context, js jetstream.JetStream, cfg jetstream.ConsumerConfig, afterSeq uint64,
+) (jetstream.Consumer, error) {
+	if afterSeq > 0 {
+		cfg.DeliverPolicy = jetstream.DeliverByStartSequencePolicy
+		cfg.OptStartSeq = afterSeq + 1
+		cfg.OptStartTime = nil
 	}
-	return processMessages(ctx, msgCh, f, emit)
+	deadline := time.Now().Add(resumeBound)
+	pause := 100 * time.Millisecond
+	for {
+		attempt, cancel := context.WithTimeout(ctx, resumeRetryMax)
+		consumer, err := js.CreateOrUpdateConsumer(attempt, streamName, cfg)
+		cancel()
+		if err == nil {
+			return consumer, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if time.Now().Add(pause).After(deadline) {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(pause):
+		}
+		pause = min(pause*2, resumeRetryMax)
+	}
 }
 
 // resumeDeduper starts a stream's deduper. A resumed stream already delivered the
@@ -378,6 +446,19 @@ type follower struct {
 	tf       *threadFinder
 	dedup    *messageDeduper
 	activity *activityReporter
+	progress *streamProgress
+}
+
+// streamProgress is the last stream sequence a stream handled, where a recovered
+// subscription continues from.
+type streamProgress struct {
+	seq uint64
+}
+
+func (p *streamProgress) observe(seq uint64) {
+	if p != nil && seq > p.seq {
+		p.seq = seq
+	}
 }
 
 // processMessages is the main event loop that dispatches heartbeats, activity, and
@@ -417,7 +498,11 @@ func processMessages(ctx context.Context, msgCh <-chan jetstream.Msg, f follower
 // true when it closed the thread. Every new message also updates the activity.
 func (f follower) handleMessage(msg jetstream.Msg, emit func(SSEEvent)) bool {
 	m, ok := toDiscussMsg(msg)
-	if !ok || !f.dedup.firstSight(m.data.MessageID) {
+	if !ok {
+		return false
+	}
+	f.progress.observe(m.seq)
+	if !f.dedup.firstSight(m.data.MessageID) {
 		return false
 	}
 	f.activity.observe(m)
