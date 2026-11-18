@@ -210,6 +210,8 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 
 	It("rolls up iterations per scenario during a run and skips the judge when cancelled", func() {
 		const name = "js-cancel"
+		crew := &kubemootv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: csStatusCrew, Namespace: namespace}}
+		Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, crew))).To(Succeed(), "the realm reads the crew")
 		suite := &kubemootv1alpha1.CrewFitnessSuite{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{

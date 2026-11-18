@@ -808,6 +808,7 @@ export interface RealmDigests {
 	models: string;
 	versions: string;
 	resources: string;
+	isolation: string;
 }
 
 export interface RealmSnapshot {

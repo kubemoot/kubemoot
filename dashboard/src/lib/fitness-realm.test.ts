@@ -4,7 +4,7 @@ import type { CrewFitnessSuite, RealmDigests } from '#lib/types/kubemoot.js';
 
 type S = Pick<CrewFitnessSuite, 'metadata' | 'spec' | 'status'>;
 
-const D: RealmDigests = { servers: 'aaaa1111', models: 'bbbb2222', versions: 'cccc3333', resources: 'dddd4444' };
+const D: RealmDigests = { servers: 'aaaa1111', models: 'bbbb2222', versions: 'cccc3333', resources: 'dddd4444', isolation: 'eeee5555' };
 
 function suite(name: string, startedAt: string | undefined, status: Partial<NonNullable<S['status']>> = {}, crew = 'c', ns = 'n'): S {
 	return {
@@ -18,6 +18,7 @@ describe('differingParts', () => {
 	it('is empty for equal digests and names each differing part', () => {
 		expect(differingParts(D, { ...D })).toEqual([]);
 		expect(differingParts(D, { ...D, versions: 'x', servers: 'y' })).toEqual(['servers', 'versions']);
+		expect(differingParts(D, { ...D, isolation: 'z' })).toEqual(['isolation']);
 	});
 
 	it('is unknown when either run has no realm', () => {
@@ -51,7 +52,7 @@ describe('realmView', () => {
 		const cur = suite('cur', '2026-01-02T00:00:00Z', { realm: { digests: { ...D } } });
 		const v = realmView(cur, [prev, cur]);
 		expect(v.warnings).toEqual([]);
-		expect(v.label).toBe('aaaa.bbbb.cccc.dddd');
+		expect(v.label).toBe('aaaa.bbbb.cccc.dddd.eeee');
 	});
 
 	it('warns which parts differ from the previous run', () => {

@@ -1178,23 +1178,17 @@ func writeOverviewSheet(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSui
 			return err
 		}
 	}
-	if err := o.metadata(suite); err != nil {
-		return err
-	}
-	if err := o.timing(suite); err != nil {
-		return err
-	}
-	if err := o.config(suite); err != nil {
-		return err
-	}
-	if err := o.realm(suite); err != nil {
-		return err
-	}
-	if err := o.rollups(last); err != nil {
-		return err
-	}
-	if err := o.consistency(suite); err != nil {
-		return err
+	for _, write := range []func() error{
+		func() error { return o.metadata(suite) },
+		func() error { return o.timing(suite) },
+		func() error { return o.config(suite) },
+		func() error { return o.realm(suite) },
+		func() error { return o.rollups(last) },
+		func() error { return o.consistency(suite) },
+	} {
+		if err := write(); err != nil {
+			return err
+		}
 	}
 	// --- Scorecard (Rubric folded in): how the crew grade is computed ---
 	if numScenarios > 0 {

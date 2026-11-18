@@ -310,6 +310,7 @@ func (r *CrewFitnessSuiteReconciler) advanceRunning(ctx context.Context, suite *
 	}
 
 	applyProgress(suite, progress)
+	r.retryRealmStart(ctx, suite)
 	setScenarioRollup(suite, scenarioResults(suite.Spec.Scripts, HarvestIterationResults(terminalChildren(children))))
 	suite.Status.Phase = runningNextPhase(suite.Spec.Suspend, progress, suite.Status.IterationsTotal)
 	if suite.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhaseCompleted {
@@ -574,6 +575,7 @@ func listSuiteChildren(ctx context.Context, reader client.Reader, suite *kubemoo
 // debugging and logs the error each tick, rather than silently destroying
 // the only copy of the results.
 func (r *CrewFitnessSuiteReconciler) terminalUpkeep(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (ctrl.Result, error) {
+	r.retryRealmEnd(ctx, suite)
 	// Post-suite DEFER judging: score deferred assertions via their keyword's crew
 	// once the run is terminal. Idempotent (sidecar-guarded), deduped, and runs the
 	// slow crew calls off-reconcile — never inline during the run.
