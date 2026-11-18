@@ -125,7 +125,7 @@ final class ResultType {
         if (!kubectlTitles(lines.get(0)).isEmpty()) {
             return KUBECTL_TABLE;
         }
-        if (isYaml(text, lines.get(0))) {
+        if (isYaml(text, firstNonComment(lines))) {
             return YAML;
         }
         return isCsv(lines) ? CSV : TEXT;
@@ -189,7 +189,17 @@ final class ResultType {
         return false;
     }
 
-    /** YAML starts like YAML, fits the size limit, and parses as one mapping or list, or as several documents. */
+    /** The first of the lines that does not start with {@code #}, or "" when every one does. */
+    private static String firstNonComment(List<String> lines) {
+        for (String line : lines) {
+            if (!line.strip().startsWith("#")) {
+                return line;
+            }
+        }
+        return "";
+    }
+
+    /** YAML (after any comment lines) starts like YAML, fits the size limit, and parses as one mapping or list, or as several documents. */
     private static boolean isYaml(String text, String firstLine) {
         if (!YAML_FIRST_LINE.matcher(firstLine).find() || utf8Bytes(text) > MAX_YAML_BYTES) {
             return false;

@@ -118,12 +118,24 @@ func isKubectlTable(_ []byte, lines []string) bool {
 // a larger text is not tried. The runtime's ResultType has the same limit.
 const maxYAMLBytes = 1_000_000
 
+// isYAML decides by the first line that is not a comment, so a list a tool introduces with a
+// "# The following events (YAML format) were found:" line is still read as a table.
 func isYAML(data []byte, lines []string) bool {
-	if len(data) > maxYAMLBytes || !yamlFirstLine.MatchString(lines[0]) {
+	if len(data) > maxYAMLBytes || !yamlFirstLine.MatchString(firstNonComment(lines)) {
 		return false
 	}
 	_, err := yamlToJSON(data)
 	return err == nil
+}
+
+// firstNonComment is the first of lines that does not start with #, or "" when every one does.
+func firstNonComment(lines []string) string {
+	for _, l := range lines {
+		if !strings.HasPrefix(strings.TrimSpace(l), "#") {
+			return l
+		}
+	}
+	return ""
 }
 
 func isCSV(_ []byte, lines []string) bool {
@@ -250,10 +262,16 @@ func prepareKubectlTable(name, _ string, data []byte, workDir string) (Relation,
 	return writeRows(name, workDir, rows)
 }
 
+// The two columns of text that is no table: the line number and the line.
+const (
+	lineNoColumn = "line_no"
+	lineColumn   = "line"
+)
+
 func prepareText(name, _ string, data []byte, workDir string) (Relation, error) {
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	rows := make([][]string, 0, len(lines)+1)
-	rows = append(rows, []string{"line_no", "line"})
+	rows = append(rows, []string{lineNoColumn, lineColumn})
 	for i, line := range lines {
 		rows = append(rows, []string{strconv.Itoa(i + 1), strings.TrimRight(line, "\r")})
 	}

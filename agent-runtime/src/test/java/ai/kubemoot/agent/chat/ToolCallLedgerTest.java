@@ -263,7 +263,7 @@ class ToolCallLedgerTest {
     }
 
     @Test
-    void aLongColumnListAndLongNamesAreCutAndABracketCannotEndTheLine() {
+    void everyColumnOfAWideTableIsListedAndABracketCannotEndTheLine() {
         String header = java.util.stream.IntStream.rangeClosed(1, 14).mapToObj(i -> "COL" + i)
                 .collect(java.util.stream.Collectors.joining("  "));
         record("wide", "{}", header + "\nrow\n", false);
@@ -271,8 +271,8 @@ class ToolCallLedgerTest {
 
         String manifest = ledger.manifest();
 
-        assertTrue(manifest.contains("columns=col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11,col12,+2more]"), manifest);
-        assertTrue(manifest.contains("fields=" + "k".repeat(30) + "...,a)b]"), manifest);
+        assertTrue(manifest.contains("columns=col1,col2,col3,col4,col5,col6,col7,col8,col9,col10,col11,col12,col13,col14]"), manifest);
+        assertTrue(manifest.contains("fields=" + "k".repeat(40) + ",a)b]"), manifest);
         var lines = CallManifest.CALL_LINE.matcher(manifest);
         int found = 0;
         while (lines.find()) {
@@ -280,6 +280,40 @@ class ToolCallLedgerTest {
             found++;
         }
         assertEquals(2, found);
+    }
+
+    @Test
+    void aTableWiderThanTheListLimitCountsTheRest() {
+        String header = java.util.stream.IntStream.rangeClosed(1, ColumnNames.MAX_LISTED + 3).mapToObj(i -> "C" + i)
+                .collect(java.util.stream.Collectors.joining("  "));
+        record("wide", "{}", header + "\nrow\n", false);
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.contains(",c" + ColumnNames.MAX_LISTED + ",+3more]"), manifest);
+        assertFalse(manifest.contains("c" + (ColumnNames.MAX_LISTED + 1) + ","), manifest);
+    }
+
+    @Test
+    void aCrowdedManifestListsFewerColumnsBeforeItDropsThemAll() {
+        String header = java.util.stream.IntStream.rangeClosed(1, 50).mapToObj(i -> "COLUMN" + i)
+                .collect(java.util.stream.Collectors.joining("  "));
+        for (int i = 0; i < 9; i++) {
+            record("wide_" + i, "{}", header + "\nrow\n", false);
+        }
+
+        String manifest = ledger.manifest();
+
+        assertTrue(descriptions(manifest).length() <= ToolCallLedger.MAX_MANIFEST_CHARS, "length " + manifest.length());
+        assertTrue(manifest.contains("columns=column1,column2,column3,column4,column5,column6,column7,column8,column9,"
+                + "column10,column11,column12,+38more]"), manifest);
+    }
+
+    @Test
+    void theFooterSaysWhereEveryColumnIsListed() {
+        record("pods_list", "{}", "NAME  READY\na  1/1\n", false);
+
+        assertTrue(ledger.manifest().contains("workspace_describe lists every one"), ledger.manifest());
     }
 
     @Test

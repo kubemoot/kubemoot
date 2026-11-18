@@ -14,6 +14,79 @@ import (
 	"strings"
 )
 
+const (
+	// MaxListed is the most names a column list shows by default.
+	MaxListed = 60
+	// maxNameChars is the most characters of one name in a list; a longer name is cut and marked.
+	maxNameChars = 60
+	// maxClosest is the most close names an error offers.
+	maxClosest = 3
+	// minPartChars is the shortest word two names must share to be close.
+	minPartChars = 3
+)
+
+// List is the column list shown on a [CALL ...] line and in a no such column error: the names
+// joined by commas, at most MaxListed of them, then ",+<n>more" for the rest.
+func List(names []string) string {
+	return ListMax(names, MaxListed)
+}
+
+// ListMax is List with its own limit. The same rule runs in agent-runtime
+// (ColumnNames.list); both test suites run test/fixtures/column-list.json.
+func ListMax(names []string, limit int) string {
+	if limit < 0 {
+		limit = 0
+	}
+	shown := names[:min(len(names), limit)]
+	parts := make([]string, len(shown))
+	for i, n := range shown {
+		n = strings.NewReplacer("[", "(", "]", ")").Replace(n)
+		if r := []rune(n); len(r) > maxNameChars {
+			n = string(r[:maxNameChars]) + "..."
+		}
+		parts[i] = n
+	}
+	out := strings.Join(parts, ",")
+	if rest := len(names) - len(shown); rest > 0 {
+		if out != "" {
+			out += ","
+		}
+		out += "+" + strconv.Itoa(rest) + "more"
+	}
+	return out
+}
+
+// Closest names the columns that share a word of at least three letters with a name the query
+// guessed (status.phase and the column status; involved_object_name and name), in the order of
+// the table, at most three. It only advises: a guess is never turned into a column.
+func Closest(guess string, columns []string) []string {
+	words := wordSet(Name(guess))
+	var out []string
+	for _, c := range columns {
+		if len(out) == maxClosest {
+			break
+		}
+		for w := range wordSet(c) {
+			if words[w] {
+				out = append(out, c)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// wordSet is the words of a name (split at underscores) that are long enough to mean something.
+func wordSet(name string) map[string]bool {
+	set := map[string]bool{}
+	for _, w := range strings.Split(name, "_") {
+		if len(w) >= minPartChars {
+			set[w] = true
+		}
+	}
+	return set
+}
+
 // Normalize returns the SQL-safe name of every header, in order: ASCII lowercase letters,
 // digits and underscore. Names that collide get _2, _3.
 func Normalize(headers []string) []string {

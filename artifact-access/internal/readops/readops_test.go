@@ -52,7 +52,7 @@ func TestSelectCSVErrors(t *testing.T) {
 		want     []string
 	}{
 		{"missing column lists the columns", kubectlDaemonSets,
-			[]string{`"nme"`, "namespace, name, desired, current, ready, up_to_date, available, node_selector, age"}},
+			[]string{`"nme"`, "namespace,name,desired,current,ready,up_to_date,available,node_selector,age"}},
 		{"empty file", "", []string{"empty"}},
 		{"blank file", "\n  \n", []string{"empty"}},
 		{"json", `{"items":[]}`, []string{"json", "artifact_jq"}},
