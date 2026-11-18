@@ -214,18 +214,32 @@ final class ResultType {
             return false;
         }
         try {
-            List<Object> docs = new ArrayList<>();
-            for (Object doc : yaml().loadAll(text)) {
-                if (doc != null) {
-                    docs.add(doc);
-                }
-            }
-            Object value = docs.size() == 1 ? docs.get(0) : docs;
-            boolean parsed = docs.size() > 1 || (docs.size() == 1 && (value instanceof Map || value instanceof List));
-            return parsed && (!isComment(lines.get(0)) || structuredYaml(value));
+            List<Object> docs = loadDocs(text);
+            return parsedAsYaml(docs) && (!isComment(lines.get(0)) || structuredYaml(valueOf(docs)));
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    /** The non-null documents of the text. */
+    private static List<Object> loadDocs(String text) {
+        List<Object> docs = new ArrayList<>();
+        for (Object doc : yaml().loadAll(text)) {
+            if (doc != null) {
+                docs.add(doc);
+            }
+        }
+        return docs;
+    }
+
+    /** Several documents, or one that is a mapping or a list. */
+    private static boolean parsedAsYaml(List<Object> docs) {
+        return docs.size() > 1 || (docs.size() == 1 && (docs.get(0) instanceof Map || docs.get(0) instanceof List));
+    }
+
+    /** The one document, or the list of several. */
+    private static Object valueOf(List<Object> docs) {
+        return docs.size() == 1 ? docs.get(0) : docs;
     }
 
     /** A non-empty list of mappings, or a mapping that holds a list or a mapping. */
