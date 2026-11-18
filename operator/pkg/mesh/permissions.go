@@ -81,9 +81,11 @@ const roleCoordinator = "coordinator"
 var workspaceBuckets = []string{ArtifactBucket, WorkspaceBucket}
 
 // workspaceWriteSubjects are the subjects a spill needs: the artifact reference subject, the
-// bucket's chunk and meta subjects, and the call that creates a bucket nothing has yet.
+// bucket's chunk and meta subjects, the call that creates a bucket nothing has yet, and the
+// listing of a bucket (stream info and a consumer over its metadata): a writer lists the buckets
+// to carry its call numbers on, and a refused listing would restart them at 1.
 func (i Identity) workspaceWriteSubjects() []string {
-	out := make([]string, 0, 1+4*len(workspaceBuckets))
+	out := make([]string, 0, 1+6*len(workspaceBuckets))
 	out = append(out, fmt.Sprintf("kubemoot.artifacts.%s.%s.*", i.Namespace, i.Crew))
 	for _, b := range workspaceBuckets {
 		out = append(out,
@@ -91,7 +93,9 @@ func (i Identity) workspaceWriteSubjects() []string {
 			fmt.Sprintf("$O.%s.C.*", b),
 			fmt.Sprintf("$O.%s.M.*", b),
 			fmt.Sprintf("$JS.API.STREAM.INFO.OBJ_%s", b),
-			fmt.Sprintf("$JS.API.STREAM.CREATE.OBJ_%s", b))
+			fmt.Sprintf("$JS.API.STREAM.CREATE.OBJ_%s", b),
+			fmt.Sprintf("$JS.API.CONSUMER.CREATE.OBJ_%s", b),
+			fmt.Sprintf("$JS.API.CONSUMER.CREATE.OBJ_%s.>", b))
 	}
 	return out
 }

@@ -61,12 +61,13 @@ export async function readFitnessTranscript(objectKey: string): Promise<unknown>
 	return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-// The discussion workspace's two Object Store buckets. DISCUSSION_ARTIFACTS_BUCKET must match the
-// agent-runtime's constant (DiscussionArtifacts.BUCKET in kubemoot/agent-runtime/src/main/java/ai/
-// kubemoot/agent/nats/DiscussionArtifacts.java): the agent runtime still writes each tool result
-// there at key `{namespace}/{crew}/{threadId}/{agent}/{nnn}-{tool}` (see #lib/crewScope).
-// DISCUSSION_WORKSPACE_BUCKET is the same data under its new name; readers look in it first so they
-// keep working when writers move. The literals are kept in sync by code review.
+// The discussion workspace's two Object Store buckets. DISCUSSION_WORKSPACE_BUCKET is where the
+// agent runtime writes each tool result (DiscussionArtifacts.WORKSPACE_BUCKET in kubemoot/agent-runtime/
+// src/main/java/ai/kubemoot/agent/nats/DiscussionArtifacts.java), at key
+// `{namespace}/{crew}/{threadId}/{agent}/{nnn}-{tool}` (see #lib/crewScope). DISCUSSION_ARTIFACTS_BUCKET
+// is the bucket it wrote to before the rename: only read, until its TTL drains it. The dashboard never
+// creates either bucket (a created one would lack the TTL). The literals are kept in sync by
+// .github/scripts/test-bucket-names.sh.
 export const DISCUSSION_ARTIFACTS_BUCKET = 'kubemoot_discussion_artifacts';
 export const DISCUSSION_WORKSPACE_BUCKET = 'kubemoot_workspace';
 

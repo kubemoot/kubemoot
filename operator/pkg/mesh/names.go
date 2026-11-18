@@ -21,11 +21,11 @@ import (
 const (
 	// AgentStateBucket is the KV bucket holding each agent's liveness heartbeat.
 	AgentStateBucket = "kubemoot_agent_state"
-	// ArtifactBucket is the Object Store bucket holding spilled contributions: the discussion's
-	// workspace as it was stored before it was renamed. Writers still use it.
+	// ArtifactBucket is the Object Store bucket the discussion's workspace was stored in before it
+	// was renamed. Nothing writes to it; it is read, listed and cleaned until its TTL drains it.
 	ArtifactBucket = "kubemoot_discussion_artifacts"
-	// WorkspaceBucket is the discussion workspace's bucket under its new name. Permissions name it
-	// beside ArtifactBucket so a writer can move to it without a permission change.
+	// WorkspaceBucket is the discussion workspace's bucket: every writer stores into it.
+	// Permissions name both buckets so a thread that spans the change keeps working.
 	WorkspaceBucket = "kubemoot_workspace"
 	// BroadcastChannel is the channel the coordinator's steps go to.
 	BroadcastChannel = "broadcast"

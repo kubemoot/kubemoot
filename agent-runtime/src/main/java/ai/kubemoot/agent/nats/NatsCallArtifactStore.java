@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Writes a tooler's tool results to the discussion workspace, one NATS object per call, in the
- * bucket {@link DiscussionArtifacts#BUCKET} under the thread's key prefix. Objects carry the call's
+ * bucket {@link DiscussionArtifacts#WORKSPACE_BUCKET} under the thread's key prefix. Objects carry the call's
  * description as NATS object headers, so they expire with the bucket's TTL and are deleted with the
  * thread's other objects by prefix ({@link DiscussionArtifacts#deleteThreadArtifacts}). Each object
  * is also announced on the artifact subject so a sandbox's materializer gets the file.
@@ -64,7 +64,11 @@ public class NatsCallArtifactStore implements CallArtifactStore {
         synchronized (counters) {
             counter = counters.get(agentPrefix);
             if (counter == null) {
-                counter = new AtomicInteger(highestCallNumber(agentPrefix));
+                int highest = highestCallNumber(agentPrefix);
+                if (highest < 0) {
+                    return null;
+                }
+                counter = new AtomicInteger(highest);
                 counters.put(agentPrefix, counter);
             }
         }
@@ -74,7 +78,8 @@ public class NatsCallArtifactStore implements CallArtifactStore {
     /**
      * The highest call number already stored under {@code agentPrefix}, so numbering carries on after a
      * restart or after the counter was evicted instead of overwriting an earlier call. Zero when
-     * nothing is stored or the bucket cannot be listed.
+     * nothing is stored or no connection exists yet; negative when a bucket that exists cannot be
+     * listed, because numbering from 1 could overwrite an earlier call, so the call is not stored.
      */
     private int highestCallNumber(String agentPrefix) {
         try {
@@ -84,17 +89,32 @@ public class NatsCallArtifactStore implements CallArtifactStore {
             }
             ensureBucket(conn);
             int highest = 0;
-            for (var info : conn.objectStore(DiscussionArtifacts.BUCKET).getList()) {
+            for (String bucket : DiscussionArtifacts.READ_BUCKETS) {
+                highest = Math.max(highest, highestIn(conn, bucket, agentPrefix));
+            }
+            return highest;
+        } catch (Exception e) {
+            log.warn("Could not list stored calls under {} ({}): {} - this call is not stored",
+                    agentPrefix, e.getClass().getSimpleName(), e.getMessage());
+            return -1;
+        }
+    }
+
+    /** The highest call number under {@code agentPrefix} in one bucket; zero when that bucket does not exist. */
+    private static int highestIn(Connection conn, String bucket, String agentPrefix) throws Exception {
+        int highest = 0;
+        try {
+            for (var info : conn.objectStore(bucket).getList()) {
                 if (!info.isDeleted() && info.getObjectName().startsWith(agentPrefix)) {
                     highest = Math.max(highest, DiscussionArtifacts.callNumberOf(info.getObjectName(), agentPrefix));
                 }
             }
-            return highest;
         } catch (Exception e) {
-            log.warn("Could not list stored calls under {} ({}): {} - numbering starts at 1",
-                    agentPrefix, e.getClass().getSimpleName(), e.getMessage());
-            return 0;
+            if (!DiscussionArtifacts.isBucketMissing(e)) {
+                throw e;
+            }
         }
+        return highest;
     }
 
     @Override
@@ -107,7 +127,7 @@ public class NatsCallArtifactStore implements CallArtifactStore {
             }
             ensureBucket(conn);
             var meta = ObjectMeta.builder(key).description(tool + " result").headers(natsHeaders(headers)).build();
-            conn.objectStore(DiscussionArtifacts.BUCKET).put(meta, new ByteArrayInputStream(body));
+            conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET).put(meta, new ByteArrayInputStream(body));
             conn.publish(natsProvider.scope().artifactSubject(threadId),
                     mapper.writeValueAsBytes(Map.of("artifact", reference(agent, tool, key, body.length, headers))));
             log.info("Stored {} call result ({} bytes) as workspace artifact {}", tool, body.length, key);
@@ -139,7 +159,7 @@ public class NatsCallArtifactStore implements CallArtifactStore {
     private static Map<String, Object> reference(String agent, String tool, String key, int bytes,
                                                  Map<String, String> headers) {
         var ref = new LinkedHashMap<String, Object>();
-        ref.put("bucket", DiscussionArtifacts.BUCKET);
+        ref.put("bucket", DiscussionArtifacts.WORKSPACE_BUCKET);
         ref.put("key", key);
         ref.put("bytes", bytes);
         ref.put("agent", agent);

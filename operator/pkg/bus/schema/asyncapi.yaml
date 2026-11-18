@@ -126,7 +126,7 @@ channels:
     address: kubemoot.artifacts.{namespace}.{crew}.{threadId}
     title: Artifact notices
     description: |
-      A contribution an agent spilled to the kubemoot_discussion_artifacts Object
+      A contribution an agent spilled to the kubemoot_workspace Object
       Store, for the artifact materializer. Core NATS only.
     servers:
       - $ref: '#/servers/nats'

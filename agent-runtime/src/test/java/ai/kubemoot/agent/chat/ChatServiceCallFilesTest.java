@@ -51,6 +51,7 @@ class ChatServiceCallFilesTest {
         final Map<String, Map<String, String>> headers = new LinkedHashMap<>();
         int next;
         boolean failWrites;
+        boolean failReserve;
         String failFor;
 
         @Override
@@ -60,6 +61,9 @@ class ChatServiceCallFilesTest {
 
         @Override
         public String reserveKey(String threadId, String agent, String tool) {
+            if (failReserve) {
+                return null;
+            }
             return "ns/crew/" + threadId + "/" + agent + "/" + String.format("%03d", ++next) + "-" + tool;
         }
 

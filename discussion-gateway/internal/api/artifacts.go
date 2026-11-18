@@ -13,8 +13,8 @@ import (
 )
 
 // The Object Store buckets that hold a discussion's workspace. Keys are
-// <namespace>/<crew>/<threadId>/<agent>/<signal>-<uuid>. Writers still use artifactBucket; a read
-// looks in workspaceBucket first and artifactBucket second, so it keeps working when writers move.
+// <namespace>/<crew>/<threadId>/<agent>/<signal>-<uuid>. Writers store into workspaceBucket;
+// artifactBucket is the bucket they used before, read second until its TTL drains it.
 const (
 	workspaceBucket = "kubemoot_workspace"
 	artifactBucket  = "kubemoot_discussion_artifacts"

@@ -11,7 +11,7 @@ import { guardKeyNamespace } from '#lib/server/scope.js';
  * Read-only download of a stored result from the discussion's workspace: a tool result file, or the full agent
  * contribution behind an `[ARTIFACT key=...]` marker in a thread from an earlier release.
  * The object lives in the NATS object store bucket `kubemoot_workspace`, or in `kubemoot_discussion_artifacts`
- * (where writers still put it), at the namespaced, thread-scoped key `{namespace}/{crew}/{threadId}/{agent}/{nnn}-{tool}`.
+ * (the bucket writers used before the rename, read second), at the namespaced, thread-scoped key `{namespace}/{crew}/{threadId}/{agent}/{nnn}-{tool}`.
  *
  * The key is VALIDATED to that exact 5-segment shape by parseArtifactKey: no
  * `..`, no leading or trailing slash, a DNS-label namespace, and each other

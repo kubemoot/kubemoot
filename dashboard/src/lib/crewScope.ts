@@ -9,7 +9,7 @@
 //   kubemoot.chat.<ns>.<agent>                         chat events
 //   <ns>.<agent>                                       kubemoot_agent_state key
 //   <ns>.<crew>.<topic>.<key>                          kubemoot_crew_memory key
-//   <ns>/<crew>/<thread>/<agent>/<signal>-<uuid>       kubemoot_discussion_artifacts object
+//   <ns>/<crew>/<thread>/<agent>/<signal>-<uuid>       kubemoot_workspace object
 //
 // Builders throw on a missing or malformed part rather than emitting an unscoped
 // or wildcard-bearing identifier; parsers return null for anything that is not
@@ -222,7 +222,7 @@ export function kvPrefixSubject(bucket: string, keyPrefix: string): string {
 
 // -------------------------------------------------------- discussion artifacts
 
-/** Object key in kubemoot_discussion_artifacts: `<ns>/<crew>/<thread>/<agent>/<name>` */
+/** Object key in kubemoot_workspace: `<ns>/<crew>/<thread>/<agent>/<name>` */
 export function artifactObjectKey(scope: CrewScope, threadId: string, agent: string, name: string): string {
 	const s = checkedScope(scope);
 	const rest = [threadId, agent, name];

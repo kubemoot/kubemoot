@@ -25,13 +25,18 @@ import org.slf4j.LoggerFactory;
  */
 final class DiscussionArtifacts {
 
-    static final String BUCKET = "kubemoot_discussion_artifacts";
-
-    /** The workspace bucket under its new name. Nothing writes to it yet; readers and clean-up already look in it. */
+    /** The workspace bucket: the one every writer stores into. */
     static final String WORKSPACE_BUCKET = "kubemoot_workspace";
 
-    /** The buckets a reader looks in, in order, so reads stay correct while writers move to the new one. */
-    static final List<String> READ_BUCKETS = List.of(WORKSPACE_BUCKET, BUCKET);
+    /**
+     * The bucket the workspace was stored in before it had its name. Nothing writes to it; readers and
+     * clean-up still look in it so a discussion that spans the move keeps its calls until the bucket's
+     * TTL drains it.
+     */
+    static final String LEGACY_BUCKET = "kubemoot_discussion_artifacts";
+
+    /** The buckets a reader looks in, in order: the workspace bucket, then the one it replaced. */
+    static final List<String> READ_BUCKETS = List.of(WORKSPACE_BUCKET, LEGACY_BUCKET);
 
     private static final Logger log = LoggerFactory.getLogger(DiscussionArtifacts.class);
 
@@ -45,13 +50,14 @@ final class DiscussionArtifacts {
     }
 
     /**
-     * Create the bucket if it does not exist. create() is called unconditionally (no
+     * Create the workspace bucket, with its TTL, if it does not exist. Only a writer creates it: a
+     * reader that created it would leave it without the TTL. create() is called unconditionally (no
      * check-then-create race); an "already in use" error from a concurrent or earlier create
      * is benign and ignored.
      */
     static void ensureBucket(Connection conn) throws Exception {
         try {
-            conn.objectStoreManagement().create(ObjectStoreConfiguration.builder(BUCKET)
+            conn.objectStoreManagement().create(ObjectStoreConfiguration.builder(WORKSPACE_BUCKET)
                     .ttl(TTL)
                     .storageType(StorageType.File)
                     .build());

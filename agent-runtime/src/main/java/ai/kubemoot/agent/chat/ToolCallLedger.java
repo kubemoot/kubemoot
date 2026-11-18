@@ -86,6 +86,10 @@ final class ToolCallLedger {
         byte[] body = (cut ? TextCut.truncate(text, maxChars) : text).getBytes(StandardCharsets.UTF_8);
         ToolResultShape shape = ToolResultShape.of(text);
         String key = store.reserveKey(threadId, agent, call.tool());
+        if (key == null) {
+            calls.add(ToolCallRecord.notStored(call.tool(), call.arguments(), error));
+            return null;
+        }
         Map<String, String> headers = headers(call, key, body.length, shape, error, cut);
         if (!store.put(threadId, agent, call.tool(), key, body, headers)) {
             calls.add(ToolCallRecord.notStored(call.tool(), call.arguments(), error));
