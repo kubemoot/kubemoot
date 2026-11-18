@@ -4,9 +4,17 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 chart="$here/kubemoot-operator"
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+# Checked before any render, which would fail to parse on a new-syntax chart.
+# Template syntax must parse on the oldest Helm 3 users and the release workflow run;
+# "else with" needs a newer Go template engine and breaks them.
+if grep -rn "else with" "$chart/templates"; then
+  fail "a chart template uses 'else with'; use 'default' or nested 'if' so older Helm parses it"
+fi
+
 helm dependency build "$chart" >/dev/null
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
 config_images() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
   | yq -N 'select(.kind == "KubemootConfig") | .spec.images'; }
 
@@ -41,12 +49,6 @@ new_pin="$(config_images --set kubemootConfig.images.workspaceAccess=workspace-a
 neither="$(config_images --set kubemootConfig.images.workspaceAccess= --set kubemootConfig.images.artifactAccess=)"
 [ "$(yq -N '.workspaceAccess // "absent"' <<<"$neither")" = "absent" ] \
   || fail "workspaceAccess is rendered when neither workspaceAccess nor artifactAccess is set"
-
-# Template syntax must parse on the oldest Helm 3 users and the release workflow run;
-# "else with" needs a newer Go template engine and breaks them.
-if grep -rn "else with" "$chart/templates"; then
-  fail "a chart template uses 'else with'; use 'default' or nested 'if' so older Helm parses it"
-fi
 
 for rendered in "$both" "$old_only" "$new_pin"; do
   [ "$(yq -N '.artifactAccess // "absent"' <<<"$rendered")" = "absent" ] || fail "spec.images.artifactAccess is rendered for an old value"
