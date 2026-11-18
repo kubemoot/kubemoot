@@ -13,8 +13,9 @@ type secretShape struct {
 	with string
 }
 
-// secretShapes are the forms a credential takes in a command's output. The harness-shim keeps the
-// same list (harness-shim/internal/shim) for what it publishes; change both together.
+// secretShapes are the forms a credential takes in a command's output. The harness-shim
+// (harness-shim/internal/shim) and the operator's memory export (operator/pkg/secretscreen) keep
+// the same list; change all three together.
 var secretShapes = []secretShape{
 	{regexp.MustCompile(`(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}`), "$1 " + redacted},
 	{regexp.MustCompile(`(?i)\b([\w.-]*(?:api[_-]?key|token|secret|passw(?:or)?d|authorization)[\w.-]*)` +

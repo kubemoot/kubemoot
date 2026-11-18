@@ -14,6 +14,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,4 +67,29 @@ func TestExportCrewWritesNothingWhenTheStoreFails(t *testing.T) {
 	if _, err := os.Stat(dir); err == nil {
 		t.Error("a directory was created although the store failed")
 	}
+}
+
+func TestExportCrewKeepsACredentialOutOfTheFiles(t *testing.T) {
+	scope, _ := crewscope.New("ns", "c")
+	dir := filepath.Join(t.TempDir(), "memory")
+	r := mapReader{
+		"ns.c.hardware.gpu0": `{"value":"RTX 5090","learnedBy":"a"}`,
+		"ns.c.ops.login":     `{"value":"Authorization: Bearer abcdefgh12345678","learnedBy":"a"}`,
+	}
+	exp, err := ExportCrew(r, scope, dir, true, Options{ExportedAt: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exp.Memories) != 1 || len(exp.Skipped) != 1 {
+		t.Fatalf("memories = %d, skipped = %d, want 1 and 1", len(exp.Memories), len(exp.Skipped))
+	}
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if b, _ := os.ReadFile(p); strings.Contains(string(b), "abcdefgh12345678") {
+			t.Errorf("%s holds the credential", p)
+		}
+		return nil
+	})
 }

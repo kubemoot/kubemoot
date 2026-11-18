@@ -42,6 +42,8 @@ type options struct {
 	out       string
 	origin    string
 	markdown  bool
+	// allowUnscreened keeps facts that hold a credential in the export.
+	allowUnscreened bool
 }
 
 func main() {
@@ -61,6 +63,8 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.out, "out", "", "directory to write; must not exist or be empty")
 	fs.StringVar(&o.origin, "origin", "", "origin id for the manifest (default: derived from bucket, namespace, crew)")
 	fs.BoolVar(&o.markdown, "markdown", false, "also write the runtime projection as Markdown files")
+	fs.BoolVar(&o.allowUnscreened, "allow-unscreened", false,
+		"export facts that hold a credential; by default they are left out and listed")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -107,7 +111,8 @@ func runWith(args []string, stdout io.Writer, open opener) error {
 // export reads the crew's facts, maps them to memory objects, checks every
 // document against the schema and writes the directory.
 func export(reader crewmemory.EntryReader, scope crewscope.Scope, o options, now time.Time) (ompi.Export, error) {
-	return ompi.ExportCrew(reader, scope, o.out, o.markdown, ompi.Options{ExportedAt: now, Origin: o.origin})
+	opts := ompi.Options{ExportedAt: now, Origin: o.origin, AllowUnscreened: o.allowUnscreened}
+	return ompi.ExportCrew(reader, scope, o.out, o.markdown, opts)
 }
 
 // connect opens the bucket for reading. It is not the operator's Publisher on

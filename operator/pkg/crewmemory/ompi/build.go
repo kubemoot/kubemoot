@@ -18,6 +18,7 @@ import (
 
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/secretscreen"
 )
 
 const (
@@ -41,6 +42,10 @@ type Options struct {
 	// Origin is the store identifier for the manifest. When empty, a stable
 	// one is derived from the bucket, namespace and crew.
 	Origin string
+	// AllowUnscreened exports facts that hold a credential. By default such a
+	// fact is left out and listed in Skipped, because the spec (section 3.5.6)
+	// says credentials must not be exported as memory.
+	AllowUnscreened bool
 }
 
 // ScopeTag names the crew that owns a memory: crew:<namespace>/<crew>. The
@@ -65,7 +70,8 @@ func DefaultOrigin(s crewscope.Scope) string {
 
 // Build maps a crew's facts to memory objects and a manifest. Facts may come
 // in any order; the result is deterministic. A fact with no time the system
-// recorded it cannot meet the required created_at and is listed in Skipped.
+// recorded it cannot meet the required created_at, and a fact whose text holds
+// a credential (unless opts.AllowUnscreened), are listed in Skipped.
 func Build(scope crewscope.Scope, res crewmemory.ReadResult, opts Options) (Export, error) {
 	exp := Export{Memories: []Memory{}}
 	for _, s := range res.Skipped {
@@ -73,6 +79,10 @@ func Build(scope crewscope.Scope, res crewmemory.ReadResult, opts Options) (Expo
 	}
 	seen := map[string]string{}
 	for _, p := range place(res.Facts) {
+		if reason, held := credentialReason(p.fact, opts); held {
+			exp.Skipped = append(exp.Skipped, Omitted{Key: p.fact.StoreKey(), Reason: reason})
+			continue
+		}
 		m, ok := memoryOf(p)
 		if !ok {
 			exp.Skipped = append(exp.Skipped, Omitted{Key: p.fact.StoreKey(), Reason: "no time the fact was recorded"})
@@ -165,4 +175,18 @@ func formatTime(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+// credentialReason says why a fact is left out when its value, topic or key
+// holds a credential. It names the shape and never the text.
+func credentialReason(f crewmemory.Fact, opts Options) (string, bool) {
+	if opts.AllowUnscreened {
+		return "", false
+	}
+	for _, text := range []string{f.Value, f.Topic, f.Key} {
+		if shape, found := secretscreen.Find(text); found {
+			return "holds a credential (" + shape + "); not exported as memory", true
+		}
+	}
+	return "", false
 }

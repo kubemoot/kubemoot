@@ -97,8 +97,8 @@ type ManifestExt struct {
 	Bucket    string `json:"bucket"`
 	Namespace string `json:"namespace"`
 	Crew      string `json:"crew"`
-	// Skipped counts entries that were read but left out, with no usable time
-	// or unreadable; it is non-zero exactly when Selection is "selection".
+	// Skipped counts entries that were read but left out: unreadable, with no
+	// usable time, or holding a credential; it is non-zero exactly when Selection is "selection".
 	Skipped int `json:"skipped"`
 }
 

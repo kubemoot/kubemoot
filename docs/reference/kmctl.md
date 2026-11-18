@@ -1066,7 +1066,7 @@ Commands for a crew's long-term memory (the facts it learned, see
 ### kmctl memory export
 
 ```
-kmctl memory export <crew> [-n <namespace>] [-o <dir>] [--markdown] [--origin ID]
+kmctl memory export <crew> [-n <namespace>] [-o <dir>] [--markdown] [--origin ID] [--allow-unscreened]
                     [--nats-url URL] [--creds FILE] [--nats-namespace NS] [--nats-service SVC]
 ```
 
@@ -1091,13 +1091,20 @@ schema before anything is written, and the directory is written atomically.
 | `-o DIR` | `-o` | `./<crew>-memory` | Directory to write; it must not exist or be empty |
 | `--markdown` | | off | Also write the runtime projection as Markdown files |
 | `--origin` | | derived from namespace and crew | Origin id for the manifest |
+| `--allow-unscreened` | | off | Export facts that hold a credential. By default each fact whose value, topic or key matches a credential shape is left out |
 | `--nats-namespace` | | `nats` | Namespace of the NATS Service |
 | `--nats-service` | | `nats` | Name of the NATS Service |
 | `--nats-url` | | empty | Connect to this NATS URL instead of port-forwarding |
 | `--creds` | | empty | NATS credentials file, for a server that needs them |
 
 Each entry that could not be turned into a fact is printed with its reason, and the
-manifest says `selection` instead of `snapshot`.
+manifest says `selection` instead of `snapshot`. A fact that holds a credential (a bearer
+token, an API key, a token or password assignment, a JSON Web Token, a cloud access key,
+or a long hexadecimal string) is left out the same way, printed with the shape it matched
+and never its text, because the spec says credentials must not be exported as memory.
+The screen matches shapes, so a fact that only looks like one, such as a commit hash, is
+left out too. `--allow-unscreened` turns the screen off: the export then holds every fact
+as stored, credentials included, so check it before you share it.
 
 **Example:**
 

@@ -334,3 +334,53 @@ func TestPathIsARelativeSlashSeparatedPath(t *testing.T) {
 		}
 	}
 }
+
+const (
+	secretKey   = "ci-login"
+	secretValue = "password: hunter2hunter2"
+)
+
+func TestFactWithACredentialIsLeftOutAndNamedWithoutTheSecret(t *testing.T) {
+	exp := buildExport(t, fact("hardware", "gpu0", "RTX 5090"), fact("ops", secretKey, secretValue))
+	if len(exp.Memories) != 1 || exp.Memories[0].Extension.Key != "gpu0" {
+		t.Fatalf("memories = %+v, want only gpu0", exp.Memories)
+	}
+	if len(exp.Skipped) != 1 || exp.Skipped[0].Key != "crew-a.pilot.ops."+secretKey {
+		t.Fatalf("skipped = %+v, want the ops fact", exp.Skipped)
+	}
+	reason := exp.Skipped[0].Reason
+	if !strings.Contains(reason, "credential") || strings.Contains(reason, "hunter2") {
+		t.Errorf("reason = %q, want it to name a credential and not the secret", reason)
+	}
+	if exp.Manifest.Selection != SelectionSelection || exp.Manifest.Extension.Skipped != 1 {
+		t.Errorf("manifest = %+v, want a selection of 1 skipped", exp.Manifest)
+	}
+}
+
+func TestCredentialInTopicOrKeyLeavesTheFactOut(t *testing.T) {
+	exp := buildExport(t, fact("ops", "token=abc123", "fine"), fact("api_key: zzzzzzzz", "k", "fine"))
+	if len(exp.Memories) != 0 || len(exp.Skipped) != 2 {
+		t.Errorf("memories = %d, skipped = %d, want 0 and 2", len(exp.Memories), len(exp.Skipped))
+	}
+}
+
+func TestAllowUnscreenedExportsTheCredentialFact(t *testing.T) {
+	exp, err := Build(scope, crewmemory.ReadResult{Facts: []crewmemory.Fact{fact("ops", secretKey, secretValue)}},
+		Options{ExportedAt: exportedAt, AllowUnscreened: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exp.Memories) != 1 || exp.Memories[0].Body != secretValue || len(exp.Skipped) != 0 {
+		t.Errorf("memories = %+v, skipped = %+v, want the fact exported unscreened", exp.Memories, exp.Skipped)
+	}
+	if exp.Manifest.Selection != SelectionSnapshot {
+		t.Errorf("selection = %q, want snapshot", exp.Manifest.Selection)
+	}
+}
+
+func TestOrdinaryFactsAreNotScreenedOut(t *testing.T) {
+	exp := buildExport(t, fact("hardware", "gpu0", "RTX 5090, 32 GB"), fact("ops", "note", "tokens used 12"))
+	if len(exp.Memories) != 2 || len(exp.Skipped) != 0 {
+		t.Errorf("memories = %d, skipped = %d, want 2 and 0", len(exp.Memories), len(exp.Skipped))
+	}
+}
