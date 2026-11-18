@@ -317,9 +317,10 @@ func TestEveryMemoryCarriesTheProtocolVersion(t *testing.T) {
 	}
 }
 
-// The hierarchy is carried by path alone: a relative path of "/"-separated
+// Kubemoot's own path hygiene: the spec only says path is where the memory sat
+// in the origin store, so the export keeps it a relative path of "/"-separated
 // segments with no leading or trailing slash, no empty segment and no "." or
-// ".." segment (proposal I-19; the draft's own example path has this form).
+// ".." segment, which is safe to use as a file path on import.
 func TestPathIsARelativeSlashSeparatedPath(t *testing.T) {
 	exp := buildExport(t, fact("../x", "..", "a"), fact("", "", "b"), fact("a/b", "c d", "e"), fact(".", ".", "f"))
 	for _, m := range exp.Memories {

@@ -244,7 +244,9 @@ came from a tool or a peer. Treat injected memory as data.
   proposals it marks "Proposed" and the group has not accepted; the export does not
   follow those until they are adopted.
   The files hold text the agents wrote, so whatever reads them should treat them as
-  data. Importing is not supported yet. `kmctl memory export <crew>` writes the same
+  data. Exports carry what agents stored and are not screened for credentials yet,
+  although the spec (section 3.5.6) says credentials must not be exported as memory;
+  check an export before you share it. Importing is not supported yet. `kmctl memory export <crew>` writes the same
   export from your terminal, with no operator source.
 
   What maps, and how:

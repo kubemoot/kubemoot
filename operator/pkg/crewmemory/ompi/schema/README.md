@@ -15,7 +15,7 @@ implementation add fields.
 
 It follows the spec's unmarked and agreed text. Text marked "Proposed" (for
 example the scalar `version`, `body_encoding`, tombstones) is not adopted and the
-schema does not require it; a `version` is accepted as a scalar or as the
+schema does not require it; a `version` is accepted but not required, as a scalar or as the
 `{value, comparator}` object the spec's example uses. The spec says a validator
 must not infer a requirement its field table does not state, so no field is
 required beyond the table. When the spec changes, these files and the pinned
