@@ -292,12 +292,12 @@ func prepareYAML(name, _ string, data []byte, workDir string) (Relation, error) 
 
 func prepareMarkdownTable(name, _ string, data []byte, workDir string) (Relation, error) {
 	rows, _ := readMarkdownRows(data, 0)
-	return writeRows(name, workDir, rows)
+	return writeTable(name, workDir, rows)
 }
 
 func prepareKubectlTable(name, _ string, data []byte, workDir string) (Relation, error) {
 	rows, _ := readKubectlRows(data, 0)
-	return writeRows(name, workDir, rows)
+	return writeTable(name, workDir, rows)
 }
 
 // The two columns of text that is no table: the line number and the line.
@@ -314,6 +314,17 @@ func prepareText(name, _ string, data []byte, workDir string) (Relation, error) 
 		rows = append(rows, []string{strconv.Itoa(i + 1), strings.TrimRight(line, "\r")})
 	}
 	return writeRows(name, workDir, rows)
+}
+
+// writeTable is writeRows for a table of fields: a column of Kubernetes quantities is written as
+// base-unit numbers and the relation records its unit.
+func writeTable(name, workDir string, rows [][]string) (Relation, error) {
+	rows, units := quantify(rows)
+	rel, err := writeRows(name, workDir, rows)
+	if len(units) > 0 {
+		rel.Quantities = units
+	}
+	return rel, err
 }
 
 // writeRows saves rows (the first is the header) as a CSV file the engine reads.

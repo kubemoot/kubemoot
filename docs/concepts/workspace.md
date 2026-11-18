@@ -489,7 +489,7 @@ The format is the object's recorded `Content-Type`; an object without one is det
 |---------|-------|
 | A JSON list of objects | One row per object, one column per key. |
 | A JSON object with an `items` list (`kubectl get -o json`) | One row per item. |
-| A `kubectl get` table | One row per line, columns named by the header. |
+| A `kubectl get` or `kubectl top` table (titles may end in a unit, `CPU(cores)`, `MEMORY(bytes)`) | One row per line, columns named by the header. |
 | YAML (several documents become a list) | Read as JSON. |
 | A Markdown pipe table | One row per table row. |
 | CSV with a header row | One row per line. |
@@ -546,6 +546,18 @@ its complete items), and a note says so. An artifact that does not start with a
 
 A column whose every value is a number is stored as numbers, so `sum`, `avg` and
 `ORDER BY` work on it (`RESTARTS` of a kubectl table, a Markdown count column).
+A `kubectl` table or Markdown table column whose every non-empty value is a Kubernetes
+quantity, with at least one carrying a suffix, is read as a quantity: stored as numbers in base
+units, so `ORDER BY memory_bytes DESC` and `sum(memory_bytes)` compare values and not text. The
+suffixes are binary (`Ki`, `Mi`, `Gi`, `Ti`, `Pi`, `Ei`), decimal (`k`, `M`, `G`, `T`, `P`, `E`),
+milli (`m`) and exponents (`12e3`). Binary and decimal suffixes give bytes (`65Mi` is `68157440`);
+`m` gives cores (`250m` is `0.25`) and is read that way only under a `cpu` or `core` column name,
+because `5m` in an `AGE` column is minutes. A column that mixes quantities with other text, or
+bytes with cores, stays text, and so does a column of plain numbers without a suffix (that one is
+already numbers). `workspace_describe` types a quantity column `quantity, bytes` or
+`quantity, cores`. The stored result is unchanged: `workspace_head`, `workspace_grep` and
+`workspace_tail` still show `65Mi`.
+
 A nested object or list in JSON or YAML is read per engine. In SQLite it is a text
 column holding JSON: `status->>'phase'` reads a field, `json_array_length(tags)` counts
 a list. In DuckDB it is a struct: `status.phase`. A JSON `true` or `false` is `1` or `0`
@@ -743,7 +755,7 @@ type the query engine gives each, so a query uses real names:
 The data dictionary is what the data and the engine show: the type, how many values are null, and up
 to three example values from the first 50 rows (each cut at 40 characters). A column that holds
 nested JSON is marked `text (JSON)`; SQLite reads such a column with `->>`. A meaning is given only for
-the columns Kubemoot adds to a table of stacked calls (`_call`, `_args`, `_arg_<name>`); no unit and
+the columns Kubemoot adds to a table of stacked calls (`_call`, `_args`, `_arg_<name>`); a unit only for a quantity column (see above), and no other unit and
 no meaning is invented for any other column. Types are the engine's own (SQLite: `integer`, `real`,
 `text`, `blob`), and the result says that the types and examples are read from the data. It is
 offered when the engine can describe; it asks the engine for `typeof` and a `UNION ALL`, so any engine behind the `Engine` seam that has them can.

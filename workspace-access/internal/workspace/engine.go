@@ -34,6 +34,9 @@ type Relation struct {
 	Name string
 	Path string
 	Kind Kind
+	// Quantities names the columns read as Kubernetes quantities, with the unit their numbers
+	// are in (see quantify). The file holds base-unit numbers for them.
+	Quantities map[string]string
 }
 
 // Limits bound one query.

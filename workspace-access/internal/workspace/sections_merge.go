@@ -82,7 +82,7 @@ func mergeRows(table string, g []prepared, workDir string) (Relation, error) {
 			rows[i][0] = strconv.Itoa(i)
 		}
 	}
-	return writeRows(table, workDir, rows)
+	return writeTable(table, workDir, rows)
 }
 
 // mergeJSON stacks the rows of JSON relations into one list of objects.

@@ -13,7 +13,8 @@ import (
 // gives each, how many values are null, and a few example values, so a query is written against
 // real names. The types and examples are read from the data, by the same engine and the same
 // tables a query reads, so they are what a query sees. Nothing is invented: a meaning is given
-// only for the columns Kubemoot adds itself (see knownColumn), and no unit is known.
+// only for the columns Kubemoot adds itself (see knownColumn), and a unit is given only for a
+// column read as a Kubernetes quantity.
 const (
 	// sampleRows is how many rows the examples are taken from.
 	sampleRows = 50
@@ -28,7 +29,8 @@ const (
 	nullType          = "null"
 	textType          = "text"
 	inferredNote      = "note: the types are the query engine's and the examples come from the first 50 rows; " +
-		"both are read from the data. No unit or meaning is recorded for these results except where a column says one."
+		"both are read from the data. No unit or meaning is recorded for these results except where a column says one; " +
+		"a column typed quantity holds numbers in the unit named, read from values such as 65Mi or 250m."
 )
 
 // columnInfo is what is known about one column of a table.
@@ -97,6 +99,7 @@ func (s *Service) describeRelation(ctx context.Context, r Relation) (tableInfo, 
 	}
 	info.typesCut = typed.Truncated
 	info.columns = columnsOf(names, sample.Columns, typed.Rows, sample.Rows)
+	markQuantities(info.columns, r.Quantities)
 	info.rows = rowCount(names[0], typed.Rows)
 	return info, nil
 }
@@ -153,6 +156,16 @@ func columnsOf(names, sampleColumns []string, typeRows, sample [][]string) []col
 		}
 	}
 	return out
+}
+
+// markQuantities says in a column's type that its numbers were read from Kubernetes quantities
+// and in what unit.
+func markQuantities(columns []columnInfo, units map[string]string) {
+	for i, c := range columns {
+		if unit, ok := units[c.name]; ok {
+			columns[i].types = []string{"quantity, " + unit}
+		}
+	}
 }
 
 // isTextType is true for the type name an engine gives a string column: SQLite's text, DuckDB's varchar.
