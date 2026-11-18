@@ -94,7 +94,7 @@ func TestUnknownAuthorLeavesProvenanceOut(t *testing.T) {
 	f.LearnedBy = ""
 	m := buildExport(t, f).Memories[0]
 	if m.Provenance != nil {
-		t.Errorf("provenance = %+v, want none (author unknown, section 4.5)", m.Provenance)
+		t.Errorf("provenance = %+v, want none (author unknown, section 3.1.5)", m.Provenance)
 	}
 	if data := mustJSON(t, m); strings.Contains(data, `"provenance"`) {
 		t.Errorf("provenance key present in %s", data)
@@ -113,7 +113,7 @@ func TestNothingIsInventedForFieldsTheStoreLacks(t *testing.T) {
 func TestMissingEvidenceIsSaidOutright(t *testing.T) {
 	m := buildExport(t, fact("t", "k", "v")).Memories[0]
 	if !m.Extension.EvidenceUnavailable {
-		t.Error("a memory without evidence must say evidence is unavailable (section 4.4)")
+		t.Error("a memory without evidence must say evidence is unavailable (section 3.1.4)")
 	}
 	if !strings.Contains(mustJSON(t, m), `"evidenceUnavailable": true`) {
 		t.Error("evidenceUnavailable not in the JSON")
@@ -222,7 +222,7 @@ func TestSameKeyTwiceIsAnError(t *testing.T) {
 
 func TestManifestDeclaresOriginAndTime(t *testing.T) {
 	m := buildExport(t, fact("t", "k", "v")).Manifest
-	if m.ProtocolVersion != "0.2" || m.Intent != "copy" || m.Selection != SelectionSnapshot {
+	if m.ProtocolVersion != "0.6" || m.Intent != "copy" || m.Selection != SelectionSnapshot {
 		t.Errorf("manifest = %+v", m)
 	}
 	if m.ExportedAt != "2026-10-31T12:00:00Z" {
@@ -304,4 +304,32 @@ func keysOf(m map[string][]byte) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// Every memory says which protocol version it was written against (the spec lets
+// an exporter add it at export, section 1.3), and the same value as the manifest.
+func TestEveryMemoryCarriesTheProtocolVersion(t *testing.T) {
+	exp := buildExport(t, fact("a", "b", "c"), fact("a", "d", "e"))
+	for _, m := range exp.Memories {
+		if m.ProtocolVersion != SpecVersion || m.ProtocolVersion != exp.Manifest.ProtocolVersion {
+			t.Errorf("memory protocol_version = %q, manifest %q", m.ProtocolVersion, exp.Manifest.ProtocolVersion)
+		}
+	}
+}
+
+// The hierarchy is carried by path alone: a relative path of "/"-separated
+// segments with no leading or trailing slash, no empty segment and no "." or
+// ".." segment (proposal I-19; the draft's own example path has this form).
+func TestPathIsARelativeSlashSeparatedPath(t *testing.T) {
+	exp := buildExport(t, fact("../x", "..", "a"), fact("", "", "b"), fact("a/b", "c d", "e"), fact(".", ".", "f"))
+	for _, m := range exp.Memories {
+		if m.Path == "" || strings.HasPrefix(m.Path, "/") || strings.HasSuffix(m.Path, "/") {
+			t.Errorf("path %q has a leading or trailing slash or is empty", m.Path)
+		}
+		for _, seg := range strings.Split(m.Path, "/") {
+			if seg == "" || seg == "." || seg == ".." {
+				t.Errorf("path %q has the segment %q", m.Path, seg)
+			}
+		}
+	}
 }

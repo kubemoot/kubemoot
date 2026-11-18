@@ -102,16 +102,17 @@ func memoryOf(p placed) (Memory, bool) {
 		return Memory{}, false
 	}
 	return Memory{
-		Identifier: Identifier(f),
-		Path:       p.path,
-		Title:      f.Topic + " / " + f.Key,
-		MediaType:  plainText,
-		Scope:      []string{ScopeTag(f.Scope)},
-		CreatedAt:  formatTime(created),
-		UpdatedAt:  formatTime(f.Recorded),
-		Version:    versionOf(f),
-		Provenance: provenanceOf(f),
-		Body:       f.Value,
+		Identifier:      Identifier(f),
+		ProtocolVersion: SpecVersion,
+		Path:            p.path,
+		Title:           f.Topic + " / " + f.Key,
+		MediaType:       plainText,
+		Scope:           []string{ScopeTag(f.Scope)},
+		CreatedAt:       formatTime(created),
+		UpdatedAt:       formatTime(f.Recorded),
+		Version:         versionOf(f),
+		Provenance:      provenanceOf(f),
+		Body:            f.Value,
 		Extension: MemoryExt{
 			Namespace: f.Scope.Namespace, Crew: f.Scope.Crew, Topic: f.Topic, Key: f.Key,
 			UsedAt: formatTime(f.UsedAt), EvidenceUnavailable: true,
@@ -127,7 +128,7 @@ func versionOf(f crewmemory.Fact) *Version {
 }
 
 // provenanceOf names the writing agent. With no recorded writer the field is
-// left out, so a receiver reads the author as unknown (section 4.5).
+// left out, so a receiver reads the author as unknown (section 3.1.5).
 func provenanceOf(f crewmemory.Fact) []Contributor {
 	if f.LearnedBy == "" {
 		return nil

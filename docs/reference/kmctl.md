@@ -1071,7 +1071,7 @@ kmctl memory export <crew> [-n <namespace>] [-o <dir>] [--markdown] [--origin ID
 ```
 
 Write the crew's memory in the interchange format of the Open Memory Protocol
-Initiative (OMPI) exchange-and-runtime working spec v0.2: `manifest.json` and one JSON
+Initiative (OMPI) exchange-and-runtime working spec v0.6: `manifest.json` and one JSON
 memory object per fact under `memories/`. With `--markdown` it also writes each fact as
 a Markdown file under `markdown/`. The mapping is the one the operator's `ompi-export`
 uses; see [Agent context](../../concepts/agent-context/#memory) for what maps and what

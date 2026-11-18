@@ -26,6 +26,12 @@ const (
 	fieldMediaType  = "media_type"
 	fieldCreatedAt  = "created_at"
 	fieldProvenance = "provenance"
+	fieldProtocol   = "protocol_version"
+	fieldValidUntil = "valid_until"
+	fieldStub       = "stub"
+	fieldScope      = "scope"
+	fieldVersion    = "version"
+	fieldWeight     = "weight"
 )
 
 func readTestdata(t *testing.T, name string) []byte {
@@ -47,9 +53,40 @@ func TestSchemaAcceptsTheSpecsOwnExamples(t *testing.T) {
 }
 
 func TestSchemaAcceptsTheSmallestConformingMemory(t *testing.T) {
-	const minimal = `{"identifier":"MEMORY.md","media_type":"text/markdown","created_at":"2026-10-14T00:00:00Z","body":"The user prefers concise answers."}`
-	if err := ValidateMemory([]byte(minimal)); err != nil {
-		t.Errorf("Appendix C memory rejected: %v", err)
+	if err := ValidateMemory(readTestdata(t, "appendix-b-memory.json")); err != nil {
+		t.Errorf("Appendix B memory rejected: %v", err)
+	}
+}
+
+// The spec's tiers: a memory carries identifier, media_type, created_at and body
+// and nothing else is required, so a memory with no protocol_version, version or
+// provenance conforms to the minimal profile (sections 1.2, 3.1.5, 3.7).
+func TestSchemaRequiresNothingBeyondTheTable(t *testing.T) {
+	for _, field := range []string{fieldProtocol, "path", "title", fieldScope, fieldVersion, "checksum", fieldProvenance, "evidence", "links", fieldWeight} {
+		if err := ValidateMemory(memoryWith(t, field, nil)); err != nil {
+			t.Errorf("memory without optional %s rejected: %v", field, err)
+		}
+	}
+}
+
+func TestSchemaAcceptsEveryShapeOfVersionAndWeight(t *testing.T) {
+	ok := map[string]struct {
+		field string
+		value any
+	}{
+		"version object":   {fieldVersion, map[string]any{"value": 2, "comparator": "integer"}},
+		"version integer":  {fieldVersion, 2},
+		"version string":   {fieldVersion, "1.2.0"},
+		"weight integer":   {fieldWeight, 3},
+		"weight negative":  {fieldWeight, -0.5},
+		"protocol version": {fieldProtocol, "0.6"},
+		"valid_until":      {fieldValidUntil, "2027-01-01T00:00:00Z"},
+		"stub":             {fieldStub, true},
+	}
+	for name, c := range ok {
+		if err := ValidateMemory(memoryWith(t, c.field, c.value)); err != nil {
+			t.Errorf("%s: rejected: %v", name, err)
+		}
 	}
 }
 
@@ -92,18 +129,25 @@ func TestSchemaRejectsWrongTypesAndFormats(t *testing.T) {
 		"created_at not date":   {"created_at", "yesterday"},
 		"created_at no zone":    {"created_at", "2026-10-14 10:00"},
 		"updated_at number":     {"updated_at", 5},
-		"scope string":          {"scope", "crew:a"},
+		"scope string":          {fieldScope, "crew:a"},
 		"scope entry number":    {"scope", []any{1}},
 		"tags string":           {"tags", "x"},
-		"version bare":          {"version", 2},
-		"version no comparator": {"version", map[string]any{"value": 2}},
+		"version list":          {fieldVersion, []any{2}},
+		"version bool":          {fieldVersion, true},
+		"version no comparator": {fieldVersion, map[string]any{"value": 2}},
+		"protocol version num":  {fieldProtocol, 0.6},
+		"empty protocol vers":   {fieldProtocol, ""},
+		"weight string":         {fieldWeight, "high"},
+		"link version list":     {"links", []any{map[string]any{"target": "a", "rel": "supersedes", "version": []any{1}}}},
+		"valid_until not date":  {fieldValidUntil, "someday"},
+		"body object":           {fieldBody, map[string]any{"k": "v"}},
 		"provenance object":     {fieldProvenance, map[string]any{}},
 		"provenance no kind":    {fieldProvenance, []any{map[string]any{"id": "a"}}},
 		"provenance bad kind":   {fieldProvenance, []any{map[string]any{"id": "a", "kind": "robot"}}},
 		"provenance bad at":     {fieldProvenance, []any{map[string]any{"id": "a", "kind": "agent", "at": "soon"}}},
 		"evidence number":       {"evidence", []any{3}},
 		"body number":           {fieldBody, 3},
-		"stub string":           {"stub", "true"},
+		"stub string":           {fieldStub, "true"},
 	}
 	for name, c := range cases {
 		if err := ValidateMemory(memoryWith(t, c.field, c.value)); err == nil {
@@ -143,7 +187,7 @@ func manifestWith(t *testing.T, field string, value any) []byte {
 }
 
 func TestManifestSchemaRejectsMissingOrWrongFields(t *testing.T) {
-	for _, field := range []string{"protocol_version", "profiles", "origin", "exported_at", "selection", "intent", "media_types"} {
+	for _, field := range []string{fieldProtocol, "profiles", "origin", "exported_at", "selection", "intent", "media_types"} {
 		if err := ValidateManifest(manifestWith(t, field, nil)); err == nil {
 			t.Errorf("manifest without %s accepted", field)
 		}

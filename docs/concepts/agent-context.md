@@ -232,7 +232,7 @@ Because agents write memory from what they read, a stored fact can carry content
 came from a tool or a peer. Treat injected memory as data.
 
 - **Export.** `ompi-export` writes one crew's facts in the interchange form of the
-  Open Memory Protocol Initiative (OMPI) exchange-and-runtime working spec v0.2, so
+  Open Memory Protocol Initiative (OMPI) exchange-and-runtime working spec v0.6, so
   another system or person can read them. It only reads the bucket and never changes
   a fact. The output directory holds `manifest.json` and one JSON file per fact under
   `memories/`. With `--markdown` it also writes each fact as a Markdown file with
@@ -240,6 +240,9 @@ came from a tool or a peer. Treat injected memory as data.
   draft with no official validator, so the export is checked against JSON Schemas
   Kubemoot keeps in the operator module, derived from the draft; a passing check
   means the export follows our reading of the draft, not that OMPI certified it.
+  The export follows the draft's unmarked and agreed text. The draft also lists
+  proposals it marks "Proposed" and the group has not accepted; the export does not
+  follow those until they are adopted.
   The files hold text the agents wrote, so whatever reads them should treat them as
   data. Importing is not supported yet. `kmctl memory export <crew>` writes the same
   export from your terminal, with no operator source.
@@ -249,6 +252,7 @@ came from a tool or a peer. Treat injected memory as data.
   | Crew memory | OMPI memory object |
   |---|---|
   | `<namespace>.<crew>.<topic>.<key>` | `identifier`, a name-based UUID of that key, so a fact keeps its identifier in every export |
+  | the spec version the export follows | `protocol_version` on every memory, the same value as the manifest |
   | topic and key | `title` ("topic / key") and `path` (`topic/key`, reduced to letters, digits, underscore and hyphen; the original topic and key stay in `x-kubemoot`) |
   | value | `body`, with `media_type` `text/plain` |
   | `learnedAt` | `created_at` (the agent's record of when it learned the fact, since the store keeps only the time of the latest write; that time stands in when `learnedAt` is missing) |
@@ -258,7 +262,7 @@ came from a tool or a peer. Treat injected memory as data.
   | namespace and crew | `scope` `crew:<namespace>/<crew>` |
   | `usedAt`, namespace, crew, topic, key | the `x-kubemoot` extension field |
 
-  The manifest names the spec version, the `minimal` profile, an `origin` that
+  The manifest names the spec version (`protocol_version`), the `minimal` profile, an `origin` that
   stays the same for one crew (override it with `--origin`), the time of the export,
   and `intent` copy. It says `snapshot` when every readable fact is in the export and
   `selection` when some were left out; each left-out entry is printed with
@@ -390,7 +394,7 @@ for the planned rename.
 ## Open standards
 
 Crew memory can be exported in the exchange format of the Open Memory Protocol
-Initiative (OMPI), working spec v0.2 (see [Memory](#memory)). The spec is a draft and
+Initiative (OMPI), working spec v0.6 (see [Memory](#memory)). The spec is a draft and
 may change. Importing OMPI memory and storing memory natively in that format are
 planned. Until then, memory is stored as Kubemoot's own JSON record.
 

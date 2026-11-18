@@ -10,7 +10,7 @@ You may obtain a copy of the License at
 
 // Command ompi-export writes one crew's memory, read from the NATS key-value
 // bucket kubemoot_crew_memory, in the interchange form of the Open Memory
-// Protocol Initiative (OMPI) exchange-and-runtime working spec v0.2: a manifest
+// Protocol Initiative (OMPI) exchange-and-runtime working spec v0.6: a manifest
 // and one JSON memory object per fact, and with --markdown the runtime
 // projection as Markdown files. It only reads the bucket; it never writes,
 // deletes or touches a fact.
