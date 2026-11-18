@@ -193,12 +193,16 @@ type ToolOverride struct {
 // KubemootImage names an image the operator takes from KubemootConfig
 // spec.images, so an MCPServer can run a Kubemoot-built server without naming
 // a version. Each value is the name of the KubemootConfig field it selects.
-// +kubebuilder:validation:Enum=artifactAccess
+// +kubebuilder:validation:Enum=workspaceAccess;artifactAccess
 type KubemootImage string
 
 const (
-	// KubemootImageArtifactAccess selects spec.images.artifactAccess: the
-	// read-ops MCP server over the artifact store.
+	// KubemootImageWorkspaceAccess selects spec.images.workspaceAccess: the
+	// MCP server over the discussion's workspace.
+	KubemootImageWorkspaceAccess KubemootImage = "workspaceAccess"
+	// KubemootImageArtifactAccess is the old name of workspaceAccess and selects the same
+	// image. It is removed in the next release.
+	// Deprecated: use KubemootImageWorkspaceAccess.
 	KubemootImageArtifactAccess KubemootImage = "artifactAccess"
 )
 

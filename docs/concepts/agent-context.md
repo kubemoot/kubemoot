@@ -153,7 +153,7 @@ loading a whole document:
   [workspace](#workspace), so counting and totalling are done by a database instead of
   by the model. `workspace_list` lists what the discussion has stored, and `workspace_describe` gives
   each table's columns, types and example values (see
-  [List and describe the workspace](../discussion-artifact-store/#list-and-describe-the-workspace)).
+  [List and describe the workspace](../workspace/#list-and-describe-the-workspace)).
 - The coordinator has a query service of its own. The operator indexes the crew's
   resumes into a per-crew `RAGSource` and points the coordinator at it, so the
   coordinator can narrow the crew to the agents whose expertise matches the question.
@@ -187,17 +187,14 @@ size threshold is stored whole in a NATS object store and passed to the table **
 reference**: the message carries a preview and a reference envelope, and an agent that
 needs more reads a bounded slice with `head`, `tail`, `grep`, `select`, `count`, `rows`
 or `jq`. The optional `workspace_query` tool uses a SQLite or DuckDB engine. Agents
-without network access read the same data as files materialized under `/artifacts`.
+without network access read the same data as files materialized under `/workspace`.
 
 Workspace objects are keyed `{namespace}/{crew}/{threadId}/{agent}/{tool}-{seq}` and are
 deleted with the discussion: when the thread closes, then by a bucket expiry, then by a
 background reaper for anything left.
 
-Today this store is called the **discussion artifact store**, and the tool and docs use
-"artifact" for what this page calls the workspace. Renaming it to "workspace" is
-planned, so that "artifact" can name generated work that outlives a discussion (see
-[Artifacts](#artifacts-planned)). See
-[Discussion Artifact Store](../discussion-artifact-store/) for the full mechanism.
+The tool names, the mount and the docs call this store the workspace. "Artifact" is kept for generated work delivered to you (see [Artifacts](#artifacts-planned)). See
+[The workspace](../workspace/) for the full mechanism.
 
 ## Memory
 
@@ -430,5 +427,5 @@ planned. Until then, memory is stored as Kubemoot's own JSON record.
   conversation and thread vocabulary.
 - [The Table and the Harnesses](../the-table-and-the-harnesses/) - the layer above the
   single-agent loop.
-- [Discussion Artifact Store](../discussion-artifact-store/) - the workspace mechanism.
+- [The workspace](../workspace/) - the workspace mechanism.
 - [Crew reference](../../reference/crew/) - the `spec.memory` fields.

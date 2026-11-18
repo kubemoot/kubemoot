@@ -30,15 +30,15 @@ The container that runs programs has no network path to the places data lives, s
 comes to it:
 
 1. An agent fetches the data from the live system, and each tool result is stored as its own file in the crew's
-   [artifact store](../discussion-artifact-store/), announcing it on the bus.
+   [workspace](../workspace/), announcing it on the bus.
 2. The workspace-access materializer, a sidecar in the sandbox pod, reads the referenced
    objects from the store over the message bus and writes them to a shared volume under
-   `/artifacts`.
+   `/workspace`.
 3. The compute agent's program reads those files and computes over them locally.
 
 The materializer is the only part of the pod that talks to the bus. The sandbox container
 that runs programs holds no bus credentials and talks to nothing itself. Programs see only
-`/artifacts`. Data goes in the program's code or in a file there, never through stdin.
+`/workspace`. Data goes in the program's code or in a file there, never through stdin.
 
 ## How a run is contained
 

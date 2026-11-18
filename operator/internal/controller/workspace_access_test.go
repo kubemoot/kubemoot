@@ -74,14 +74,14 @@ func TestResolveWorkspaceAccessTakesTheClosestDeclaration(t *testing.T) {
 
 func TestImplicitAccessLeavesTheToolListsAlone(t *testing.T) {
 	enabled, disabled := []string{wsLegacyHead, wsDomainTool}, []string{"x"}
-	got := applyWorkspaceAccess(enabled, disabled, resolveWorkspaceAccess("", "", ""), kubemootv1alpha1.ArtifactQueryEngineSQLite)
+	got := applyWorkspaceAccess(enabled, disabled, resolveWorkspaceAccess("", "", ""), kubemootv1alpha1.WorkspaceQueryEngineSQLite)
 	if !slices.Equal(got.enabled, enabled) || !slices.Equal(got.disabled, disabled) || len(got.overruled) != 0 {
 		t.Errorf("implicit access changed the lists: %+v", got)
 	}
 }
 
 func TestAccessDerivesToolGrants(t *testing.T) {
-	sqlite := kubemootv1alpha1.ArtifactQueryEngineSQLite
+	sqlite := kubemootv1alpha1.WorkspaceQueryEngineSQLite
 	decide := func(a kubemootv1alpha1.WorkspaceAccess) workspaceDecision { return resolveWorkspaceAccess(a, "", "") }
 	allTools := append(workspaceReadTools(), sortedKeys(legacyWorkspaceTools())...)
 
@@ -105,7 +105,7 @@ func TestAccessDerivesToolGrants(t *testing.T) {
 
 func TestAnEmptyEnabledListStaysEmpty(t *testing.T) {
 	// An empty enabledTools means every tool; granting must not turn it into a short allow-list.
-	got := applyWorkspaceAccess(nil, nil, resolveWorkspaceAccess(kubemootv1alpha1.WorkspaceAccessRead, "", ""), kubemootv1alpha1.ArtifactQueryEngineSQLite)
+	got := applyWorkspaceAccess(nil, nil, resolveWorkspaceAccess(kubemootv1alpha1.WorkspaceAccessRead, "", ""), kubemootv1alpha1.WorkspaceQueryEngineSQLite)
 	if len(got.enabled) != 0 {
 		t.Errorf("enabled = %v, want empty", got.enabled)
 	}
@@ -113,7 +113,7 @@ func TestAnEmptyEnabledListStaysEmpty(t *testing.T) {
 
 func TestQueryEngineNoneWithholdsWorkspaceQuery(t *testing.T) {
 	got := applyWorkspaceAccess([]string{wsDomainTool}, nil,
-		resolveWorkspaceAccess(kubemootv1alpha1.WorkspaceAccessRead, "", ""), kubemootv1alpha1.ArtifactQueryEngineNone)
+		resolveWorkspaceAccess(kubemootv1alpha1.WorkspaceAccessRead, "", ""), kubemootv1alpha1.WorkspaceQueryEngineNone)
 	if slices.Contains(got.enabled, "workspace_query") || !slices.Contains(got.disabled, "workspace_query") {
 		t.Errorf("workspace_query must be disabled and not granted: %+v", got)
 	}
@@ -122,7 +122,7 @@ func TestQueryEngineNoneWithholdsWorkspaceQuery(t *testing.T) {
 
 func TestDeclaredAccessOverrulesEnabledToolsByEitherName(t *testing.T) {
 	got := applyWorkspaceAccess([]string{wsDomainTool, wsLegacyHead, "artifact_jq", wsGrepTool}, nil,
-		resolveWorkspaceAccess(kubemootv1alpha1.WorkspaceAccessNone, "", ""), kubemootv1alpha1.ArtifactQueryEngineSQLite)
+		resolveWorkspaceAccess(kubemootv1alpha1.WorkspaceAccessNone, "", ""), kubemootv1alpha1.WorkspaceQueryEngineSQLite)
 	if want := []string{wsLegacyHead, "artifact_jq", wsGrepTool}; !slices.Equal(got.overruled, want) {
 		t.Errorf("overruled = %v, want %v", got.overruled, want)
 	}
@@ -131,7 +131,7 @@ func TestDeclaredAccessOverrulesEnabledToolsByEitherName(t *testing.T) {
 
 func TestAnExplicitDenialBeatsADerivedGrant(t *testing.T) {
 	got := applyWorkspaceAccess([]string{wsDomainTool}, []string{wsGrepTool},
-		resolveWorkspaceAccess(kubemootv1alpha1.WorkspaceAccessRead, "", ""), kubemootv1alpha1.ArtifactQueryEngineSQLite)
+		resolveWorkspaceAccess(kubemootv1alpha1.WorkspaceAccessRead, "", ""), kubemootv1alpha1.WorkspaceQueryEngineSQLite)
 	if slices.Contains(got.enabled, wsGrepTool) {
 		t.Errorf("a denied tool was granted: %v", got.enabled)
 	}
@@ -139,7 +139,7 @@ func TestAnExplicitDenialBeatsADerivedGrant(t *testing.T) {
 
 func TestAnOldNameCountsAsGranted(t *testing.T) {
 	got := applyWorkspaceAccess([]string{wsLegacyHead}, nil,
-		resolveWorkspaceAccess(kubemootv1alpha1.WorkspaceAccessRead, "", ""), kubemootv1alpha1.ArtifactQueryEngineSQLite)
+		resolveWorkspaceAccess(kubemootv1alpha1.WorkspaceAccessRead, "", ""), kubemootv1alpha1.WorkspaceQueryEngineSQLite)
 	if slices.Contains(got.enabled, wsHeadTool) {
 		t.Errorf("workspace_head was added beside artifact_head: %v", got.enabled)
 	}
@@ -292,7 +292,7 @@ func TestAReadAgentWithAWorkspaceServerIsResolved(t *testing.T) {
 	r := wsFixture(t, "", "")
 	server := &kubemootv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "readops", Namespace: wsNamespace},
-		Spec:       kubemootv1alpha1.MCPServerSpec{KubemootImage: kubemootv1alpha1.KubemootImageArtifactAccess},
+		Spec:       kubemootv1alpha1.MCPServerSpec{KubemootImage: kubemootv1alpha1.KubemootImageWorkspaceAccess},
 	}
 	if err := r.Create(context.Background(), server); err != nil {
 		t.Fatal(err)
@@ -362,7 +362,7 @@ func TestWatchPredicatesFireOnlyOnWhatChangesAccess(t *testing.T) {
 	srvB := srvA.DeepCopy()
 	srvB.Spec.Port = 99
 	srvC := srvA.DeepCopy()
-	srvC.Spec.KubemootImage = kubemootv1alpha1.KubemootImageArtifactAccess
+	srvC.Spec.KubemootImage = kubemootv1alpha1.KubemootImageWorkspaceAccess
 	sp := workspaceServerChanged()
 	if sp.Update(event.UpdateEvent{ObjectOld: srvA, ObjectNew: srvB}) {
 		t.Error("an unrelated MCPServer change fired")

@@ -307,13 +307,13 @@ func (c *ConfigCache) GetWorkspaceDefaultAccess() kubemootv1alpha1.WorkspaceAcce
 }
 
 // GetWorkspaceQueryEngine returns the engine behind workspace_query; an unset engine is sqlite.
-func (c *ConfigCache) GetWorkspaceQueryEngine() kubemootv1alpha1.ArtifactQueryEngine {
+func (c *ConfigCache) GetWorkspaceQueryEngine() kubemootv1alpha1.WorkspaceQueryEngine {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.config != nil {
-		return effectiveQueryEngine(c.config.Spec.Artifacts.QueryEngine)
+		return configuredQueryEngine(c.config)
 	}
-	return kubemootv1alpha1.ArtifactQueryEngineSQLite
+	return kubemootv1alpha1.WorkspaceQueryEngineSQLite
 }
 
 // IsConfigured returns true if a KubemootConfig has been loaded

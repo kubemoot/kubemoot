@@ -68,17 +68,15 @@ spec:
             description: KubemootConfigSpec defines the desired state of KubemootConfig
             properties:
               artifacts:
-                default: {}
-                description: Artifacts configures the discussion's shared artifacts.
+                description: |-
+                  Artifacts is the old home of the workspace settings. Its queryEngine is read only when
+                  workspace.queryEngine is empty, and the field is removed in the next release.
+                  Deprecated: use workspace.
                 properties:
                   queryEngine:
-                    default: sqlite
                     description: |-
-                      QueryEngine is the engine that answers workspace_query on every MCPServer that
-                      selects spec.kubemootImage artifactAccess. sqlite (the default, also when
-                      unset) runs in the workspace-access process and needs nothing added to the image;
-                      duckdb needs its program on the image; none offers no query tool.
-                      The operator sets ARTIFACT_QUERY_ENGINE on those servers; a server that sets the variable itself keeps its own value.
+                      QueryEngine is the old name of workspace.queryEngine.
+                      Deprecated: use workspace.queryEngine.
                     enum:
                     - none
                     - sqlite
@@ -339,11 +337,9 @@ spec:
                     type: string
                   artifactAccess:
                     description: |-
-                      ArtifactAccess is the workspace-access image: the read-ops MCP server a crew
-                      runs (ARTIFACT_MODE=mcp) to read the artifact store when a tool result spills
-                      over the inline limit. An MCPServer selects it with spec.kubemootImage
-                      instead of naming an image. The operator chart stamps it from the release;
-                      there is no default, because a floating tag would break version pinning.
+                      ArtifactAccess is the old name of workspaceAccess. It is read only when
+                      workspaceAccess is empty and is removed in the next release.
+                      Deprecated: use workspaceAccess.
                     type: string
                   discussionGateway:
                     default: ghcr.io/kubemoot/discussion-gateway:latest
@@ -386,6 +382,14 @@ spec:
                     description: QueryService is the default query service image for
                       RAGSource
                     type: string
+                  workspaceAccess:
+                    description: |-
+                      WorkspaceAccess is the workspace-access image: the MCP server a crew runs
+                      (WORKSPACE_MODE=mcp) to read the discussion's workspace when a tool result spills
+                      over the inline limit. An MCPServer selects it with spec.kubemootImage
+                      instead of naming an image. The operator chart stamps it from the release;
+                      there is no default, because a floating tag would break version pinning.
+                    type: string
                 type: object
               workspace:
                 description: Workspace configures the discussion workspace cluster-wide.
@@ -399,6 +403,18 @@ spec:
                     - read
                     - write
                     - readWrite
+                    type: string
+                  queryEngine:
+                    description: |-
+                      QueryEngine is the engine that answers workspace_query on every MCPServer that
+                      selects spec.kubemootImage workspaceAccess. sqlite (the default, also when unset) runs in
+                      the workspace-access process and needs nothing added to the image; duckdb needs its program
+                      on the image; none offers no query tool. The operator sets WORKSPACE_QUERY_ENGINE on those
+                      servers; a server that sets the variable itself keeps its own value.
+                    enum:
+                    - none
+                    - sqlite
+                    - duckdb
                     type: string
                 type: object
             type: object

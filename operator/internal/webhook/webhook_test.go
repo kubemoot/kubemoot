@@ -106,7 +106,7 @@ func TestValidateMCPServer(t *testing.T) {
 			name: "kubemootImage alone is valid",
 			server: &aiv1alpha1.MCPServer{
 				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
-				Spec:       aiv1alpha1.MCPServerSpec{KubemootImage: aiv1alpha1.KubemootImageArtifactAccess},
+				Spec:       aiv1alpha1.MCPServerSpec{KubemootImage: aiv1alpha1.KubemootImageWorkspaceAccess},
 			},
 		},
 		{
@@ -115,7 +115,7 @@ func TestValidateMCPServer(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.MCPServerSpec{
 					Image:         testFetchImage,
-					KubemootImage: aiv1alpha1.KubemootImageArtifactAccess,
+					KubemootImage: aiv1alpha1.KubemootImageWorkspaceAccess,
 				},
 			},
 			wantErr: "mutually exclusive",
@@ -126,7 +126,7 @@ func TestValidateMCPServer(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: testResourceName},
 				Spec: aiv1alpha1.MCPServerSpec{
 					ExternalEndpoint: testServerURL,
-					KubemootImage:    aiv1alpha1.KubemootImageArtifactAccess,
+					KubemootImage:    aiv1alpha1.KubemootImageWorkspaceAccess,
 				},
 			},
 			wantErr: "mutually exclusive",

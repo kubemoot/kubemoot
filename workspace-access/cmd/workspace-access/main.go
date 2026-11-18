@@ -44,6 +44,10 @@ func env(key, def string) string {
 	return def
 }
 
+// defaultWorkspaceDir is where objects are materialized when WORKSPACE_DIR is not set. The operator
+// mounts the workspace volume here for a server it runs.
+const defaultWorkspaceDir = "/workspace"
+
 func main() {
 	var (
 		mode    = env("WORKSPACE_MODE", "materializer")
@@ -92,7 +96,7 @@ func runMaterializer(ctx context.Context, natsURL string, store *natsstore.Store
 	}
 	defer func() { _ = nc.Drain() }()
 
-	dir := env("WORKSPACE_DIR", "/artifacts")
+	dir := env("WORKSPACE_DIR", defaultWorkspaceDir)
 
 	// 0o755 so the non-root sandbox container sharing this volume can traverse it.
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -133,7 +137,7 @@ func runMCP(ctx context.Context, store *natsstore.Store) {
 	srv := mcpserver.New(store)
 	// workspace_query is offered only when WORKSPACE_QUERY_ENGINE asks for an engine;
 	// an engine that cannot start leaves the other tools working and says why.
-	switch q, err := workspace.FromEnv(getenv, store, env("WORKSPACE_DIR", "/artifacts")); {
+	switch q, err := workspace.FromEnv(getenv, store, env("WORKSPACE_DIR", defaultWorkspaceDir)); {
 	case err != nil:
 		log.Printf("workspace_query is not offered: %v", err)
 	case q != nil:

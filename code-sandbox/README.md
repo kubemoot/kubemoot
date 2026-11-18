@@ -7,7 +7,7 @@ code, not from the model reading a list.
 
 The pod is the sandbox. It holds no credentials, the crew's network policy
 limits its egress, and the workspace-access materializer sidecar stages the data
-a program reads under `/artifacts`.
+a program reads under `/workspace`.
 
 ## Why a sandbox
 
@@ -22,7 +22,7 @@ plausible, often wrong number.
 
 In a crew, that work goes to the compute agent. Another agent gathers the raw
 data into the crew's artifact store; the compute agent writes a short Python or
-bash program that reads it from `/artifacts` and computes the answer; the
+bash program that reads it from `/workspace` and computes the answer; the
 sandbox runs it and returns the exact output; the compute agent reports that
 result, and the coordinator uses it. The runtime enforces the contract: the
 compute agent may not state a number that did not come from running code.
@@ -51,7 +51,7 @@ so the model looks to other agents for it.
 - In a new temporary directory, which is also its `HOME`, removed afterwards.
 - With no stdin: a read returns end of input at once, so a program that expects
   piped data fails fast instead of waiting. Data goes in the code or in a file
-  under `/artifacts`.
+  under `/workspace`.
 - In its own process group. At the time limit the whole group is killed, and
   anything a finished program left running in the background is killed too.
 - With stdout and stderr each capped; the result says when output was cut.
@@ -89,7 +89,7 @@ environment variable `MCP_TRANSPORT=http`. The operator then adds no bridge side
 Service on `port`, and registers `http://<name>.<namespace>:<port>` with the gateway, which
 calls `/mcp`. Set `healthPath: /healthz` and `readinessPath: /readyz` for HTTP probes; without
 them the operator probes the TCP port. The container then runs the image entrypoint (or the
-MCPServer's `command`); the workspace-access sidecar and the `/artifacts` volume work the same.
+MCPServer's `command`); the workspace-access sidecar and the `/workspace` volume work the same.
 
 ## Test
 

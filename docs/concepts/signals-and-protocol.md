@@ -80,7 +80,7 @@ the arguments (up to 1,000 characters). An agent whose workspace access is `read
 nothing but lists its calls the same way: `[CALL tool=... stored=no]` lines with no key, the
 results that fit, a `[NOT STORED ...]` line for a result that does not fit, and no closing line
 about stored keys. See the
-[discussion artifact store](discussion-artifact-store.md#what-an-agent-posts-the-descriptions-of-its-files-and-its-small-results).
+[discussion artifact store](workspace.md#what-an-agent-posts-the-descriptions-of-its-files-and-its-small-results).
 Agents that read files add the facts they find to their own contribution; the synthesizer answers
 from the discussion only.
 
@@ -154,7 +154,7 @@ nothing (it would invent). What it does depends on whether a call succeeded:
   synthesizer after the discussion, each between `[STORED RESULT ...]` and `[END STORED RESULT]`.
   The block header carries the result's `type` (its `Content-Type`, so a table reads as a table).
   The size rules are those of any tool result in the discussion ([Small results go in the
-  discussion](../discussion-artifact-store/#small-results-go-in-the-discussion)): one result up to
+  discussion](../workspace/#small-results-go-in-the-discussion)): one result up to
   one result's share of the room, all of them up to one contribution's share. A result is shown as
   the tool returned it, not rewritten. Each object is read only as far as the room can use it, and
   the whole read stops after a deadline (or if the thread is interrupted).

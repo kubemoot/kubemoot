@@ -114,6 +114,8 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 func (r *MCPServerReconciler) reconcileManagedMCPServer(ctx context.Context, mcpServer *kubemootv1alpha1.MCPServer) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
+	setDeprecatedNamesCondition(mcpServer)
+
 	// Resolve the image: spec.image, or the KubemootConfig image spec.kubemootImage selects
 	res, err := r.resolveMCPServerImage(ctx, mcpServer)
 	if err != nil {
@@ -414,19 +416,13 @@ func buildUserSidecars(mcpServer *kubemootv1alpha1.MCPServer) []corev1.Container
 	if len(mcpServer.Spec.Sidecars) == 0 {
 		return nil
 	}
-	var emptyDirMounts []corev1.VolumeMount
-	for i, ev := range mcpServer.Spec.EmptyDirVolumes {
-		emptyDirMounts = append(emptyDirMounts, corev1.VolumeMount{
-			Name:      emptyDirVolumeName(i),
-			MountPath: ev.MountPath,
-		})
-	}
+	emptyDirMounts := emptyDirVolumeMounts(mcpServer)
 	restartAlways := corev1.ContainerRestartPolicyAlways
 	sidecars := make([]corev1.Container, 0, len(mcpServer.Spec.Sidecars))
 	for i := range mcpServer.Spec.Sidecars {
 		sc := *mcpServer.Spec.Sidecars[i].DeepCopy()
 		sc.RestartPolicy = &restartAlways
-		sc.VolumeMounts = append(sc.VolumeMounts, emptyDirMounts...)
+		sc.VolumeMounts = appendFreeMounts(sc.VolumeMounts, emptyDirMounts)
 		sc.Env = withNamespaceEnv(sc.Env)
 		sidecars = append(sidecars, sc)
 	}
@@ -677,13 +673,9 @@ func buildMCPServerVolumes(mcpServer *kubemootv1alpha1.MCPServer) ([]corev1.Volu
 				EmptyDir: emptyDirSource,
 			},
 		})
-
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      volumeName,
-			MountPath: ev.MountPath,
-		})
 	}
 
+	volumeMounts = append(volumeMounts, emptyDirVolumeMounts(mcpServer)...)
 	return volumes, volumeMounts
 }
 

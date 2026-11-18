@@ -1,0 +1,27 @@
+{
+ "description": "The environment variables of workspace-access. Each WORKSPACE_ name is also read under its old ARTIFACT_ name for one release. Shared by workspace-access (Go, which reads them) and the operator (Go, which flags an MCPServer that still sets an old one with a DeprecatedNames condition): both tests compare their lists with this file, so the two lists cannot drift apart.",
+ "current": [
+  "WORKSPACE_BUCKET",
+  "WORKSPACE_DIR",
+  "WORKSPACE_DUCKDB_BIN",
+  "WORKSPACE_MODE",
+  "WORKSPACE_QUERY_ENGINE",
+  "WORKSPACE_QUERY_MAX_ARTIFACT_BYTES",
+  "WORKSPACE_QUERY_MAX_ROWS",
+  "WORKSPACE_QUERY_MEMORY",
+  "WORKSPACE_QUERY_TIMEOUT",
+  "WORKSPACE_SUBJECT"
+ ],
+ "legacy": [
+  "ARTIFACT_BUCKET",
+  "ARTIFACT_DIR",
+  "ARTIFACT_DUCKDB_BIN",
+  "ARTIFACT_MODE",
+  "ARTIFACT_QUERY_ENGINE",
+  "ARTIFACT_QUERY_MAX_ARTIFACT_BYTES",
+  "ARTIFACT_QUERY_MAX_ROWS",
+  "ARTIFACT_QUERY_MEMORY",
+  "ARTIFACT_QUERY_TIMEOUT",
+  "ARTIFACT_SUBJECT"
+ ]
+}

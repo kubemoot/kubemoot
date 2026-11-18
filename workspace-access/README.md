@@ -5,7 +5,7 @@ exchange large artifacts by **reference, not value**: a producer writes bulk
 tool output to the NATS Object Store and publishes a small reference on the
 discussion; consumers read only what they need so bulk data never crosses the
 discussion bus or enters an LLM context. See
-[`docs/concepts/discussion-artifact-store.md`](../docs/concepts/discussion-artifact-store.md)
+[`docs/concepts/workspace.md`](../docs/concepts/workspace.md)
 for the full design.
 
 ## Modes
@@ -39,7 +39,7 @@ for the full design.
 | `WORKSPACE_MODE` | `materializer` | `materializer` or `mcp` |
 | `WORKSPACE_BUCKET` | `kubemoot_workspace` | the workspace bucket, read first |
 | `ARTIFACT_BUCKET` | `kubemoot_discussion_artifacts` | the bucket the workspace was stored in before it was renamed, read second; writers still use it |
-| `WORKSPACE_DIR` | `/artifacts` | where objects are materialized |
+| `WORKSPACE_DIR` | `/workspace` | where objects are materialized; `ARTIFACT_DIR` is still read, and a crew that mounts `/artifacts` keeps working |
 | `WORKSPACE_SUBJECT` | `kubemoot.artifacts.>` | subject carrying reference envelopes |
 
 Every `WORKSPACE_*` variable is also read under its old `ARTIFACT_*` name (`ARTIFACT_MODE`, `ARTIFACT_DIR`,
@@ -62,7 +62,7 @@ read-only SQL `SELECT` over named artifacts, with a time limit, a row limit, no 
 and no files outside the named artifacts. `internal/workspace` holds it; the engine sits
 behind its `Engine` interface. For `duckdb` the program must be on `PATH` (or at
 `WORKSPACE_DUCKDB_BIN`); `sqlite` needs nothing installed. The variables and the table rules are in
-[`docs/concepts/discussion-artifact-store.md`](../docs/concepts/discussion-artifact-store.md#query-with-sql).
+[`docs/concepts/workspace.md`](../docs/concepts/workspace.md#query-with-sql).
 
 ## Test
 

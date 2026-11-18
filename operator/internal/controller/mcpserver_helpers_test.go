@@ -489,7 +489,7 @@ func TestBuildUserSidecars(t *testing.T) {
 	ms := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
 			Sidecars: []corev1.Container{
-				{Name: "workspace-access", Image: "img:1", VolumeMounts: []corev1.VolumeMount{{Name: "artifacts", MountPath: testArtifactsDir}}},
+				{Name: "workspace-access", Image: "img:1", VolumeMounts: []corev1.VolumeMount{{Name: "artifacts", MountPath: testWorkspaceDir}}},
 			},
 		},
 	}
@@ -514,16 +514,19 @@ func TestBuildUserSidecars_SharesEmptyDir(t *testing.T) {
 	// path the main container sees (EmptyDirVolume has no user-settable name).
 	ms := &kubemootv1alpha1.MCPServer{
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			EmptyDirVolumes: []kubemootv1alpha1.EmptyDirVolume{{MountPath: testArtifactsDir, SizeLimit: "256Mi"}},
+			EmptyDirVolumes: []kubemootv1alpha1.EmptyDirVolume{{MountPath: testWorkspaceDir, SizeLimit: "256Mi"}},
 			Sidecars:        []corev1.Container{{Name: "materializer", Image: "img"}},
 		},
 	}
 	got := buildUserSidecars(ms)
-	if len(got) != 1 || len(got[0].VolumeMounts) != 1 {
-		t.Fatalf("expected the emptyDir auto-mounted into the sidecar, got %+v", got)
+	if len(got) != 1 || len(got[0].VolumeMounts) != 2 {
+		t.Fatalf("expected the emptyDir auto-mounted into the sidecar at its path and its alias, got %+v", got)
 	}
 	vm := got[0].VolumeMounts[0]
-	if vm.Name != "empty-vol-0" || vm.MountPath != testArtifactsDir {
-		t.Fatalf("expected empty-vol-0 at /artifacts, got %+v", vm)
+	if vm.Name != "empty-vol-0" || vm.MountPath != testWorkspaceDir {
+		t.Fatalf("expected empty-vol-0 at /workspace, got %+v", vm)
+	}
+	if alias := got[0].VolumeMounts[1]; alias.Name != "empty-vol-0" || alias.MountPath != legacyWorkspaceDir {
+		t.Fatalf("expected the same volume at /artifacts, got %+v", alias)
 	}
 }

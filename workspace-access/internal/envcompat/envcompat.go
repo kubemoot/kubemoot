@@ -35,8 +35,9 @@ func Wrap(getenv func(string) string, warn func(format string, args ...any)) fun
 	}
 }
 
-// The two buckets of the discussion workspace. Writers still use the old one; readers read both,
-// the new bucket first, so they stay correct when writers move.
+// The two buckets of the discussion workspace. Writers use the new one; readers read both, the
+// new bucket first, so a discussion that spans the change keeps its calls until the old bucket's
+// TTL drains it.
 const (
 	// Bucket is the workspace bucket.
 	Bucket = "kubemoot_workspace"

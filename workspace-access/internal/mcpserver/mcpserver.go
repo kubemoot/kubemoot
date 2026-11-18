@@ -95,10 +95,10 @@ func (s *Server) MCP() *mcp.Server {
 
 // Tool names the package refers to more than once.
 const (
-	toolQuery        = "workspace_query"
+	toolQuery        = readops.ToolQuery
 	toolHead         = "workspace_head"
 	toolTail         = "workspace_tail"
-	toolGrep         = "workspace_grep"
+	toolGrep         = readops.ToolGrep
 	toolArtifactHead = "artifact_head"
 	toolArtifactTail = "artifact_tail"
 	toolArtifactGrep = "artifact_grep"

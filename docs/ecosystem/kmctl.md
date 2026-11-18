@@ -79,7 +79,7 @@ specialist's evaluation and the coordinator's synthesis. Pass `--quiet` to print
 the final answer. Pass `--conversation-id` to continue an existing thread.
 `kmctl conversation watch` live-tails an in-flight conversation by ID or a unique
 prefix of one, `kmctl conversation list` lists a crew's recent conversations, and
-`kmctl conversation artifact` fetches an artifact an agent attached. The command
+`kmctl conversation workspace` fetches an object from the discussion's workspace. The command
 reaches the crew's discussion gateway through a port-forward to a ready pod behind its
 Service, through the kubelet as `kubectl port-forward` does, using your kubeconfig
 credentials. It needs no extra networking setup and works under a default-deny network

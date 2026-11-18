@@ -55,9 +55,9 @@ func TestSelectCSVErrors(t *testing.T) {
 			[]string{`"nme"`, "namespace,name,desired,current,ready,up_to_date,available,node_selector,age"}},
 		{"empty file", "", []string{"empty"}},
 		{"blank file", "\n  \n", []string{"empty"}},
-		{"json", `{"items":[]}`, []string{"json", "artifact_jq"}},
-		{"yaml", "a: 1\nb: 2\n", []string{"yaml", "artifact_grep", "artifact_rows"}},
-		{"text", "The cluster is healthy.\nNothing to report.\n", []string{"text", "artifact_grep", "artifact_rows"}},
+		{"json", `{"items":[]}`, []string{"json", ToolQuery}},
+		{"yaml", "a: 1\nb: 2\n", []string{"yaml", ToolGrep, ToolQuery}},
+		{"text", "The cluster is healthy.\nNothing to report.\n", []string{"text", ToolGrep, ToolQuery}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
