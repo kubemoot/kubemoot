@@ -54,3 +54,31 @@ func TestTitleWithLowerCaseWordsIsNotATable(t *testing.T) {
 		}
 	}
 }
+
+func TestRealPodsTopOutputIsAKubectlTable(t *testing.T) {
+	data, err := os.ReadFile("testdata/pods_top_full.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := DetectContentType(data); got != ContentType(FormatKubectlTable) {
+		t.Fatalf("content type = %q", got)
+	}
+}
+
+func TestTotalsRowUnderPodsTopIsNotAPod(t *testing.T) {
+	for _, file := range []string{"testdata/pods_top.txt", "testdata/pods_top_full.txt"} {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := parseKubectlTable(string(data))
+		last := rows[len(rows)-1]
+		if last[1] == "" || strings.Contains(strings.Join(last, ""), "_") {
+			t.Fatalf("%s: the totals rule and the total row must not be rows: %q", file, last)
+		}
+	}
+	rows := parseKubectlTable("NAME   MEMORY(bytes)\na      9Mi\n_____  ____\n       9Mi\n")
+	if len(rows) != 2 {
+		t.Fatalf("rows = %v", rows)
+	}
+}

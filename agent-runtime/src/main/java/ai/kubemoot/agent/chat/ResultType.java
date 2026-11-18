@@ -58,7 +58,8 @@ final class ResultType {
 
     /** One column title: words joined by single spaces; titles are separated by two or more spaces. */
     private static final Pattern HEADER_CELL = Pattern.compile("\\S+(?: \\S+)*");
-    private static final Pattern HEADER_TITLE = Pattern.compile("^[A-Z][A-Z0-9 _/().-]*$");
+    /** Capital letters, with lower case only inside parentheses (the unit of CPU(cores), MEMORY(bytes)). */
+    private static final Pattern HEADER_TITLE = Pattern.compile("^[A-Z](?:[A-Z0-9 _/.-]|\\([^()]*\\))*$");
     private static final Pattern MARKDOWN_SEPARATOR =
             Pattern.compile("^\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?$");
     private static final Pattern YAML_FIRST_LINE = Pattern.compile("^(---|- |[A-Za-z_][\\w.-]*:(\\s|$))");

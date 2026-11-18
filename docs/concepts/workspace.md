@@ -489,7 +489,7 @@ The format is the object's recorded `Content-Type`; an object without one is det
 |---------|-------|
 | A JSON list of objects | One row per object, one column per key. |
 | A JSON object with an `items` list (`kubectl get -o json`) | One row per item. |
-| A `kubectl get` or `kubectl top` table (titles may end in a unit, `CPU(cores)`, `MEMORY(bytes)`) | One row per line, columns named by the header. |
+| A `kubectl get` or `kubectl top` table (titles may end in a unit, `CPU(cores)`, `MEMORY(bytes)`) | One row per line, columns named by the header. The table ends at a totals rule (a line of underscores, as `kubectl top --sum` prints), so the total row under it is not a row; it stays readable in `workspace_tail`. |
 | YAML (several documents become a list) | Read as JSON. |
 | A Markdown pipe table | One row per table row. |
 | CSV with a header row | One row per line. |
