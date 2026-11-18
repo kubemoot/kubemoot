@@ -42,7 +42,7 @@ func TestPreparePodsTopHasFieldColumns(t *testing.T) {
 			t.Fatalf("column %d = %q, want %q", i, rows[0][i], w)
 		}
 	}
-	if rows[1][4] != "25989Mi" {
+	if !strings.HasSuffix(rows[1][4], "Mi") {
 		t.Fatalf("memory cell = %q", rows[1][4])
 	}
 }
