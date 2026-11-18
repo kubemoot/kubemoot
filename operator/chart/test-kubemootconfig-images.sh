@@ -38,6 +38,16 @@ old_only="$(config_images --set kubemootConfig.images.workspaceAccess= --set kub
 new_pin="$(config_images --set kubemootConfig.images.workspaceAccess=workspace-access:8.8.8 --set kubemootConfig.images.artifactAccess=workspace-access:9.9.9)"
 [ "$(yq -N .workspaceAccess <<<"$new_pin")" = "ghcr.io/kubemoot/workspace-access:8.8.8" ] \
   || fail "a workspaceAccess pin must win over the old value"
+neither="$(config_images --set kubemootConfig.images.workspaceAccess= --set kubemootConfig.images.artifactAccess=)"
+[ "$(yq -N '.workspaceAccess // "absent"' <<<"$neither")" = "absent" ] \
+  || fail "workspaceAccess is rendered when neither workspaceAccess nor artifactAccess is set"
+
+# Template syntax must parse on the oldest Helm 3 users and the release workflow run;
+# "else with" needs a newer Go template engine and breaks them.
+if grep -rn "else with" "$chart/templates"; then
+  fail "a chart template uses 'else with'; use 'default' or nested 'if' so older Helm parses it"
+fi
+
 for rendered in "$both" "$old_only" "$new_pin"; do
   [ "$(yq -N '.artifactAccess // "absent"' <<<"$rendered")" = "absent" ] || fail "spec.images.artifactAccess is rendered for an old value"
 done
