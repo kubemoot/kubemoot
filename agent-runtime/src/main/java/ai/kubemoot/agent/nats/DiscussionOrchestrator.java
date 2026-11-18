@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.file.InvalidPathException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -4148,7 +4149,7 @@ public class DiscussionOrchestrator {
             if (Files.exists(path)) {
                 return Files.readString(path);
             }
-        } catch (IOException e) {
+        } catch (IOException | InvalidPathException e) {
             log.warn("Failed to read crew resumes file {}: {}", crewResumesPath, e.getMessage());
         }
         return null;
