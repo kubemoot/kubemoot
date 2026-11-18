@@ -137,8 +137,11 @@ var resumeBound = 5 * time.Minute
 // subscription before it counts the subscription as ended.
 var pullHeartbeat = 5 * time.Second
 
-// resumeRetryMax caps the pause between attempts to get the subscription back.
-const resumeRetryMax = 5 * time.Second
+// The pauses between attempts to get the subscription back: the first, doubling to the cap.
+const (
+	resumeFirstPause = 100 * time.Millisecond
+	resumeRetryMax   = 5 * time.Second
+)
 
 // streamDiscussion subscribes to NATS JetStream and writes SSE events to the
 // provided emit function. It blocks until the thread closes, the subscription cannot be
@@ -163,19 +166,49 @@ func streamDiscussion(
 		activity: newActivityReporter(livenessFor(ctx, js, scope.Namespace)),
 		progress: &streamProgress{},
 	}
+	var lastSeq uint64
+	stalls := 0
 	for {
 		err = followConsumer(ctx, consumer, f, emit)
 		if !errors.Is(err, errSubscriptionEnded) {
 			return err
 		}
+		stalls = nextStall(stalls, lastSeq, f.progress.seq)
+		lastSeq = f.progress.seq
 		streamLog.Info("The NATS subscription ended before the thread closed; waiting for NATS",
-			"conversationId", req.conversationID, "threadId", f.tf.threadID, "afterSeq", f.progress.seq)
-		if consumer, err = recoverConsumer(ctx, js, cfg, f.progress.seq); err != nil {
-			emit(sseEvent(bus.StreamEventBase{Type: eventError, Error: fmt.Sprintf(
-				"The discussion stream was lost and did not come back: %v", err)}))
+			"conversationId", req.conversationID, "threadId", f.tf.threadID, "afterSeq", lastSeq)
+		if consumer, err = recoverAfterPause(ctx, js, cfg, lastSeq, stalls); err != nil {
+			if ctx.Err() == nil {
+				emit(sseEvent(bus.StreamEventBase{Type: eventError, Error: fmt.Sprintf(
+					"The discussion stream was lost and did not come back: %v", err)}))
+			}
 			return err
 		}
 	}
+}
+
+// nextStall counts the subscriptions in a row that ended without handling a message.
+func nextStall(stalls int, before, after uint64) int {
+	if after > before {
+		return 0
+	}
+	return stalls + 1
+}
+
+// recoverAfterPause waits before recovering when subscriptions keep ending at once, so a
+// consumer that is created and dropped again does not spin, then recovers the consumer.
+func recoverAfterPause(
+	ctx context.Context, js jetstream.JetStream, cfg jetstream.ConsumerConfig, afterSeq uint64, stalls int,
+) (jetstream.Consumer, error) {
+	if stalls > 0 {
+		pause := min(resumeFirstPause<<(min(stalls, 6)-1), resumeRetryMax)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(pause):
+		}
+	}
+	return recoverConsumer(ctx, js, cfg, afterSeq)
 }
 
 // followConsumer reads consumer's messages until the thread closes or the subscription ends.
@@ -201,7 +234,7 @@ func recoverConsumer(
 		cfg.OptStartTime = nil
 	}
 	deadline := time.Now().Add(resumeBound)
-	pause := 100 * time.Millisecond
+	pause := resumeFirstPause
 	for {
 		attempt, cancel := context.WithTimeout(ctx, resumeRetryMax)
 		consumer, err := js.CreateOrUpdateConsumer(attempt, streamName, cfg)

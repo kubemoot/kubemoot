@@ -1,8 +1,12 @@
 package ai.kubemoot.agent.nats;
 
 import io.nats.client.Connection;
+import io.nats.client.JetStream;
+import io.nats.client.JetStreamApiException;
+import io.nats.client.PublishOptions;
 import io.nats.client.impl.Headers;
 
+import java.io.IOException;
 import java.util.UUID;
 
 /**
@@ -42,5 +46,18 @@ final class DerivedIds {
             return;
         }
         conn.publish(subject, new Headers().put(MSG_ID_HEADER, streamId(derived, subject)), payload);
+    }
+
+    /**
+     * Publishes {@code payload} through JetStream and waits for the stream's acknowledgement;
+     * with a derived id the stream drops a repeat of it.
+     */
+    static void publishAcked(JetStream js, String subject, byte[] payload, String derived)
+            throws IOException, JetStreamApiException {
+        var options = PublishOptions.builder();
+        if (derived != null) {
+            options.messageId(streamId(derived, subject));
+        }
+        js.publish(subject, payload, options.build());
     }
 }

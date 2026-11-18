@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -93,15 +94,47 @@ func TestStreamSurvivesANATSRestartBeforeTheAnswer(t *testing.T) {
 			lines <- sc.Text()
 		}
 	}()
-	waitForLine(t, lines, `"type":"thread_found"`)
+	before := waitForLine(t, lines, `"status":"triaging"`)
 
 	nats.stop()
 	nats.start()
 	publishAfterRestart(t, nc, "A")
 
-	all := readToTerminal(t, lines)
+	all := strings.Join(before, "\n") + "\n" + readToTerminal(t, lines)
 	if !strings.Contains(all, `"type":"synthesis","content":"the answer"`) || !strings.Contains(all, `"type":"done"`) {
 		t.Fatalf("stream lacks the answer and done after the restart:\n%s", all)
+	}
+	assertOnceAndInOrder(t, all)
+}
+
+// assertOnceAndInOrder checks what the restart must not disturb: connected, the thread
+// and the message handled before the restart appear once, the message that landed right
+// after it arrives once, and the SSE ids only rise.
+func assertOnceAndInOrder(t *testing.T, stream string) {
+	t.Helper()
+	for want, count := range map[string]int{
+		`"type":"connected"`:    1,
+		`"type":"thread_found"`: 1,
+		`"status":"triaging"`:   1, // a1, handled before the restart
+		`"status":"evaluating"`: 1, // a2, landed as NATS came back
+		`"type":"synthesis"`:    1,
+		`"type":"done"`:         1,
+	} {
+		if got := strings.Count(stream, want); got != count {
+			t.Errorf("%s appears %d times, want %d:\n%s", want, got, count, stream)
+		}
+	}
+	var last uint64
+	for _, l := range strings.Split(stream, "\n") {
+		id, ok := strings.CutPrefix(l, "id: ")
+		if !ok {
+			continue
+		}
+		seq, err := strconv.ParseUint(id[strings.LastIndex(id, ":")+1:], 10, 64)
+		if err != nil || seq <= last {
+			t.Errorf("event id %q does not rise above %d", id, last)
+		}
+		last = seq
 	}
 }
 
@@ -136,11 +169,14 @@ func publishAfterRestart(t *testing.T, nc *natsclient.Client, thread string) {
 		js, err := nc.JetStream()
 		if err == nil {
 			if _, err = js.Publish(context.Background(), "kubemoot.discuss.ns.pilot.broadcast."+thread,
-				[]byte(`{"messageId":"s1","messageType":"synthesis","threadId":"`+thread+`","content":"the answer"}`)); err == nil {
-				_, err = js.Publish(context.Background(), "kubemoot.discuss.ns.pilot.broadcast."+thread,
-					[]byte(`{"messageId":"c1","messageType":"thread_close","threadId":"`+thread+`"}`))
-				if err != nil {
-					t.Fatal(err)
+				[]byte(`{"messageId":"a2","messageType":"evaluating","threadId":"`+thread+`","agentName":"agent-b"}`)); err == nil {
+				for _, m := range []string{
+					`{"messageId":"s1","messageType":"synthesis","threadId":"` + thread + `","content":"the answer"}`,
+					`{"messageId":"c1","messageType":"thread_close","threadId":"` + thread + `"}`,
+				} {
+					if _, err = js.Publish(context.Background(), "kubemoot.discuss.ns.pilot.broadcast."+thread, []byte(m)); err != nil {
+						t.Fatal(err)
+					}
 				}
 				return
 			}
@@ -152,8 +188,9 @@ func publishAfterRestart(t *testing.T, nc *natsclient.Client, thread string) {
 	}
 }
 
-func waitForLine(t *testing.T, lines <-chan string, want string) {
+func waitForLine(t *testing.T, lines <-chan string, want string) []string {
 	t.Helper()
+	var seen []string
 	timeout := time.After(10 * time.Second)
 	for {
 		select {
@@ -161,8 +198,9 @@ func waitForLine(t *testing.T, lines <-chan string, want string) {
 			if !ok {
 				t.Fatalf("stream ended before %s", want)
 			}
+			seen = append(seen, l)
 			if strings.Contains(l, want) {
-				return
+				return seen
 			}
 		case <-timeout:
 			t.Fatalf("no line with %s", want)

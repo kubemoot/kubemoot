@@ -51,4 +51,26 @@ class DerivedIdsTest {
         verify(conn).publish("s", PAYLOAD);
         verify(conn, never()).publish(any(String.class), any(Headers.class), any(byte[].class));
     }
+
+    @Test
+    void anAckedPublishCarriesTheStreamIdAsTheMessageId() throws Exception {
+        var js = mock(io.nats.client.JetStream.class);
+
+        DerivedIds.publishAcked(js, "kubemoot.discuss.ns.crew.broadcast.t", PAYLOAD, "m");
+
+        var options = ArgumentCaptor.forClass(io.nats.client.PublishOptions.class);
+        verify(js).publish(eq("kubemoot.discuss.ns.crew.broadcast.t"), eq(PAYLOAD), options.capture());
+        assertEquals("m@kubemoot.discuss.ns.crew.broadcast.t", options.getValue().getMessageId());
+    }
+
+    @Test
+    void anAckedPublishWithoutADerivedIdHasNoMessageId() throws Exception {
+        var js = mock(io.nats.client.JetStream.class);
+
+        DerivedIds.publishAcked(js, "s", PAYLOAD, null);
+
+        var options = ArgumentCaptor.forClass(io.nats.client.PublishOptions.class);
+        verify(js).publish(eq("s"), eq(PAYLOAD), options.capture());
+        org.junit.jupiter.api.Assertions.assertNull(options.getValue().getMessageId());
+    }
 }

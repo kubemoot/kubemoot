@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -39,31 +38,29 @@ final class NatsCoordinatorEventLog implements CoordinatorEventLog {
     private static final long LOG_EVERY = 100;
     private static final Duration ACK_TIMEOUT = Duration.ofSeconds(2);
 
-    /** How long an append waits for NATS to come back before the event counts as lost: a safety net. */
-    static final Duration OUTAGE_BOUND = Duration.ofMinutes(2);
-    private static final Duration FIRST_PAUSE = Duration.ofMillis(250);
-    private static final Duration MAX_PAUSE = Duration.ofSeconds(3);
-
     private final NatsConnectionProvider natsProvider;
     private final ObjectMapper mapper;
-    private final Duration outageBound;
-    private final Duration firstPause;
+    private final OutageBackoff backoff;
     private final AtomicLong failures = new AtomicLong();
 
     NatsCoordinatorEventLog(NatsConnectionProvider natsProvider, ObjectMapper mapper) {
-        this(natsProvider, mapper, OUTAGE_BOUND, FIRST_PAUSE);
+        this(natsProvider, mapper, OutageBackoff.standard());
     }
 
-    NatsCoordinatorEventLog(NatsConnectionProvider natsProvider, ObjectMapper mapper, Duration outageBound,
-                            Duration firstPause) {
+    NatsCoordinatorEventLog(NatsConnectionProvider natsProvider, ObjectMapper mapper, OutageBackoff backoff) {
         this.natsProvider = natsProvider;
         this.mapper = mapper;
-        this.outageBound = outageBound;
-        this.firstPause = firstPause;
+        this.backoff = backoff;
     }
 
     @Override
     public AppendResult append(String subject, CoordinatorEvent event, long expectedLastSequence) {
+        return append(subject, event, expectedLastSequence, backoff.start());
+    }
+
+    @Override
+    public AppendResult append(String subject, CoordinatorEvent event, long expectedLastSequence,
+                               OutageBackoff.Wait wait) {
         byte[] body;
         try {
             body = mapper.writeValueAsBytes(event.toJson(mapper));
@@ -72,8 +69,7 @@ final class NatsCoordinatorEventLog implements CoordinatorEventLog {
         }
         var options = PublishOptions.builder().messageId(event.eventId())
                 .expectedLastSubjectSequence(expectedLastSequence).build();
-        Instant deadline = Instant.now().plus(outageBound);
-        Duration pause = firstPause;
+        wait.resetPause();
         while (true) {
             Attempt attempt = tryAppend(subject, body, options);
             if (attempt.result != null) {
@@ -81,10 +77,9 @@ final class NatsCoordinatorEventLog implements CoordinatorEventLog {
                         : attempt.result;
             }
             // NATS or JetStream is not there (a restart): the same event id makes a repeat safe.
-            if (!Instant.now().plus(pause).isBefore(deadline) || !sleep(pause)) {
+            if (!wait.next()) {
                 return failed(event, attempt.reason, attempt.cause);
             }
-            pause = pause.multipliedBy(2).compareTo(MAX_PAUSE) > 0 ? MAX_PAUSE : pause.multipliedBy(2);
         }
     }
 
@@ -101,6 +96,9 @@ final class NatsCoordinatorEventLog implements CoordinatorEventLog {
             var js = conn.jetStream(JetStreamOptions.builder().requestTimeout(ACK_TIMEOUT).build());
             return new Attempt(AppendResult.appended(js.publish(subject, body, options).getSeqno()), null, null);
         } catch (JetStreamApiException e) {
+            if (OutageAwarePublisher.isOutage(e)) {
+                return new Attempt(null, e.getMessage(), e);
+            }
             // A refusal is the stream's answer, not an outage: wrong last sequence fences, others fail.
             return new Attempt(e.getApiErrorCode() == WRONG_LAST_SEQUENCE ? AppendResult.fenced()
                     : AppendResult.failed(), e.getMessage(), e);
@@ -108,16 +106,6 @@ final class NatsCoordinatorEventLog implements CoordinatorEventLog {
             return new Attempt(null, e.getMessage(), e);
         } catch (RuntimeException e) {
             return new Attempt(AppendResult.failed(), e.getMessage(), e);
-        }
-    }
-
-    private static boolean sleep(Duration pause) {
-        try {
-            Thread.sleep(pause.toMillis());
-            return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
         }
     }
 
