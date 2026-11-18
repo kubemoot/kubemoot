@@ -73,9 +73,9 @@ func TestScenarioResultsRollsUpInSpecOrder(t *testing.T) {
 	}
 	got := scenarioResults(scripts("a", "b", "a", "c"), results)
 	want := []kubemootv1alpha1.SuiteScenarioResult{
-		{Name: "a", Iterations: 1, Errored: 1, MeanDurationMs: 50, PassRate: ptr.To(int32(0)), PassAllK: ptr.To(int32(0))},
+		{Name: "a", Iterations: 1, Errored: 1, MeanDurationMs: 50, PassRate: ptr.To(int32(0)), PassAllK: ptr.To(int32(0)), AllPassed: ptr.To(false)},
 		{Name: "b", Iterations: 2, Passed: 1, Failed: 1, MeanDurationMs: 200, AssertionsPassed: 3, AssertionsTotal: 4,
-			PassRate: ptr.To(int32(50)), PassAllK: ptr.To(int32(25))},
+			PassRate: ptr.To(int32(50)), PassAllK: ptr.To(int32(25)), AllPassed: ptr.To(false)},
 		{Name: "c"},
 	}
 	if !equality.Semantic.DeepEqual(got, want) {

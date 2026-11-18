@@ -151,9 +151,9 @@ var _ = Describe("CrewFitnessSuite re-judge", func() {
 		Expect(meta.IsStatusConditionTrue(s.Status.Conditions, rejudgeConditionType)).To(BeTrue())
 		Expect(s.Status.Scenarios).To(Equal([]kubemootv1alpha1.SuiteScenarioResult{
 			{Name: rjBeta, Iterations: 1, Failed: 1, MeanDurationMs: 42, AssertionsPassed: 2, AssertionsTotal: 3,
-				PassRate: ptr.To(int32(0)), PassAllK: ptr.To(int32(0))},
+				PassRate: ptr.To(int32(0)), PassAllK: ptr.To(int32(0)), AllPassed: ptr.To(false)},
 			{Name: rjAlpha, Iterations: 1, Passed: 1, MeanDurationMs: 42, AssertionsPassed: 3, AssertionsTotal: 3,
-				PassRate: ptr.To(int32(100)), PassAllK: ptr.To(int32(100))},
+				PassRate: ptr.To(int32(100)), PassAllK: ptr.To(int32(100)), AllPassed: ptr.To(true)},
 			{Name: "fresh"},
 		}), "status.scenarios rolls up the copied transcripts in spec order")
 		Expect(s.Status.Judge).To(Equal(&kubemootv1alpha1.FitnessJudgeStatus{Phase: kubemootv1alpha1.FitnessJudgePhaseJudging}))

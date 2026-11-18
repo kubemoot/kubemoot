@@ -509,6 +509,7 @@ type scenarioStat struct {
 	grade           float64 // composite scenario grade (cached for the formula)
 	passAllK        float64 // chance all k trials pass (pass-rate^k) × 100
 	checkScenario   bool    // never passed across enough trials: check the scenario
+	allPassed       bool    // every trial passed (observed)
 }
 
 // scenarioAcc accumulates one scenario's per-run measures before reduction.
@@ -621,6 +622,7 @@ func (a *scenarioAcc) toStat(s string, consistency, judgeQuality map[string]floa
 		factuality: fact, fabFraction: fabFrac,
 		passAllK:      float64(passAllKPercent(int32(a.passed), int32(a.total))),
 		checkScenario: scenarioNeedsCheck(int32(a.passed), int32(a.total)),
+		allPassed:     a.total > 0 && a.passed == a.total,
 		grade: scenarioGrade(gradeMeasures{
 			quality: q, reliability: rel, factuality: fact, fabFraction: fabFrac,
 			participation: part, consistency: cons, efficiency: me,
@@ -807,7 +809,7 @@ func writeScenariosSheet(f *excelize.File, aggs []scenarioStat) error {
 		columnScenario, "sample_count", "passed", "failed", "errored",
 		"duration_mean_ms", "duration_p50_ms", "duration_p90_ms", "pass_rate",
 		"mean_correctness", "mean_adherence", "mean_efficiency", "self_consistency", "participation", "quality", "scenario_grade", "mean_selectivity",
-		"factuality", "fabrication_pct", "pass_all_k", "check_scenario",
+		"factuality", "fabrication_pct", "pass_all_k_estimated", "check_scenario", "all_passed",
 	}
 	for col, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(col+1, 1)
@@ -926,7 +928,7 @@ func writeScenarioScores(f *excelize.File, a scenarioStat, r int) error {
 }
 
 // writeScenarioConsistency writes fabrication_pct (fraction of runs that tripped a
-// forbidden/stale claim), pass_all_k (the chance all k trials pass, 0-100) and
+// forbidden/stale claim), pass_all_k_estimated (the estimated chance all k trials pass, 0-100),
 // check_scenario (yes when the scenario never passed across enough trials). They
 // follow the columns the chart tabs reference, so those positions stay stable.
 func writeScenarioConsistency(f *excelize.File, a scenarioStat, r int) error {
@@ -940,7 +942,14 @@ func writeScenarioConsistency(f *excelize.File, a scenarioStat, r int) error {
 	if a.checkScenario {
 		check = "yes"
 	}
-	return f.SetCellValue(sheetScenarios, cellAt(21, r), check)
+	if err := f.SetCellValue(sheetScenarios, cellAt(21, r), check); err != nil {
+		return err
+	}
+	all := "no"
+	if a.allPassed {
+		all = "yes"
+	}
+	return f.SetCellValue(sheetScenarios, cellAt(22, r), all)
 }
 
 // writeOverviewSheet writes the suite-level summary: human metadata plus roll-up
@@ -1124,7 +1133,7 @@ func (o *overviewWriter) consistency(suite *kubemootv1alpha1.CrewFitnessSuite) e
 	if c == nil || c.MeanPassAllK == nil {
 		return nil
 	}
-	if err := o.put("Mean pass^k (%)", *c.MeanPassAllK); err != nil {
+	if err := o.put("Mean pass^k (%, estimated)", *c.MeanPassAllK); err != nil {
 		return err
 	}
 	if err := o.put("Scenarios to check", c.ScenariosToCheck); err != nil {

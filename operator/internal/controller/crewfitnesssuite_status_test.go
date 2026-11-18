@@ -235,7 +235,7 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		reconcileOnce(name) // count iteration 1, schedule iteration 2
 		want := []kubemootv1alpha1.SuiteScenarioResult{{
 			Name: csProbe, Iterations: 1, Passed: 1, MeanDurationMs: 1500, AssertionsPassed: 2, AssertionsTotal: 2,
-			PassRate: ptr.To(int32(100)), PassAllK: ptr.To(int32(100)),
+			PassRate: ptr.To(int32(100)), PassAllK: ptr.To(int32(100)), AllPassed: ptr.To(true),
 		}}
 		Expect(getSuite(name).Status.Scenarios).To(Equal(want))
 		Expect(getSuite(name).Status.Consistency).To(Equal(&kubemootv1alpha1.SuiteConsistency{MeanPassAllK: ptr.To(int32(100))}))

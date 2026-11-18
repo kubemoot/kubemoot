@@ -4571,6 +4571,11 @@ func (in *SuiteScenarioResult) DeepCopyInto(out *SuiteScenarioResult) {
 		*out = new(int32)
 		**out = **in
 	}
+	if in.AllPassed != nil {
+		in, out := &in.AllPassed, &out.AllPassed
+		*out = new(bool)
+		**out = **in
+	}
 	if in.PassAllK != nil {
 		in, out := &in.PassAllK, &out.PassAllK
 		*out = new(int32)
