@@ -95,8 +95,9 @@ Analyst that shares the most words with the question and the gathering Toolers' 
 Analysts therefore never reviews with none, and a crew that wants every Analyst to review sets
 `convene: all`.
 
-An agent that declares no `domains` is never matched by domain, so a crew gets this behavior by
-declaring them. The coordinator reports why it convened the reviewers in the `reviewBasis` of the `review_ready` message
+An Analyst that declares no `domains` is a generalist and reviews every discussion; a Tooler that
+declares none gathers data without domain context, so it adds nothing to the match. A crew gets
+the narrowing by declaring domains. The coordinator reports why it convened the reviewers in the `reviewBasis` of the `review_ready` message
 (`domain`, `selected`, `primary`, `fallback-all` or `all`) and in its log.
 
 ### How They Work Together
