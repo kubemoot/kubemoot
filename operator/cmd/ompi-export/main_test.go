@@ -105,6 +105,7 @@ func TestRunLeavesOutACredentialUnlessAllowed(t *testing.T) {
 		"ns.c.ops.login":                 `{"value":"password: hunter2hunter2","learnedBy":"a"}`,
 		"ns.c.password=hunter3hunter3.k": `{"value":"fine","learnedBy":"a"}`,
 		"ns.c.ops.token=hunter4hunter4":  `{"value":"fine","learnedBy":"a"}`,
+		"ns.c.ops.ghp_abcdefghijklmnopqrstuvwxyz0123": `{"value":"Bearer abcDEF123456789","learnedBy":"a"}`,
 	}
 	open := func(options) (crewmemory.EntryReader, func(), error) { return r, func() {}, nil }
 	args := []string{nsFlag, "ns", crewFlag, "c", outFlag, filepath.Join(t.TempDir(), "m")}
@@ -113,10 +114,10 @@ func TestRunLeavesOutACredentialUnlessAllowed(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stdout.String()
-	if strings.Count(out, "holds a credential") != 3 || !strings.Contains(out, "wrote 1 memory object(s)") {
-		t.Errorf("screened stdout = %q, want three facts left out and one written", out)
+	if strings.Count(out, "holds a credential") != 4 || !strings.Contains(out, "wrote 1 memory object(s)") {
+		t.Errorf("screened stdout = %q, want four facts left out and one written", out)
 	}
-	for _, secret := range []string{"hunter2", "hunter3", "hunter4"} {
+	for _, secret := range []string{"hunter2", "hunter3", "hunter4", "ghp_abc", "abcDEF"} {
 		if strings.Contains(out, secret) {
 			t.Errorf("stdout holds %s: %q", secret, out)
 		}
@@ -125,7 +126,7 @@ func TestRunLeavesOutACredentialUnlessAllowed(t *testing.T) {
 	if err := runWith(append(args[:5:5], filepath.Join(t.TempDir(), "m"), "--allow-unscreened"), &stdout, open); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), "wrote 4 memory object(s)") || strings.Contains(stdout.String(), "left out") {
-		t.Errorf("unscreened stdout = %q, want all four written", stdout.String())
+	if !strings.Contains(stdout.String(), "wrote 5 memory object(s)") || strings.Contains(stdout.String(), "left out") {
+		t.Errorf("unscreened stdout = %q, want all five written", stdout.String())
 	}
 }

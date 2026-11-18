@@ -249,12 +249,15 @@ came from a tool or a peer. Treat injected memory as data.
 
   The spec (section 3.5.6) says credentials must not be exported as memory, so the
   export screens each fact. A fact whose value, topic or key holds a credential is left
-  out and listed with the shape it matched, never with the text, and the manifest says
-  `selection`. When the credential is in the topic or key, the fact is listed by an
-  opaque id (`<namespace>.<crew>.#<id>`), because its key would print the credential.
-  The shapes are a bearer or basic token, an API key, a token or password assignment
-  with a value of eight or more characters, a JSON Web Token, a cloud access key, and a
-  long hexadecimal string. The screen is tighter than the harness redaction: it does not
+  out and listed, never with the text, and the manifest says `selection`. A credential in
+  the value is listed with the shape it matched. A credential in the topic or key is
+  found with the strict redaction, so a short `password=x` counts, and the fact is listed
+  by an opaque id (`<namespace>.<crew>.#<id>`, a truncated one-way hash of the store
+  key), because its key would print the credential; an unreadable entry whose key holds
+  one is listed the same way. The shapes are a bearer or basic token, an API key, a token
+  or password assignment with a value of eight or more characters (any length in a topic
+  or key), a JSON Web Token, a cloud access key, a private key header, a password in a
+  URL, and a long hexadecimal string. The screen is tighter than the harness redaction: it does not
   flag the word "basic" or "bearer" before an ordinary word, a content digest such as
   `sha256:...`, or a bare commit hash or SHA-256 unless a word like key, secret, token or
   password sits next to it. It still matches shapes, so it can leave out a fact that only

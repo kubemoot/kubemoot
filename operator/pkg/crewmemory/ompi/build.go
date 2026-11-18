@@ -75,7 +75,7 @@ func DefaultOrigin(s crewscope.Scope) string {
 func Build(scope crewscope.Scope, res crewmemory.ReadResult, opts Options) (Export, error) {
 	exp := Export{Memories: []Memory{}}
 	for _, s := range res.Skipped {
-		exp.Skipped = append(exp.Skipped, Omitted(s))
+		exp.Skipped = append(exp.Skipped, unreadable(scope, s, opts))
 	}
 	seen := map[string]string{}
 	for _, p := range place(res.Facts) {
@@ -177,32 +177,57 @@ func formatTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-// credentialOmission says why a fact is left out when its value, topic or key
-// holds a credential. It names the shape and never the text. When the topic or
-// key holds it, the store key would print it, so the entry is named by an opaque
-// id instead.
+// credentialOmission says why a fact is left out when its store key, topic, key
+// or value holds a credential. The key is checked first with the strict
+// redaction, so a credential in it is never printed: the entry is named by an
+// opaque id instead, and a false match there costs only that id. The value is
+// checked with the tighter screen, and the report names its shape, never its text.
 func credentialOmission(f crewmemory.Fact, opts Options) (Omitted, bool) {
 	if opts.AllowUnscreened {
 		return Omitted{}, false
 	}
-	if shape, found := secretscreen.Find(f.Value); found {
-		return Omitted{Key: f.StoreKey(), Reason: credentialReason(shape, "value")}, true
+	if keyHoldsCredential(f) {
+		return Omitted{Key: opaqueKey(f), Reason: "its topic or key holds a credential; not exported as memory"}, true
 	}
-	for _, text := range []string{f.Topic, f.Key} {
-		if shape, found := secretscreen.Find(text); found {
-			return Omitted{Key: opaqueKey(f), Reason: credentialReason(shape, "topic or key")}, true
-		}
+	if shape, found := secretscreen.Find(f.Value); found {
+		reason := "its value holds a credential (" + shape + "); not exported as memory"
+		return Omitted{Key: f.StoreKey(), Reason: reason}, true
 	}
 	return Omitted{}, false
 }
 
-func credentialReason(shape, where string) string {
-	return "its " + where + " holds a credential (" + shape + "); not exported as memory"
+// keyHoldsCredential is true when the strict redaction would change the topic,
+// the key or the whole store key.
+func keyHoldsCredential(f crewmemory.Fact) bool {
+	for _, text := range []string{f.Topic, f.Key, f.StoreKey()} {
+		if secretscreen.Redact(text) != text {
+			return true
+		}
+	}
+	return false
 }
 
 // opaqueKey names a fact whose store key holds a credential: <namespace>.<crew>.#<id>,
-// where the id is the start of the hash that also seeds the fact's identifier.
+// where the id is the start of the one-way hash that also seeds the fact's identifier.
 func opaqueKey(f crewmemory.Fact) string {
+	return opaqueName(f.Scope, Identifier(f))
+}
+
+func opaqueName(s crewscope.Scope, hash string) string {
 	const idLen = 8
-	return f.Scope.Namespace + "." + f.Scope.Crew + ".#" + Identifier(f)[:idLen]
+	return s.Namespace + "." + s.Crew + ".#" + hash[:idLen]
+}
+
+// unreadable reports an entry the reader could not turn into a fact. Its key
+// and reason are printed only when strict redaction leaves them unchanged.
+func unreadable(scope crewscope.Scope, s crewmemory.Skipped, opts Options) Omitted {
+	if opts.AllowUnscreened || secretscreen.Redact(s.Key) == s.Key {
+		reason := s.Reason
+		if !opts.AllowUnscreened {
+			reason = secretscreen.Redact(reason)
+		}
+		return Omitted{Key: s.Key, Reason: reason}
+	}
+	hash := uuid.NewSHA1(idNamespace, []byte(s.Key)).String()
+	return Omitted{Key: opaqueName(scope, hash), Reason: secretscreen.Redact(s.Reason)}
 }

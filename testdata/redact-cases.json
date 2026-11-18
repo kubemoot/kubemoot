@@ -89,5 +89,20 @@
     "name": "short number",
     "input": "a 1234 b",
     "expected": "a 1234 b"
+  },
+  {
+    "name": "private key header",
+    "input": "stored -----BEGIN RSA PRIVATE KEY----- MIIE",
+    "expected": "stored [redacted] MIIE"
+  },
+  {
+    "name": "password in a url",
+    "input": "clone https://deploy:s3cretpw@git.example.com/repo",
+    "expected": "clone https://[redacted]@git.example.com/repo"
+  },
+  {
+    "name": "url without a password",
+    "input": "see https://git.example.com:8443/repo and user@host",
+    "expected": "see https://git.example.com:8443/repo and user@host"
   }
 ]

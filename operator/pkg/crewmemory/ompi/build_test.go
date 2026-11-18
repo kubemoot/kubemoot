@@ -404,3 +404,39 @@ func TestOrdinaryFactsAreNotScreenedOut(t *testing.T) {
 		t.Errorf("memories = %d, skipped = %d, want 2 and 0", len(exp.Memories), len(exp.Skipped))
 	}
 }
+
+func TestCredentialInKeyAndValueNamesTheFactByOpaqueId(t *testing.T) {
+	const keySecret = "ghp_abcdefghijklmnopqrstuvwxyz0123"
+	exp := buildExport(t, fact("ops", keySecret, "Bearer abcDEF123456789"))
+	if len(exp.Memories) != 0 || len(exp.Skipped) != 1 {
+		t.Fatalf("memories = %d, skipped = %d, want 0 and 1", len(exp.Memories), len(exp.Skipped))
+	}
+	o := exp.Skipped[0]
+	if strings.Contains(o.Key, keySecret) || strings.Contains(o.Reason, keySecret) || !strings.Contains(o.Key, ".#") {
+		t.Errorf("report %+v, want an opaque id and no secret", o)
+	}
+}
+
+func TestShortKeyAssignmentIsStillNotExportedWithItsKey(t *testing.T) {
+	exp := buildExport(t, fact("ops", "password=hunter2", "fine"))
+	if len(exp.Memories) != 0 || len(exp.Skipped) != 1 || strings.Contains(exp.Skipped[0].Key, "hunter2") {
+		t.Errorf("memories = %+v, skipped = %+v, want the fact left out by opaque id", exp.Memories, exp.Skipped)
+	}
+}
+
+func TestUnreadableEntryWithACredentialKeyIsListedByOpaqueId(t *testing.T) {
+	res := crewmemory.ReadResult{Skipped: []crewmemory.Skipped{
+		{Key: "crew-a.pilot.ops.token=hunter2hunter2", Reason: "bad json for token=hunter2hunter2"},
+		{Key: "crew-a.pilot.ops.fine", Reason: "bad json"},
+	}}
+	exp, err := Build(scope, res, Options{ExportedAt: exportedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exp.Skipped) != 2 || exp.Skipped[1].Key != "crew-a.pilot.ops.fine" {
+		t.Fatalf("skipped = %+v", exp.Skipped)
+	}
+	if o := exp.Skipped[0]; strings.Contains(o.Key, "hunter2") || strings.Contains(o.Reason, "hunter2") {
+		t.Errorf("report %+v holds the secret", o)
+	}
+}
