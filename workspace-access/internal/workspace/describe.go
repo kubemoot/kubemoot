@@ -99,7 +99,7 @@ func (s *Service) describeRelation(ctx context.Context, r Relation) (tableInfo, 
 	}
 	info.typesCut = typed.Truncated
 	info.columns = columnsOf(names, sample.Columns, typed.Rows, sample.Rows)
-	markQuantities(info.columns, r.Quantities)
+	markQuantities(info.columns, sample.Columns, r.Quantities)
 	info.rows = rowCount(names[0], typed.Rows)
 	return info, nil
 }
@@ -160,10 +160,10 @@ func columnsOf(names, sampleColumns []string, typeRows, sample [][]string) []col
 
 // markQuantities says in a column's type that its numbers were read from Kubernetes quantities
 // and in what unit.
-func markQuantities(columns []columnInfo, units map[string]string) {
+func markQuantities(columns []columnInfo, tableColumns, units []string) {
 	for i, c := range columns {
-		if unit, ok := units[c.name]; ok {
-			columns[i].types = []string{"quantity, " + unit}
+		if at := indexOf(tableColumns, c.name); at >= 0 && at < len(units) && units[at] != "" {
+			columns[i].types = []string{"quantity, " + units[at]}
 		}
 	}
 }

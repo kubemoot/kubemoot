@@ -224,6 +224,17 @@ func PrepareAs(hint Format, name, src string, data []byte, workDir string) (Rela
 // receives the extra names this artifact takes.
 func PrepareArtifact(name, src string, data []byte, workDir string,
 	taken map[string]bool) ([]Relation, []string, error) {
+	rels, notes, err := prepareArtifact(name, src, data, workDir, taken)
+	for i := range rels {
+		if err == nil {
+			rels[i], err = quantifyRelation(rels[i])
+		}
+	}
+	return rels, notes, err
+}
+
+func prepareArtifact(name, src string, data []byte, workDir string,
+	taken map[string]bool) ([]Relation, []string, error) {
 	if secs, ok := splitSections(data); ok {
 		rels, notes, err := prepareSections(name, secs, workDir, taken)
 		if err == nil {
@@ -292,12 +303,12 @@ func prepareYAML(name, _ string, data []byte, workDir string) (Relation, error) 
 
 func prepareMarkdownTable(name, _ string, data []byte, workDir string) (Relation, error) {
 	rows, _ := readMarkdownRows(data, 0)
-	return writeTable(name, workDir, rows)
+	return writeFields(name, workDir, rows)
 }
 
 func prepareKubectlTable(name, _ string, data []byte, workDir string) (Relation, error) {
 	rows, _ := readKubectlRows(data, 0)
-	return writeTable(name, workDir, rows)
+	return writeFields(name, workDir, rows)
 }
 
 // The two columns of text that is no table: the line number and the line.
@@ -316,14 +327,11 @@ func prepareText(name, _ string, data []byte, workDir string) (Relation, error) 
 	return writeRows(name, workDir, rows)
 }
 
-// writeTable is writeRows for a table of fields: a column of Kubernetes quantities is written as
-// base-unit numbers and the relation records its unit.
-func writeTable(name, workDir string, rows [][]string) (Relation, error) {
-	rows, units := quantify(rows)
+// writeFields is writeRows for a table of fields, whose quantity columns are read later by
+// quantifyRelation.
+func writeFields(name, workDir string, rows [][]string) (Relation, error) {
 	rel, err := writeRows(name, workDir, rows)
-	if len(units) > 0 {
-		rel.Quantities = units
-	}
+	rel.fields = true
 	return rel, err
 }
 
