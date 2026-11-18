@@ -32,7 +32,7 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
@@ -55,7 +55,7 @@ require (
 
 require (
 	github.com/kubemoot/kubemoot/operator v0.0.0
-	github.com/nats-io/nats.go v1.54.0
+	github.com/nats-io/nats.go v1.55.0
 	k8s.io/apimachinery v0.37.1
 	k8s.io/client-go v0.37.1
 )
