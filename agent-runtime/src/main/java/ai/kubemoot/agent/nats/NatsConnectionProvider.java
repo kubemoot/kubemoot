@@ -6,11 +6,13 @@ import io.nats.client.Nats;
 import io.nats.client.Options;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Shared NATS connection server used by ChatEventPublisher, DiscussionSubscriber,
@@ -27,10 +29,26 @@ public class NatsConnectionProvider implements NatsLink {
     private final String natsUrl;
     private final String agentName;
     private final CrewScope scope;
-    private Connection connection;
-    private Instant lastFailedAttempt;
+    private final ReentrantLock connectLock = new ReentrantLock();
+    private final Connector connector;
+    private final Duration retryInterval;
+    private volatile Connection connection;
+    private volatile Instant lastFailedAttempt;
 
+    /** Opens a connection; replaced in tests so no server is needed. */
+    @FunctionalInterface
+    interface Connector {
+        Connection connect(Options options) throws Exception;
+    }
+
+    @Inject
     public NatsConnectionProvider(AgentProperties properties) {
+        this(properties, Nats::connect, RETRY_INTERVAL);
+    }
+
+    NatsConnectionProvider(AgentProperties properties, Connector connector, Duration retryInterval) {
+        this.connector = connector;
+        this.retryInterval = retryInterval;
         this.natsUrl = properties.nats().url().orElse("");
         this.agentName = properties.agentName();
         if (natsUrl.isEmpty()) {
@@ -67,21 +85,66 @@ public class NatsConnectionProvider implements NatsLink {
         return conn != null && conn.getStatus() == Connection.Status.CONNECTED;
     }
 
+    /**
+     * The shared connection. An existing connection that is CONNECTED, RECONNECTING or
+     * DISCONNECTED is returned as is: the client reconnects it by itself and keeps its
+     * buffered publishes. A new connection is made only when there is none or the old
+     * one is CLOSED, and a replaced connection is closed.
+     */
     @Override
-    public synchronized Connection getConnection() {
+    public Connection getConnection() {
         if (!isConfigured()) return null;
 
-        if (connection != null && connection.getStatus() == Connection.Status.CONNECTED) {
-            return connection;
+        var current = connection;
+        if (isReusable(current)) {
+            return current;
         }
+        connectLock.lock();
+        try {
+            // Another caller may have connected while this one waited for the lock.
+            current = connection;
+            if (isReusable(current)) {
+                return current;
+            }
+            if (inBackoff()) {
+                return null;
+            }
+            return replaceWith(attemptConnect(), current);
+        } finally {
+            connectLock.unlock();
+        }
+    }
 
-        // Back off between reconnection attempts
-        if (lastFailedAttempt != null
-                && Instant.now().isBefore(lastFailedAttempt.plus(RECONNECT_BACKOFF))) {
+    private static boolean isReusable(Connection conn) {
+        return conn != null && conn.getStatus() != Connection.Status.CLOSED;
+    }
+
+    private boolean inBackoff() {
+        var failed = lastFailedAttempt;
+        return failed != null && Instant.now().isBefore(failed.plus(RECONNECT_BACKOFF));
+    }
+
+    private Connection replaceWith(Connection fresh, Connection old) {
+        if (fresh == null) {
             return null;
         }
+        connection = fresh;
+        lastFailedAttempt = null;
+        closeQuietly(old);
+        return fresh;
+    }
 
-        return attemptConnect();
+    private void closeQuietly(Connection conn) {
+        if (conn == null) {
+            return;
+        }
+        try {
+            conn.close();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (RuntimeException e) {
+            log.warn("Failed to close replaced NATS connection for agent {}: {}", agentName, e.toString());
+        }
     }
 
     private Connection attemptConnect() {
@@ -94,28 +157,35 @@ public class NatsConnectionProvider implements NatsLink {
 
         for (int attempt = 1; attempt <= MAX_INITIAL_RETRIES; attempt++) {
             try {
-                connection = Nats.connect(options);
+                var fresh = connector.connect(options);
                 log.info("Connected to NATS: {}", natsUrl);
-                lastFailedAttempt = null;
-                return connection;
+                return fresh;
             } catch (Exception e) {
-                if (attempt < MAX_INITIAL_RETRIES) {
-                    log.warn("NATS connection attempt {}/{} failed: {} — retrying in {}s",
-                            attempt, MAX_INITIAL_RETRIES, e.getMessage(), RETRY_INTERVAL.toSeconds());
-                    try {
-                        Thread.sleep(RETRY_INTERVAL.toMillis());
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                } else {
-                    log.warn("NATS connection failed after {} attempts: {} — will retry in {}s",
-                            MAX_INITIAL_RETRIES, e.getMessage(), RECONNECT_BACKOFF.toSeconds());
-                    lastFailedAttempt = Instant.now();
+                if (!afterFailedAttempt(attempt, e)) {
+                    break;
                 }
             }
         }
         return null;
+    }
+
+    /** Logs a failed attempt and waits before the next one; false when no further attempt should be made. */
+    private boolean afterFailedAttempt(int attempt, Exception e) {
+        if (attempt >= MAX_INITIAL_RETRIES) {
+            log.warn("NATS connection failed after {} attempts: {} - will retry in {}s",
+                    MAX_INITIAL_RETRIES, e.getMessage(), RECONNECT_BACKOFF.toSeconds());
+            lastFailedAttempt = Instant.now();
+            return false;
+        }
+        log.warn("NATS connection attempt {}/{} failed: {} - retrying in {}s",
+                attempt, MAX_INITIAL_RETRIES, e.getMessage(), RETRY_INTERVAL.toSeconds());
+        try {
+            Thread.sleep(retryInterval.toMillis());
+            return true;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     public String getAgentName() {
