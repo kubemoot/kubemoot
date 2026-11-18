@@ -75,6 +75,10 @@ var _ = Describe("CrewFitnessSuite re-judge", func() {
 		Expect(k8sClient.Create(ctx, src)).To(Succeed())
 		src.Status.Phase = phase
 		src.Status.RunID = sourceRun
+		src.Status.Realm = &kubemootv1alpha1.FitnessRealm{
+			Start:   &kubemootv1alpha1.RealmSnapshot{ObservedAt: metav1.Now(), OperatorVersion: "0.94.0"},
+			Digests: &kubemootv1alpha1.RealmDigests{Servers: "s1", Models: "m1", Versions: "v1", Resources: "r1"},
+		}
 		Expect(k8sClient.Status().Update(ctx, src)).To(Succeed())
 		prefix := suiteRunPrefix(namespace, name, sourceRun)
 		store.objs[prefix+"s0-i1.json"] = sourceTranscript("cilium and metrics-server")
@@ -157,6 +161,10 @@ var _ = Describe("CrewFitnessSuite re-judge", func() {
 			{Name: "fresh"},
 		}), "status.scenarios rolls up the copied transcripts in spec order")
 		Expect(s.Status.Judge).To(Equal(&kubemootv1alpha1.FitnessJudgeStatus{Phase: kubemootv1alpha1.FitnessJudgePhaseJudging}))
+		Expect(s.Status.Realm).NotTo(BeNil(), "the copied answers ran on the source run's realm")
+		Expect(s.Status.Realm.Digests.Servers).To(Equal("s1"))
+		Expect(s.Status.Realm.Start.OperatorVersion).To(Equal("0.94.0"))
+		Expect(s.Status.Realm.CopiedFrom).To(Equal(&kubemootv1alpha1.RejudgeSource{Suite: "rj-src-ok", RunID: sourceRun}))
 
 		prefix := suiteRunPrefix(namespace, "rj-ok", s.Status.RunID)
 		beta := store.get(prefix + "s0-i1.json")

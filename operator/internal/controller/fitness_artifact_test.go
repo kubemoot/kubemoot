@@ -488,7 +488,7 @@ func TestCreateReportSheetsBuildsExpectedTabs(t *testing.T) {
 	}
 	want := []string{
 		sheetOverview, sheetPassRate, sheetDuration, sheetQuality,
-		sheetScenarios, sheetRuns, sheetAssertions, sheetFailures,
+		sheetScenarios, sheetRuns, sheetAssertions, sheetFailures, sheetRealm,
 	}
 	for _, name := range want {
 		if !got[name] {

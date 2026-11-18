@@ -7,6 +7,7 @@
 	import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 	import { suiteDisplayPhase, suiteIsJudged } from '#lib/fitness-suite-controls.js';
 	import { consistencyView, trialsIndependence } from '#lib/fitness-consistency.js';
+	import { realmView } from '#lib/fitness-realm.js';
 
 	// Push-based live list: initial fetch + SSE watch on CrewFitnessSuite. The
 	// operator advances each suite's status (phase, iterationsCompleted,
@@ -127,6 +128,7 @@
 				<th>Pass / Fail / Err</th>
 				<th title="Estimated chance all k trials pass (pass rate to the power k), averaged over the scenarios">Pass^k (est.)</th>
 				<th>Duration</th>
+				<th title="What the run ran on. Runs are comparable only when their realms match.">Realm</th>
 				<th>Artifact</th>
 				<th>Age</th>
 			</tr>
@@ -143,6 +145,7 @@
 				{@const shown = suiteDisplayPhase(suite)}
 				{@const cons = consistencyView(suite)}
 				{@const indep = trialsIndependence(suite)}
+				{@const realm = realmView(suite, live.items)}
 				<tr>
 					<td>
 						<span class="phase-badge {phaseClass(shown)}">
@@ -181,6 +184,12 @@
 						{/if}
 					</td>
 					<td class="mono">{formatDuration(s?.startedAt, s?.completedAt)}</td>
+					<td class="mono small">
+						{realm.label}
+						{#each realm.warnings as w (w)}
+							<div class="errored small">{w}</div>
+						{/each}
+					</td>
 					<td>
 						{#if s?.artifactRef?.objectKey}
 							<a

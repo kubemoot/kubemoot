@@ -802,6 +802,32 @@ export interface SuiteConsistency {
 	regressions?: number;
 }
 
+/** Short hashes of the parts of a run's realm that decide comparability. */
+export interface RealmDigests {
+	servers: string;
+	models: string;
+	versions: string;
+	resources: string;
+}
+
+export interface RealmSnapshot {
+	observedAt: string;
+	operatorVersion?: string;
+	crewVersion?: string;
+	resourceNotes?: string[];
+	concurrentSuites?: string[];
+	concurrentRuns?: number;
+}
+
+/** What a suite run ran on (status.realm); the full record is in the XLSX Realm tab. */
+export interface FitnessRealm {
+	start?: RealmSnapshot;
+	end?: RealmSnapshot;
+	digests?: RealmDigests;
+	drift?: string[];
+	copiedFrom?: { suite: string; runId: string };
+}
+
 export interface SuiteArtifactRef {
 	bucket: string;
 	objectKey: string;
@@ -822,6 +848,7 @@ export interface CrewFitnessSuiteStatus {
 	error?: string;
 	scenarios?: SuiteScenarioResult[];
 	consistency?: SuiteConsistency;
+	realm?: FitnessRealm;
 	conditions?: Condition[];
 }
 

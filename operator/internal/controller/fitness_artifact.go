@@ -244,7 +244,7 @@ func createReportSheets(f *excelize.File) error {
 	if err := f.SetSheetName("Sheet1", sheetOverview); err != nil {
 		return fmt.Errorf("rename default sheet: %w", err)
 	}
-	for _, name := range []string{sheetPassRate, sheetDuration, sheetQuality, sheetScenarios, sheetRuns, sheetAssertions, sheetFailures} {
+	for _, name := range []string{sheetPassRate, sheetDuration, sheetQuality, sheetScenarios, sheetRuns, sheetAssertions, sheetFailures, sheetRealm} {
 		if _, err := f.NewSheet(name); err != nil {
 			return fmt.Errorf("creating %s sheet: %w", name, err)
 		}
@@ -266,6 +266,7 @@ func writeReportSheets(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSuit
 		{"writing Assertions sheet", func() error { return writeAssertionsSheet(f, results) }},
 		{"writing Scenarios sheet", func() error { return writeScenariosSheet(f, aggs) }},
 		{"writing Failures sheet", func() error { return writeFailureSummarySheet(f, results) }},
+		{"writing Realm sheet", func() error { return writeRealmSheet(f, suite) }},
 		{"writing Overview sheet", func() error { return writeOverviewSheet(f, suite, n, weights, crewMeans(aggs)) }},
 		{"writing Pass Rate sheet", func() error { return writePassRateChartSheet(f, n) }},
 		{"writing Duration sheet", func() error { return writeDurationChartSheet(f, n) }},
@@ -1184,6 +1185,9 @@ func writeOverviewSheet(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSui
 		return err
 	}
 	if err := o.config(suite); err != nil {
+		return err
+	}
+	if err := o.realm(suite); err != nil {
 		return err
 	}
 	if err := o.rollups(last); err != nil {

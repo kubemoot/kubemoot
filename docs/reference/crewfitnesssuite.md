@@ -60,6 +60,7 @@ spec:
 | `rejudge` | On a re-judge suite: the `source` run, how many `transcripts` were copied, and `notInSource`, the scenarios of this suite the source run has no answer for. |
 | `scenarios` | Per-scenario rollup of the finished iterations, in spec order. See [Results in status](#results-in-status). |
 | `consistency` | How reliably the scenarios pass: the mean pass^k, the scenarios to check, and for a regression suite the scenarios below 100%. See [Consistency](#consistency-pass-and-pass-k). |
+| `realm` | What the run ran on: model servers and models, accelerator capability, versions, agent pod resources, and concurrent activity, at the start and the end. See [Realm](#realm-what-a-run-ran-on). |
 | `judge` | Progress and scores of the deferred judge pass. See [Results in status](#results-in-status). |
 | `conditions` | On a re-judge suite, `RejudgeSourceReady` reports whether the source could be used. See [Re-judge an earlier run](#re-judge-an-earlier-run). |
 
@@ -167,6 +168,34 @@ With the default `trialIsolation: PerTrial`, the operator clears the crew's work
 The suite's `TrialsIndependent` condition says what held, from the moment the suite starts: `True` with reason `PerTrialPurge`, or `False` with reason `SharedAcrossTrials` (`PerSuite`), `PurgeDisabled` (`purgeMemory: false`), `NoMemoryStore` (the operator has no message bus to clear memory with), or `PurgeFailed` (a clear failed and the next trial is held). The XLSX Overview tab repeats it, so a result says whether its trials were independent.
 
 Crew memory is not the only state a trial can leave behind. The harness pods are per iteration, and the thread's workspace is deleted when the iteration ends.
+### Realm: what a run ran on
+
+Infrastructure alone moves agentic eval scores by several points, more than the gap between many models. A score is only comparable to another that ran on the same realm, so every run records its realm in `status.realm`, and the XLSX carries it.
+
+The operator takes one snapshot when the run starts (`status.realm.start`) and one when it reaches a terminal phase (`status.realm.end`). A snapshot holds:
+
+| Field | What it records |
+|-------|-----------------|
+| `operatorVersion`, `crewVersion` | The operator build version, and the crew chart version from the crew's `kubemoot.ai/crew-version` label. |
+| `modelServers[]` | Each model server: engine, engine version, readiness, and its `accelerator` capability: `memoryMiB`, `memoryUsedMiB`, `maxParallel`, `contextLength`. The accelerator is described by capability, never by vendor or device name. |
+| `modelServers[].models[]` | Each model on the server: name, `digest`, `quantization`, `contextLength`, and `resident`, whether it was loaded on the accelerator at that moment. At the start, `resident` tells a cold run from a warm one. |
+| `agents[]` | One row per distinct container shape across the crew's running pods: container, image, pod count, CPU and memory requests and limits. The fitness runner's own pods are left out. |
+| `resourceNotes` | Agent resources likely to throttle an agent: a request that is unset (no guaranteed allocation), or a limit equal to the request (no headroom). Guidance is a guaranteed allocation plus a separate, higher hard limit. |
+| `concurrentSuites`, `concurrentRuns` | Other suites in the `Running` phase, and standalone `CrewFitness` runs in flight. A measurement expects none. |
+
+The operator reads model server and model status as the model server controller last probed it, so residency and memory in use can lag the engine by one probe interval. Which model serves each call is chosen per call by the scheduler, so the realm records what was available and resident, not a per-call log. Other discussions on the crew are not recorded: they are not Kubernetes objects.
+
+`status.realm.digests` hashes the parts of the start snapshot that decide comparability, one hash each: `servers` (name, engine, engine version, accelerator capability), `models` (name, digest, quantization, context length), `versions` (operator, crew chart, container images), and `resources` (requests and limits). Time, residency, memory in use, pod counts, and concurrent activity are recorded but left out of the digests, because they change between runs on an unchanged system.
+
+**Comparing runs.** Two runs are comparable when their digests are equal. When a digest differs, the part that differs names what to look at, and a score gap between the runs may be the realm rather than the crew. The dashboard Fitness Suites page shows each run's realm and warns when it differs from the previous run of the same crew, naming the parts. A run with no realm (it ran before this field existed, or the operator could not read the cluster) cannot be compared and the page says so. The comparison rules live in the `pkg/fitnessrealm` package, which any client of the status can import: `DigestsOf`, `DifferingParts`, `Differences`, `Drift`, and `ResourceNotes`.
+
+**Drift.** `status.realm.drift` lists what changed between the start and the end of the run: an engine upgraded, a model replaced, an agent pod rescheduled with other limits, another suite started. A run with drift measured a moving system. Models loading during the run is expected and is not drift.
+
+**Re-judge suites.** The answers of a re-judge suite ran on the source run's realm, so `status.realm` is a copy of the source's, with `copiedFrom` naming the source run.
+
+If the start snapshot cannot be read (an API server error), the operator retries it on each reconcile until the first iteration finishes, and then records no realm rather than a partial one: a snapshot with a part missing would differ from a complete one and raise a false warning. An end snapshot is recorded only for a run that has a start.
+
+The XLSX has a `Realm` tab with the digests, the drift, and both snapshots, one row per fact. The Overview tab shows the digests and the drift count, or says the run recorded no realm.
 
 ### Invented names
 

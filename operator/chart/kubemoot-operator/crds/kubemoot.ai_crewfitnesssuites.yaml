@@ -504,6 +504,418 @@ spec:
               phase:
                 description: Phase is the lifecycle phase.
                 type: string
+              realm:
+                description: |-
+                  Realm records what the run ran on: model servers and models, accelerator
+                  capability, versions, agent pod resources, and concurrent activity, at the
+                  start and at the end. Compare it before comparing two runs.
+                properties:
+                  copiedFrom:
+                    description: |-
+                      CopiedFrom is set on a re-judge suite: the answers ran on the source
+                      run's realm, so Start and Digests are the source's.
+                    properties:
+                      runId:
+                        description: |-
+                          RunID is the source run to re-judge; it must equal the source suite's
+                          status.runId.
+                        minLength: 1
+                        type: string
+                      suite:
+                        description: |-
+                          Suite is the source CrewFitnessSuite, in the same namespace. It must be
+                          Completed and must still exist: deleting a suite purges its transcripts.
+                        minLength: 1
+                        type: string
+                    required:
+                    - runId
+                    - suite
+                    type: object
+                  digests:
+                    description: |-
+                      Digests are short hashes of the parts of Start that decide whether two
+                      runs are comparable. Two runs with equal digests ran on the same realm;
+                      a differing digest names the part that differs. They leave out time,
+                      residency, and concurrent activity, which are recorded but never make
+                      two runs incomparable on their own.
+                    properties:
+                      models:
+                        description: |-
+                          Models covers each model on each server: name, digest, quantization,
+                          and context length.
+                        type: string
+                      resources:
+                        description: Resources covers the requests and limits of the
+                          crew's pods.
+                        type: string
+                      servers:
+                        description: |-
+                          Servers covers each model server: its name, engine, engine version, and
+                          accelerator capability.
+                        type: string
+                      versions:
+                        description: |-
+                          Versions covers the operator version, the crew chart version, and the
+                          images of the crew's pods.
+                        type: string
+                    required:
+                    - models
+                    - resources
+                    - servers
+                    - versions
+                    type: object
+                  drift:
+                    description: |-
+                      Drift lists what changed between Start and End during the run (a model
+                      replaced, an agent pod rescheduled with other limits, another suite
+                      started). A run with drift measured a moving system.
+                    items:
+                      type: string
+                    maxItems: 30
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  end:
+                    description: End is the realm when the run reached a terminal
+                      phase.
+                    properties:
+                      agents:
+                        description: |-
+                          Agents lists the distinct containers of the crew's agent pods with their
+                          image and resources, one row per distinct combination.
+                        items:
+                          description: RealmAgentContainer is one distinct container
+                            shape across the crew's pods.
+                          properties:
+                            container:
+                              description: Container is the container name.
+                              type: string
+                            cpuLimit:
+                              type: string
+                            cpuRequest:
+                              description: |-
+                                CPURequest, CPULimit, MemoryRequest and MemoryLimit are the container's
+                                resources as quantities; empty when unset.
+                              type: string
+                            image:
+                              description: Image is the image reference the container
+                                ran.
+                              type: string
+                            memoryLimit:
+                              type: string
+                            memoryRequest:
+                              type: string
+                            pods:
+                              description: Pods is how many of the crew's pods run
+                                this combination.
+                              format: int32
+                              type: integer
+                          required:
+                          - container
+                          - pods
+                          type: object
+                        maxItems: 20
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      concurrentRuns:
+                        description: ConcurrentRuns counts standalone CrewFitness
+                          runs in flight, outside this suite.
+                        format: int32
+                        type: integer
+                      concurrentSuites:
+                        description: |-
+                          ConcurrentSuites lists other CrewFitnessSuites in a running phase when
+                          the snapshot was taken, as namespace/name. A measurement expects none.
+                        items:
+                          type: string
+                        maxItems: 10
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      crewVersion:
+                        description: |-
+                          CrewVersion is the crew chart version from the crew's
+                          kubemoot.ai/crew-version label; absent for a hand-applied crew.
+                        type: string
+                      modelServers:
+                        description: ModelServers lists the model servers the crew's
+                          models can run on.
+                        items:
+                          description: RealmModelServer is one model server and what
+                            it ran on.
+                          properties:
+                            accelerator:
+                              description: |-
+                                Accelerator is the capability behind the server. It is described by what
+                                it can do (memory, parallelism, context), never by vendor or device name.
+                              properties:
+                                contextLength:
+                                  description: ContextLength is the context window,
+                                    in tokens, the engine gives a request.
+                                  format: int32
+                                  type: integer
+                                maxParallel:
+                                  description: MaxParallel is how many requests the
+                                    engine serves at once.
+                                  format: int32
+                                  type: integer
+                                memoryMiB:
+                                  description: |-
+                                    MemoryMiB is the accelerator memory the server can use, in MiB. Zero when
+                                    the server reports none (a CPU-only or hosted engine).
+                                  format: int64
+                                  type: integer
+                                memoryUsedMiB:
+                                  description: MemoryUsedMiB is the memory in use
+                                    when the snapshot was taken.
+                                  format: int64
+                                  type: integer
+                              type: object
+                            engine:
+                              description: Engine is the engine type (ollama, vllm).
+                              type: string
+                            engineVersion:
+                              description: EngineVersion is the version the engine
+                                reported.
+                              type: string
+                            models:
+                              description: Models lists the models on the server,
+                                with which were resident.
+                              items:
+                                description: RealmModel is one model on a server.
+                                properties:
+                                  contextLength:
+                                    description: ContextLength is the model's context
+                                      window in tokens.
+                                    format: int32
+                                    type: integer
+                                  digest:
+                                    description: Digest is the content digest the
+                                      engine reported; absent when it reported none.
+                                    type: string
+                                  name:
+                                    description: Name is the model identifier on the
+                                      server.
+                                    type: string
+                                  quantization:
+                                    description: Quantization of the weights, as the
+                                      engine reported it.
+                                    type: string
+                                  resident:
+                                    description: |-
+                                      Resident is true when the model was loaded on the accelerator at the
+                                      moment of the snapshot. At Start it tells a cold run from a warm one.
+                                    type: boolean
+                                required:
+                                - name
+                                type: object
+                              maxItems: 30
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            name:
+                              description: Name and Namespace identify the ModelServer.
+                              type: string
+                            namespace:
+                              type: string
+                            ready:
+                              description: Ready is whether the server was ready.
+                              type: boolean
+                          required:
+                          - name
+                          type: object
+                        maxItems: 20
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      observedAt:
+                        description: ObservedAt is when the snapshot was taken.
+                        format: date-time
+                        type: string
+                      operatorVersion:
+                        description: OperatorVersion is the operator's build version;
+                          "dev" for an unversioned build.
+                        type: string
+                      resourceNotes:
+                        description: |-
+                          ResourceNotes flags agent pod requests and limits that make a throttled
+                          agent likely: a request that is unset, or a limit equal to the request.
+                          Guidance is a guaranteed allocation plus a higher hard limit.
+                        items:
+                          type: string
+                        maxItems: 20
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    required:
+                    - observedAt
+                    type: object
+                  start:
+                    description: Start is the realm when the first trial began.
+                    properties:
+                      agents:
+                        description: |-
+                          Agents lists the distinct containers of the crew's agent pods with their
+                          image and resources, one row per distinct combination.
+                        items:
+                          description: RealmAgentContainer is one distinct container
+                            shape across the crew's pods.
+                          properties:
+                            container:
+                              description: Container is the container name.
+                              type: string
+                            cpuLimit:
+                              type: string
+                            cpuRequest:
+                              description: |-
+                                CPURequest, CPULimit, MemoryRequest and MemoryLimit are the container's
+                                resources as quantities; empty when unset.
+                              type: string
+                            image:
+                              description: Image is the image reference the container
+                                ran.
+                              type: string
+                            memoryLimit:
+                              type: string
+                            memoryRequest:
+                              type: string
+                            pods:
+                              description: Pods is how many of the crew's pods run
+                                this combination.
+                              format: int32
+                              type: integer
+                          required:
+                          - container
+                          - pods
+                          type: object
+                        maxItems: 20
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      concurrentRuns:
+                        description: ConcurrentRuns counts standalone CrewFitness
+                          runs in flight, outside this suite.
+                        format: int32
+                        type: integer
+                      concurrentSuites:
+                        description: |-
+                          ConcurrentSuites lists other CrewFitnessSuites in a running phase when
+                          the snapshot was taken, as namespace/name. A measurement expects none.
+                        items:
+                          type: string
+                        maxItems: 10
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      crewVersion:
+                        description: |-
+                          CrewVersion is the crew chart version from the crew's
+                          kubemoot.ai/crew-version label; absent for a hand-applied crew.
+                        type: string
+                      modelServers:
+                        description: ModelServers lists the model servers the crew's
+                          models can run on.
+                        items:
+                          description: RealmModelServer is one model server and what
+                            it ran on.
+                          properties:
+                            accelerator:
+                              description: |-
+                                Accelerator is the capability behind the server. It is described by what
+                                it can do (memory, parallelism, context), never by vendor or device name.
+                              properties:
+                                contextLength:
+                                  description: ContextLength is the context window,
+                                    in tokens, the engine gives a request.
+                                  format: int32
+                                  type: integer
+                                maxParallel:
+                                  description: MaxParallel is how many requests the
+                                    engine serves at once.
+                                  format: int32
+                                  type: integer
+                                memoryMiB:
+                                  description: |-
+                                    MemoryMiB is the accelerator memory the server can use, in MiB. Zero when
+                                    the server reports none (a CPU-only or hosted engine).
+                                  format: int64
+                                  type: integer
+                                memoryUsedMiB:
+                                  description: MemoryUsedMiB is the memory in use
+                                    when the snapshot was taken.
+                                  format: int64
+                                  type: integer
+                              type: object
+                            engine:
+                              description: Engine is the engine type (ollama, vllm).
+                              type: string
+                            engineVersion:
+                              description: EngineVersion is the version the engine
+                                reported.
+                              type: string
+                            models:
+                              description: Models lists the models on the server,
+                                with which were resident.
+                              items:
+                                description: RealmModel is one model on a server.
+                                properties:
+                                  contextLength:
+                                    description: ContextLength is the model's context
+                                      window in tokens.
+                                    format: int32
+                                    type: integer
+                                  digest:
+                                    description: Digest is the content digest the
+                                      engine reported; absent when it reported none.
+                                    type: string
+                                  name:
+                                    description: Name is the model identifier on the
+                                      server.
+                                    type: string
+                                  quantization:
+                                    description: Quantization of the weights, as the
+                                      engine reported it.
+                                    type: string
+                                  resident:
+                                    description: |-
+                                      Resident is true when the model was loaded on the accelerator at the
+                                      moment of the snapshot. At Start it tells a cold run from a warm one.
+                                    type: boolean
+                                required:
+                                - name
+                                type: object
+                              maxItems: 30
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            name:
+                              description: Name and Namespace identify the ModelServer.
+                              type: string
+                            namespace:
+                              type: string
+                            ready:
+                              description: Ready is whether the server was ready.
+                              type: boolean
+                          required:
+                          - name
+                          type: object
+                        maxItems: 20
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      observedAt:
+                        description: ObservedAt is when the snapshot was taken.
+                        format: date-time
+                        type: string
+                      operatorVersion:
+                        description: OperatorVersion is the operator's build version;
+                          "dev" for an unversioned build.
+                        type: string
+                      resourceNotes:
+                        description: |-
+                          ResourceNotes flags agent pod requests and limits that make a throttled
+                          agent likely: a request that is unset, or a limit equal to the request.
+                          Guidance is a guaranteed allocation plus a higher hard limit.
+                        items:
+                          type: string
+                        maxItems: 20
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    required:
+                    - observedAt
+                    type: object
+                type: object
               rejudge:
                 description: |-
                   Rejudge is set on a re-judge suite (spec.rejudge) once its source

@@ -91,6 +91,8 @@ type rejudgeCopy struct {
 type rejudgePlan struct {
 	copies      []rejudgeCopy
 	notInSource []string
+	// realm is the source run's realm: the copied answers ran on it.
+	realm *kubemootv1alpha1.FitnessRealm
 }
 
 // suiteRunPrefix is the object-store prefix of one suite run.
@@ -157,6 +159,7 @@ func (r *CrewFitnessSuiteReconciler) prepareRejudge(ctx context.Context, suite *
 		return rejudgePlan{}, rejudgeFailure(reasonNoTranscripts,
 			"source run %s/%s has no transcript for any scenario of this suite", src.Suite, src.RunID)
 	}
+	plan.realm = copyRealm(source, *src)
 	return plan, nil
 }
 
@@ -414,6 +417,7 @@ func (r *CrewFitnessSuiteReconciler) completeRejudge(suite *kubemootv1alpha1.Cre
 	suite.Status.IterationsTotal = p.completed
 	applyProgress(suite, p)
 	suite.Status.Error = ""
+	suite.Status.Realm = plan.realm
 	suite.Status.Rejudge = &kubemootv1alpha1.RejudgeStatus{
 		Source:      *suite.Spec.Rejudge,
 		Transcripts: p.completed,

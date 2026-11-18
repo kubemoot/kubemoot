@@ -430,6 +430,7 @@ func main() {
 		}).SetupWithManager},
 		{"CrewFitnessSuite", (&controller.CrewFitnessSuiteReconciler{
 			Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Scheme: mgr.GetScheme(), NATSPublisher: natsPublisher,
+			OperatorVersion: buildVersion(),
 		}).SetupWithManager},
 		{"NotificationSink", (&controller.NotificationSinkReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
