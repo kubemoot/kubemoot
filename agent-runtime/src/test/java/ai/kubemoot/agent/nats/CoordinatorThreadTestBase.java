@@ -58,6 +58,11 @@ abstract class CoordinatorThreadTestBase {
         return RESUMES;
     }
 
+    /** The path the coordinator reads the crew resumes from; a test may name one that cannot be read. */
+    protected String crewResumesPath(Path written) {
+        return written.toString();
+    }
+
     /** Lets a test set more of the coordinator's discussion settings before the orchestrator is built. */
     protected void configureDiscuss(AgentProperties.Discuss discuss) {
         // The defaults stand.
@@ -100,7 +105,7 @@ abstract class CoordinatorThreadTestBase {
     protected void build(boolean hasAnalysts) throws Exception {
         Path resumes = dir.resolve("crew-resumes.json");
         Files.writeString(resumes, resumesJson());
-        System.setProperty("kubemoot.discuss.crew-resumes-path", resumes.toString());
+        System.setProperty("kubemoot.discuss.crew-resumes-path", crewResumesPath(resumes));
 
         natsProvider = mock(NatsConnectionProvider.class);
         when(natsProvider.scope()).thenReturn(CrewScope.of("ns", "crew"));
