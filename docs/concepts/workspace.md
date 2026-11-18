@@ -550,13 +550,15 @@ A `kubectl` table or Markdown table column whose every non-empty value is a Kube
 quantity, with at least one carrying a suffix, is read as a quantity: stored as numbers in base
 units, so `ORDER BY memory_bytes DESC` and `sum(memory_bytes)` compare values and not text. The
 suffixes are binary (`Ki`, `Mi`, `Gi`, `Ti`, `Pi`, `Ei`), decimal (`k`, `M`, `G`, `T`, `P`, `E`),
-milli (`m`) and exponents (`12e3`). Binary and decimal suffixes give bytes (`65Mi` is `68157440`);
-`m` gives cores (`250m` is `0.25`) and is read that way only under a `cpu` or `core` column name,
+milli (`m`) and exponents (`12e3`); an exponent alone, like a plain number, does not make a column a
+quantity, and the `n` and `u` suffixes are not read, so such a column stays as it is. Binary and decimal suffixes give bytes (`65Mi` is `68157440`);
+`m` gives cores (`250m` is `0.25`) and is read that way only under a column name with the word `cpu` or `core(s)`,
 because `5m` in an `AGE` column is minutes. A column that mixes quantities with other text, or
 bytes with cores, stays text, and so does a column of plain numbers without a suffix (that one is
 already numbers). `workspace_describe` types a quantity column `quantity, bytes` or
 `quantity, cores`. The stored result is unchanged: `workspace_head`, `workspace_grep` and
-`workspace_tail` still show `65Mi`.
+`workspace_tail` still show `65Mi`. Stacked calls (`k8s-metrics/*-pods_top`) are read once over all their rows, so
+the column is a quantity only when every call agrees.
 
 A nested object or list in JSON or YAML is read per engine. In SQLite it is a text
 column holding JSON: `status->>'phase'` reads a field, `json_array_length(tags)` counts

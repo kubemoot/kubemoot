@@ -52,13 +52,13 @@ func TestParseQuantity(t *testing.T) {
 
 func TestQuantifyLeavesOtherColumnsAlone(t *testing.T) {
 	rows := [][]string{
-		{nameCol, "cpu_cores", "memory_bytes", "mixed", "count", "age"},
+		{nameCol, "cpu_cores", "memory_bytes", "mixed", "count", ageCol},
 		{"a", "250m", "65Mi", "5Mi", "3", "5m"},
 		{"b", "1", "1Gi", "n/a", "10", "7m"},
 		{"c", "", "", "2", "", ""},
 	}
 	out, units := quantify(rows)
-	if units["cpu_cores"] != unitCores || units["memory_bytes"] != unitBytes || len(units) != 2 {
+	if !sameCells(units, []string{"", unitCores, unitBytes, "", "", ""}) {
 		t.Fatalf("units = %v", units)
 	}
 	if out[1][1] != "0.25" || out[2][2] != "1073741824" || out[3][1] != "" {
@@ -76,6 +76,7 @@ const (
 	tableKey = "k/t"
 	nameCol  = "name"
 	mebi65   = "65Mi"
+	ageCol   = "age"
 )
 
 const quantityTable = "NAME    CPU(cores)   MEMORY(bytes)\nsmall   1            9Mi\nbig     250m         1Gi\nmid     2            900Mi\n"
@@ -144,3 +145,57 @@ func TestDescribeSaysQuantityAndUnit(t *testing.T) {
 }
 
 func sameCells(a, b []string) bool { return strings.Join(a, "|") == strings.Join(b, "|") }
+
+const (
+	podsTopA = "NAME   CPU(cores)   MEMORY(bytes)\nsmall  1            9Mi\nnone   2            n/a\n"
+	podsTopB = "NAME   CPU(cores)   MEMORY(bytes)\nbig    250m         1Gi\n"
+	podsTopC = "NAME   CPU(cores)   MEMORY(bytes)\nmid    3            900Mi\n"
+)
+
+func stackedTops(t *testing.T, a, b string) *Service {
+	t.Helper()
+	return callService(t, map[string]object{
+		callPrefix + "001-pods_top": call("pods_top", a),
+		callPrefix + "002-pods_top": call("pods_top", b),
+	})
+}
+
+func TestStackedCallsReadQuantitiesOverAllRows(t *testing.T) {
+	s := stackedTops(t, podsTopA[:strings.Index(podsTopA, "none")], podsTopB+podsTopC[strings.Index(podsTopC, "mid"):])
+	artifacts := map[string]string{"p": callPrefix + "*-pods_top"}
+	if got := describe(t, s, artifacts); !strings.Contains(got, "memory_bytes: quantity, bytes") ||
+		!strings.Contains(got, "cpu_cores: quantity, cores") {
+		t.Fatalf("describe = %s", got)
+	}
+	got := query(t, s, artifacts, "SELECT name FROM p ORDER BY memory_bytes DESC")
+	if !strings.HasPrefix(got, "name\nbig\nmid\nsmall\n") {
+		t.Fatalf("memory order = %q", got)
+	}
+}
+
+func TestStackedCallsWithOneTextCellKeepTheColumnText(t *testing.T) {
+	s := stackedTops(t, podsTopA, podsTopB)
+	got := describe(t, s, map[string]string{"p": callPrefix + "*-pods_top"})
+	if strings.Contains(got, "quantity, bytes") || !strings.Contains(got, "memory_bytes: text") {
+		t.Fatalf("describe = %s", got)
+	}
+}
+
+func TestCPUHeaderIsAWholeWord(t *testing.T) {
+	for name, want := range map[string]bool{
+		"cpu": true, "cpu_cores": true, "cores": true, "core": true, "cpu_request": true,
+		"score": false, "encore": false, "age": false, "memory_bytes": false,
+	} {
+		if cpuHeader(name) != want {
+			t.Errorf("cpuHeader(%q) = %v", name, !want)
+		}
+	}
+}
+
+func TestDuckDBReadsQuantitiesAsNumbers(t *testing.T) {
+	s := newService(t, engineDuckDB, map[string]string{tableKey: quantityTable})
+	got := query(t, s, map[string]string{"t": tableKey}, "SELECT name FROM t ORDER BY memory_bytes DESC")
+	if !strings.HasPrefix(got, "name\nbig\nmid\nsmall\n") {
+		t.Fatalf("memory order = %q", got)
+	}
+}

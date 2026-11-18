@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"math/big"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -89,23 +90,27 @@ func columnUnit(body [][]string, i int) (string, bool) {
 	return unit, true
 }
 
-// quantify rewrites every quantity column of rows in base units and returns each column's unit.
+// quantify rewrites every quantity column of rows in base units and returns the unit of each
+// column by position ("" for a column that is not a quantity), or nil when there is none.
 // The input is not changed; the raw artifact keeps the original text.
-func quantify(rows [][]string) ([][]string, map[string]string) {
+func quantify(rows [][]string) ([][]string, []string) {
 	if len(rows) < 2 {
 		return rows, nil
 	}
-	units := map[string]string{}
+	var units []string
 	out := make([][]string, len(rows))
 	for r := range rows {
 		out[r] = append([]string(nil), rows[r]...)
 	}
-	for i, name := range rows[0] {
+	for i := range rows[0] {
 		unit := quantityUnit(rows, i)
 		if unit == "" {
 			continue
 		}
-		units[name] = unit
+		if units == nil {
+			units = make([]string, len(rows[0]))
+		}
+		units[i] = unit
 		for r := 1; r < len(out); r++ {
 			if i < len(out[r]) && out[r][i] != "" {
 				v, _, _ := parseQuantity(out[r][i])
@@ -116,10 +121,45 @@ func quantify(rows [][]string) ([][]string, map[string]string) {
 	return out, units
 }
 
-// cpuHeader reports whether a column name says the column counts cores.
+// quantifyRelation reads the quantity columns of a field table once, over all of its rows, and
+// rewrites its file with base-unit numbers. Sections stacked into one table are read together, so
+// a column is a quantity only when every section agrees. The relation it returns is not read again.
+func quantifyRelation(rel Relation) (Relation, error) {
+	if !rel.fields || rel.Kind != KindCSV {
+		return rel, nil
+	}
+	var rows [][]string
+	err := csvSource{path: rel.Path}.each(func(rec []string) error {
+		rows = append(rows, append([]string(nil), rec...))
+		return nil
+	})
+	if err != nil {
+		return rel, err
+	}
+	out, units := quantify(rows)
+	if units == nil {
+		rel.fields = false
+		return rel, nil
+	}
+	written, err := writeRows(rel.Name, filepath.Dir(rel.Path), out)
+	if err != nil {
+		return rel, err
+	}
+	written.Quantities = units
+	written.fields = false
+	return written, nil
+}
+
+// cpuHeader reports whether a column name counts cores: it holds the word cpu or core(s).
 func cpuHeader(name string) bool {
-	n := strings.ToLower(name)
-	return strings.Contains(n, "cpu") || strings.Contains(n, "core")
+	for _, w := range strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}) {
+		if w == "cpu" || w == "cpus" || w == "core" || w == "cores" {
+			return true
+		}
+	}
+	return false
 }
 
 // isExponent reports whether a suffix is an exponent (e3, E-2) and not a unit such as Ei or E.

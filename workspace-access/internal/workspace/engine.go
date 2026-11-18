@@ -34,9 +34,12 @@ type Relation struct {
 	Name string
 	Path string
 	Kind Kind
-	// Quantities names the columns read as Kubernetes quantities, with the unit their numbers
-	// are in (see quantify). The file holds base-unit numbers for them.
-	Quantities map[string]string
+	// Quantities is, per column position, the unit of a column read as Kubernetes quantities
+	// ("" for any other column). The file holds base-unit numbers for them (see quantify).
+	Quantities []string
+	// fields is true for a CSV written from a table of fields (kubectl, Markdown), whose
+	// quantity columns are read once the rows of any stacked sections are together.
+	fields bool
 }
 
 // Limits bound one query.

@@ -214,6 +214,9 @@ func groupRelations(name string, items []prepared, workDir string,
 	for i, g := range groups {
 		table := tableForGroup(name, i, local)
 		rel, err := mergeGroup(table, g, workDir)
+		if err == nil {
+			rel, err = quantifyRelation(rel)
+		}
 		if err != nil {
 			return nil, nil, err
 		}
