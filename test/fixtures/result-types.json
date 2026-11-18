@@ -112,6 +112,26 @@
    "type": "text/plain"
   },
   {
+   "name": "a Markdown title over a bullet list is text",
+   "input": "# Title\n- a\n- b\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "a comment line over one scalar mapping is text",
+   "input": "# Title\nNote: x\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "a comment line over a mapping that nests is YAML",
+   "input": "# rendered\nmetadata:\n  name: a\nkind: Pod\n",
+   "type": "application/yaml"
+  },
+  {
+   "name": "a non-breaking space before the # is trimmed like any space",
+   "input": "\u00a0# The following events were found:\n- name: a\n  reason: Failed\n",
+   "type": "application/yaml"
+  },
+  {
    "name": "YAML with several documents",
    "input": "---\nkind: Pod\n---\nkind: Service\n",
    "type": "application/yaml"

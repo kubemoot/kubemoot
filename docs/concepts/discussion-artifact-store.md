@@ -159,7 +159,7 @@ The type of a result is decided once, when the runtime stores it, and recorded a
 | One JSON object or list (the whole text) | `application/json` |
 | A Markdown pipe table (a pipe row, then its separator row, in the first five lines) | `text/markdown` |
 | A `kubectl` style table (a first line of upper-case column titles separated by two or more spaces) | `text/plain; profile=kubectl-table` |
-| YAML that parses as a mapping, a list or several documents, of at most 1,000,000 bytes; comment lines before the first YAML line are skipped | `application/yaml` |
+| YAML that parses as a mapping, a list or several documents, of at most 1,000,000 bytes; comment lines before the first YAML line are skipped only when the text is a list of mappings or a mapping that nests (a Markdown title over a bullet list stays text), and the first YAML line must be among the first five non-blank lines, comments included | `application/yaml` |
 | CSV (the first five lines hold the same number of fields, two or more) | `text/csv` |
 | Anything else, and any result cut at the size cap | `text/plain` |
 
