@@ -223,6 +223,10 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		s := getSuite(name)
 		Expect(s.Status.Judge).To(Equal(&kubemootv1alpha1.FitnessJudgeStatus{Phase: kubemootv1alpha1.FitnessJudgePhasePending}))
 		Expect(s.Status.Scenarios).To(Equal([]kubemootv1alpha1.SuiteScenarioResult{{Name: csProbe}}))
+		Expect(s.Status.Realm).NotTo(BeNil(), "the realm is recorded when the run starts")
+		Expect(s.Status.Realm.Start).NotTo(BeNil())
+		Expect(s.Status.Realm.Digests).NotTo(BeNil())
+		Expect(s.Status.Realm.End).To(BeNil())
 
 		reconcileOnce(name) // schedule iteration 1
 		cf := &kubemootv1alpha1.CrewFitness{}
@@ -251,6 +255,7 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		Expect(s.Status.Phase).To(Equal(kubemootv1alpha1.CrewFitnessSuitePhaseCancelled))
 		Expect(s.Status.Judge).To(Equal(&kubemootv1alpha1.FitnessJudgeStatus{Phase: kubemootv1alpha1.FitnessJudgePhaseSkipped}))
 		Expect(s.Status.Scenarios).To(Equal(want), "the in-flight iteration is not counted")
+		Expect(s.Status.Realm.End).NotTo(BeNil(), "a cancelled run records the realm it ended on")
 
 		reconcileOnce(name) // terminal upkeep: no judge pass for a cancelled run
 		prefix := suiteRunPrefix(namespace, name, s.Status.RunID)

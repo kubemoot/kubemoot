@@ -72,6 +72,8 @@ type CrewFitnessSuiteReconciler struct {
 	judgeClient *http.Client
 	// memory replaces NATSPublisher as the crew-memory purger in tests.
 	memory memoryPurger
+	// OperatorVersion is the operator's build version, recorded in a run's realm.
+	OperatorVersion string
 }
 
 // judgeHTTPClient returns the client the judge pass dispatches with.
@@ -132,6 +134,8 @@ const (
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewfitnesssuites/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=crewfitnesses,verbs=get;list;watch;create;update;patch;delete;deletecollection
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kubemoot.ai,resources=modelservers;models;crews,verbs=get;list;watch
 
 func (r *CrewFitnessSuiteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{}
@@ -261,6 +265,7 @@ func (r *CrewFitnessSuiteReconciler) startSuite(ctx context.Context, suite *kube
 	// (purge working memory + unload models). Both default on; best-effort.
 	r.coldStart(ctx, suite)
 	r.recordTrialIsolation(suite)
+	r.recordRealmStart(ctx, suite)
 
 	now := metav1.Now()
 	suite.Status.Phase = kubemootv1alpha1.CrewFitnessSuitePhaseRunning
@@ -316,6 +321,7 @@ func (r *CrewFitnessSuiteReconciler) advanceRunning(ctx context.Context, suite *
 		// and child reap happen in terminalUpkeep, one idempotent path.
 		now := metav1.Now()
 		suite.Status.CompletedAt = &now
+		r.recordRealmEnd(ctx, suite)
 	}
 	if err := r.Status().Update(ctx, suite); err != nil {
 		return ctrl.Result{}, err
@@ -459,6 +465,7 @@ func (r *CrewFitnessSuiteReconciler) cancelSuite(ctx context.Context, suite *kub
 	now := metav1.Now()
 	suite.Status.Phase = kubemootv1alpha1.CrewFitnessSuitePhaseCancelled
 	suite.Status.CompletedAt = &now
+	r.recordRealmEnd(ctx, suite)
 	if err := r.Status().Update(ctx, suite); err != nil {
 		return ctrl.Result{}, err
 	}

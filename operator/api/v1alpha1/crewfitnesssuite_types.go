@@ -509,6 +509,12 @@ type CrewFitnessSuiteStatus struct {
 	// +optional
 	Consistency *SuiteConsistency `json:"consistency,omitempty"`
 
+	// Realm records what the run ran on: model servers and models, accelerator
+	// capability, versions, agent pod resources, and concurrent activity, at the
+	// start and at the end. Compare it before comparing two runs.
+	// +optional
+	Realm *FitnessRealm `json:"realm,omitempty"`
+
 	// Judge reports the deferred judge pass over this run. Absent when no
 	// artifact store is configured.
 	// +optional
