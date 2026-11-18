@@ -352,8 +352,12 @@ func writeRows(name, workDir string, rows [][]string) (Relation, error) {
 	return Relation{Name: name, Path: path, Kind: KindCSV}, nil
 }
 
+// totalsRule is the line kubectl top --sum prints under the pods: only underscores and spaces.
+var totalsRule = regexp.MustCompile(`^[_ ]*_[_ ]*$`)
+
 // parseKubectlTable cuts each line at the column starts of the header, which is
-// exact even when a cell is empty or holds spaces.
+// exact even when a cell is empty or holds spaces. The table ends at a totals rule
+// (kubectl top --sum): the total row under it is not a pod, so it is not a row.
 func parseKubectlTable(text string) [][]string {
 	var rows [][]string
 	var starts []int
@@ -361,6 +365,9 @@ func parseKubectlTable(text string) [][]string {
 		line = strings.TrimRight(line, " \t\r")
 		if line == "" {
 			continue
+		}
+		if totalsRule.MatchString(line) {
+			break
 		}
 		if starts == nil {
 			idx := headerCell.FindAllStringIndex(line, -1)
