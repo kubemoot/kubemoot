@@ -74,7 +74,9 @@ does not need to change anything.
 
 An agent acts on text from its tools, documents, and the web. A prompt injected through
 any of them can steer a tool-calling agent. Limit each agent to the tools its role needs
-(`spec.enabledTools`) and to read-only credentials.
+(`spec.enabledTools`) and to read-only credentials. The
+[Crew threat model](https://kubemoot.org/docs/concepts/crew-threat-model/) follows an
+injected instruction through a crew and lists what is and is not defended.
 
 ### The code sandbox relies on NetworkPolicy enforcement
 

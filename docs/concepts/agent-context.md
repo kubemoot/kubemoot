@@ -378,6 +378,9 @@ What this means in practice:
 - Treat a surprising instruction inside a contribution, a retrieved passage or a stored
   fact as a finding about the content, not as an order.
 
+For the full path an instruction takes through a crew, what defends it and what does not,
+see the [Crew threat model](../crew-threat-model/).
+
 ## Artifacts (planned)
 
 Artifacts are generated work that outlives the discussion that produced it: a report, a

@@ -434,3 +434,7 @@ act on behalf of one person.
   repository, mailbox, or API the tool needs.
 - Never put a secret in a prompt, a `promptHint`, a ConfigMap, or an Agent environment
   variable. Put it in a Secret and reference it from the MCPServer.
+
+These controls are one part of how a crew resists injected instructions. The
+[Crew threat model](../crew-threat-model/) shows where each one acts and what remains
+undefended.
