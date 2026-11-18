@@ -340,7 +340,8 @@ type AgentSpec struct {
 	// matching their domains against the question's domains and the domains of
 	// the toolers that gathered the data (see MootArchetype spec.review). Each
 	// value is compared as lower-case alphanumeric words, so "Proxmox-VE" is
-	// "proxmox" and "ve". An agent that declares none is never matched by domain.
+	// "proxmox" and "ve". An analyst that declares none reviews every discussion as a
+	// generalist; a tooler that declares none gathers data without domain context.
 	// +kubebuilder:validation:MaxItems=32
 	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=63
