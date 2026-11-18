@@ -40,10 +40,10 @@ class NatsCoordinatorEventLogTest {
     private final NatsConnectionProvider provider = mock(NatsConnectionProvider.class);
     /** A log that does not wait for NATS: one try per append. */
     private final NatsCoordinatorEventLog log =
-            new NatsCoordinatorEventLog(provider, MAPPER, Duration.ZERO, Duration.ofMillis(1));
+            new NatsCoordinatorEventLog(provider, MAPPER, new OutageBackoff(Duration.ZERO, Duration.ofMillis(1)));
     /** A log that waits out an outage, with short pauses. */
     private final NatsCoordinatorEventLog patient =
-            new NatsCoordinatorEventLog(provider, MAPPER, Duration.ofSeconds(10), Duration.ofMillis(1));
+            new NatsCoordinatorEventLog(provider, MAPPER, new OutageBackoff(Duration.ofSeconds(10), Duration.ofMillis(1)));
     private final JetStream js = mock(JetStream.class);
 
     private static CoordinatorEvent event() {
@@ -177,7 +177,7 @@ class NatsCoordinatorEventLogTest {
     void anOutageThatOutlastsTheBoundFailsTheAppendAndNothingThrows() throws Exception {
         when(js.publish(any(String.class), any(byte[].class), any(PublishOptions.class)))
                 .thenThrow(new IOException("503"));
-        var impatient = new NatsCoordinatorEventLog(provider, MAPPER, Duration.ofMillis(60), Duration.ofMillis(5));
+        var impatient = new NatsCoordinatorEventLog(provider, MAPPER, new OutageBackoff(Duration.ofMillis(60), Duration.ofMillis(5)));
 
         assertEquals(Outcome.FAILED, assertDoesNotThrow(() -> impatient.append(SUBJECT, event(), 0)).outcome());
         assertEquals(1, impatient.failures());
@@ -192,5 +192,31 @@ class NatsCoordinatorEventLogTest {
                 .thenThrow(new IOException("503")).thenThrow(refusal);
 
         assertEquals(Outcome.FENCED, patient.append(SUBJECT, event(), 3).outcome());
+    }
+
+    @Test
+    void aJetStreamUnavailableAnswerIsAnOutageNotARefusal() throws Exception {
+        var unavailable = mock(JetStreamApiException.class);
+        when(unavailable.getApiErrorCode()).thenReturn(OutageAwarePublisher.JETSTREAM_UNAVAILABLE);
+        var stored = ack(5);
+        when(js.publish(any(String.class), any(byte[].class), any(PublishOptions.class)))
+                .thenThrow(unavailable).thenReturn(stored);
+
+        assertEquals(AppendResult.appended(5), patient.append(SUBJECT, event(), 4));
+    }
+
+    @Test
+    void theEventsOfOneDecisionShareOneWait() throws Exception {
+        when(js.publish(any(String.class), any(byte[].class), any(PublishOptions.class)))
+                .thenThrow(new IOException("503"));
+        var wait = new OutageBackoff(Duration.ofMillis(80), Duration.ofMillis(5)).start();
+        long started = System.nanoTime();
+
+        log.append(SUBJECT, event(), 0, wait);
+        patient.append(SUBJECT, event(), 0, wait);
+        patient.append(SUBJECT, event(), 0, wait);
+
+        assertTrue(Duration.ofNanos(System.nanoTime() - started).toMillis() < 1000,
+                "three appends waited out one bound, not three");
     }
 }

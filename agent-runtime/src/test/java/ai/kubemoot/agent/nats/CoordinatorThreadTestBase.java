@@ -175,6 +175,18 @@ abstract class CoordinatorThreadTestBase {
             record(call.getArgument(0), headers.getFirst("Nats-Msg-Id"), call.getArgument(2));
             return null;
         }).when(conn).publish(anyString(), any(Headers.class), any(byte[].class));
+        // The answer and the close go through JetStream and its acknowledgement.
+        var js = mock(io.nats.client.JetStream.class);
+        try {
+            doAnswer(call -> {
+                io.nats.client.PublishOptions options = call.getArgument(2);
+                record(call.getArgument(0), options.getMessageId(), call.getArgument(1));
+                return null;
+            }).when(js).publish(anyString(), any(byte[].class), any(io.nats.client.PublishOptions.class));
+            when(conn.jetStream(any(io.nats.client.JetStreamOptions.class))).thenReturn(js);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
         return conn;
     }
 

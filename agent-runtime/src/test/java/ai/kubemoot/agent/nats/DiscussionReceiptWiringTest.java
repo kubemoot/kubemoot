@@ -4,6 +4,9 @@ import ai.kubemoot.agent.chat.ChatService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
+import io.nats.client.JetStream;
+import io.nats.client.JetStreamOptions;
+import io.nats.client.PublishOptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -22,12 +25,19 @@ class DiscussionReceiptWiringTest {
 
     private DiscussionOrchestrator orchestrator;
     private Connection conn;
+    private JetStream js;
 
     @BeforeEach
     void setUp() {
         var nats = mock(NatsConnectionProvider.class);
         conn = mock(Connection.class);
         when(nats.getConnection()).thenReturn(conn);
+        js = mock(JetStream.class);
+        try {
+            when(conn.jetStream(any(JetStreamOptions.class))).thenReturn(js);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
         when(nats.scope()).thenReturn(new CrewScope("crew-ns", "demo"));
         orchestrator = new DiscussionOrchestrator(nats, DiscussionOrchestratorTest.stubProperties("kubernetes"),
                 mock(ChatService.class), mock(DiscussionMetrics.class), mock(LatencyTracker.class),
@@ -44,7 +54,7 @@ class DiscussionReceiptWiringTest {
     private JsonNode publishedClose() throws Exception {
         orchestrator.publishThreadClose(THREAD, "kubernetes");
         var payload = ArgumentCaptor.forClass(byte[].class);
-        verify(conn, atLeastOnce()).publish(anyString(), payload.capture());
+        verify(js, atLeastOnce()).publish(anyString(), payload.capture(), any(PublishOptions.class));
         return MAPPER.readTree(payload.getValue());
     }
 
@@ -103,13 +113,13 @@ class DiscussionReceiptWiringTest {
     }
 
     @Test
-    void withoutAConnection_nothingIsPublished_andNothingThrows() {
+    void withoutAConnection_nothingIsPublished_andNothingThrows() throws Exception {
         var nats = mock(NatsConnectionProvider.class);
         var quiet = new DiscussionOrchestrator(nats, DiscussionOrchestratorTest.stubProperties("kubernetes"),
                 mock(ChatService.class), mock(DiscussionMetrics.class), mock(LatencyTracker.class),
                 mock(ai.kubemoot.agent.rag.ResumeSearchClient.class));
         assertDoesNotThrow(() -> quiet.publishThreadClose(THREAD, "kubernetes"));
-        verify(conn, never()).publish(anyString(), any(byte[].class));
+        verify(js, never()).publish(anyString(), any(byte[].class), any(PublishOptions.class));
     }
 
     private static ChatService.SimpleLlmResult placedResult(String policy) {

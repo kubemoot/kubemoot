@@ -19,6 +19,15 @@ interface CoordinatorEventLog {
      */
     AppendResult append(String subject, CoordinatorEvent event, long expectedLastSequence);
 
+    /**
+     * As {@link #append(String, CoordinatorEvent, long)}, waiting out a log outage within
+     * {@code wait}, which the caller shares with the other publishes of the same decision.
+     */
+    default AppendResult append(String subject, CoordinatorEvent event, long expectedLastSequence,
+                                OutageBackoff.Wait wait) {
+        return append(subject, event, expectedLastSequence);
+    }
+
     /** What happened to an append, and for an appended event the sequence it was stored at. */
     record AppendResult(Outcome outcome, long sequence) {
 

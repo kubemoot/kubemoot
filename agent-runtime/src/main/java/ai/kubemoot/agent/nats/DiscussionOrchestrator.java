@@ -15,6 +15,7 @@ import io.nats.client.Dispatcher;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.enterprise.event.Observes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -238,7 +239,7 @@ public class DiscussionOrchestrator {
     private final Map<Phase, PhaseRule> autoTransitions;
 
     private final NatsConnectionProvider natsProvider;
-    private OutageAwarePublisher outage;
+    private final OutageAwarePublisher outage;
     private final AgentProperties properties;
     private final ChatService chatService;
     private final DiscussionMetrics metrics;
@@ -340,6 +341,7 @@ public class DiscussionOrchestrator {
     }
 
 
+    @Inject
     public DiscussionOrchestrator(
             NatsConnectionProvider natsProvider,
             AgentProperties properties,
@@ -348,8 +350,22 @@ public class DiscussionOrchestrator {
             LatencyTracker latencyTracker,
             ResumeSearchClient resumeSearchClient
     ) {
+        this(natsProvider, properties, chatService, metrics, latencyTracker, resumeSearchClient,
+                new OutageAwarePublisher(natsProvider));
+    }
+
+    /** As above, with the publisher that carries the answer through a NATS outage. */
+    DiscussionOrchestrator(
+            NatsConnectionProvider natsProvider,
+            AgentProperties properties,
+            ChatService chatService,
+            DiscussionMetrics metrics,
+            LatencyTracker latencyTracker,
+            ResumeSearchClient resumeSearchClient,
+            OutageAwarePublisher outage
+    ) {
         this.natsProvider = natsProvider;
-        this.outage = new OutageAwarePublisher(natsProvider);
+        this.outage = outage;
         this.properties = properties;
         this.chatService = chatService;
         this.metrics = metrics;
@@ -1318,8 +1334,16 @@ public class DiscussionOrchestrator {
     private void checkPhaseTransitions() {
         var now = Instant.now();
 
+        // Each thread's check runs on the llmExecutor: a close can wait out a NATS outage, and that
+        // must not hold a scheduler thread the other threads' checks and the leases share. The
+        // transitioning flag keeps one check per thread at a time.
         for (var entry : threads.entrySet()) {
-            checkThreadTransition(entry.getValue(), now);
+            var state = entry.getValue();
+            try {
+                llmExecutor.execute(() -> checkThreadTransition(state, now));
+            } catch (RejectedExecutionException e) {
+                return; // shutting down
+            }
         }
     }
 
@@ -3030,6 +3054,7 @@ public class DiscussionOrchestrator {
      * Idempotent: completePending no-ops if the future is already completed.
      */
     void closeThread(ThreadState state, String channel, String response, String outcome) {
+        state.closeWait = outage.startWait();
         events.synthesisDone(state, outcome, channel, response);
         finishClose(state, channel, response, outcome);
     }
@@ -3041,8 +3066,12 @@ public class DiscussionOrchestrator {
      * repeat of one that got out before the restart is dropped.
      */
     void finishClose(ThreadState state, String channel, String response, String outcome) {
+        if (state.closeWait == null) {
+            state.closeWait = outage.startWait();
+        }
         if (notOurs(state)) {
             // Another coordinator owns the thread: publish nothing, but do not keep the asker waiting.
+            state.closeWait = null;
             completeFenced(state);
             return;
         }
@@ -3053,6 +3082,7 @@ public class DiscussionOrchestrator {
         events.closed(state, outcome, channel);
         events.checkAtClose(state);
         metrics.threadCompleted(Duration.between(state.threadCreated, Instant.now()));
+        state.closeWait = null;
         completePending(state.threadId, response);
         leases.release(state.threadId);
     }
@@ -3723,11 +3753,11 @@ public class DiscussionOrchestrator {
                     ? answerSubjects(crew, channel, threadId)
                     : List.of(channelSubject(crew, channel, threadId));
             // The answer is the one message a restart of NATS must not lose, so it waits for NATS.
-            boolean sent = outage.run(messageType + " of thread " + threadId, conn -> {
+            boolean sent = outage.run(messageType + " of thread " + threadId, js -> {
                 for (String subject : subjects) {
-                    DerivedIds.publish(conn, subject, payload, derivedId);
+                    DerivedIds.publishAcked(js, subject, payload, derivedId);
                 }
-            });
+            }, waitOf(thread));
             if (sent) {
                 log.info("Published {} to {} for thread {}", messageType, synthesis ? "broadcast+" + channel : channel, threadId);
             }
@@ -3735,6 +3765,12 @@ public class DiscussionOrchestrator {
         } catch (Exception e) {
             log.debug("Failed to publish to thread: {}", e.getMessage());
         }
+    }
+
+    /** The outage wait of the close in progress on {@code state}, or a new one when it has none. */
+    private OutageBackoff.Wait waitOf(ThreadState state) {
+        OutageBackoff.Wait wait = state != null ? state.closeWait : null;
+        return wait != null ? wait : outage.startWait();
     }
 
     /** The broadcast subject, and the channel's when the answer was asked on a channel. */
@@ -3849,11 +3885,6 @@ public class DiscussionOrchestrator {
                 state.advisoryOutputTokens + state.triageOutputTokens + state.synthesisOutputTokens);
     }
 
-    /** Replaces how the closing messages wait out a NATS outage; for tests. */
-    void outagePublisherForTest(OutageAwarePublisher publisher) {
-        this.outage = publisher;
-    }
-
     /** The state of {@code threadId}, or null; for tests. */
     ThreadState threadForTest(String threadId) {
         return threads.get(threadId);
@@ -3895,11 +3926,11 @@ public class DiscussionOrchestrator {
             String crew = threads.containsKey(threadId) ? threads.get(threadId).crew : null;
             // Also to the primary channel for channel-specific consumers.
             List<String> subjects = answerSubjects(crew, channel, threadId);
-            outage.run("thread_close of thread " + threadId, conn -> {
+            outage.run("thread_close of thread " + threadId, js -> {
                 for (String subject : subjects) {
-                    DerivedIds.publish(conn, subject, payload, derivedId);
+                    DerivedIds.publishAcked(js, subject, payload, derivedId);
                 }
-            });
+            }, waitOf(state));
         } catch (Exception e) {
             log.debug("Failed to publish thread close: {}", e.getMessage());
         }
@@ -4723,6 +4754,9 @@ public class DiscussionOrchestrator {
         // Saved phase across PAUSED — restored on thread_resume.
         volatile Phase phaseBeforePause;
         final AtomicBoolean transitioning = new AtomicBoolean(false);
+        // The one outage wait of the close in progress, shared by its log events and its publishes,
+        // so a close waits out a NATS restart at most once. Null while the thread is open.
+        volatile OutageBackoff.Wait closeWait;
         // True while the advisory LLM call is running asynchronously.
         // Evaluation phase must not transition while advisory is pending —
         // agents won't respond until advisory_ready is published.

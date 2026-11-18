@@ -285,7 +285,9 @@ coordinator that stopped between the two can repeat the effect.
 An append to a stream that cannot be reached (NATS restarting, or JetStream not yet
 serving after a restart) is tried again, paced by a growing pause, until the stream
 acknowledges it. The event id makes a repeat of one that was stored but not acknowledged
-safe. Only an outage that outlasts a safety-net bound (two minutes) counts as a failed append.
+safe: the stream's duplicate window is longer than the retry bound, and a consumer drops a repeated
+`messageId`, which covers the edge. Only an outage that outlasts a safety-net bound (two minutes, shared by
+all the publishes of one close) counts as a failed append.
 
 If an append fails (the outage outlasted the bound, or the stream refuses the event for a reason
 other than another writer, see below), a log outage must not silence the crew: the

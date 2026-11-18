@@ -1,121 +1,102 @@
 package ai.kubemoot.agent.nats;
 
 import io.nats.client.Connection;
+import io.nats.client.JetStream;
 import io.nats.client.JetStreamApiException;
+import io.nats.client.JetStreamOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.concurrent.TimeoutException;
 
 /**
  * Carries out the publishes that end a discussion (the synthesis and the thread close) so a
- * NATS restart in the middle of them does not lose the answer. A core publish to a subject
- * the discussion stream captures is dropped without an error while NATS is down or while
- * JetStream has not recovered after a restart, so the publish waits for both: the
- * connection is up and JetStream answers. The publishes are then flushed, which confirms
- * the server took them. When either step fails the whole action is tried again, paced by a
- * short pause that grows to a cap. The messages are built once by the caller, so a repeat
- * carries the same message id and a consumer or the stream drops the duplicate.
+ * NATS restart in the middle of them does not lose the answer. Each message is published
+ * through JetStream and counts as delivered only when the stream acknowledges it. While NATS or
+ * JetStream is unreachable the publish is tried again, paced by an {@link OutageBackoff.Wait},
+ * until the acknowledgement arrives. A message with a derived id carries it as
+ * {@code Nats-Msg-Id}, so a repeat of a publish that was stored but not acknowledged is dropped
+ * by the stream (inside its duplicate window, which is longer than the retry bound).
  *
- * <p>The wait is driven by the state of NATS; the bound is a safety net for an outage that
- * never ends. Without a NATS URL the action runs once on whatever connection the provider
- * has, as before.
+ * <p>Without a NATS URL the publishes run once on whatever connection the provider has.
  */
 final class OutageAwarePublisher {
 
     private static final Logger log = LoggerFactory.getLogger(OutageAwarePublisher.class);
+    private static final Duration ACK_TIMEOUT = Duration.ofSeconds(2);
+    /** The JetStream API error code for "JetStream system temporarily unavailable". */
+    static final int JETSTREAM_UNAVAILABLE = 10008;
+    private static final int SERVICE_UNAVAILABLE = 503;
 
-    static final Duration DEFAULT_BOUND = Duration.ofMinutes(2);
-    private static final Duration FIRST_PAUSE = Duration.ofMillis(250);
-    private static final Duration MAX_PAUSE = Duration.ofSeconds(3);
-    private static final Duration FLUSH_TIMEOUT = Duration.ofSeconds(2);
-
-    /** The publishes of one decision, on a connection that is ready for them. */
+    /** The publishes of one decision, on a JetStream context. */
     @FunctionalInterface
     interface Publishes {
-        void publishOn(Connection conn) throws IOException;
+        void publishOn(JetStream js) throws IOException, JetStreamApiException;
     }
 
     private final NatsConnectionProvider provider;
-    private final Duration bound;
-    private final Duration firstPause;
+    private final OutageBackoff backoff;
 
     OutageAwarePublisher(NatsConnectionProvider provider) {
-        this(provider, DEFAULT_BOUND, FIRST_PAUSE);
+        this(provider, OutageBackoff.standard());
     }
 
-    OutageAwarePublisher(NatsConnectionProvider provider, Duration bound, Duration firstPause) {
+    OutageAwarePublisher(NatsConnectionProvider provider, OutageBackoff backoff) {
         this.provider = provider;
-        this.bound = bound;
-        this.firstPause = firstPause;
+        this.backoff = backoff;
+    }
+
+    /** Begins the wait one decision shares across its publishes. */
+    OutageBackoff.Wait startWait() {
+        return backoff.start();
+    }
+
+    /** True when {@code e} says JetStream is not serving (a restart), not that it refused the message. */
+    static boolean isOutage(JetStreamApiException e) {
+        return e.getApiErrorCode() == JETSTREAM_UNAVAILABLE || e.getErrorCode() == SERVICE_UNAVAILABLE;
     }
 
     /**
-     * Runs {@code publishes} once NATS can take them, retrying through an outage. Returns true
-     * when they were published; false when there was no connection to run them on, the bound
-     * passed, or the thread was interrupted.
+     * Runs {@code publishes} once NATS can take them, retrying through an outage within {@code wait}.
+     * Returns true when every publish was acknowledged; false when there was no connection to run
+     * them on, the stream refused a message, the wait passed its deadline, or the thread was interrupted.
      */
-    boolean run(String what, Publishes publishes) {
+    boolean run(String what, Publishes publishes, OutageBackoff.Wait wait) {
+        wait.resetPause();
         if (!provider.isConfigured()) {
-            return runOnce(publishes);
+            return attempt(publishes, false) == Attempt.DELIVERED;
         }
-        Instant deadline = Instant.now().plus(bound);
-        Duration pause = firstPause;
-        while (true) {
-            if (attempt(publishes)) {
-                return true;
-            }
-            if (!Instant.now().plus(pause).isBefore(deadline) || !sleep(pause)) {
-                log.warn("Gave up on {}: NATS did not take it within {}", what, bound);
+        Attempt result = attempt(publishes, true);
+        while (result == Attempt.UNREACHABLE) {
+            if (!wait.next()) {
+                log.warn("Gave up on {}: NATS did not take it within {}", what, backoff.bound());
                 return false;
             }
-            pause = pause.multipliedBy(2).compareTo(MAX_PAUSE) > 0 ? MAX_PAUSE : pause.multipliedBy(2);
+            result = attempt(publishes, true);
         }
+        if (result == Attempt.REFUSED) {
+            log.warn("The stream refused {}", what);
+        }
+        return result == Attempt.DELIVERED;
     }
 
-    private boolean runOnce(Publishes publishes) {
+    private enum Attempt { DELIVERED, UNREACHABLE, REFUSED }
+
+    private Attempt attempt(Publishes publishes, boolean needsConnected) {
         Connection conn = provider.getConnection();
-        if (conn == null) {
-            return false;
+        if (conn == null || (needsConnected && conn.getStatus() != Connection.Status.CONNECTED)) {
+            return Attempt.UNREACHABLE;
         }
         try {
-            publishes.publishOn(conn);
-            return true;
+            publishes.publishOn(conn.jetStream(JetStreamOptions.builder().requestTimeout(ACK_TIMEOUT).build()));
+            return Attempt.DELIVERED;
+        } catch (JetStreamApiException e) {
+            log.debug("JetStream answered {}: {}", e.getApiErrorCode(), e.getMessage());
+            return isOutage(e) ? Attempt.UNREACHABLE : Attempt.REFUSED;
         } catch (IOException e) {
-            log.debug("Publish failed: {}", e.getMessage());
-            return false;
-        }
-    }
-
-    private boolean attempt(Publishes publishes) {
-        Connection conn = provider.getConnection();
-        if (conn == null || conn.getStatus() != Connection.Status.CONNECTED) {
-            return false;
-        }
-        try {
-            conn.jetStreamManagement().getAccountStatistics();
-            publishes.publishOn(conn);
-            conn.flush(FLUSH_TIMEOUT);
-            return true;
-        } catch (IOException | JetStreamApiException | TimeoutException e) {
-            log.debug("NATS is not ready for the publish yet: {}", e.getMessage());
-            return false;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
-        }
-    }
-
-    private static boolean sleep(Duration pause) {
-        try {
-            Thread.sleep(pause.toMillis());
-            return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
+            log.debug("NATS is not accepting the publish yet: {}", e.getMessage());
+            return Attempt.UNREACHABLE;
         }
     }
 }

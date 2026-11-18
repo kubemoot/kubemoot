@@ -4,10 +4,14 @@ import ai.kubemoot.agent.chat.ChatService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
-import io.nats.client.JetStreamManagement;
-import io.nats.client.impl.Headers;
+import io.nats.client.JetStream;
+import io.nats.client.JetStreamApiException;
+import io.nats.client.JetStreamOptions;
+import io.nats.client.PublishOptions;
+import io.nats.client.api.PublishAck;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -15,15 +19,10 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -31,7 +30,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * A NATS restart while the synthesis and the thread close are being published must not
- * lose them: the publishes wait for NATS and JetStream, and a repeat carries the same message id.
+ * lose them: each publish goes through JetStream, is tried again until the stream
+ * acknowledges it, and a repeat carries the same message id.
  */
 class AnswerSurvivesNatsOutageTest {
 
@@ -40,60 +40,80 @@ class AnswerSurvivesNatsOutageTest {
 
     private NatsConnectionProvider nats;
     private Connection conn;
-    private JetStreamManagement management;
+    private JetStream js;
     private DiscussionOrchestrator orchestrator;
 
     @BeforeEach
     void setUp() throws Exception {
         nats = mock(NatsConnectionProvider.class);
         conn = mock(Connection.class);
-        management = mock(JetStreamManagement.class);
+        js = mock(JetStream.class);
         when(nats.isConfigured()).thenReturn(true);
         when(nats.getConnection()).thenReturn(conn);
         when(nats.scope()).thenReturn(new CrewScope("crew-ns", "demo"));
         when(conn.getStatus()).thenReturn(Connection.Status.CONNECTED);
-        when(conn.jetStreamManagement()).thenReturn(management);
-        orchestrator = new DiscussionOrchestrator(nats, DiscussionOrchestratorTest.stubProperties("kubernetes"),
+        when(conn.jetStream(any(JetStreamOptions.class))).thenReturn(js);
+        orchestrator = orchestratorWaiting(Duration.ofSeconds(10));
+    }
+
+    private DiscussionOrchestrator orchestratorWaiting(Duration bound) {
+        var publisher = new OutageAwarePublisher(nats, new OutageBackoff(bound, Duration.ofMillis(1)));
+        return new DiscussionOrchestrator(nats, DiscussionOrchestratorTest.stubProperties("kubernetes"),
                 mock(ChatService.class), mock(DiscussionMetrics.class), mock(LatencyTracker.class),
-                mock(ai.kubemoot.agent.rag.ResumeSearchClient.class));
-        patience(Duration.ofSeconds(10));
+                mock(ai.kubemoot.agent.rag.ResumeSearchClient.class), publisher);
     }
 
-    private void patience(Duration bound) {
-        orchestrator.outagePublisherForTest(new OutageAwarePublisher(nats, bound, Duration.ofMillis(1)));
+    /** Every JetStream publish attempted so far: its subject and decoded body. */
+    private record Attempt(String subject, JsonNode body, String streamId) {
     }
 
-    /** The bodies published so far, with or without a stream id header; the count must be {@code expected}. */
-    private List<JsonNode> publishedBodies(int expected) {
-        var bodies = new java.util.ArrayList<JsonNode>();
-        for (var call : mockingDetails(conn).getInvocations()) {
-            if (call.getMethod().getName().equals("publish")) {
-                Object[] args = call.getArguments();
-                try {
-                    bodies.add(MAPPER.readTree((byte[]) args[args.length - 1]));
-                } catch (IOException e) {
-                    throw new IllegalStateException(e);
-                }
-            }
+    private List<Attempt> attempts() throws Exception {
+        var subject = ArgumentCaptor.forClass(String.class);
+        var body = ArgumentCaptor.forClass(byte[].class);
+        var options = ArgumentCaptor.forClass(PublishOptions.class);
+        verify(js, org.mockito.Mockito.atLeast(0)).publish(subject.capture(), body.capture(), options.capture());
+        var all = new java.util.ArrayList<Attempt>();
+        for (int i = 0; i < subject.getAllValues().size(); i++) {
+            all.add(new Attempt(subject.getAllValues().get(i), MAPPER.readTree(body.getAllValues().get(i)),
+                    options.getAllValues().get(i).getMessageId()));
         }
-        assertEquals(expected, bodies.size());
-        return bodies;
+        return all;
+    }
+
+    private PublishAck stored() {
+        return mock(PublishAck.class);
     }
 
     @Test
-    void theSynthesisWaitsForJetStreamAfterARestartAndIsThenPublishedOnce() throws Exception {
-        when(management.getAccountStatistics())
-                .thenThrow(new IOException("503 No Responders Available For Request"))
-                .thenThrow(new IOException("503 No Responders Available For Request"))
-                .thenReturn(null);
+    void theSynthesisIsPublishedThroughJetStreamAndRetriedUntilAcknowledged() throws Exception {
+        var ack = stored();
+        when(js.publish(anyString(), any(byte[].class), any(PublishOptions.class)))
+                .thenThrow(new IOException("Error Publishing: 503 No Responders Available For Request"))
+                .thenThrow(new IOException("Error Publishing: 503 No Responders Available For Request"))
+                .thenReturn(ack);
 
         orchestrator.publishToThread(THREAD, "general", "the answer", DiscussionOrchestrator.MSG_SYNTHESIS);
 
-        // broadcast and the channel: two subjects, each published once, none while JetStream was down
-        var bodies = publishedBodies(2);
-        assertEquals("the answer", bodies.get(0).path("content").asText());
-        assertEquals(bodies.get(0).path("messageId"), bodies.get(1).path("messageId"));
-        verify(management, times(3)).getAccountStatistics();
+        // two failed tries of the broadcast subject, then both subjects acknowledged
+        var all = attempts();
+        assertEquals(4, all.size(), "two failed tries, then the broadcast and the channel subjects");
+        assertEquals("the answer", all.get(3).body().path("content").asText());
+        assertEquals(1, all.stream().map(a -> a.body().path("messageId").asText()).distinct().count(),
+                "every try is the same message, so the stream and the consumers drop a repeat");
+        verify(conn, never()).publish(anyString(), any(byte[].class));
+    }
+
+    @Test
+    void aJetStreamUnavailableAnswerIsWaitedOutToo() throws Exception {
+        var unavailable = mock(JetStreamApiException.class);
+        when(unavailable.getApiErrorCode()).thenReturn(OutageAwarePublisher.JETSTREAM_UNAVAILABLE);
+        var ack = stored();
+        when(js.publish(anyString(), any(byte[].class), any(PublishOptions.class)))
+                .thenThrow(unavailable).thenReturn(ack);
+
+        orchestrator.publishThreadClose(THREAD, "general");
+
+        assertEquals("thread_close", attempts().get(1).body().path("messageType").asText());
     }
 
     @Test
@@ -102,50 +122,44 @@ class AnswerSurvivesNatsOutageTest {
 
         orchestrator.publishToThread(THREAD, "general", "the answer", DiscussionOrchestrator.MSG_SYNTHESIS);
 
-        assertEquals("the answer", publishedBodies(2).get(0).path("content").asText());
+        assertEquals("the answer", attempts().get(0).body().path("content").asText());
     }
 
     @Test
-    void aPublishTheServerDidNotConfirmIsRepeatedWithTheSameMessageId() throws Exception {
-        doThrow(new java.util.concurrent.TimeoutException("flush timed out")).doNothing().when(conn).flush(any(Duration.class));
+    void aRefusalByTheStreamIsNotRetried() throws Exception {
+        var refusal = mock(JetStreamApiException.class);
+        when(refusal.getApiErrorCode()).thenReturn(10059);
+        when(js.publish(anyString(), any(byte[].class), any(PublishOptions.class))).thenThrow(refusal);
 
         orchestrator.publishToThread(THREAD, "general", "the answer", DiscussionOrchestrator.MSG_SYNTHESIS);
 
-        var bodies = publishedBodies(4);
-        assertEquals(1, bodies.stream().map(b -> b.path("messageId").asText()).distinct().count(),
-                "the repeat is the same message, which the stream and the consumers drop");
-    }
-
-    @Test
-    void theThreadCloseWaitsOutARestartToo() throws Exception {
-        when(management.getAccountStatistics()).thenThrow(new IOException("503")).thenReturn(null);
-
-        orchestrator.publishThreadClose(THREAD, "general");
-
-        var bodies = publishedBodies(2);
-        assertEquals("thread_close", bodies.get(0).path("messageType").asText());
+        verify(js, times(1)).publish(anyString(), any(byte[].class), any(PublishOptions.class));
     }
 
     @Test
     void anOutageThatOutlastsTheBoundPublishesNothingAndThrowsNothing() throws Exception {
-        patience(Duration.ofMillis(50));
-        when(management.getAccountStatistics()).thenThrow(new IOException("503"));
+        var impatient = orchestratorWaiting(Duration.ofMillis(50));
+        when(js.publish(anyString(), any(byte[].class), any(PublishOptions.class))).thenThrow(new IOException("503"));
 
         assertDoesNotThrow(() ->
-                orchestrator.publishToThread(THREAD, "general", "the answer", DiscussionOrchestrator.MSG_SYNTHESIS));
+                impatient.publishToThread(THREAD, "general", "the answer", DiscussionOrchestrator.MSG_SYNTHESIS));
 
-        verify(conn, never()).publish(anyString(), any(Headers.class), any(byte[].class));
-        verify(conn, never()).publish(anyString(), any(byte[].class));
+        assertTrue(attempts().size() > 1, "it tried again before giving up");
     }
 
     @Test
-    void theRunnerReportsWhetherThePublishesWereTaken() throws Exception {
-        var publisher = new OutageAwarePublisher(nats, Duration.ofMillis(50), Duration.ofMillis(1));
-        doNothing().when(conn).flush(any(Duration.class));
-        assertTrue(publisher.run("x", c -> c.publish("s", new byte[0])));
-        verify(conn).publish(eq("s"), any(byte[].class));
+    void aWholeCloseWaitsOutOneBoundNotOnePerPublish() throws Exception {
+        var impatient = orchestratorWaiting(Duration.ofMillis(100));
+        when(js.publish(anyString(), any(byte[].class), any(PublishOptions.class))).thenThrow(new IOException("503"));
+        impatient.handleMessage("{\"messageId\":\"m1\",\"threadId\":\"" + THREAD
+                + "\",\"agentName\":\"human\",\"messageType\":\"thread_start\",\"content\":\"\","
+                + "\"channel\":\"kubernetes\"}");
+        var state = impatient.threadForTest(THREAD);
+        long started = System.nanoTime();
 
-        when(management.getAccountStatistics()).thenThrow(new IOException("503"));
-        assertFalse(publisher.run("x", c -> c.publish("s2", new byte[0])));
+        impatient.closeThread(state, "general", "the answer", "synthesized");
+
+        assertTrue(Duration.ofNanos(System.nanoTime() - started).toMillis() < 1000,
+                "the synthesis and the close shared one outage deadline");
     }
 }

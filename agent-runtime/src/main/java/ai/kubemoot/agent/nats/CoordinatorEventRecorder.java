@@ -512,7 +512,10 @@ final class CoordinatorEventRecorder {
             data.put(DISCUSS_SEQ, s.discussSeq);
         }
         var event = new CoordinatorEvent(eventId, type, s.threadId, s.trace.round(), clock.get(), coordinator, data);
-        AppendResult result = eventLog.append(subjectFor.apply(s.crew, s.threadId), event, s.trace.lastSequence());
+        String subject = subjectFor.apply(s.crew, s.threadId);
+        OutageBackoff.Wait wait = s.closeWait;
+        AppendResult result = wait == null ? eventLog.append(subject, event, s.trace.lastSequence())
+                : eventLog.append(subject, event, s.trace.lastSequence(), wait);
         if (result.isAppended()) {
             s.trace.appended(event, result.sequence());
             return true;
