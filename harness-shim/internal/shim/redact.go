@@ -13,9 +13,10 @@ type secretShape struct {
 	with string
 }
 
-// secretShapes are the forms a credential takes in a command's output. The agent-sidecar
-// (agent-sidecar/internal/redact) and the operator's memory export (operator/pkg/secretscreen) keep
-// the same list; change all three together.
+// secretShapes are the forms a credential takes in a command's output. This is a deliberate second
+// copy of operator/pkg/secretscreen (the one list the agent-sidecar and the memory export use):
+// the shim's build context holds only its own directory, so it cannot import it. Both are held to
+// the shared fixture testdata/redact-cases.json; change both together.
 var secretShapes = []secretShape{
 	{regexp.MustCompile(`(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}`), "$1 " + redacted},
 	{regexp.MustCompile(`(?i)\b([\w.-]*(?:api[_-]?key|token|secret|passw(?:or)?d|authorization)[\w.-]*)` +

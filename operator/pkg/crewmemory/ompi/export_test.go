@@ -83,13 +83,20 @@ func TestExportCrewKeepsACredentialOutOfTheFiles(t *testing.T) {
 	if len(exp.Memories) != 1 || len(exp.Skipped) != 1 {
 		t.Fatalf("memories = %d, skipped = %d, want 1 and 1", len(exp.Memories), len(exp.Skipped))
 	}
-	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		if b, _ := os.ReadFile(p); strings.Contains(string(b), "abcdefgh12345678") {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(b), "abcdefgh12345678") {
 			t.Errorf("%s holds the credential", p)
 		}
 		return nil
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

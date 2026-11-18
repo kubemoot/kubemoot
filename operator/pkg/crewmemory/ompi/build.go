@@ -79,8 +79,8 @@ func Build(scope crewscope.Scope, res crewmemory.ReadResult, opts Options) (Expo
 	}
 	seen := map[string]string{}
 	for _, p := range place(res.Facts) {
-		if reason, held := credentialReason(p.fact, opts); held {
-			exp.Skipped = append(exp.Skipped, Omitted{Key: p.fact.StoreKey(), Reason: reason})
+		if o, held := credentialOmission(p.fact, opts); held {
+			exp.Skipped = append(exp.Skipped, o)
 			continue
 		}
 		m, ok := memoryOf(p)
@@ -177,16 +177,32 @@ func formatTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-// credentialReason says why a fact is left out when its value, topic or key
-// holds a credential. It names the shape and never the text.
-func credentialReason(f crewmemory.Fact, opts Options) (string, bool) {
+// credentialOmission says why a fact is left out when its value, topic or key
+// holds a credential. It names the shape and never the text. When the topic or
+// key holds it, the store key would print it, so the entry is named by an opaque
+// id instead.
+func credentialOmission(f crewmemory.Fact, opts Options) (Omitted, bool) {
 	if opts.AllowUnscreened {
-		return "", false
+		return Omitted{}, false
 	}
-	for _, text := range []string{f.Value, f.Topic, f.Key} {
+	if shape, found := secretscreen.Find(f.Value); found {
+		return Omitted{Key: f.StoreKey(), Reason: credentialReason(shape, "value")}, true
+	}
+	for _, text := range []string{f.Topic, f.Key} {
 		if shape, found := secretscreen.Find(text); found {
-			return "holds a credential (" + shape + "); not exported as memory", true
+			return Omitted{Key: opaqueKey(f), Reason: credentialReason(shape, "topic or key")}, true
 		}
 	}
-	return "", false
+	return Omitted{}, false
+}
+
+func credentialReason(shape, where string) string {
+	return "its " + where + " holds a credential (" + shape + "); not exported as memory"
+}
+
+// opaqueKey names a fact whose store key holds a credential: <namespace>.<crew>.#<id>,
+// where the id is the start of the hash that also seeds the fact's identifier.
+func opaqueKey(f crewmemory.Fact) string {
+	const idLen = 8
+	return f.Scope.Namespace + "." + f.Scope.Crew + ".#" + Identifier(f)[:idLen]
 }

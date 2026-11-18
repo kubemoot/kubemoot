@@ -6,7 +6,7 @@ import (
 
 	sdk "github.com/a2aproject/a2a-go/v2/a2a"
 
-	"github.com/kubemoot/kubemoot/agent-sidecar/internal/redact"
+	"github.com/kubemoot/kubemoot/operator/pkg/secretscreen"
 )
 
 // Signals the sidecar publishes for a turn, as the bus contract names them.
@@ -80,7 +80,7 @@ func failureReason(r Result) string {
 	for _, p := range r.Message.Parts {
 		text.WriteString(p.Text())
 	}
-	if said := strings.Join(strings.Fields(redact.Redact(text.String())), " "); said != "" {
+	if said := strings.Join(strings.Fields(secretscreen.Redact(text.String())), " "); said != "" {
 		return r.State.String() + ": " + truncateRunes(said, reasonRunes)
 	}
 	return r.State.String()
