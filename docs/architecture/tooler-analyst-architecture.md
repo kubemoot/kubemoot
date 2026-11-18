@@ -73,6 +73,32 @@ Examples:
 - **k8s-analyst** - RAG sources covering kubectl, Kubernetes concepts, Helm, Talos, MCP tools; reasons over Toolers' findings in the REVIEW phase
 - **proxmox-analyst** - RAG sources covering Proxmox API and PVE documentation; interprets Tooler data about VM/GPU state
 
+### Who reviews
+
+Not every Analyst reviews every discussion. Each Analyst runs a full reasoning pass, so
+convening one whose domain the question never touches adds time and no evidence (an
+NVIDIA GPU Analyst reviewing a Proxmox answer, for example). The coordinator convenes reviewers by declared domain, the way it selects Toolers.
+
+The consensus archetype says how ([`review`](../../reference/mootarchetype/#review) on the
+`MootArchetype`). With `convene: domain`, an Analyst is convened when any of these is true:
+
+1. A domain it declares ([`spec.domains`](../../reference/agent/#specdomains)) is a domain of
+   the question. The coordinator already names the question's domains in the same model call that
+   selects the Toolers, so convening costs no extra call.
+2. A domain it declares is a domain of an agent that gathered data in this discussion (an
+   agent that agreed, raised a concern, or was selected as a Tooler).
+3. The coordinator selected it by name.
+
+When no Analyst matches, the archetype's `fallback` decides: `primary` convenes the single
+Analyst that shares the most words with the question and the gathering Toolers' domains, and
+`all` convenes everyone. When nothing ranks the Analysts, all of them review. A crew with
+Analysts therefore never reviews with none, and a crew that wants every Analyst to review sets
+`convene: all`.
+
+An agent that declares no `domains` is never matched by domain, so a crew gets this behavior by
+declaring them. The coordinator reports why it convened the reviewers in the `reviewBasis` of the `review_ready` message
+(`domain`, `selected`, `primary`, `fallback-all` or `all`) and in its log.
+
 ### How They Work Together
 
 When a user asks "Why is my pod in CrashLoopBackOff?", the Toolers, the Analyst, and the coordinator contribute in sequence:

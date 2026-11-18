@@ -56,6 +56,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // AgentReconciler reconciles Agent objects.
@@ -1036,6 +1037,7 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 		env = append(env, r.coordinatorEventLogEnvVars()...)
 		env = append(env, r.coordinatorResumeEnvVars()...)
 		env = append(env, r.coordinatorLeaseEnvVars()...)
+		env = append(env, r.coordinatorReviewEnvVars(ctx, agent)...)
 		// If the crew declares any analyst-role agent, the coordinator must run
 		// the REVIEW phase (where analysts self-select) rather than taking the
 		// single-agree fast path that skips it.
@@ -1266,6 +1268,13 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&kubemootv1alpha1.CrewSchedulingPolicy{},
 			enqueueAgentsOnCSPChange(mgr.GetClient()),
+		).
+		// Re-reconcile the coordinators when a MootArchetype changes so an edited
+		// review block reaches the crews that use it. See agent_env_review.go.
+		Watches(
+			&kubemootv1alpha1.MootArchetype{},
+			enqueueCoordinatorsOnArchetypeChange(mgr.GetClient()),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
 		).
 		// Re-reconcile an Agent when a PromptModule it references changes so an
 		// edited prompt re-renders system.txt AND rolls the pod (via the prompt

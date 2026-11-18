@@ -273,6 +273,7 @@ func (r *AgentReconciler) buildAgentResume(ctx context.Context, agent *kubemootv
 		Keywords:    agent.Spec.DiscussKeywords,
 		Tools:       agent.Spec.EnabledTools,
 		Channels:    agent.Spec.DiscussChannels,
+		Domains:     agent.Spec.Domains,
 		Role:        role,
 		Summary:     summary,
 		Prompt:      prompt,

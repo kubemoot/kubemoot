@@ -335,6 +335,18 @@ type AgentSpec struct {
 	// +optional
 	DiscussKeywords []string `json:"discussKeywords,omitempty"`
 
+	// Domains are the subject areas this agent works in, for example
+	// ["proxmox", "hypervisor"]. The coordinator convenes reviewing analysts by
+	// matching their domains against the question's domains and the domains of
+	// the toolers that gathered the data (see MootArchetype spec.review). Each
+	// value is compared as lower-case alphanumeric words, so "Proxmox-VE" is
+	// "proxmox" and "ve". An agent that declares none is never matched by domain.
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=63
+	// +optional
+	Domains []string `json:"domains,omitempty"`
+
 	// DiscussRelevance configures how this agent's RelevanceFilter decides
 	// whether an incoming discussion message is relevant. Default mode is
 	// `keyword` (literal substring match against DiscussKeywords). Use

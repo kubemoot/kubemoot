@@ -212,6 +212,21 @@ public interface AgentProperties {
         boolean hasAnalysts();
 
         /**
+         * Which analysts review: {@code domain} (only analysts whose declared domains touch
+         * the question or the gathered data) or {@code all} (the coordinator's own analyst
+         * selection, else every analyst). Set on the coordinator
+         * (KUBEMOOT_DISCUSS_REVIEW_CONVENE) from the crew's consensus archetype; absent means all.
+         */
+        Optional<String> reviewConvene();
+
+        /**
+         * Who reviews when {@code domain} matches no analyst: {@code primary} (the best-matching
+         * analyst alone) or {@code all}. Set on the coordinator (KUBEMOOT_DISCUSS_REVIEW_FALLBACK);
+         * absent means primary.
+         */
+        Optional<String> reviewFallback();
+
+        /**
          * Max re-prompts the synthesis makes when its draft under-enumerates an
          * inventory answer (lists fewer entities than the gathered data contains).
          * The completeness contract names the omitted entries and asks for the full

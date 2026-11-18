@@ -186,6 +186,7 @@ public class DiscussionOrchestrator {
     private static final String FIELD_PRIMARY_CHANNEL = "primaryChannel";
     private static final String FIELD_CONVERSATION_CONTEXT = "conversationContext";
     private static final String FIELD_INNER_CIRCLE = "innerCircle";
+    private static final String FIELD_REVIEW_BASIS = "reviewBasis";
     private static final String FIELD_OVERALL_CONFIDENCE = "overallConfidence";
     private static final String FIELD_INFERENCE_MS = "inferenceMs";
     private static final String FIELD_INPUT_TOKENS = "inputTokens";
@@ -252,6 +253,9 @@ public class DiscussionOrchestrator {
     // REVIEW phase (where analysts self-select) rather than taking the single-agree
     // fast path that skips it. Set by the operator (KUBEMOOT_DISCUSS_HAS_ANALYSTS).
     private final boolean hasAnalysts;
+    // Which analysts review, as the crew's consensus archetype declares it
+    // (KUBEMOOT_DISCUSS_REVIEW_CONVENE and _FALLBACK, set by the operator).
+    private final ReviewConvening.Policy reviewPolicy;
     // Whether the coordinator may answer a turn directly (empty tooler selection).
     // Off for single-specialist crews (the fitness judge) so the coordinator always
     // delegates to its specialist. Set via KUBEMOOT_DISCUSS_ANSWER_DIRECTLY.
@@ -350,6 +354,8 @@ public class DiscussionOrchestrator {
         this.resumeSearchClient = resumeSearchClient;
         this.coordinator = properties.discuss().coordinator();
         this.hasAnalysts = properties.discuss().hasAnalysts();
+        this.reviewPolicy = ReviewConvening.policy(
+                properties.discuss().reviewConvene(), properties.discuss().reviewFallback());
         this.answerDirectlyEnabled = properties.discuss().answerDirectly();
         int advTimeout = properties.discuss().advisoryTimeoutSeconds();
         this.advisoryTimeoutSeconds = advTimeout > 0 ? advTimeout : 10;
@@ -2345,7 +2351,11 @@ public class DiscussionOrchestrator {
         }
 
         var analysts = analystNamesFromResumes();
-        var analystCircle = analystCircleFrom(state.innerCircle, analysts);
+        var plan = reviewPlan(state, analysts);
+        state.reviewBasis = plan.basis();
+        var analystCircle = plan.circle();
+        log.info("Thread {} - review convened by {} ({}): {}", state.threadId, plan.basis(),
+                reviewPolicy.convene(), analystCircle.isEmpty() ? "every analyst" : analystCircle);
         boolean logged = seedReviewRoster(state, reviewersFor(analystCircle, analysts), System.currentTimeMillis());
         enterReview(state);
         if (!logged) return;
@@ -2416,6 +2426,9 @@ public class DiscussionOrchestrator {
             // The inner circle scopes review_ready to the selected analysts (the
             // subscriber's isExcludedByInnerCircle gate); without one, every
             // analyst wakes. See [[Coordinator Domain-Scoped Analyst Subcommittee]].
+            if (state.reviewBasis != null) {
+                metadata.put(FIELD_REVIEW_BASIS, state.reviewBasis);
+            }
             if (!analystCircle.isEmpty()) {
                 metadata.put(FIELD_INNER_CIRCLE, analystCircle);
                 log.info("Thread {} - scoping review to {} selected analyst(s): {}",
@@ -4646,9 +4659,37 @@ public class DiscussionOrchestrator {
         submitLlm(() -> runAdvisoryGeneration(state));
     }
 
-    /** The analysts review_ready wakes for this thread: the selected analysts, or none (every analyst) when none was selected. */
-    List<String> analystCircleFor(ThreadState state) {
-        return analystCircleFrom(state.innerCircle, analystNamesFromResumes());
+    /**
+     * The analysts a restarted coordinator wakes again: the review roster the log restored, so the
+     * analysts it waits for are the ones woken. Without a restored roster of analysts, the plan is
+     * made again from the thread.
+     */
+    List<String> resumedReviewCircle(ThreadState state) {
+        var analysts = analystNamesFromResumes();
+        var roster = new ArrayList<String>(state.phaseRoster.get().members());
+        roster.retainAll(analysts);
+        if (!roster.isEmpty()) {
+            return roster.stream().sorted().toList();
+        }
+        return reviewPlan(state, analysts).circle();
+    }
+
+    /** Which analysts review (see {@link ReviewConvening}); an empty circle means every analyst. */
+    ReviewConvening.Plan reviewPlan(ThreadState state, Set<String> analysts) {
+        var selected = analystCircleFrom(state.innerCircle, analysts);
+        try {
+            String raw = loadCrewResumes();
+            JsonNode resumes = raw == null || raw.isBlank() ? null : mapper.readTree(raw);
+            var gatherers = ReviewConvening.gatherers(state.agreeSignals.keySet(), state.concernSignals.keySet(),
+                    state.innerCircle, analysts);
+            return ReviewConvening.plan(reviewPolicy, resumes, state.advisoryTechnologies, gatherers,
+                    selected, state.userQuery);
+        } catch (Exception e) {
+            log.warn("Thread {} - review convening could not read the crew resumes ({}); using the coordinator's selection",
+                    state.threadId, e.getMessage());
+            return new ReviewConvening.Plan(selected, selected.isEmpty()
+                    ? ReviewConvening.BASIS_ALL : ReviewConvening.BASIS_SELECTED);
+        }
     }
 
     // Visible for testing
@@ -4761,6 +4802,8 @@ public class DiscussionOrchestrator {
         // no skills were selected (behavior unchanged from pre-skills baseline).
         // volatile: written on llmExecutor thread, read on phase-transition thread.
         volatile Set<String> selectedSkills; // NOSONAR S3077: same pattern as innerCircle
+        /** Why these analysts were convened for review (see ReviewConvening); null before review. */
+        volatile String reviewBasis;
 
         // Agents that have published an evaluating signal but not yet a terminal signal.
         // Map: agentName → deadline epoch ms (P90 + grace). The settle timer must not fire

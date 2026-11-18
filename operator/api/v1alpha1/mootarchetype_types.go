@@ -47,6 +47,11 @@ type MootArchetypeSpec struct {
 	// +optional
 	Signals []string `json:"signals,omitempty"`
 
+	// Review declares which analysts the coordinator convenes for the review
+	// phase. Optional; absent means every analyst reviews.
+	// +optional
+	Review *ArchetypeReview `json:"review,omitempty"`
+
 	// StateMachine declares the legal phase transitions. Optional; absence
 	// implies sequential progression through Phases in declaration order.
 	// +optional
@@ -68,6 +73,43 @@ type ArchetypePhase struct {
 	// Description is a one-line explanation shown in dashboards.
 	// +optional
 	Description string `json:"description,omitempty"`
+}
+
+// ReviewConvene says which analysts review a discussion.
+// +kubebuilder:validation:Enum=all;domain
+type ReviewConvene string
+
+// ReviewFallback says who reviews when no analyst matches by domain.
+// +kubebuilder:validation:Enum=primary;all
+type ReviewFallback string
+
+const (
+	// ReviewConveneAll convenes every analyst of the crew.
+	ReviewConveneAll ReviewConvene = "all"
+	// ReviewConveneDomain convenes only the analysts whose declared domains
+	// touch the question or the data the toolers gathered.
+	ReviewConveneDomain ReviewConvene = "domain"
+	// ReviewFallbackPrimary convenes the single analyst that best matches.
+	ReviewFallbackPrimary ReviewFallback = "primary"
+	// ReviewFallbackAll convenes every analyst.
+	ReviewFallbackAll ReviewFallback = "all"
+)
+
+// ArchetypeReview declares who reviews. The review phase never runs with no
+// reviewer while the crew has an analyst: the fallback names who is convened
+// when no analyst matches.
+type ArchetypeReview struct {
+	// Convene is "all" (every analyst reviews) or "domain" (only analysts whose
+	// declared domains touch the question or the gathered data).
+	// +kubebuilder:default=all
+	// +optional
+	Convene ReviewConvene `json:"convene,omitempty"`
+
+	// Fallback applies when Convene is "domain" and no analyst matches: "primary"
+	// convenes the best-matching analyst alone, "all" convenes every analyst.
+	// +kubebuilder:default=primary
+	// +optional
+	Fallback ReviewFallback `json:"fallback,omitempty"`
 }
 
 // ArchetypeStateMachine declares the legal phase transitions.
