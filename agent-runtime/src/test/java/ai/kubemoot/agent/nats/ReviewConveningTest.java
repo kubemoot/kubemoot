@@ -33,7 +33,6 @@ class ReviewConveningTest {
              {"name":"nvidia-gpu-advisor","role":"analyst","domains":["gpu","cuda"]},
              {"name":"k8s-advisor","role":"analyst","domains":["kubernetes"]},
              {"name":"obs-advisor","role":"analyst","domains":["prometheus","metrics"]},
-             {"name":"generalist","role":"analyst","keywords":["proxmox","gpu","kubernetes"]},
              {"name":"a-skill","kind":"skill","description":"x"}]
             """;
 
@@ -71,10 +70,53 @@ class ReviewConveningTest {
 
     @Test
     void domainMode_keywordsNeverMatch_onlyDeclaredDomainsDo() throws Exception {
-        // internet-search has broad keywords and no domains, generalist has keywords and no domains.
+        // internet-search has broad keywords and no domains.
         var plan = plan(DOMAIN_PRIMARY, List.of("Prometheus"), List.of("internet-search"), List.of(), "q");
 
-        assertEquals(List.of("obs-advisor"), plan.circle(), "neither keywords nor a keyword-only agent widen the match");
+        assertEquals(List.of("obs-advisor"), plan.circle(), "keywords never widen the match");
+    }
+
+    private static final String MIXED_CREW = """
+            [{"name":"proxmox-pve","role":"tooler","domains":["proxmox"]},
+             {"name":"proxmox-advisor","role":"analyst","domains":["proxmox"]},
+             {"name":"k8s-advisor","role":"analyst","domains":["kubernetes"]},
+             {"name":"compute","role":"analyst","keywords":["count","sum"]}]
+            """;
+
+    @Test
+    void mixedCrew_anAnalystWithoutDomainsReviewsEveryDiscussionAsAGeneralist() throws Exception {
+        var plan = ReviewConvening.plan(DOMAIN_PRIMARY, MAPPER.readTree(MIXED_CREW), List.of("proxmox"),
+                List.of(PROXMOX_PVE), List.of(), "Describe the proxmox nodes.");
+
+        assertEquals(Set.of(PROXMOX_ADVISOR, "compute"), Set.copyOf(plan.circle()));
+        assertEquals(ReviewConvening.BASIS_DOMAIN, plan.basis());
+    }
+
+    @Test
+    void mixedCrew_aQuestionNoDomainTouchesGetsTheBestRankedAnalystAndTheGeneralist() throws Exception {
+        var plan = ReviewConvening.plan(DOMAIN_PRIMARY, MAPPER.readTree(MIXED_CREW), List.of(), List.of(),
+                List.of(), "Is kubernetes healthy?");
+
+        assertEquals(Set.of(K8S_ADVISOR, "compute"), Set.copyOf(plan.circle()));
+        assertEquals(ReviewConvening.BASIS_PRIMARY, plan.basis());
+    }
+
+    @Test
+    void mixedCrew_withNothingToRankByEveryAnalystReviews() throws Exception {
+        var plan = ReviewConvening.plan(DOMAIN_PRIMARY, MAPPER.readTree(MIXED_CREW), List.of(), List.of(),
+                List.of(), "Hello");
+
+        assertTrue(plan.circle().isEmpty());
+        assertEquals(ReviewConvening.BASIS_FALLBACK_ALL, plan.basis());
+    }
+
+    @Test
+    void aCrewOfGeneralistsOnlyHasEveryAnalystReview() throws Exception {
+        var crew = MAPPER.readTree("[{\"name\":\"a\",\"role\":\"analyst\"},{\"name\":\"b\",\"role\":\"analyst\"}]");
+
+        var plan = ReviewConvening.plan(DOMAIN_PRIMARY, crew, List.of("x"), List.of(), List.of(), "q");
+
+        assertTrue(plan.circle().isEmpty());
     }
 
     @Test

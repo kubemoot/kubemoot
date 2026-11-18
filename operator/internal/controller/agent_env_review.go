@@ -47,12 +47,14 @@ func (r *AgentReconciler) coordinatorReviewEnvVars(ctx context.Context, agent *k
 // crewArchetypeName is the archetypeRef of the first policy (policies are ordered
 // by name, as matchingPolicies returns them) that sets one, or the default archetype.
 func crewArchetypeName(policies []*kubemootv1alpha1.CrewSchedulingPolicy) string {
+	ref := ""
 	for _, p := range policies {
 		if p.Spec.ArchetypeRef != "" {
-			return p.Spec.ArchetypeRef
+			ref = p.Spec.ArchetypeRef
+			break
 		}
 	}
-	return defaultArchetypeName
+	return archetypeRefOrDefault(ref)
 }
 
 // enqueueCoordinatorsOnArchetypeChange re-reconciles every coordinator when a

@@ -74,7 +74,7 @@ spec:
 | `convene` | `all` or `domain` | `all` | `all`: the analysts the coordinator itself selected, or every analyst when it selected none (the behavior before review was declared). `domain`: only the analysts whose declared [`domains`](../agent/#specdomains) touch the question or the data the toolers gathered. |
 | `fallback` | `primary` or `all` | `primary` | Applies when `convene` is `domain` and no analyst matches. `primary`: the one analyst that best matches the question's words and the gathering toolers' domains. `all`: every analyst. |
 
-A crew that has analysts never reviews with none. When `domain` matches nothing and nothing
+A crew that has analysts never reviews with none. An analyst that declares no `domains` is a generalist and reviews every discussion in `domain` mode. When `domain` matches nothing and nothing
 ranks the analysts either (no analyst declares a domain the question or the data touches), every
 analyst reviews, because choosing one would be arbitrary. See
 [Who reviews](../../architecture/tooler-analyst-architecture/#who-reviews) for how the match works.
@@ -91,6 +91,8 @@ The operator reads the block of the crew's archetype (the `archetypeRef` of the
 coordinator as `KUBEMOOT_DISCUSS_REVIEW_CONVENE` and `KUBEMOOT_DISCUSS_REVIEW_FALLBACK`. The
 `consent-3` archetype the operator installs sets `convene: domain`. An edit to the block
 re-reconciles the coordinators. An Agent's own `spec.deployment.env` wins over both.
+
+The CRD gains the `review` field, so apply the new CRDs before the operator chart that sets it. Flux installs use `crds: CreateReplace` on the HelmRelease; plain `helm` installs apply the CRDs first (`kubectl apply -f` the chart's `crds/` directory), because `helm upgrade` does not update CRDs.
 
 ### State machine
 

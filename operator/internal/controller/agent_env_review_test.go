@@ -146,3 +146,14 @@ func TestCoordinatorRequests_OnlyCoordinatorsAreEnqueued(t *testing.T) {
 		t.Fatalf("no agents: want no requests, got %v", got)
 	}
 }
+
+func TestHashResumes_NoDomainsKeepsTheHashACrewHadBefore(t *testing.T) {
+	resumes := []AgentResume{
+		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Keywords: []string{testKeywordK8s}},
+		{Name: testBeta, Description: testBetaDescription, Role: reviewTestAnalyst},
+	}
+	const golden = "866abccd6fb47e6afb00911dd7e5055be25eab2967b94d94890009e2f392b2cd" // computed by the code before domains existed
+	if got := HashResumes(resumes); got != golden {
+		t.Fatalf("a crew that declares no domains must keep its resume hash: want %s, got %s", golden, got)
+	}
+}
