@@ -158,8 +158,8 @@ func TestClaimsMergeByName(t *testing.T) {
 func TestGooseHarnessHasItsOwnBuiltinDefault(t *testing.T) {
 	r, _ := harnessReconciler(t)
 	got := r.agentContainerResources(HarnessNameGoose, nil)
-	wantQty(t, "request", got.Requests, corev1.ResourceMemory, "256Mi")
-	wantQty(t, "limit", got.Limits, corev1.ResourceMemory, "1Gi")
+	wantQty(t, "request", got.Requests, corev1.ResourceMemory, "128Mi")
+	wantQty(t, "limit", got.Limits, corev1.ResourceMemory, "512Mi")
 	other := r.agentContainerResources("custom", nil)
 	wantQty(t, "request", other.Requests, corev1.ResourceMemory, "96Mi")
 }
@@ -231,11 +231,27 @@ func TestGoosePodUsesTheGooseDefaultAndAgentOverrideWins(t *testing.T) {
 	agent := sidecarAgent()
 	agent.Spec.Harness.Name = HarnessNameGoose
 	h := buildSidecarPod(t, agent).Spec.Template.Spec.Containers[0]
-	wantQty(t, "goose request", h.Resources.Requests, corev1.ResourceMemory, "256Mi")
+	wantQty(t, "goose request", h.Resources.Requests, corev1.ResourceCPU, "100m")
+	wantQty(t, "goose request", h.Resources.Requests, corev1.ResourceMemory, "128Mi")
+	wantQty(t, "goose limit", h.Resources.Limits, corev1.ResourceMemory, "512Mi")
+	wantQty(t, "goose limit", h.Resources.Limits, corev1.ResourceCPU, "")
 	agent.Spec.Harness.Resources = &corev1.ResourceRequirements{Limits: rl("", "2Gi")}
 	h = buildSidecarPod(t, agent).Spec.Template.Spec.Containers[0]
 	wantQty(t, "goose limit", h.Resources.Limits, corev1.ResourceMemory, "2Gi")
-	wantQty(t, "goose request", h.Resources.Requests, corev1.ResourceMemory, "256Mi")
+	wantQty(t, "goose request", h.Resources.Requests, corev1.ResourceMemory, "128Mi")
+}
+
+func TestGooseDefaultIsBurstableAndRequestBelowLimit(t *testing.T) {
+	got := builtinGooseResources()
+	req, lim := got.Requests[corev1.ResourceMemory], got.Limits[corev1.ResourceMemory]
+	if req.Cmp(lim) >= 0 {
+		t.Errorf("request %s must be below limit %s", req.String(), lim.String())
+	}
+	agent := sidecarAgent()
+	agent.Spec.Harness.Name = HarnessNameGoose
+	agent.Spec.Harness.Resources = &corev1.ResourceRequirements{Requests: rl("", "600Mi")}
+	h := buildSidecarPod(t, agent).Spec.Template.Spec.Containers[0]
+	wantQty(t, "raised limit", h.Resources.Limits, corev1.ResourceMemory, "600Mi")
 }
 
 func TestDeploymentResourcesOverrideLegacyAgentContainer(t *testing.T) {

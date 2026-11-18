@@ -245,7 +245,9 @@ The container's resources come from three layers, highest first:
 | Harness | Requests | Limits |
 |---------|----------|--------|
 | Agent runtime and any harness but goose | cpu `25m`, memory `96Mi` | memory `256Mi` |
-| `goose` | cpu `100m`, memory `256Mi` | memory `1Gi` |
+| `goose` | cpu `100m`, memory `128Mi` | memory `512Mi` |
+
+The goose default comes from a measurement: the container's memory peak over answered turns was 59 to 64 MiB, so the request is twice the peak and the limit leaves room for extensions and larger tool results. A goose seat that needs more sets `spec.harness.resources` on its Agent (for example `limits.memory: 1Gi`), or a cluster-wide value in `KubemootConfig` `spec.defaults.agentResources`.
 
 The layers merge per resource name, not as a whole. A layer replaces only the requests and limits it names, so an Agent that sets only `limits.memory: 512Mi` keeps the default CPU and memory requests. `KubemootConfig` `spec.defaults.agentResources` applies on top of every harness's built-in default, goose included, so a default set there replaces the goose built-in for the resources it names. Two rules keep the pod valid without lowering what you asked for:
 
