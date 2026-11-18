@@ -85,3 +85,7 @@ configuration. Run sandboxed MCP servers with `transport: http`.
 The [code sandbox](../code-sandbox/) is the MCP server that benefits most, because it runs
 code a model wrote. It serves MCP over HTTP itself (`MCP_TRANSPORT=http`), so it runs under a
 sandboxed runtime. The gateways do not use the setting yet.
+
+These controls are one part of how a crew resists injected instructions. The
+[Crew threat model](../crew-threat-model/) shows where each one acts and what remains
+undefended.

@@ -144,3 +144,7 @@ is if the class is deleted while it runs.
 The compute agent has no sandbox to call while the server is held, so a crew that asks for a
 class its cluster does not have cannot compute until the class exists. Check
 `RuntimeClassAvailable` first when the compute agent reports that its tool is unavailable.
+
+These controls are one part of how a crew resists injected instructions. The
+[Crew threat model](../crew-threat-model/) shows where each one acts and what remains
+undefended.

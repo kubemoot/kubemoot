@@ -272,3 +272,7 @@ List what the operator generated:
 ```bash
 kubectl get networkpolicy,ciliumnetworkpolicy -A -l kubemoot.ai/generated-by=network-policy
 ```
+
+These controls are one part of how a crew resists injected instructions. The
+[Crew threat model](../crew-threat-model/) shows where each one acts and what remains
+undefended.
