@@ -240,7 +240,7 @@
   },
   {
    "input": "# comment\nkey:\ng: \"a, b\"\ne: !!str 5\n",
-   "type": "text/plain"
+   "type": "application/yaml"
   },
   {
    "input": "a: b: c",
@@ -1128,7 +1128,7 @@
   },
   {
    "input": "# comment\r\nf: 'quoted: value'\r\n# comment",
-   "type": "text/plain"
+   "type": "application/yaml"
   },
   {
    "input": "é,ü\nError: failed: really\na:b\nError: failed: really\nError: failed",
@@ -2360,7 +2360,7 @@
   },
   {
    "input": " \n# comment\nb: [1, 2]\nkey:",
-   "type": "text/plain"
+   "type": "application/yaml"
   },
   {
    "input": "42\n{\"a\":\n\"s\"\n[null]\n\"s\"",
@@ -2756,7 +2756,7 @@
   },
   {
    "input": "# comment\r\nkey:",
-   "type": "text/plain"
+   "type": "application/yaml"
   },
   {
    "input": "[null]\n",
@@ -3620,7 +3620,7 @@
   },
   {
    "input": "# comment\nf: 'quoted: value'\na: \u0026x 1\n",
-   "type": "text/plain"
+   "type": "application/yaml"
   },
   {
    "input": "NAME\nbar    0/1     Pending\nNAME",
@@ -5892,7 +5892,7 @@
   },
   {
    "input": "# comment\n- x\n",
-   "type": "text/plain"
+   "type": "application/yaml"
   },
   {
    "input": "|a|b|\n| a | b |\n|---|---|\n\t\n",

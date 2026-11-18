@@ -229,7 +229,9 @@ const queryDescription = "Run one read-only SQL SELECT over artifacts. Give arti
 	"k8s-workloads/002-resources_list); it is read inside the current thread, and a key of another " +
 	"thread is refused. " +
 	"Column names of a table are lowercase with underscores: a kubectl title NODE SELECTOR " +
-	"is node_selector, UP-TO-DATE is up_to_date. " +
+	"is node_selector, UP-TO-DATE is up_to_date. A table's real column names are on the [CALL ...] line of " +
+	"its call (columns= for a table, fields= for JSON) and in workspace_describe; a query that names a " +
+	"column the table lacks fails with the table's columns listed, so use those names and never a guess. " +
 	"No writes, no files outside the named artifacts, no network."
 
 // --- tool inputs ---

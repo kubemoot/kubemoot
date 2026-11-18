@@ -97,6 +97,21 @@
    "type": "application/yaml"
   },
   {
+   "name": "YAML list after a comment line",
+   "input": "# The following events (YAML format) were found:\n- InvolvedObject:\n    Kind: Pod\n  Reason: Failed\n- InvolvedObject:\n    Kind: Pod\n  Reason: Killing\n",
+   "type": "application/yaml"
+  },
+  {
+   "name": "only comment lines are not YAML",
+   "input": "# one\n# two\n",
+   "type": "text/plain"
+  },
+  {
+   "name": "a comment line then prose is not YAML",
+   "input": "# note\nthe pod restarted twice\n",
+   "type": "text/plain"
+  },
+  {
    "name": "YAML with several documents",
    "input": "---\nkind: Pod\n---\nkind: Service\n",
    "type": "application/yaml"

@@ -1,0 +1,57 @@
+{
+ "description": "The column list shown on a [CALL ...] line (columns= or fields=) and in the no such column error of workspace_query, shared by artifact-access (Go, internal/colname List) and agent-runtime (Java, ColumnNames.list). Names are joined by commas; at most max of them (default 60) are listed, then ,+<n>more counts the rest. A case has input (the names) or generate (the names c1..cN), and an optional max.",
+ "cases": [
+  {
+   "name": "a few names",
+   "input": [
+    "name",
+    "ready",
+    "status"
+   ],
+   "output": "name,ready,status"
+  },
+  {
+   "name": "no names",
+   "input": [],
+   "output": ""
+  },
+  {
+   "name": "exactly the limit lists every name",
+   "generate": 60,
+   "output": "c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19,c20,c21,c22,c23,c24,c25,c26,c27,c28,c29,c30,c31,c32,c33,c34,c35,c36,c37,c38,c39,c40,c41,c42,c43,c44,c45,c46,c47,c48,c49,c50,c51,c52,c53,c54,c55,c56,c57,c58,c59,c60"
+  },
+  {
+   "name": "past the limit counts the rest",
+   "generate": 65,
+   "output": "c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17,c18,c19,c20,c21,c22,c23,c24,c25,c26,c27,c28,c29,c30,c31,c32,c33,c34,c35,c36,c37,c38,c39,c40,c41,c42,c43,c44,c45,c46,c47,c48,c49,c50,c51,c52,c53,c54,c55,c56,c57,c58,c59,c60,+5more"
+  },
+  {
+   "name": "a smaller limit for a crowded manifest",
+   "generate": 14,
+   "max": 12,
+   "output": "c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,+2more"
+  },
+  {
+   "name": "a limit of zero only counts",
+   "generate": 3,
+   "max": 0,
+   "output": "+3more"
+  },
+  {
+   "name": "a bracket becomes a parenthesis",
+   "input": [
+    "a]b",
+    "[c"
+   ],
+   "output": "a)b,(c"
+  },
+  {
+   "name": "a name past 60 characters is cut",
+   "input": [
+    "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+    "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+   ],
+   "output": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk...,kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+  }
+ ]
+}

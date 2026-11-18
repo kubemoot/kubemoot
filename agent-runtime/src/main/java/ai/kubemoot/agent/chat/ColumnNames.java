@@ -18,7 +18,37 @@ import java.util.Set;
  */
 final class ColumnNames {
 
+    /** Most names a column list shows by default; the same number as artifact-access's {@code colname.MaxListed}. */
+    static final int MAX_LISTED = 60;
+    /** Most characters of one name in a list; a longer name is cut and marked with "...". */
+    static final int MAX_NAME_CHARS = 60;
+
     private ColumnNames() {
+    }
+
+    /**
+     * The column list of a [CALL ...] line: the names joined by commas, at most {@link #MAX_LISTED}
+     * of them, then {@code ,+<n>more} for the rest. Square brackets become parentheses so a name
+     * cannot end the line early. The same rule runs in artifact-access ({@code colname.List}) and
+     * its no such column error; both test suites run {@code test/fixtures/column-list.json}.
+     */
+    static String list(List<String> names) {
+        return list(names, MAX_LISTED);
+    }
+
+    /** {@link #list(List)} with its own limit, for a manifest too crowded to list every column. */
+    static String list(List<String> names, int limit) {
+        int shown = Math.max(0, Math.min(names.size(), limit));
+        List<String> parts = new ArrayList<>(shown + 1);
+        for (String name : names.subList(0, shown)) {
+            String one = name.replace('[', '(').replace(']', ')');
+            parts.add(one.codePointCount(0, one.length()) <= MAX_NAME_CHARS ? one
+                    : one.substring(0, one.offsetByCodePoints(0, MAX_NAME_CHARS)) + "...");
+        }
+        if (names.size() > shown) {
+            parts.add("+" + (names.size() - shown) + "more");
+        }
+        return String.join(",", parts);
     }
 
     /** The safe name of every header, in order. */

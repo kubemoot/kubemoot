@@ -127,7 +127,7 @@ No events found
 [EMPTY RESULT]
 (empty: the call succeeded and returned nothing)
 [END RESULT]
-The results are stored under these keys; a result not shown above is only in its file. Read a key with workspace_query (SQL; the columns are listed on the call line), the artifact_* tools, or execute_code over the file /artifacts/<key>; the key k8s-workloads/*-<tool> reads every call of one tool as one table.
+The results are stored under these keys; a result not shown above is only in its file. Read a key with workspace_query (SQL; the columns are listed on the call line, and workspace_describe lists every one), the artifact_* tools, or execute_code over the file /artifacts/<key>; the key k8s-workloads/*-<tool> reads every call of one tool as one table.
 ```
 
 The keys in the lines are relative to the thread: `{agent}/{nnn}-{tool}` ([Short
@@ -137,10 +137,17 @@ Each call line says what the stored body is, so a reader does not guess it. `typ
 object's `Content-Type` header (see [Content type](#content-type)); it replaces the `format=` field
 of earlier versions, and its values are content types, not `json`, `text-table` or `text`. For a table, `columns=` lists its column names;
 for a JSON list or object, `fields=` lists the keys of its first row (the `items` list of a
-Kubernetes list). At most 12 names are shown, each cut at 30 characters, then `,+Nmore`.
+Kubernetes list). Every name is listed, up to 60, each cut at 60 characters, then `,+Nmore` counts
+the rest; only when an agent's descriptions near their size cap does a line list its first 12 names, and then
+none, before calls are dropped. `workspace_describe` lists every column of an artifact with its type and examples.
 These are the names `workspace_query` reads the table by, so a query can use them as written.
 A `workspace_query` that names a column the table does not have fails with `no such column`
 and the error lists the actual columns of every table in the query.
+The list has the shape of the `columns=` list (`name,status,+5more`, the same rule in the runtime and in
+artifact-access). When the name shares a word with real columns, the error also names the closest ones
+(`closest to status_phase: pods.status`), and when a table was read as plain text lines
+(`line_no`, `line`) it says so. A name is never turned into a column silently: a query that
+names a column the table lacks fails, so a wrong column is never returned.
 
 ### Content type
 
@@ -152,7 +159,7 @@ The type of a result is decided once, when the runtime stores it, and recorded a
 | One JSON object or list (the whole text) | `application/json` |
 | A Markdown pipe table (a pipe row, then its separator row, in the first five lines) | `text/markdown` |
 | A `kubectl` style table (a first line of upper-case column titles separated by two or more spaces) | `text/plain; profile=kubectl-table` |
-| YAML that parses as a mapping, a list or several documents, of at most 1,000,000 bytes | `application/yaml` |
+| YAML that parses as a mapping, a list or several documents, of at most 1,000,000 bytes; comment lines before the first YAML line are skipped | `application/yaml` |
 | CSV (the first five lines hold the same number of fields, two or more) | `text/csv` |
 | Anything else, and any result cut at the size cap | `text/plain` |
 

@@ -30,6 +30,25 @@ class ColumnNamesTest {
     }
 
     @Test
+    void sharedListFixtureGivesTheSameListAsArtifactAccess() throws Exception {
+        JsonNode cases = new ObjectMapper().readTree(new File("../test/fixtures/column-list.json")).get("cases");
+        assertTrue(cases.size() > 0, "the fixture has cases");
+        for (JsonNode c : cases) {
+            List<String> names = c.has("input") ? strings(c.get("input")) : new ArrayList<>();
+            for (int i = 1; i <= c.path("generate").asInt(0); i++) {
+                names.add("c" + i);
+            }
+            String got = c.has("max") ? ColumnNames.list(names, c.get("max").asInt()) : ColumnNames.list(names);
+            assertEquals(c.get("output").asText(), got, c.get("name").asText());
+        }
+    }
+
+    @Test
+    void aNegativeLimitOnlyCountsTheNames() {
+        assertEquals("+2more", ColumnNames.list(List.of("a", "b"), -1));
+    }
+
+    @Test
     void namesAreSafeAndNormalizingAgainChangesNothing() {
         var once = ColumnNames.normalize(List.of("NODE SELECTOR", "", "9lives", "NAME", "name", "😀😀", "Größe"));
         assertEquals(once, ColumnNames.normalize(once));

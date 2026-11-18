@@ -30,9 +30,8 @@ final class ToolCallLedger {
 
     /** The descriptions stay under this size so they are posted inline whole. */
     static final int MAX_MANIFEST_CHARS = CallManifest.MAX_CHARS;
-    /** Most column or field names of one call in a manifest line, and the most characters of one name. */
-    static final int MAX_COLUMNS_SHOWN = 12;
-    static final int MAX_NAME_CHARS = 30;
+    /** Column or field names a call line lists when the manifest is too crowded to list them all. */
+    static final int CROWDED_COLUMNS = 12;
 
     /** The store the results go to, or null for an agent that stores nothing: its calls are listed, not kept. */
     private final CallArtifactStore store;
@@ -204,7 +203,8 @@ final class ToolCallLedger {
         String head = CallManifest.HEADER_PREFIX + "agent=" + agent + " calls=" + calls.size() + " errors=" + errors
                 + (store == null ? " stored=no" : " prefix=" + prefix) + "]\n";
         String foot = store == null ? "" : "\n" + CallManifest.FOOTER_PREFIX + "; a result not shown above is only in its file. Read a key with "
-                + WorkspaceTools.QUERY + " (SQL; the columns are listed on the call line), "
+                + WorkspaceTools.QUERY + " (SQL; the columns are listed on the call line, and "
+                + WorkspaceTools.DESCRIBE + " lists every one), "
                 + WorkspaceTools.HEAD + ", " + WorkspaceTools.TAIL + ", " + WorkspaceTools.GREP + ", or "
                 + "execute_code over the file /artifacts/<key>"
                 + (prefix.isEmpty() ? "." : "; the key " + prefix + "*-<tool> reads every call of one tool as one table.");
@@ -213,23 +213,31 @@ final class ToolCallLedger {
     }
 
     /**
-     * Every call's line with what fits: arguments and column names, then column names alone, then
-     * neither, and only then calls replaced by a count (the last ones without a posted result
-     * first, so a posted result keeps its line).
+     * Every call's line with what fits: arguments and every column name, then every column name
+     * alone, then the first {@link #CROWDED_COLUMNS}, then none, and only then calls replaced by a
+     * count (the last ones without a posted result first, so a posted result keeps its line).
      */
     private String lines(int room) {
-        for (boolean[] detail : new boolean[][] {{true, true}, {false, true}, {false, false}}) {
-            if (joined(calls, detail[0], detail[1], Posted.EMPTY_ONLY).length() <= room) {
-                return joined(calls, detail[0], detail[1], Posted.ALL);
+        for (Detail detail : DETAILS) {
+            if (joined(calls, detail.withArgs(), detail.columns(), Posted.EMPTY_ONLY).length() <= room) {
+                return joined(calls, detail.withArgs(), detail.columns(), Posted.ALL);
             }
         }
         var shown = new ArrayList<>(calls);
-        while (!shown.isEmpty() && joined(shown, false, false, Posted.EMPTY_ONLY).length()
+        while (!shown.isEmpty() && joined(shown, false, 0, Posted.EMPTY_ONLY).length()
                 + omitted(calls.size() - shown.size()).length() > room) {
             shown.remove(lastToDrop(shown));
         }
-        return joined(shown, false, false, Posted.ALL) + omitted(calls.size() - shown.size());
+        return joined(shown, false, 0, Posted.ALL) + omitted(calls.size() - shown.size());
     }
+
+    /** How much of a call line is shown: whether it has the arguments, and how many column names it lists. */
+    private record Detail(boolean withArgs, int columns) {}
+
+    /** From the fullest call line to the barest. */
+    private static final List<Detail> DETAILS = List.of(
+            new Detail(true, ColumnNames.MAX_LISTED), new Detail(false, ColumnNames.MAX_LISTED),
+            new Detail(false, CROWDED_COLUMNS), new Detail(false, 0));
 
     /** Which posted results {@link #joined} adds after the call lines. */
     private enum Posted {
@@ -260,14 +268,14 @@ final class ToolCallLedger {
         return store == null ? CallManifest.omittedUnstoredLine(count) : CallManifest.omittedLine(count);
     }
 
-    private String joined(List<ToolCallRecord> shown, boolean withArgs, boolean withColumns, Posted posted) {
+    private String joined(List<ToolCallRecord> shown, boolean withArgs, int columnLimit, Posted posted) {
         var sb = new StringBuilder();
         for (int i = 0; i < shown.size(); i++) {
             ToolCallRecord c = shown.get(i);
             if (i > 0) {
                 sb.append('\n');
             }
-            sb.append(line(c, withArgs, withColumns));
+            sb.append(line(c, withArgs, columnLimit));
             if (c.hasInline() && posted.shows(c)) {
                 sb.append('\n').append(c.inline());
             }
@@ -275,7 +283,7 @@ final class ToolCallLedger {
         return sb.toString();
     }
 
-    private String line(ToolCallRecord c, boolean withArgs, boolean withColumns) {
+    private String line(ToolCallRecord c, boolean withArgs, int columnLimit) {
         if (c.storeOff() && c.hasInline()) {
             return callLine(new StringBuilder(CallManifest.UNSTORED_CALL_PREFIX).append(c.tool()), c, withArgs)
                     .append(" stored=no]").toString();
@@ -287,8 +295,8 @@ final class ToolCallLedger {
         }
         var sb = callLine(new StringBuilder(CallManifest.CALL_PREFIX).append(shortKey(c.key())).append(" tool=")
                 .append(c.tool()), c, withArgs);
-        if (withColumns && !c.columns().isEmpty()) {
-            sb.append(ResultType.isJson(c.type()) ? " fields=" : " columns=").append(columnList(c.columns()));
+        if (columnLimit > 0 && !c.columns().isEmpty()) {
+            sb.append(ResultType.isJson(c.type()) ? " fields=" : " columns=").append(ColumnNames.list(c.columns(), columnLimit));
         }
         return sb.append(']').toString();
     }
@@ -308,21 +316,6 @@ final class ToolCallLedger {
     /** The key relative to the thread: {@code <agent>/<nnn>-<tool>}. */
     private String shortKey(String key) {
         return key.startsWith(threadPrefix) ? key.substring(threadPrefix.length()) : key;
-    }
-
-    /**
-     * The names, comma separated: at most {@link #MAX_COLUMNS_SHOWN} of them, each cut at
-     * {@link #MAX_NAME_CHARS}, then a count of the rest. Square brackets become parentheses so a name
-     * cannot end the [CALL ...] line early.
-     */
-    static String columnList(List<String> names) {
-        var shown = new ArrayList<String>();
-        for (String name : names.subList(0, Math.min(names.size(), MAX_COLUMNS_SHOWN))) {
-            String one = name.replace('[', '(').replace(']', ')');
-            shown.add(one.length() <= MAX_NAME_CHARS ? one : one.substring(0, MAX_NAME_CHARS) + "...");
-        }
-        int more = names.size() - shown.size();
-        return String.join(",", shown) + (more > 0 ? ",+" + more + "more" : "");
     }
 
     /** The key prefix shared by this agent's calls in the thread, relative to the thread: {@code <agent>/}. */

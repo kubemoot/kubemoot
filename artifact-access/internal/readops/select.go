@@ -125,7 +125,7 @@ func columnIndexes(header, columns []string) ([]int, error) {
 	for j, c := range columns {
 		i, ok := pos[c]
 		if !ok {
-			return nil, fmt.Errorf("column %q not found; the columns are: %s", c, strings.Join(header, ", "))
+			return nil, fmt.Errorf("column %q not found; the columns are: %s", c, colname.List(header))
 		}
 		idx[j] = i
 	}
