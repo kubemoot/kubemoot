@@ -121,7 +121,7 @@ the first two are off until you turn them on, and the table says which.
 | [Use grants for Secrets](../secrets-and-tools/#the-admission-check) | Who may point an MCP server or an Agent at a Secret or a ServiceAccount. | Off (`security.secretUseGrants.enabled`) |
 | [Network policies and egress allow-lists](../network-policies/) | Who may call a tool server and the gateway, and where a workload may connect. | Off (`security.networkPolicies.enabled`); egress rules also need `egress.mode: Declared` and a `spec.egress` on the workload |
 | [Sandboxed runtime class](../isolation/) | The pod runs under a runtime such as gVisor, so code in it does not reach the node kernel directly. | Unset; a plain cluster needs no extra install |
-| [No API token without a ServiceAccount](../secrets-and-tools/#pods-get-no-serviceaccount-token-by-default) | An Agent or MCP server pod that names no ServiceAccount mounts no Kubernetes API token, so an injected instruction has no cluster credential to use. | On |
+| [No API token without a ServiceAccount](../secrets-and-tools/#pods-get-no-serviceaccount-token-by-default) | An Agent or MCP server pod that names no ServiceAccount mounts no Kubernetes API token, and a harness seat's pod mounts none whatever it names, so an injected instruction has no cluster credential to use. | On |
 | [The invented-name check](../../reference/crewfitnesssuite/#invented-names) | A fitness run flags an answer that names a resource no tool result of the run held. | On in every fitness run |
 
 How each one acts on the path above:
@@ -162,12 +162,16 @@ does not run under gVisor.
 
 **No token without a ServiceAccount** is not behind a flag. A pod that names a
 ServiceAccount keeps the token, because that account exists to call the API and its RBAC
-bounds the pod.
+bounds the pod. The exception is a harness seat: the pod of an agent that joins the Moot
+Mesh never mounts a token, whatever ServiceAccount it names, because it reaches everything
+through the sidecar.
 
 **The invented-name check** is a measurement, not a block. It reads the answer's names
 (list items, table first cells, bold, code spans) and looks each one up in the tokens the
 run's tool results held. A name in the answer that no result held is flagged. It runs
-only inside a fitness run.
+only inside a fitness run, and it skips a run whose evidence does not cover it (a result
+cut at the size cap, a call that could not be read, or a workspace read that failed), so
+a skipped run is never flagged.
 
 ## What is not defended
 
