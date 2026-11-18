@@ -11,11 +11,28 @@ import (
 	"github.com/kubemoot/kubemoot/workspace-access/internal/workspace"
 )
 
-// The operator mounts the workspace volume at /workspace (and at /artifacts for one release); the
-// default must be the path the volume is mounted at.
+type mountFixture struct {
+	MountPath string `json:"mountPath"`
+	CNBAppDir string `json:"cnbAppDir"`
+}
+
+// The operator mounts the workspace volume at the path in test/fixtures/workspace-mount.json (and
+// at /artifacts for one release); the default must be that path, and never the Buildpacks app dir,
+// where this image's own binary lives.
 func TestTheDefaultWorkspaceDirIsTheOperatorsMount(t *testing.T) {
-	if defaultWorkspaceDir != "/workspace" {
-		t.Fatalf("defaultWorkspaceDir = %q, want /workspace", defaultWorkspaceDir)
+	raw, err := os.ReadFile("../../../test/fixtures/workspace-mount.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f mountFixture
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatal(err)
+	}
+	if defaultWorkspaceDir != f.MountPath {
+		t.Fatalf("defaultWorkspaceDir = %q, want %q", defaultWorkspaceDir, f.MountPath)
+	}
+	if defaultWorkspaceDir == f.CNBAppDir || strings.HasPrefix(defaultWorkspaceDir, f.CNBAppDir+"/") {
+		t.Fatalf("defaultWorkspaceDir %q is the Buildpacks app dir %q or under it", defaultWorkspaceDir, f.CNBAppDir)
 	}
 }
 

@@ -62,7 +62,7 @@ class WorkspaceScopeTest {
 
             var sent = WorkspaceScope.argumentsFor("execute_code", args);
 
-            assertEquals("import csv\nrows = open('/workspace/" + PREFIX + "k8s-workloads/002-resources_list').read()"
+            assertEquals("import csv\nrows = open('/kubemoot/workspace/" + PREFIX + "k8s-workloads/002-resources_list').read()"
                     + "\nprint(len(rows))", sent.get("code"));
             assertEquals("python", sent.get("language"), "the other arguments are kept");
         }
@@ -71,8 +71,8 @@ class WorkspaceScopeTest {
     @Test
     void theWorkspacePathAndTheOldArtifactsPathAreExpandedTheSame() {
         try (var scope = WorkspaceScope.bind(PREFIX)) {
-            String expected = "open('/workspace/" + PREFIX + "k8s-workloads/002-resources_list')";
-            for (String mount : new String[] {"/workspace", "/artifacts"}) {
+            String expected = "open('/kubemoot/workspace/" + PREFIX + "k8s-workloads/002-resources_list')";
+            for (String mount : new String[] {WorkspaceTools.MOUNT, WorkspaceTools.LEGACY_MOUNT}) {
                 var args = Map.<String, Object>of("code", "open('" + mount + "/k8s-workloads/002-resources_list')");
 
                 assertEquals(expected, WorkspaceScope.argumentsFor("execute_code", args).get("code"), mount);
@@ -83,7 +83,7 @@ class WorkspaceScopeTest {
     @Test
     void aWorkspacePathThatAlreadyNamesAThreadIsLeftAlone() {
         try (var scope = WorkspaceScope.bind(PREFIX)) {
-            var args = Map.<String, Object>of("code", "open('/workspace/" + PREFIX + "k8s-workloads/002-resources_list')");
+            var args = Map.<String, Object>of("code", "open('/kubemoot/workspace/" + PREFIX + "k8s-workloads/002-resources_list')");
 
             assertSame(args, WorkspaceScope.argumentsFor("execute_code", args));
         }
@@ -98,8 +98,8 @@ class WorkspaceScopeTest {
 
             String code = (String) WorkspaceScope.argumentsFor("execute_code", args).get("code");
 
-            assertEquals("glob('/workspace/" + PREFIX + "k8s-workloads/*-resources_list'); open('/workspace/" + PREFIX
-                    + "k8s-nodes/001-nodes_list'); open('/workspace/" + PREFIX + "k8s-nodes/*')", code);
+            assertEquals("glob('/kubemoot/workspace/" + PREFIX + "k8s-workloads/*-resources_list'); open('/kubemoot/workspace/" + PREFIX
+                    + "k8s-nodes/001-nodes_list'); open('/kubemoot/workspace/" + PREFIX + "k8s-nodes/*')", code);
         }
     }
 
@@ -155,7 +155,7 @@ class WorkspaceScopeTest {
     void replacementTextWithDollarsAndBackslashesIsTakenAsIs() {
         String code = WorkspaceScope.expandPaths("open('" + SHORT + "')", "ns/crew/th$1\\x/");
 
-        assertEquals("open('/workspace/ns/crew/th$1\\x/k8s-workloads/002-resources_list')", code);
+        assertEquals("open('/kubemoot/workspace/ns/crew/th$1\\x/k8s-workloads/002-resources_list')", code);
     }
 
     @Test

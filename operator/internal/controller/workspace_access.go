@@ -17,7 +17,7 @@ You may obtain a copy of the License at
 // stores nothing without write access. NATS permissions (mesh.PermissionsFor) describe the
 // matching grants, but nothing provisions NATS users from them yet, so NATS does not enforce
 // either until user provisioning lands. Other routes read the workspace regardless of the tool
-// list: the code sandbox's /workspace mount (the materializer sidecar copies every object of its
+// list: the code sandbox's /kubemoot/workspace mount (the materializer sidecar copies every object of its
 // namespace), the coordinator's review catalog of keys, and direct MCP mode, where tool names
 // carry a server prefix (server.tool) and so are not matched by the workspace tool names here.
 // An agent with nothing declared is implicit: its tool lists and behavior are left as they are.

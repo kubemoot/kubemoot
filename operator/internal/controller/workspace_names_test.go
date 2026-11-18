@@ -187,7 +187,7 @@ func TestDeprecatedNamesAreListedAndTheConditionFollowsThem(t *testing.T) {
 	if cond == nil || cond.Status != metav1.ConditionTrue {
 		t.Fatalf("old names must set the condition: %v", old.Status.Conditions)
 	}
-	for _, want := range []string{"artifactAccess is workspaceAccess", "ARTIFACT_BUCKET is WORKSPACE_BUCKET", "/artifacts is /workspace"} {
+	for _, want := range []string{"artifactAccess is workspaceAccess", "ARTIFACT_BUCKET is WORKSPACE_BUCKET", "/artifacts is /kubemoot/workspace"} {
 		if !strings.Contains(cond.Message, want) {
 			t.Errorf("message %q does not say %q", cond.Message, want)
 		}

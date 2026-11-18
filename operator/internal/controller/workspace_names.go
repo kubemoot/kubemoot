@@ -56,9 +56,9 @@ func mountedAt(mounts []corev1.VolumeMount, path string) bool {
 }
 
 // emptyDirMountPaths returns the paths an emptyDir volume is mounted at: its own, and for a
-// workspace server's volume at /workspace or /artifacts the other of the two, unless another
+// workspace server's volume at /kubemoot/workspace or /artifacts the other of the two, unless another
 // volume of the server mounts it. A crew whose prompts and sandbox code still say /artifacts and
-// one that says /workspace both find the files; the one-release alias goes away with the old
+// one that says /kubemoot/workspace both find the files; the one-release alias goes away with the old
 // name. A server that is neither the workspace server nor a pod with sidecars (the code sandbox
 // with its materializer) keeps the one mount it asked for.
 func emptyDirMountPaths(mcpServer *kubemootv1alpha1.MCPServer, ev kubemootv1alpha1.EmptyDirVolume) []string {
@@ -126,7 +126,7 @@ func deprecatedWorkspaceNames(mcpServer *kubemootv1alpha1.MCPServer) []string {
 		}
 	}
 	if usesWorkspace(mcpServer) && mountsPath(mcpServer.Spec.EmptyDirVolumes, legacyWorkspaceDir) {
-		found = append(found, "the emptyDir mount /artifacts is /workspace")
+		found = append(found, "the emptyDir mount /artifacts is /kubemoot/workspace")
 	}
 	return found
 }

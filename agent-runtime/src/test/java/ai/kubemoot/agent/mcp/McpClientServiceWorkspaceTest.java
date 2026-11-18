@@ -136,7 +136,7 @@ class McpClientServiceWorkspaceTest {
             service.callTool("execute_code", Map.of("language", "python",
                     "code", "print(open('/artifacts/k8s-workloads/002-resources_list').read())"));
         }
-        assertEquals("print(open('/workspace/" + PREFIX + "k8s-workloads/002-resources_list').read())",
+        assertEquals("print(open('/kubemoot/workspace/" + PREFIX + "k8s-workloads/002-resources_list').read())",
                 argumentsSentFor("execute_code").get("code"));
     }
 }

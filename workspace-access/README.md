@@ -39,7 +39,7 @@ for the full design.
 | `WORKSPACE_MODE` | `materializer` | `materializer` or `mcp` |
 | `WORKSPACE_BUCKET` | `kubemoot_workspace` | the workspace bucket, read first |
 | `ARTIFACT_BUCKET` | `kubemoot_discussion_artifacts` | the bucket the workspace was stored in before it was renamed, read second; writers still use it |
-| `WORKSPACE_DIR` | `/workspace` | where objects are materialized; `ARTIFACT_DIR` is still read, and a crew that mounts `/artifacts` keeps working |
+| `WORKSPACE_DIR` | `/kubemoot/workspace` | where objects are materialized; `ARTIFACT_DIR` is still read, and a crew that mounts `/artifacts` keeps working |
 | `WORKSPACE_SUBJECT` | `kubemoot.artifacts.>` | subject carrying reference envelopes |
 
 Every `WORKSPACE_*` variable is also read under its old `ARTIFACT_*` name (`ARTIFACT_MODE`, `ARTIFACT_DIR`,

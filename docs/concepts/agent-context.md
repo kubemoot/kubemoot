@@ -187,7 +187,7 @@ size threshold is stored whole in a NATS object store and passed to the table **
 reference**: the message carries a preview and a reference envelope, and an agent that
 needs more reads a bounded slice with `head`, `tail`, `grep`, `select`, `count`, `rows`
 or `jq`. The optional `workspace_query` tool uses a SQLite or DuckDB engine. Agents
-without network access read the same data as files materialized under `/workspace`.
+without network access read the same data as files materialized under `/kubemoot/workspace`.
 
 Workspace objects are keyed `{namespace}/{crew}/{threadId}/{agent}/{tool}-{seq}` and are
 deleted with the discussion: when the thread closes, then by a bucket expiry, then by a

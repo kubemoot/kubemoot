@@ -518,15 +518,15 @@ public class ChatService {
     // contribution. The contract uses them to require that the compute agent reads the FILE. The
     // old mount, /artifacts/, is mounted beside it for one release, so code that opens either path
     // counts as reading the file.
-    private static final String WORKSPACE_MOUNT = "/workspace/";
-    private static final String LEGACY_WORKSPACE_MOUNT = "/artifacts/";
+    private static final String WORKSPACE_MOUNT = WorkspaceTools.MOUNT + "/";
+    private static final String LEGACY_WORKSPACE_MOUNT = WorkspaceTools.LEGACY_MOUNT + "/";
     // The workspace read tools read a stored result SERVER-SIDE from its object key - the compute
     // agent passes key=<key> and the server reads the file, rather than the model authoring
-    // open('/workspace/<key>') in sandbox code (which qwen3:32b flakily skips). A call to any of
+    // open('/kubemoot/workspace/<key>') in sandbox code (which qwen3:32b flakily skips). A call to any of
     // these over a result present in the input satisfies the read-the-file half of the contract
-    // exactly as an execute_code that opens /workspace/ does.
+    // exactly as an execute_code that opens /kubemoot/workspace/ does.
     // Captures the exact object key from a file description "[CALL key=<key> ...]" so the compute
-    // re-prompt can name the precise file at /workspace/<key> rather than a generic "<key>" placeholder.
+    // re-prompt can name the precise file at /kubemoot/workspace/<key> rather than a generic "<key>" placeholder.
     private static final java.util.regex.Pattern WORKSPACE_KEY_PATTERN =
             java.util.regex.Pattern.compile("\\[CALL key=([^\\]\\s]+)");
     // A line of the file descriptions in a contribution ("[CALL key=<key> ..."), which names a stored tool result.
@@ -538,7 +538,7 @@ public class ChatService {
     private static final String COMPUTE_CONTRACT_REPROMPT =
             "You produced an answer without running execute_code. You MUST compute the result by "
             + "calling execute_code over the data. If a contribution references an artifact file "
-            + "(/workspace/<key>), read that FILE in your code - do not answer from the inline "
+            + "(" + WorkspaceTools.MOUNT + "/<key>), read that FILE in your code - do not answer from the inline "
             + "preview. Call execute_code now. If there is genuinely no data to compute over, "
             + "reply with exactly NO_DATA.";
 
@@ -1053,7 +1053,7 @@ public class ChatService {
      * retry budget is spent. Two violations are policed: (1) answering with no
      * tool call at all, and (2) running a tool but never reading the spilled
      * artifact - the read must be either an artifact read-ops tool over the key
-     * or execute_code that opens /workspace/... (or the old /artifacts/...) An exact NO_DATA / TOOL_GAP answer
+     * or execute_code that opens /kubemoot/workspace/... (or the old /artifacts/...) An exact NO_DATA / TOOL_GAP answer
      * is the honest escape.
      */
     private boolean computeContractNeedsRetry(AiMessage aiMessage, ToolLoopState state) {
@@ -1181,7 +1181,7 @@ public class ChatService {
         return msg instanceof SystemMessage ? null : messageText(msg);
     }
 
-    /** Exact /workspace/&lt;key&gt; paths named by file descriptions in the input, so the
+    /** Exact /kubemoot/workspace/&lt;key&gt; paths named by file descriptions in the input, so the
      *  compute re-prompt can point the model at the precise file rather than a
      *  generic "&lt;key&gt;" placeholder. Order-preserving and de-duplicated. */
     //  Package-private for unit testing.
@@ -1396,7 +1396,7 @@ public class ChatService {
     private void recordReadAndMetricSignals(String toolName, String arguments, String result,
                                             ToolLoopState state) {
         // Two ways the compute agent legitimately reads the spilled FILE:
-        //   (1) execute_code whose code opens /workspace/<key>, or
+        //   (1) execute_code whose code opens /kubemoot/workspace/<key>, or
         //   (2) an artifact read-ops tool (workspace_query, workspace_head, workspace_grep, ...) that
         //       reads the artifact server-side from its key.
         // A validate_code or a call that merely names /artifacts/ in unrelated args
@@ -1529,7 +1529,7 @@ public class ChatService {
         int emptyNoToolsRetries = 0;
         int computeRetries = 0;
         // True once an execute_code call's arguments referenced the artifact mount
-        // (/workspace/...), i.e. the agent read the materialized FILE rather than
+        // (/kubemoot/workspace/...), i.e. the agent read the materialized FILE rather than
         // computing over the inline preview. Drives the compute contract.
         boolean codeReferencedArtifact = false;
         // Metrics drill contract signals. metricQueryReturnedEmpty tracks the LAST

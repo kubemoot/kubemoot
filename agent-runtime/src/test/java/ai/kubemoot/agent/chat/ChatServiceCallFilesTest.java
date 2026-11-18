@@ -388,6 +388,6 @@ class ChatServiceCallFilesTest {
                 "[WORKSPACE agent=a calls=1 errors=0 prefix=ns/crew/t1/a/]\n"
                         + "[CALL key=ns/crew/t1/a/001-pods_list tool=pods_list args={} bytes=2 rows=0 error=false]")));
 
-        assertEquals(List.of("/workspace/ns/crew/t1/a/001-pods_list"), ChatService.artifactPathsInInput(messages));
+        assertEquals(List.of("/kubemoot/workspace/ns/crew/t1/a/001-pods_list"), ChatService.artifactPathsInInput(messages));
     }
 }

@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
  *
  * <p>the workspace tools ({@link WorkspaceTools}, under either name) get the prefix in the call's MCP
  * {@code _meta} and resolve the key themselves (the workspace-access server). {@code execute_code}
- * runs in a sandbox that knows no thread, so the code's {@code /workspace/<agent>/<nnn>-<tool>}
+ * runs in a sandbox that knows no thread, so the code's {@code /kubemoot/workspace/<agent>/<nnn>-<tool>}
  * paths are written out in full here before the call.
  */
 public final class WorkspaceScope {
@@ -27,11 +27,11 @@ public final class WorkspaceScope {
     private static final String CODE_ARGUMENT = "code";
 
     /**
-     * {@code /workspace/<agent>/<call file or pattern>} with an agent part and no thread part before it.
+     * {@code /kubemoot/workspace/<agent>/<call file or pattern>} with an agent part and no thread part before it.
      * The old mount name, {@code /artifacts/}, is read the same way for one release.
      */
     private static final Pattern SHORT_PATH = Pattern.compile(
-            "/(?:workspace|artifacts)/([A-Za-z0-9._-]+)/(\\d{3,}-[A-Za-z0-9_.-]+|\\*[A-Za-z0-9_.*-]*)(?![A-Za-z0-9_.*/-])");
+            "(?:" + Pattern.quote(WorkspaceTools.MOUNT) + "|" + Pattern.quote(WorkspaceTools.LEGACY_MOUNT) + ")/([A-Za-z0-9._-]+)/(\\d{3,}-[A-Za-z0-9_.-]+|\\*[A-Za-z0-9_.*-]*)(?![A-Za-z0-9_.*/-])");
 
     private static final ThreadLocal<String> CURRENT = new ThreadLocal<>();
 
@@ -65,7 +65,7 @@ public final class WorkspaceScope {
 
     /**
      * The arguments to send: for {@code execute_code} inside a thread, the code with every
-     * {@code /workspace/<agent>/<nnn>-<tool>} path (or the old {@code /artifacts/...}) written out under the thread's prefix; for any
+     * {@code /kubemoot/workspace/<agent>/<nnn>-<tool>} path (or the old {@code /artifacts/...}) written out under the thread's prefix; for any
      * other call, {@code arguments} unchanged.
      */
     static Map<String, Object> argumentsFor(String toolName, Map<String, Object> arguments) {
@@ -85,10 +85,10 @@ public final class WorkspaceScope {
         return out;
     }
 
-    /** {@code code} with each short {@code /workspace/} or old {@code /artifacts/} path under {@code prefix}, written with {@code /workspace/}; a path that already names a thread is left alone. */
+    /** {@code code} with each short {@code /kubemoot/workspace/} or old {@code /artifacts/} path under {@code prefix}, written with {@code /kubemoot/workspace/}; a path that already names a thread is left alone. */
     static String expandPaths(String code, String prefix) {
         Matcher m = SHORT_PATH.matcher(code);
-        return m.replaceAll(r -> "/workspace/" + Matcher.quoteReplacement(prefix)
+        return m.replaceAll(r -> WorkspaceTools.MOUNT + "/" + Matcher.quoteReplacement(prefix)
                 + Matcher.quoteReplacement(r.group(1) + "/" + r.group(2)));
     }
 

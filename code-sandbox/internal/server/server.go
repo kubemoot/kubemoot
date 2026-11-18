@@ -42,12 +42,12 @@ type CheckOut struct {
 
 // executeCodeDescription is what a model reads about execute_code. It says where
 // the data comes from (the code itself, or files other agents stored that are
-// staged under /workspace) and what the program cannot reach, so a model does not
+// staged under /kubemoot/workspace) and what the program cannot reach, so a model does not
 // expect the sandbox to fetch data.
 const executeCodeDescription = "Run a short program and return its stdout, stderr, and exit code. " +
 	"Python 3 with the standard library only, or bash. " +
 	"It computes over data you put in the code or over the files other agents stored in this discussion, " +
-	"which are staged under /workspace. " +
+	"which are staged under /kubemoot/workspace. " +
 	"It cannot fetch data: no network, no cluster API, no kubectl, and no credentials. " +
 	"Nothing arrives on stdin."
 

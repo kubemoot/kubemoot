@@ -207,7 +207,7 @@ final class ThreadCatalog {
 
     /** How stored calls are read: by key, by pattern as one table, or as files; the same words wherever calls are listed. */
     private static final String READING_NOTE = "Read one call by its key, or every call of a group by its pattern, with "
-            + WorkspaceTools.READ_TOOLS_TEXT + ", or with execute_code over the file /workspace/<key>. "
+            + WorkspaceTools.READ_TOOLS_TEXT + ", or with execute_code over the file " + WorkspaceTools.MOUNT + "/<key>. "
             + "A pattern reads the calls as one table with the columns _call (the call's key), _args (its "
             + "arguments) and _arg_<name> for an argument that differs between the calls (for example _arg_vmid).";
 

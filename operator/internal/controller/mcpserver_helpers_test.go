@@ -524,7 +524,7 @@ func TestBuildUserSidecars_SharesEmptyDir(t *testing.T) {
 	}
 	vm := got[0].VolumeMounts[0]
 	if vm.Name != "empty-vol-0" || vm.MountPath != testWorkspaceDir {
-		t.Fatalf("expected empty-vol-0 at /workspace, got %+v", vm)
+		t.Fatalf("expected empty-vol-0 at the workspace dir, got %+v", vm)
 	}
 	if alias := got[0].VolumeMounts[1]; alias.Name != "empty-vol-0" || alias.MountPath != legacyWorkspaceDir {
 		t.Fatalf("expected the same volume at /artifacts, got %+v", alias)

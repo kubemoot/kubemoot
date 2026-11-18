@@ -1,7 +1,7 @@
 // Command code-sandbox is an MCP server, over stdio or Streamable HTTP, that
 // runs short Python or bash programs for an agent. It is meant to run in a pod
 // that is itself the sandbox: no credentials, no network except what the pod's
-// policy allows, and a shared /workspace directory holding the data the program
+// policy allows, and a shared /kubemoot/workspace directory holding the data the program
 // reads.
 package main
 

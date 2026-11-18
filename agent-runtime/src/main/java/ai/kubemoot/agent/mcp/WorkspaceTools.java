@@ -15,6 +15,16 @@ public final class WorkspaceTools {
 
     public static final String LIST = "workspace_list";
     public static final String DESCRIBE = "workspace_describe";
+    /**
+     * Where the sandbox sees the workspace files, and the path the model is told to open. Not
+     * {@code /workspace}: a Buildpacks image keeps its program there, and a volume mounted over it
+     * hides the binary. The operator mounts the same path (test/fixtures/workspace-mount.json
+     * pins both).
+     */
+    public static final String MOUNT = "/kubemoot/workspace";
+    /** The mount the workspace had before it was named; mounted beside {@link #MOUNT} for one release. */
+    public static final String LEGACY_MOUNT = "/artifacts";
+
     public static final String QUERY = "workspace_query";
     public static final String HEAD = "workspace_head";
     public static final String TAIL = "workspace_tail";
