@@ -244,15 +244,22 @@ came from a tool or a peer. Treat injected memory as data.
   proposals it marks "Proposed" and the group has not accepted; the export does not
   follow those until they are adopted.
   The files hold text the agents wrote, so whatever reads them should treat them as
-  data. The spec (section 3.5.6) says credentials must not be exported as memory, so the
-  export screens each fact: one whose value, topic or key holds a credential (a bearer
-  token, an API key, a token or password assignment, a JSON Web Token, a cloud access
-  key, or a long hexadecimal string, the same shapes the harness redacts) is left out and
-  listed with that reason, never with the text, and the manifest says `selection`. The
-  screen matches shapes, so it can leave out a fact that only looks like a credential,
-  such as one that holds a commit hash; `--allow-unscreened` exports every fact as stored
-  and is for operators who accept that the files may hold credentials. Importing is not supported yet. `kmctl memory export <crew>` writes the same
+  data. Importing is not supported yet. `kmctl memory export <crew>` writes the same
   export from your terminal, with no operator source.
+
+  The spec (section 3.5.6) says credentials must not be exported as memory, so the
+  export screens each fact. A fact whose value, topic or key holds a credential is left
+  out and listed with the shape it matched, never with the text, and the manifest says
+  `selection`. When the credential is in the topic or key, the fact is listed by an
+  opaque id (`<namespace>.<crew>.#<id>`), because its key would print the credential.
+  The shapes are a bearer or basic token, an API key, a token or password assignment
+  with a value of eight or more characters, a JSON Web Token, a cloud access key, and a
+  long hexadecimal string. The screen is tighter than the harness redaction: it does not
+  flag the word "basic" or "bearer" before an ordinary word, a content digest such as
+  `sha256:...`, or a bare commit hash or SHA-256 unless a word like key, secret, token or
+  password sits next to it. It still matches shapes, so it can leave out a fact that only
+  looks like a credential. `--allow-unscreened` exports every fact as stored, for
+  operators who accept that the files may hold credentials.
 
   What maps, and how:
 
@@ -295,6 +302,8 @@ came from a tool or a peer. Treat injected memory as data.
 kubectl -n nats port-forward svc/nats 4222:4222
 cd operator && go run ./cmd/ompi-export --namespace <namespace> --crew <crew> --out ./memory --markdown
 ```
+
+Add `--allow-unscreened` to keep facts that hold a credential in the export.
 
 **Episodic memory.** Not yet. Kubemoot does not retrieve past discussions into a new
 one. Proposed: past discussions as retrievable episodes in the crew memory design,

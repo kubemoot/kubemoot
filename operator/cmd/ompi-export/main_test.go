@@ -101,21 +101,31 @@ func TestRunRejectsDottedCrewName(t *testing.T) {
 
 func TestRunLeavesOutACredentialUnlessAllowed(t *testing.T) {
 	r := staticReader{
-		gpuKey:           `{"value":"RTX 5090","learnedBy":"a"}`,
-		"ns.c.ops.login": `{"value":"password: hunter2hunter2","learnedBy":"a"}`,
+		gpuKey:                           `{"value":"RTX 5090","learnedBy":"a"}`,
+		"ns.c.ops.login":                 `{"value":"password: hunter2hunter2","learnedBy":"a"}`,
+		"ns.c.password=hunter3hunter3.k": `{"value":"fine","learnedBy":"a"}`,
+		"ns.c.ops.token=hunter4hunter4":  `{"value":"fine","learnedBy":"a"}`,
 	}
 	open := func(options) (crewmemory.EntryReader, func(), error) { return r, func() {}, nil }
-	cases := map[string][]string{"screened": nil, "unscreened": {"--allow-unscreened"}}
-	for name, extra := range cases {
-		args := append([]string{nsFlag, "ns", crewFlag, "c", outFlag, filepath.Join(t.TempDir(), "m")}, extra...)
-		var stdout strings.Builder
-		if err := runWith(args, &stdout, open); err != nil {
-			t.Fatal(err)
+	args := []string{nsFlag, "ns", crewFlag, "c", outFlag, filepath.Join(t.TempDir(), "m")}
+	var stdout strings.Builder
+	if err := runWith(args, &stdout, open); err != nil {
+		t.Fatal(err)
+	}
+	out := stdout.String()
+	if strings.Count(out, "holds a credential") != 3 || !strings.Contains(out, "wrote 1 memory object(s)") {
+		t.Errorf("screened stdout = %q, want three facts left out and one written", out)
+	}
+	for _, secret := range []string{"hunter2", "hunter3", "hunter4"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("stdout holds %s: %q", secret, out)
 		}
-		out := stdout.String()
-		left := strings.Contains(out, "holds a credential")
-		if left == (name == "unscreened") || strings.Contains(out, "hunter2") {
-			t.Errorf("%s: stdout = %q", name, out)
-		}
+	}
+	stdout.Reset()
+	if err := runWith(append(args[:5:5], filepath.Join(t.TempDir(), "m"), "--allow-unscreened"), &stdout, open); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "wrote 4 memory object(s)") || strings.Contains(stdout.String(), "left out") {
+		t.Errorf("unscreened stdout = %q, want all four written", stdout.String())
 	}
 }

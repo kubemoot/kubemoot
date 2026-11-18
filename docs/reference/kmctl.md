@@ -1098,19 +1098,27 @@ schema before anything is written, and the directory is written atomically.
 | `--creds` | | empty | NATS credentials file, for a server that needs them |
 
 Each entry that could not be turned into a fact is printed with its reason, and the
-manifest says `selection` instead of `snapshot`. A fact that holds a credential (a bearer
-token, an API key, a token or password assignment, a JSON Web Token, a cloud access key,
-or a long hexadecimal string) is left out the same way, printed with the shape it matched
-and never its text, because the spec says credentials must not be exported as memory.
-The screen matches shapes, so a fact that only looks like one, such as a commit hash, is
-left out too. `--allow-unscreened` turns the screen off: the export then holds every fact
-as stored, credentials included, so check it before you share it.
+manifest says `selection` instead of `snapshot`. A fact whose value, topic or key holds a
+credential (a bearer or basic token, an API
+key, a token or password assignment, a JSON Web Token, a cloud access key, or a long
+hexadecimal string) is left out the same way, printed with the shape it matched and never
+its text, because the spec says credentials must not be exported as memory. When the
+credential is in the topic or key, the fact is listed by an opaque id
+(`<namespace>.<crew>.#<id>`) so the key does not print it. The screen does not flag
+ordinary words such as "basic authentication", content digests, or a bare commit hash,
+but it matches shapes, so a fact that only looks like a credential can be left out.
+`--allow-unscreened` turns the screen off: the export then holds every fact as stored,
+credentials included, so check it before you share it.
 
 **Example:**
 
 ```bash
 kmctl memory export homelab-pilot -n crew-homelab-pilot -o ./pilot-memory --markdown
-# wrote 12 memory object(s) of crew-homelab-pilot/homelab-pilot to ./pilot-memory
+# left out "crew-homelab-pilot.homelab-pilot.ops.login": its value holds a credential (key, token, secret or password assignment); not exported as memory
+# wrote 11 memory object(s) of crew-homelab-pilot/homelab-pilot to ./pilot-memory
+
+kmctl memory export homelab-pilot -n crew-homelab-pilot -o ./pilot-raw --allow-unscreened
+# wrote 12 memory object(s) of crew-homelab-pilot/homelab-pilot to ./pilot-raw
 ```
 
 ---

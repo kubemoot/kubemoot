@@ -336,6 +336,7 @@ func TestPathIsARelativeSlashSeparatedPath(t *testing.T) {
 }
 
 const (
+	inValue     = "in the value"
 	secretKey   = "ci-login"
 	secretValue = "password: hunter2hunter2"
 )
@@ -357,10 +358,29 @@ func TestFactWithACredentialIsLeftOutAndNamedWithoutTheSecret(t *testing.T) {
 	}
 }
 
-func TestCredentialInTopicOrKeyLeavesTheFactOut(t *testing.T) {
-	exp := buildExport(t, fact("ops", "token=abc123", "fine"), fact("api_key: zzzzzzzz", "k", "fine"))
-	if len(exp.Memories) != 0 || len(exp.Skipped) != 2 {
-		t.Errorf("memories = %d, skipped = %d, want 0 and 2", len(exp.Memories), len(exp.Skipped))
+func TestReportNamesNoSecretWhereverTheCredentialSits(t *testing.T) {
+	const secret = "hunter2hunter2"
+	cases := map[string]crewmemory.Fact{
+		inValue:        fact("ops", "login", "password: "+secret),
+		"in the topic": fact("password="+secret, "login", "fine"),
+		"in the key":   fact("ops", "token="+secret, "fine"),
+	}
+	for where, f := range cases {
+		exp := buildExport(t, f)
+		if len(exp.Memories) != 0 || len(exp.Skipped) != 1 {
+			t.Errorf("%s: memories = %d, skipped = %d, want 0 and 1", where, len(exp.Memories), len(exp.Skipped))
+			continue
+		}
+		o := exp.Skipped[0]
+		if strings.Contains(o.Key, secret) || strings.Contains(o.Reason, secret) {
+			t.Errorf("%s: report %+v holds the secret", where, o)
+		}
+		if where != inValue && !strings.HasPrefix(o.Key, "crew-a.pilot.#") {
+			t.Errorf("%s: key = %q, want an opaque id", where, o.Key)
+		}
+		if where == inValue && o.Key != f.StoreKey() {
+			t.Errorf("in the value: key = %q, want the store key %q", o.Key, f.StoreKey())
+		}
 	}
 }
 

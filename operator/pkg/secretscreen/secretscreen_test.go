@@ -37,10 +37,23 @@ func loadCases(t *testing.T) []redactCase {
 	return cases
 }
 
-// A case the redaction changes holds a secret shape; one it leaves alone does not.
-// Cases that name exact secrets test the redactor's second argument, which the
-// screen does not take, so they are skipped.
-func TestFindAgreesWithTheSharedRedactionCases(t *testing.T) {
+func TestRedactMatchesTheSharedCases(t *testing.T) {
+	for _, c := range loadCases(t) {
+		if got := Redact(c.Input, c.Secrets...); got != c.Expected {
+			t.Errorf("%s: %q -> %q, want %q", c.Name, c.Input, got, c.Expected)
+		}
+	}
+}
+
+// tighter lists the shared cases the export screen deliberately does not flag
+// although redaction changes them, with the reason.
+var tighter = map[string]string{
+	"token assignment": "a value under eight characters is not a credential worth leaving a fact out for",
+}
+
+// Find agrees with the shared cases except where it is deliberately tighter. Cases
+// that name exact secrets test Redact's second argument, which Find does not take.
+func TestFindAgreesWithTheSharedCasesExceptWhereTighter(t *testing.T) {
 	checked := 0
 	for _, c := range loadCases(t) {
 		if len(c.Secrets) > 0 {
@@ -48,7 +61,11 @@ func TestFindAgreesWithTheSharedRedactionCases(t *testing.T) {
 		}
 		checked++
 		_, found := Find(c.Input)
-		if want := c.Input != c.Expected; found != want {
+		want := c.Input != c.Expected
+		if _, ok := tighter[c.Name]; ok {
+			want = false
+		}
+		if found != want {
 			t.Errorf("%s: Find(%q) found = %v, want %v", c.Name, c.Input, found, want)
 		}
 	}
@@ -80,9 +97,31 @@ func TestFindLeavesOrdinaryMemoryAlone(t *testing.T) {
 	for _, text := range []string{
 		"", "RTX 5090, 32 GB", "the node rebooted at 02:10 after the kernel update",
 		"tokens used 12 of 4096", "the cluster has three control-plane nodes",
+		"fixed in commit 5fd045c5a492fd51aca4a65cdf817d5a9f37c8a1 on main",
+		"image ghcr.io/kubemoot/operator@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"digest sha1:0123456789abcdef0123456789abcdef01234567",
+		"basic authentication enabled on the registry",
+		"max_tokens: 4096", "secret: none", "password: unset",
+		"uses sk-learn-preprocessing-module for scaling",
 	} {
 		if name, found := Find(text); found {
 			t.Errorf("Find(%q) = %q, want no match", text, name)
+		}
+	}
+}
+
+func TestFindStillCatchesTheTightenedShapesWhenTheyLookReal(t *testing.T) {
+	for _, text := range []string{
+		"Basic dXNlcjpwYXNz",
+		"Bearer Abcdefghijkl",
+		"registry login: Basic abcdefghijklmnopqrstuvwxyz",
+		"api key 5fd045c5a492fd51aca4a65cdf817d5a9f37c8a1",
+		"secret=\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"",
+		"token: s3cr3tvalue",
+		"OPENAI_API_KEY is sk-proj-abc123def456ghi789",
+	} {
+		if _, found := Find(text); !found {
+			t.Errorf("Find(%q) found nothing, want a credential", text)
 		}
 	}
 }
