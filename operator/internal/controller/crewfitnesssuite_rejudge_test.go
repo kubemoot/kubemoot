@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -149,8 +150,10 @@ var _ = Describe("CrewFitnessSuite re-judge", func() {
 		Expect(s.Status.Rejudge.NotInSource).To(Equal([]string{"fresh"}))
 		Expect(meta.IsStatusConditionTrue(s.Status.Conditions, rejudgeConditionType)).To(BeTrue())
 		Expect(s.Status.Scenarios).To(Equal([]kubemootv1alpha1.SuiteScenarioResult{
-			{Name: rjBeta, Iterations: 1, Failed: 1, MeanDurationMs: 42, AssertionsPassed: 2, AssertionsTotal: 3},
-			{Name: rjAlpha, Iterations: 1, Passed: 1, MeanDurationMs: 42, AssertionsPassed: 3, AssertionsTotal: 3},
+			{Name: rjBeta, Iterations: 1, Failed: 1, MeanDurationMs: 42, AssertionsPassed: 2, AssertionsTotal: 3,
+				PassRate: ptr.To(int32(0)), PassAllK: ptr.To(int32(0))},
+			{Name: rjAlpha, Iterations: 1, Passed: 1, MeanDurationMs: 42, AssertionsPassed: 3, AssertionsTotal: 3,
+				PassRate: ptr.To(int32(100)), PassAllK: ptr.To(int32(100))},
 			{Name: "fresh"},
 		}), "status.scenarios rolls up the copied transcripts in spec order")
 		Expect(s.Status.Judge).To(Equal(&kubemootv1alpha1.FitnessJudgeStatus{Phase: kubemootv1alpha1.FitnessJudgePhaseJudging}))

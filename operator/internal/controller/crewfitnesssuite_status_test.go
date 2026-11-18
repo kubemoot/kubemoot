@@ -20,8 +20,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -233,8 +235,13 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		reconcileOnce(name) // count iteration 1, schedule iteration 2
 		want := []kubemootv1alpha1.SuiteScenarioResult{{
 			Name: csProbe, Iterations: 1, Passed: 1, MeanDurationMs: 1500, AssertionsPassed: 2, AssertionsTotal: 2,
+			PassRate: ptr.To(int32(100)), PassAllK: ptr.To(int32(100)),
 		}}
 		Expect(getSuite(name).Status.Scenarios).To(Equal(want))
+		Expect(getSuite(name).Status.Consistency).To(Equal(&kubemootv1alpha1.SuiteConsistency{MeanPassAllK: ptr.To(int32(100))}))
+		cond := meta.FindStatusCondition(getSuite(name).Status.Conditions, kubemootv1alpha1.ConditionTrialsIndependent)
+		Expect(cond).NotTo(BeNil(), "the suite says whether its trials shared crew memory")
+		Expect(cond.Reason).To(Equal(reasonNoMemoryStore), "this reconciler has no message bus to clear memory with")
 
 		s = getSuite(name)
 		s.Spec.Cancel = true

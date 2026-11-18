@@ -6,6 +6,7 @@
 	import { LiveList } from '#lib/client/liveList.svelte.js';
 	import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 	import { suiteDisplayPhase, suiteIsJudged } from '#lib/fitness-suite-controls.js';
+	import { consistencyView, trialsIndependence } from '#lib/fitness-consistency.js';
 
 	// Push-based live list: initial fetch + SSE watch on CrewFitnessSuite. The
 	// operator advances each suite's status (phase, iterationsCompleted,
@@ -124,6 +125,7 @@
 				<th>Crew</th>
 				<th>Progress</th>
 				<th>Pass / Fail / Err</th>
+				<th title="Chance all k trials pass, averaged over the scenarios">Pass^k</th>
 				<th>Duration</th>
 				<th>Artifact</th>
 				<th>Age</th>
@@ -139,6 +141,8 @@
 				{@const jp = judge[ns + '/' + name]}
 				{@const scen = suite.spec.scripts?.length ?? 0}
 				{@const shown = suiteDisplayPhase(suite)}
+				{@const cons = consistencyView(suite)}
+				{@const indep = trialsIndependence(suite)}
 				<tr>
 					<td>
 						<span class="phase-badge {phaseClass(shown)}">
@@ -164,6 +168,17 @@
 						<span class="passed">{s?.passed ?? 0}</span> /
 						<span class="failed">{s?.failed ?? 0}</span> /
 						<span class="errored">{s?.errored ?? 0}</span>
+					</td>
+					<td class="mono">
+						{cons.passAllK}
+						{#if cons.toCheck > 0}
+							<div class="errored small" title={cons.toCheckNames.join(', ')}>
+								check {cons.toCheck} scenario{cons.toCheck === 1 ? '' : 's'}
+							</div>
+						{/if}
+						{#if indep && !indep.independent}
+							<div class="muted small" title={indep.reason}>trials share memory</div>
+						{/if}
 					</td>
 					<td class="mono">{formatDuration(s?.startedAt, s?.completedAt)}</td>
 					<td>

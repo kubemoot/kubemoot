@@ -770,10 +770,34 @@ export interface CrewFitnessSuiteSpec {
 	perIterationTimeout?: string;
 	artifactRetention?: string;
 	purgeMemory?: boolean;
+	/** PerTrial (default) clears crew memory before every trial; PerSuite once. */
+	trialIsolation?: 'PerTrial' | 'PerSuite';
+	/** Capability suites leave room to improve; Regression suites sit near 100%. */
+	purpose?: 'Capability' | 'Regression';
 	/** true pauses between iterations; false resumes. */
 	suspend?: boolean;
 	/** true stops the suite (terminal Cancelled phase). */
 	cancel?: boolean;
+}
+
+/** One scenario's rollup in status.scenarios (consistency fields only). */
+export interface SuiteScenarioResult {
+	name: string;
+	iterations?: number;
+	passed?: number;
+	/** Share of finished trials that passed, 0-100. */
+	passRate?: number;
+	/** Chance all k trials pass, 0-100 (pass rate raised to k). */
+	passAllK?: number;
+	/** At least three trials finished and none passed: check the scenario. */
+	checkScenario?: boolean;
+}
+
+export interface SuiteConsistency {
+	meanPassAllK?: number;
+	scenariosToCheck?: number;
+	/** Set only on a Regression suite: scenarios below a 100% pass rate. */
+	regressions?: number;
 }
 
 export interface SuiteArtifactRef {
@@ -794,6 +818,8 @@ export interface CrewFitnessSuiteStatus {
 	errored?: number;
 	artifactRef?: SuiteArtifactRef;
 	error?: string;
+	scenarios?: SuiteScenarioResult[];
+	consistency?: SuiteConsistency;
 	conditions?: Condition[];
 }
 

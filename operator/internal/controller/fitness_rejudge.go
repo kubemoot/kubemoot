@@ -114,7 +114,7 @@ func (r *CrewFitnessSuiteReconciler) startRejudge(ctx context.Context, suite *ku
 		return r.failRejudge(ctx, suite, err)
 	}
 	r.completeRejudge(suite, runID, plan, progress)
-	suite.Status.Scenarios = rejudgeScenarios(r.store(), suite)
+	setScenarioRollup(suite, rejudgeScenarios(r.store(), suite))
 	suite.Status.Judge = r.newJudgeStatus(kubemootv1alpha1.FitnessJudgePhaseJudging)
 	if err := r.Status().Update(ctx, suite); err != nil {
 		return ctrl.Result{}, err

@@ -49,6 +49,7 @@ import (
 	"time"
 
 	"github.com/xuri/excelize/v2"
+	"k8s.io/apimachinery/pkg/api/meta"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -506,6 +507,8 @@ type scenarioStat struct {
 	factuality      float64 // deterministic fact-assertion pass-rate mean (-1 = none authored)
 	fabFraction     float64 // fraction of runs that asserted a forbidden/stale fact
 	grade           float64 // composite scenario grade (cached for the formula)
+	passAllK        float64 // chance all k trials pass (pass-rate^k) × 100
+	checkScenario   bool    // never passed across enough trials: check the scenario
 }
 
 // scenarioAcc accumulates one scenario's per-run measures before reduction.
@@ -616,6 +619,8 @@ func (a *scenarioAcc) toStat(s string, consistency, judgeQuality map[string]floa
 		meanCorrectness: mc, meanAdherence: ma, meanEfficiency: me,
 		reliability: rel, participation: part, selectivity: sel, consistency: cons, quality: q,
 		factuality: fact, fabFraction: fabFrac,
+		passAllK:      float64(passAllKPercent(int32(a.passed), int32(a.total))),
+		checkScenario: scenarioNeedsCheck(int32(a.passed), int32(a.total)),
 		grade: scenarioGrade(gradeMeasures{
 			quality: q, reliability: rel, factuality: fact, fabFraction: fabFrac,
 			participation: part, consistency: cons, efficiency: me,
@@ -802,7 +807,7 @@ func writeScenariosSheet(f *excelize.File, aggs []scenarioStat) error {
 		columnScenario, "sample_count", "passed", "failed", "errored",
 		"duration_mean_ms", "duration_p50_ms", "duration_p90_ms", "pass_rate",
 		"mean_correctness", "mean_adherence", "mean_efficiency", "self_consistency", "participation", "quality", "scenario_grade", "mean_selectivity",
-		"factuality", "fabrication_pct",
+		"factuality", "fabrication_pct", "pass_all_k", "check_scenario",
 	}
 	for col, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(col+1, 1)
@@ -820,6 +825,7 @@ func writeScenariosSheet(f *excelize.File, aggs []scenarioStat) error {
 	// factuality (R) is a 0-100 score like J:Q; fabrication_pct (S) is a fraction.
 	_ = f.SetColStyle(sheetScenarios, "J:R", scoreStyle(f))
 	_ = f.SetColStyle(sheetScenarios, "S:S", pctStyle)
+	_ = f.SetColStyle(sheetScenarios, "T:T", scoreStyle(f))
 	return nil
 }
 
@@ -916,7 +922,25 @@ func writeScenarioScores(f *excelize.File, a scenarioStat, r int) error {
 	if err := f.SetCellValue(sheetScenarios, cellAt(18, r), factualityCell(a.factuality)); err != nil {
 		return err
 	}
-	return f.SetCellValue(sheetScenarios, cellAt(19, r), a.fabFraction)
+	return writeScenarioConsistency(f, a, r)
+}
+
+// writeScenarioConsistency writes fabrication_pct (fraction of runs that tripped a
+// forbidden/stale claim), pass_all_k (the chance all k trials pass, 0-100) and
+// check_scenario (yes when the scenario never passed across enough trials). They
+// follow the columns the chart tabs reference, so those positions stay stable.
+func writeScenarioConsistency(f *excelize.File, a scenarioStat, r int) error {
+	if err := f.SetCellValue(sheetScenarios, cellAt(19, r), a.fabFraction); err != nil {
+		return err
+	}
+	if err := f.SetCellValue(sheetScenarios, cellAt(20, r), a.passAllK); err != nil {
+		return err
+	}
+	check := ""
+	if a.checkScenario {
+		check = "yes"
+	}
+	return f.SetCellValue(sheetScenarios, cellAt(21, r), check)
 }
 
 // writeOverviewSheet writes the suite-level summary: human metadata plus roll-up
@@ -1082,6 +1106,36 @@ func (o *overviewWriter) config(suite *kubemootv1alpha1.CrewFitnessSuite) error 
 	return nil
 }
 
+// consistency writes how independent the trials were and how reliably the
+// scenarios passed: the isolation the run held, the suite's purpose, the mean
+// pass^k, and how many scenarios never passed.
+func (o *overviewWriter) consistency(suite *kubemootv1alpha1.CrewFitnessSuite) error {
+	if c := meta.FindStatusCondition(suite.Status.Conditions, kubemootv1alpha1.ConditionTrialsIndependent); c != nil {
+		if err := o.put("Trials independent", fmt.Sprintf("%s (%s)", strings.ToLower(string(c.Status)), c.Reason)); err != nil {
+			return err
+		}
+	}
+	if suite.Spec.Purpose != "" {
+		if err := o.put("Purpose", string(suite.Spec.Purpose)); err != nil {
+			return err
+		}
+	}
+	c := suite.Status.Consistency
+	if c == nil || c.MeanPassAllK == nil {
+		return nil
+	}
+	if err := o.put("Mean pass^k (%)", *c.MeanPassAllK); err != nil {
+		return err
+	}
+	if err := o.put("Scenarios to check", c.ScenariosToCheck); err != nil {
+		return err
+	}
+	if c.Regressions != nil {
+		return o.put("Scenarios below 100% pass rate", *c.Regressions)
+	}
+	return nil
+}
+
 // rollups writes the totals as live formulas over the Scenarios/Runs sheets.
 func (o *overviewWriter) rollups(last int) error {
 	for _, lf := range [][2]string{
@@ -1124,6 +1178,9 @@ func writeOverviewSheet(f *excelize.File, suite *kubemootv1alpha1.CrewFitnessSui
 		return err
 	}
 	if err := o.rollups(last); err != nil {
+		return err
+	}
+	if err := o.consistency(suite); err != nil {
 		return err
 	}
 	// --- Scorecard (Rubric folded in): how the crew grade is computed ---
