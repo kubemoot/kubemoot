@@ -35,6 +35,9 @@ spec:
     - jsonPath: .status.failed
       name: Failed
       type: integer
+    - jsonPath: .status.consistency.meanPassAllK
+      name: PassAllK
+      type: integer
     - jsonPath: .status.judge.phase
       name: Judge
       type: string
@@ -139,10 +142,22 @@ spec:
               purgeMemory:
                 default: true
                 description: |-
-                  PurgeMemory clears the target crew's working memory once before the run so
-                  the suite starts from a clean state (results aren't biased by facts the crew
-                  learned in earlier runs). Defaults to true.
+                  PurgeMemory clears the target crew's working memory before the run so the
+                  suite starts from a clean state (results aren't biased by facts the crew
+                  learned in earlier runs). TrialIsolation decides whether it also clears
+                  between trials. False leaves the crew's memory alone for the whole run.
+                  Defaults to true.
                 type: boolean
+              purpose:
+                description: |-
+                  Purpose says what the suite is for: Capability suites start low and leave
+                  room to improve; Regression suites sit near 100% and catch breakage. A
+                  regression suite counts its scenarios below 100% in
+                  status.consistency.regressions. Optional; absent means unclassified.
+                enum:
+                - Capability
+                - Regression
+                type: string
               rejudge:
                 description: |-
                   Rejudge makes this suite a judge-only pass over an earlier run. When set,
@@ -215,6 +230,19 @@ spec:
                   back to false resumes the suite at the next unscheduled iteration.
                   Ignored once the suite is terminal. Default false.
                 type: boolean
+              trialIsolation:
+                default: PerTrial
+                description: |-
+                  TrialIsolation sets whether the trials of a scenario share crew memory.
+                  PerTrial (default) clears the crew's working memory before every trial, so
+                  a fact the crew learns in one trial cannot help the next; it runs the
+                  trials one at a time whatever spec.concurrency says. PerSuite clears it
+                  once before the first trial, so later trials can build on earlier ones:
+                  use it to measure learning. It has no effect when purgeMemory is false.
+                enum:
+                - PerTrial
+                - PerSuite
+                type: string
             required:
             - crewRef
             - iterations
@@ -317,6 +345,29 @@ spec:
                   - type
                   type: object
                 type: array
+              consistency:
+                description: Consistency summarizes pass^k across the scenarios in
+                  status.scenarios.
+                properties:
+                  meanPassAllK:
+                    description: |-
+                      MeanPassAllK is the mean of the scenarios' passAllK, 0 to 100, rounded,
+                      over the scenarios with a finished trial.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                  regressions:
+                    description: |-
+                      Regressions counts the scenarios below a 100% pass rate. It is set only
+                      when spec.purpose is Regression.
+                    format: int32
+                    type: integer
+                  scenariosToCheck:
+                    description: ScenariosToCheck counts the scenarios flagged checkScenario.
+                    format: int32
+                    type: integer
+                type: object
               error:
                 description: Error provides details when Phase is Error.
                 type: string
@@ -516,6 +567,12 @@ spec:
                     assertionsTotal:
                       format: int32
                       type: integer
+                    checkScenario:
+                      description: |-
+                        CheckScenario is true when at least three trials finished and none passed.
+                        A scenario that never passes usually has a broken script or reference, not
+                        an incapable crew: read the transcripts before judging the crew.
+                      type: boolean
                     errored:
                       format: int32
                       type: integer
@@ -543,6 +600,25 @@ spec:
                       description: Name is the script's testRef.
                       maxLength: 253
                       type: string
+                    passAllK:
+                      description: |-
+                        PassAllK is the chance that all k trials pass, 0 to 100, rounded: the
+                        per-trial pass rate raised to k, where k is the number of finished trials
+                        of this scenario. At 75% per trial and three trials it is about 42%. It
+                        falls fast as k grows, so it is the number to read for a crew people rely
+                        on. Absent until a trial finishes.
+                      format: int32
+                      maximum: 100
+                      minimum: 0
+                      type: integer
+                    passRate:
+                      description: |-
+                        PassRate is the share of the finished trials that passed, 0 to 100,
+                        rounded. Absent until a trial finishes.
+                      format: int32
+                      maximum: 100
+                      minimum: 0
+                      type: integer
                     passed:
                       description: Passed, Failed and Errored break Iterations down
                         by outcome.

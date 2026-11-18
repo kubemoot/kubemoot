@@ -37,7 +37,9 @@ spec:
 | `concurrency` | int | `1` | Maximum runs in flight at once. Keep it at 1 for baselines: parallel runs share the crew and its model servers, so they measure contention. |
 | `perIterationTimeout` | duration | `10m` | Wall-clock cap for one iteration. |
 | `artifactRetention` | duration | `168h` | Object Store TTL for the XLSX. |
-| `purgeMemory` | bool | `true` | Clear the crew's working memory once before the first iteration. |
+| `purgeMemory` | bool | `true` | Clear the crew's working memory before the run. Set it to `false` to leave the crew's memory alone for the whole run. |
+| `trialIsolation` | `PerTrial` or `PerSuite` | `PerTrial` | `PerTrial` clears the crew's working memory before every trial and runs the trials one at a time, so a trial cannot use what an earlier one taught the crew. `PerSuite` clears it once before the first trial: use it to measure learning. See [Independent trials](#independent-trials). |
+| `purpose` | `Capability` or `Regression` | | What the suite is for. A capability suite starts low and leaves room to improve; a regression suite sits near 100% and catches breakage. Optional. |
 | `suspend` | bool | `false` | Pause between iterations. See [Pause, resume and stop](#pause-resume-and-stop). |
 | `cancel` | bool | `false` | Stop the suite. See [Pause, resume and stop](#pause-resume-and-stop). |
 | `rejudge` | object | | Set at creation, immutable. Judge an earlier run's saved answers against this suite's scripts instead of running iterations. `suite` names the source `CrewFitnessSuite` in the same namespace and `runId` its run. See [Re-judge an earlier run](#re-judge-an-earlier-run). |
@@ -57,6 +59,7 @@ spec:
 | `error` | Why the suite itself failed to execute (phase `Error`). |
 | `rejudge` | On a re-judge suite: the `source` run, how many `transcripts` were copied, and `notInSource`, the scenarios of this suite the source run has no answer for. |
 | `scenarios` | Per-scenario rollup of the finished iterations, in spec order. See [Results in status](#results-in-status). |
+| `consistency` | How reliably the scenarios pass: the mean pass^k, the scenarios to check, and for a regression suite the scenarios below 100%. See [Consistency](#consistency-pass-and-pass-k). |
 | `judge` | Progress and scores of the deferred judge pass. See [Results in status](#results-in-status). |
 | `conditions` | On a re-judge suite, `RejudgeSourceReady` reports whether the source could be used. See [Re-judge an earlier run](#re-judge-an-earlier-run). |
 
@@ -131,9 +134,36 @@ One row per distinct `testRef`, in the order of `spec.scripts`. A script with no
 | `passed`, `failed`, `errored` | `iterations` broken down by outcome. |
 | `meanDurationMs` | Mean wall-clock duration of the finished iterations. |
 | `assertionsPassed`, `assertionsTotal` | Assertion results summed over the finished iterations. |
+| `passRate` | Share of the finished iterations that passed, 0 to 100, rounded. |
+| `passAllK` | The chance that all k iterations pass, 0 to 100, rounded. See [Consistency](#consistency-pass-and-pass-k). |
+| `checkScenario` | `true` when at least three iterations finished and none passed. See [Consistency](#consistency-pass-and-pass-k). |
 | `inventedNameRuns` | Finished iterations whose answer named a resource that no tool result of the run held (see [Invented names](#invented-names)). Counted from the run's transcripts when the suite is terminal; absent when none. |
 
 On a re-judge suite the rows come from the copied transcripts, with the durations of the source run.
+
+### Consistency: pass rate and pass^k
+
+The mean quality in `status.judge` says how good the answers are on average. It does not say whether every trial passed. For a crew people rely on, that is the number that matters, so each scenario row also carries:
+
+- `passRate`: the share of finished trials that passed.
+- `passAllK`: the chance that all k trials pass, estimated as the per-trial pass rate raised to the power k, where k is the number of finished trials of that scenario. It falls fast as k grows: a scenario that passes 75% of the time passes three trials in a row about 42% of the time.
+- `checkScenario`: true when at least three trials finished and none passed. A scenario that never passes usually has a broken script or reference, not an incapable crew, so read its transcripts before judging the crew. Fewer than three trials are too few to call a pattern, so a scenario is not flagged before then.
+
+`status.consistency` rolls the rows up: `meanPassAllK` is the mean of the scenarios' `passAllK` over the scenarios with a finished trial, `scenariosToCheck` counts the flagged scenarios, and on a suite with `spec.purpose: Regression`, `regressions` counts the scenarios below a 100% pass rate. A trial passes when its assertions pass (phase `Passed`); a failed or errored trial does not. `kubectl get crewfitnesssuites` shows the mean in the `PassAllK` column.
+
+The XLSX carries the same figures: the Scenarios sheet has `pass_all_k` and `check_scenario` columns after `fabrication_pct`, and the Overview tab lists the trial isolation, the purpose, the mean pass^k, and the scenarios to check. The Overview tab reads them from the suite status, so they are absent on a suite that finished before the fields existed.
+
+Balanced scenarios keep these numbers honest. Include scenarios where the right answer is to stand aside or to say the data is unavailable beside the ones where the crew should act, so tuning toward one side shows up as a drop in the other.
+
+### Independent trials
+
+A trial should start from a clean environment. State shared between trials makes failures correlated and can leak an answer from one trial to the next: a fact the crew stores in the first trial would help the second trial of the same scenario.
+
+With the default `trialIsolation: PerTrial`, the operator clears the crew's working memory before every trial, and runs trials one at a time whatever `spec.concurrency` says (crew memory is per crew, so two trials in flight would share it). If the clear fails, the trial is not created and the reconcile retries, because a trial on unclear memory would not be independent. Set `trialIsolation: PerSuite` to clear once before the first trial and let later trials build on earlier ones, which measures learning. Setting `purgeMemory: false` turns clearing off entirely.
+
+The suite's `TrialsIndependent` condition says what held, from the moment the suite starts: `True` with reason `PerTrialPurge`, or `False` with reason `SharedAcrossTrials` (`PerSuite`), `PurgeDisabled` (`purgeMemory: false`), or `NoMemoryStore` (the operator has no message bus to clear memory with). The XLSX Overview tab repeats it, so a result says whether its trials were independent.
+
+Crew memory is not the only state a trial can leave behind. The harness pods are per iteration, and the thread's workspace is deleted when the iteration ends.
 
 ### Invented names
 

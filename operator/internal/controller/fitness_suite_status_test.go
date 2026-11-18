@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -72,11 +73,12 @@ func TestScenarioResultsRollsUpInSpecOrder(t *testing.T) {
 	}
 	got := scenarioResults(scripts("a", "b", "a", "c"), results)
 	want := []kubemootv1alpha1.SuiteScenarioResult{
-		{Name: "a", Iterations: 1, Errored: 1, MeanDurationMs: 50},
-		{Name: "b", Iterations: 2, Passed: 1, Failed: 1, MeanDurationMs: 200, AssertionsPassed: 3, AssertionsTotal: 4},
+		{Name: "a", Iterations: 1, Errored: 1, MeanDurationMs: 50, PassRate: ptr.To(int32(0)), PassAllK: ptr.To(int32(0))},
+		{Name: "b", Iterations: 2, Passed: 1, Failed: 1, MeanDurationMs: 200, AssertionsPassed: 3, AssertionsTotal: 4,
+			PassRate: ptr.To(int32(50)), PassAllK: ptr.To(int32(25))},
 		{Name: "c"},
 	}
-	if fmt.Sprint(got) != fmt.Sprint(want) {
+	if !equality.Semantic.DeepEqual(got, want) {
 		t.Errorf("scenarioResults = %+v\nwant %+v", got, want)
 	}
 }

@@ -69,6 +69,8 @@ type CrewFitnessSuiteReconciler struct {
 	// judgeClient replaces the default judge dispatch client in tests, so a
 	// pass never depends on the host's network or DNS.
 	judgeClient *http.Client
+	// memory replaces NATSPublisher as the crew-memory purger in tests.
+	memory memoryPurger
 }
 
 // judgeHTTPClient returns the client the judge pass dispatches with.
@@ -257,6 +259,7 @@ func (r *CrewFitnessSuiteReconciler) startSuite(ctx context.Context, suite *kube
 	// Bring the crew to a clean, cold state once before any iteration runs
 	// (purge working memory + unload models). Both default on; best-effort.
 	r.coldStart(ctx, suite)
+	r.recordTrialIsolation(suite)
 
 	now := metav1.Now()
 	suite.Status.Phase = kubemootv1alpha1.CrewFitnessSuitePhaseRunning
@@ -267,7 +270,7 @@ func (r *CrewFitnessSuiteReconciler) startSuite(ctx context.Context, suite *kube
 	suite.Status.Passed = 0
 	suite.Status.Failed = 0
 	suite.Status.Errored = 0
-	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, nil)
+	setScenarioRollup(suite, scenarioResults(suite.Spec.Scripts, nil))
 	suite.Status.Judge = r.newJudgeStatus(kubemootv1alpha1.FitnessJudgePhasePending)
 	if err := r.Status().Update(ctx, suite); err != nil {
 		return ctrl.Result{}, err
@@ -302,7 +305,7 @@ func (r *CrewFitnessSuiteReconciler) advanceRunning(ctx context.Context, suite *
 	}
 
 	applyProgress(suite, progress)
-	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, HarvestIterationResults(terminalChildren(children)))
+	setScenarioRollup(suite, scenarioResults(suite.Spec.Scripts, HarvestIterationResults(terminalChildren(children))))
 	suite.Status.Phase = runningNextPhase(suite.Spec.Suspend, progress, suite.Status.IterationsTotal)
 	if suite.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhaseCompleted {
 		// Phase reflects EXECUTION lifecycle, not aggregate test outcome: all
@@ -364,11 +367,14 @@ func (r *CrewFitnessSuiteReconciler) scheduleBatch(ctx context.Context, suite *k
 	for i := range children {
 		scheduled[children[i].Name] = true
 	}
-	concurrency := max(int(suite.Spec.Concurrency), 1)
+	concurrency := effectiveConcurrency(suite)
 	for inFlight < concurrency {
 		next := r.findNextIteration(suite, scheduled)
 		if next == nil {
 			return nil // nothing left to schedule
+		}
+		if err := r.purgeBeforeTrial(suite); err != nil {
+			return err
 		}
 		if err := r.createIterationCR(ctx, suite, next); err != nil {
 			return fmt.Errorf("creating iteration CR: %w", err)
@@ -413,7 +419,7 @@ func (r *CrewFitnessSuiteReconciler) cancelSuite(ctx context.Context, suite *kub
 	}
 	finished := terminalChildren(children)
 	applyProgress(suite, summarizeChildren(finished))
-	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, HarvestIterationResults(finished))
+	setScenarioRollup(suite, scenarioResults(suite.Spec.Scripts, HarvestIterationResults(finished)))
 	suite.Status.Judge = r.newJudgeStatus(kubemootv1alpha1.FitnessJudgePhaseSkipped)
 	if suite.Status.RunID == "" {
 		// Cancelled before it started: record the run identity and the planned

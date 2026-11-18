@@ -73,12 +73,31 @@ type CrewFitnessSuiteSpec struct {
 	// +kubebuilder:default="168h"
 	ArtifactRetention *metav1.Duration `json:"artifactRetention,omitempty"`
 
-	// PurgeMemory clears the target crew's working memory once before the run so
-	// the suite starts from a clean state (results aren't biased by facts the crew
-	// learned in earlier runs). Defaults to true.
+	// PurgeMemory clears the target crew's working memory before the run so the
+	// suite starts from a clean state (results aren't biased by facts the crew
+	// learned in earlier runs). TrialIsolation decides whether it also clears
+	// between trials. False leaves the crew's memory alone for the whole run.
+	// Defaults to true.
 	// +optional
 	// +kubebuilder:default=true
 	PurgeMemory *bool `json:"purgeMemory,omitempty"`
+
+	// TrialIsolation sets whether the trials of a scenario share crew memory.
+	// PerTrial (default) clears the crew's working memory before every trial, so
+	// a fact the crew learns in one trial cannot help the next; it runs the
+	// trials one at a time whatever spec.concurrency says. PerSuite clears it
+	// once before the first trial, so later trials can build on earlier ones:
+	// use it to measure learning. It has no effect when purgeMemory is false.
+	// +optional
+	// +kubebuilder:default=PerTrial
+	TrialIsolation FitnessTrialIsolation `json:"trialIsolation,omitempty"`
+
+	// Purpose says what the suite is for: Capability suites start low and leave
+	// room to improve; Regression suites sit near 100% and catch breakage. A
+	// regression suite counts its scenarios below 100% in
+	// status.consistency.regressions. Optional; absent means unclassified.
+	// +optional
+	Purpose FitnessSuitePurpose `json:"purpose,omitempty"`
 
 	// Suspend pauses the suite between iterations. While true, no new
 	// iteration starts; any iteration already running finishes and its result
@@ -112,6 +131,28 @@ type CrewFitnessSuiteSpec struct {
 	// +optional
 	Rejudge *RejudgeSource `json:"rejudge,omitempty"`
 }
+
+// FitnessTrialIsolation is how far apart a suite keeps its trials.
+// +kubebuilder:validation:Enum=PerTrial;PerSuite
+type FitnessTrialIsolation string
+
+const (
+	// FitnessTrialIsolationPerTrial clears crew memory before every trial.
+	FitnessTrialIsolationPerTrial FitnessTrialIsolation = "PerTrial"
+	// FitnessTrialIsolationPerSuite clears crew memory once, before the first trial.
+	FitnessTrialIsolationPerSuite FitnessTrialIsolation = "PerSuite"
+)
+
+// FitnessSuitePurpose classifies a suite as a capability or a regression suite.
+// +kubebuilder:validation:Enum=Capability;Regression
+type FitnessSuitePurpose string
+
+const (
+	// FitnessSuitePurposeCapability: scenarios start low and leave room to improve.
+	FitnessSuitePurposeCapability FitnessSuitePurpose = "Capability"
+	// FitnessSuitePurposeRegression: scenarios sit near 100% and catch breakage.
+	FitnessSuitePurposeRegression FitnessSuitePurpose = "Regression"
+)
 
 // RejudgeSource names the earlier run a re-judge suite scores again.
 type RejudgeSource struct {
@@ -354,7 +395,54 @@ type SuiteScenarioResult struct {
 	// verdict reads it. The names are in the XLSX Runs sheet.
 	// +optional
 	InventedNameRuns int32 `json:"inventedNameRuns,omitempty"`
+
+	// PassRate is the share of the finished trials that passed, 0 to 100,
+	// rounded. Absent until a trial finishes.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	PassRate *int32 `json:"passRate,omitempty"`
+
+	// PassAllK is the chance that all k trials pass, 0 to 100, rounded: the
+	// per-trial pass rate raised to k, where k is the number of finished trials
+	// of this scenario. At 75% per trial and three trials it is about 42%. It
+	// falls fast as k grows, so it is the number to read for a crew people rely
+	// on. Absent until a trial finishes.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	PassAllK *int32 `json:"passAllK,omitempty"`
+
+	// CheckScenario is true when at least three trials finished and none passed.
+	// A scenario that never passes usually has a broken script or reference, not
+	// an incapable crew: read the transcripts before judging the crew.
+	// +optional
+	CheckScenario bool `json:"checkScenario,omitempty"`
 }
+
+// SuiteConsistency summarizes how reliably the scenarios of a run pass, beside
+// the mean quality in status.judge.
+type SuiteConsistency struct {
+	// MeanPassAllK is the mean of the scenarios' passAllK, 0 to 100, rounded,
+	// over the scenarios with a finished trial.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	MeanPassAllK *int32 `json:"meanPassAllK,omitempty"`
+
+	// ScenariosToCheck counts the scenarios flagged checkScenario.
+	// +optional
+	ScenariosToCheck int32 `json:"scenariosToCheck,omitempty"`
+
+	// Regressions counts the scenarios below a 100% pass rate. It is set only
+	// when spec.purpose is Regression.
+	// +optional
+	Regressions *int32 `json:"regressions,omitempty"`
+}
+
+// ConditionTrialsIndependent reports whether the trials of a suite ran without
+// sharing crew memory. Its reason says why when they did not.
+const ConditionTrialsIndependent = "TrialsIndependent"
 
 // CrewFitnessSuiteStatus reflects the observed state of a suite run.
 type CrewFitnessSuiteStatus struct {
@@ -412,6 +500,10 @@ type CrewFitnessSuiteStatus struct {
 	// +kubebuilder:validation:MaxItems=300
 	Scenarios []SuiteScenarioResult `json:"scenarios,omitempty"`
 
+	// Consistency summarizes pass^k across the scenarios in status.scenarios.
+	// +optional
+	Consistency *SuiteConsistency `json:"consistency,omitempty"`
+
 	// Judge reports the deferred judge pass over this run. Absent when no
 	// artifact store is configured.
 	// +optional
@@ -431,6 +523,7 @@ type CrewFitnessSuiteStatus struct {
 // +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.iterationsTotal`
 // +kubebuilder:printcolumn:name="Passed",type=integer,JSONPath=`.status.passed`
 // +kubebuilder:printcolumn:name="Failed",type=integer,JSONPath=`.status.failed`
+// +kubebuilder:printcolumn:name="PassAllK",type=integer,JSONPath=`.status.consistency.meanPassAllK`
 // +kubebuilder:printcolumn:name="Judge",type=string,JSONPath=`.status.judge.phase`
 // +kubebuilder:printcolumn:name="Quality",type=integer,JSONPath=`.status.judge.mean`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
