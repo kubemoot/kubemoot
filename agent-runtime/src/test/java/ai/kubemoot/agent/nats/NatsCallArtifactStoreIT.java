@@ -122,7 +122,7 @@ class NatsCallArtifactStoreIT {
             assertEquals("utf8-pct:{\"a\":%0A\"b\"}", info.getHeaders().getFirst(CallHeaders.TOOL_CALL_ARGUMENTS),
                     "a line break in a value is encoded, so the value reads back as written");
             assertEquals("{\"a\":\n\"b\"}", HeaderValue.decode(info.getHeaders().getFirst(CallHeaders.TOOL_CALL_ARGUMENTS)));
-            // The wire form other clients (artifact-access, in Go) read: headers as name -> list of values.
+            // The wire form other clients (workspace-access, in Go) read: headers as name -> list of values.
             String metaSubject = "$O." + DiscussionArtifacts.WORKSPACE_BUCKET + ".M."
                     + java.util.Base64.getUrlEncoder().encodeToString(key.getBytes(StandardCharsets.UTF_8));
             String rawMeta = new String(conn.jetStreamManagement()

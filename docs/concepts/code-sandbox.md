@@ -31,7 +31,7 @@ comes to it:
 
 1. An agent fetches the data from the live system, and each tool result is stored as its own file in the crew's
    [artifact store](../discussion-artifact-store/), announcing it on the bus.
-2. The artifact-access materializer, a sidecar in the sandbox pod, reads the referenced
+2. The workspace-access materializer, a sidecar in the sandbox pod, reads the referenced
    objects from the store over the message bus and writes them to a shared volume under
    `/artifacts`.
 3. The compute agent's program reads those files and computes over them locally.
@@ -100,7 +100,7 @@ kind: MCPServer
 metadata:
   name: code-sandbox
 spec:
-  # image and the artifact-access sidecar as in your crew
+  # image and the workspace-access sidecar as in your crew
   transport: http
   port: 3000
   healthPath: /healthz

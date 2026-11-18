@@ -69,7 +69,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/release-chart-lib.sh"
 
 RC_TAG="${RC_TAG:-latest}"
 DRY_RUN="${DRY_RUN:-true}"
-STANDALONE_IMAGES="${STANDALONE_IMAGES:-code-sandbox artifact-access scheduling-mcp test-runner}"
+STANDALONE_IMAGES="${STANDALONE_IMAGES:-code-sandbox workspace-access scheduling-mcp test-runner}"
 OUT_DIR="$(mkdir -p "${OUT_DIR:-release-files}" && cd "${OUT_DIR:-release-files}" && pwd)"
 : "${REGISTRY:?REGISTRY required}"
 : "${RELEASE_REGISTRY:?RELEASE_REGISTRY required}"

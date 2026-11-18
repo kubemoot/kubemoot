@@ -6,7 +6,7 @@ and the exit code back. Counting, sorting, and arithmetic come from running
 code, not from the model reading a list.
 
 The pod is the sandbox. It holds no credentials, the crew's network policy
-limits its egress, and the artifact-access materializer sidecar stages the data
+limits its egress, and the workspace-access materializer sidecar stages the data
 a program reads under `/artifacts`.
 
 ## Why a sandbox
@@ -89,7 +89,7 @@ environment variable `MCP_TRANSPORT=http`. The operator then adds no bridge side
 Service on `port`, and registers `http://<name>.<namespace>:<port>` with the gateway, which
 calls `/mcp`. Set `healthPath: /healthz` and `readinessPath: /readyz` for HTTP probes; without
 them the operator probes the TCP port. The container then runs the image entrypoint (or the
-MCPServer's `command`); the artifact-access sidecar and the `/artifacts` volume work the same.
+MCPServer's `command`); the workspace-access sidecar and the `/artifacts` volume work the same.
 
 ## Test
 

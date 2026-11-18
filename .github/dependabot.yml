@@ -48,7 +48,7 @@ updates:
     directories:
       - "/accelerator-mcp"
       - "/agent-sidecar"
-      - "/artifact-access"
+      - "/workspace-access"
       - "/code-sandbox"
       - "/crew-liaison"
       - "/discussion-gateway"

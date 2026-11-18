@@ -1,5 +1,5 @@
 {
- "description": "What a stored tool result is, shared by artifact-access (Go, workspace.DetectContentType) and agent-runtime (Java, ResultType). Each case maps the text of a result to the Content-Type recorded for it. The first five lines of a result decide everything but JSON, which reads the whole text.",
+ "description": "What a stored tool result is, shared by workspace-access (Go, workspace.DetectContentType) and agent-runtime (Java, ResultType). Each case maps the text of a result to the Content-Type recorded for it. The first five lines of a result decide everything but JSON, which reads the whole text.",
  "cases": [
   {
    "name": "JSON list",

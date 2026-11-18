@@ -339,7 +339,7 @@ func (r *MCPServerReconciler) buildDeployment(mcpServer *kubemootv1alpha1.MCPSer
 	container.VolumeMounts = volumeMounts
 
 	initContainers, volumes, container := r.applyBridgeSidecar(mcpServer, container, volumes, volumeMounts)
-	// User-declared sidecars (e.g. the artifact-access materializer) run as native
+	// User-declared sidecars (e.g. the workspace-access materializer) run as native
 	// sidecars alongside the bridge, sharing the pod's volumes.
 	initContainers = append(initContainers, buildUserSidecars(mcpServer)...)
 
@@ -409,7 +409,7 @@ func emptyDirVolumeName(i int) string {
 // Each sidecar also gets the pod's EmptyDirVolumes mounted at the same paths the
 // main container sees (EmptyDirVolume has no user-settable name, so the sidecar
 // cannot reference it itself) - this is how a sidecar stages files the main
-// container reads (the artifact-access materializer -> the code sandbox).
+// container reads (the workspace-access materializer -> the code sandbox).
 func buildUserSidecars(mcpServer *kubemootv1alpha1.MCPServer) []corev1.Container {
 	if len(mcpServer.Spec.Sidecars) == 0 {
 		return nil
@@ -435,7 +435,7 @@ func buildUserSidecars(mcpServer *kubemootv1alpha1.MCPServer) []corev1.Container
 
 // withNamespaceEnv returns a copy of env with KUBEMOOT_NAMESPACE from the
 // downward API appended, unless env already sets it. MCP servers that build
-// namespaced subjects or keys (scheduling-mcp, artifact-access) read it.
+// namespaced subjects or keys (scheduling-mcp, workspace-access) read it.
 func withNamespaceEnv(env []corev1.EnvVar) []corev1.EnvVar {
 	for _, e := range env {
 		if e.Name == crewscope.NamespaceEnv {

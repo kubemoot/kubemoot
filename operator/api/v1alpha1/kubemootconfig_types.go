@@ -77,7 +77,7 @@ type ImageConfig struct {
 	// +optional
 	FitnessRunner string `json:"fitnessRunner,omitempty"`
 
-	// ArtifactAccess is the artifact-access image: the read-ops MCP server a crew
+	// ArtifactAccess is the workspace-access image: the read-ops MCP server a crew
 	// runs (ARTIFACT_MODE=mcp) to read the artifact store when a tool result spills
 	// over the inline limit. An MCPServer selects it with spec.kubemootImage
 	// instead of naming an image. The operator chart stamps it from the release;
@@ -266,18 +266,18 @@ type CoordinatorConfig struct {
 	Lease bool `json:"lease,omitempty"`
 }
 
-// ArtifactQueryEngine names the engine behind the artifact-access workspace_query tool.
+// ArtifactQueryEngine names the engine behind the workspace-access workspace_query tool.
 // +kubebuilder:validation:Enum=none;sqlite;duckdb
 type ArtifactQueryEngine string
 
 const (
-	// ArtifactQueryEngineNone offers no query tool; artifact-access offers no workspace_query.
+	// ArtifactQueryEngineNone offers no query tool; workspace-access offers no workspace_query.
 	ArtifactQueryEngineNone ArtifactQueryEngine = "none"
 	// ArtifactQueryEngineSQLite runs read-only SQL over artifacts with SQLite inside the
-	// artifact-access process. It needs nothing added to the image.
+	// workspace-access process. It needs nothing added to the image.
 	ArtifactQueryEngineSQLite ArtifactQueryEngine = "sqlite"
 	// ArtifactQueryEngineDuckDB runs read-only SQL over artifacts with DuckDB. The
-	// artifact-access image must carry the duckdb program.
+	// workspace-access image must carry the duckdb program.
 	ArtifactQueryEngineDuckDB ArtifactQueryEngine = "duckdb"
 )
 
@@ -285,7 +285,7 @@ const (
 type ArtifactsConfig struct {
 	// QueryEngine is the engine that answers workspace_query on every MCPServer that
 	// selects spec.kubemootImage artifactAccess. sqlite (the default, also when
-	// unset) runs in the artifact-access process and needs nothing added to the image;
+	// unset) runs in the workspace-access process and needs nothing added to the image;
 	// duckdb needs its program on the image; none offers no query tool.
 	// The operator sets ARTIFACT_QUERY_ENGINE on those servers; a server that sets the variable itself keeps its own value.
 	// +kubebuilder:default=sqlite

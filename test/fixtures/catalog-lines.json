@@ -1,5 +1,5 @@
 {
- "description": "The [CATALOG-CALL ...] line of one stored tool call, shared by artifact-access (Go, workspace_list) and agent-runtime (Java, ThreadCatalog, the review catalog). Each case maps the object's key and headers to the line, without the trailing started=<time> field that only workspace_list adds. A missing header is unknown (a missing Content-Type is unknown, a missing size header is the object's size). argsSummaries are cases of the arguments summary alone, which may hold characters a NATS header cannot.",
+ "description": "The [CATALOG-CALL ...] line of one stored tool call, shared by workspace-access (Go, workspace_list) and agent-runtime (Java, ThreadCatalog, the review catalog). Each case maps the object's key and headers to the line, without the trailing started=<time> field that only workspace_list adds. A missing header is unknown (a missing Content-Type is unknown, a missing size header is the object's size). argsSummaries are cases of the arguments summary alone, which may hold characters a NATS header cannot.",
  "prefix": "ns/crew/th1/",
  "cases": [
   {

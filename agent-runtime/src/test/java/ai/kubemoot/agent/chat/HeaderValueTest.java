@@ -9,7 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import org.junit.jupiter.api.Test;
 
-/** The header value encoding, on the fixture artifact-access (Go) runs too. */
+/** The header value encoding, on the fixture workspace-access (Go) runs too. */
 class HeaderValueTest {
 
     private static JsonNode fixture() throws Exception {

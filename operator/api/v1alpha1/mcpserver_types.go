@@ -302,7 +302,7 @@ type MCPServerSpec struct {
 	// restartPolicy=Always - the operator sets this regardless of what is
 	// supplied). They share the pod's volumes (e.g. an EmptyDirVolume), so a
 	// sidecar can stage data on a path the main container reads. Used by the
-	// artifact-access materializer beside the no-network code sandbox.
+	// workspace-access materializer beside the no-network code sandbox.
 	// +optional
 	Sidecars []corev1.Container `json:"sidecars,omitempty"`
 

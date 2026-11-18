@@ -230,7 +230,7 @@ check "a forced build makes the next candidate" 1 "$([ -f "${root}/chart-force/k
 # 4. An image the chart does not pin does not rebuild it; a pinned one, or a chart
 # source change, does.
 c3=$(c1_commit "fix: later work not yet built")
-git tag -a artifact-access-v0.342.33-rc.0 -m rc
+git tag -a workspace-access-v0.342.33-rc.0 -m rc
 git push -q origin main --tags 2>/dev/null
 DRY_RUN=false run_chart standalone && status=0 || status=$?
 check "a standalone image builds no chart" "0|false" "${status}|$(gh_out standalone released)"
@@ -304,7 +304,7 @@ check "plans the test-runner pin" 1 "$(grep -c 'image test-runner: 0.46.3-rc.0' 
 check "plans the dashboard subchart" 1 "$(grep -c 'image dashboard: 0.50.1-rc.0' <<<"$out")"
 check "plans a standalone image" 1 "$(grep -c 'image code-sandbox: 0.16.32-rc.1' <<<"$out")"
 check "plans scheduling-mcp with the standalone images" 1 "$(grep -c 'image scheduling-mcp: 0.1.0-rc.2 .* -> 0.1.0' <<<"$out")"
-check "skips a standalone candidate newer than the chart candidate" 0 "$(grep -c 'image artifact-access' <<<"$out" || true)"
+check "skips a standalone candidate newer than the chart candidate" 0 "$(grep -c 'image workspace-access' <<<"$out" || true)"
 check "a published pin is not published again" 1 "$(grep -c 'image mcp-gateway: .*already published' <<<"$out")"
 check "dry run copies nothing" 0 "$(grep -c '^crane copy' "$LOG" || true)"
 check "dry run pushes no chart" 0 "$(grep -c '^helm push' "$LOG" || true)"
@@ -604,6 +604,33 @@ check "the release workflows use one pin for the artifact actions and the releas
   "$(grep -ohE 'actions/upload-artifact@[0-9a-f]{40}' .github/workflows/publish-release.yaml | sort -u | wc -l | tr -d ' ')|$(grep -ohE 'actions/download-artifact@[0-9a-f]{40}' .github/workflows/publish-release.yaml .github/workflows/quickstart.yaml | sort -u | wc -l | tr -d ' ')|$(grep -ohE 'release-actions/setup@[0-9a-f]{40}' .github/workflows/publish-release.yaml | sort -u | wc -l | tr -d ' ')"
 check "no workflow writes a chart file" "" \
   "$(grep -nE '(sed|yq).*(Chart|values)\.yaml' .github/workflows/*.yaml | grep -v 'integration-test' || true)"
+
+# The workspace-access series continues the artifact-access one. The version action takes the last
+# FINAL <prefix>X.Y.Z tag as its base and ignores candidate tags, so the series is seeded with a final
+# tag (the last artifact-access final, 0.348.0 when this was written) on the commit before the rename.
+# A candidate-only seed would be no base at all, and the series would restart at 0.1.0.
+# shellcheck source=/dev/null
+source "$RELEASE_LIB"
+seed_repo="${root}/seed"
+git init -q "$seed_repo"
+(
+  cd "$seed_repo"
+  git -c user.name=t -c user.email=t@t commit -q --allow-empty -m "before the rename"
+  git tag workspace-access-v0.349.0-rc.0
+)
+check "a candidate-only seed is no base: the series would restart" "" \
+  "$(cd "$seed_repo" && rl_latest_final workspace-access-v HEAD)"
+(cd "$seed_repo" && git tag workspace-access-v0.348.0)
+check "a final seed is the base of the series" "workspace-access-v0.348.0" \
+  "$(cd "$seed_repo" && rl_latest_final workspace-access-v HEAD)"
+check "a breaking commit on the seeded series goes to the next minor, not 1.0.0" "0.349.0-rc.3" \
+  "$(cd "$seed_repo" && rl_held_version workspace-access-v 1.0.0-rc.3 false)"
+check "the first candidate after the seed is rc.N of the next minor" "0.349.0-rc.7" \
+  "$(cd "$seed_repo" && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m "feat!: rename" && rl_free_rc workspace-access-v 0.349.0-rc.7 false)"
+check "the release workflow builds on the workspace-access tag series" "1" \
+  "$(grep -c 'tag_prefix: "workspace-access-v"' .github/workflows/release-workspace-access.yaml)"
+check "the release workflow allows no major bump" "0" \
+  "$(grep -c 'allow_major: .true.' .github/workflows/release-workspace-access.yaml || true)"
 
 if [ "$failures" -ne 0 ]; then echo "${failures} test(s) failed"; exit 1; fi
 echo "all release script tests passed"

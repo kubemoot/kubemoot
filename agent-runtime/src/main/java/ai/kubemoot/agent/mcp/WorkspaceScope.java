@@ -14,13 +14,13 @@ import java.util.regex.Pattern;
  * when it calls a tool, as it does for {@link ai.kubemoot.agent.requester.RequesterScope}.
  *
  * <p>the workspace tools ({@link WorkspaceTools}, under either name) get the prefix in the call's MCP
- * {@code _meta} and resolve the key themselves (the artifact-access server). {@code execute_code}
+ * {@code _meta} and resolve the key themselves (the workspace-access server). {@code execute_code}
  * runs in a sandbox that knows no thread, so the code's {@code /artifacts/<agent>/<nnn>-<tool>}
  * paths are written out in full here before the call.
  */
 public final class WorkspaceScope {
 
-    /** The {@code _meta} entry that carries the thread's key prefix; the MCP gateway and artifact-access read it. */
+    /** The {@code _meta} entry that carries the thread's key prefix; the MCP gateway and workspace-access read it. */
     public static final String META_KEY = "workspacePrefix";
 
     private static final String EXECUTE_CODE = "execute_code";

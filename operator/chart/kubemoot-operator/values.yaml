@@ -347,10 +347,10 @@ coordinator:
   resumeMaxAge: 30m
   lease: false
 
-# The engine behind the artifact-access workspace_query tool: read-only SQL over the
-# artifacts of a discussion. sqlite (the default) runs queries inside the artifact-access process
+# The engine behind the workspace-access workspace_query tool: read-only SQL over the
+# artifacts of a discussion. sqlite (the default) runs queries inside the workspace-access process
 # (pure Go, nothing to add to the image). none offers no query tool. duckdb runs them with the duckdb
-# program, which the artifact-access image must carry. See
+# program, which the workspace-access image must carry. See
 # docs/concepts/discussion-artifact-store.md.
 # Every MCPServer that selects kubemootImage artifactAccess gets ARTIFACT_QUERY_ENGINE.
 artifacts:
@@ -501,7 +501,7 @@ kubemootConfig:
     mcpBridge: mcp-bridge:0.0.0
     discussionGateway: discussion-gateway:0.0.0
     fitnessRunner: fitness-runner:0.0.0
-    artifactAccess: artifact-access:0.0.0
+    artifactAccess: workspace-access:0.0.0
     doclingServe: quay.io/docling-project/docling-serve-cpu:latest
   # Default configurations
   defaults:

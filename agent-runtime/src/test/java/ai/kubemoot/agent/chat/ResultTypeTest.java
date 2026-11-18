@@ -23,7 +23,7 @@ class ResultTypeTest {
         }
     }
 
-    /** Seeded random inputs, typed by artifact-access (see contenttype_corpus_test.go): the two detectors must agree on every one. */
+    /** Seeded random inputs, typed by workspace-access (see contenttype_corpus_test.go): the two detectors must agree on every one. */
     @Test
     void generatedCorpusGivesTheSameTypesAsArtifactAccess() throws Exception {
         JsonNode cases = new ObjectMapper().readTree(new File("../test/fixtures/result-types-generated.json")).get("cases");

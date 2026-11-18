@@ -20,8 +20,8 @@ class WorkspaceScopeTest {
         try (var scope = WorkspaceScope.bind(PREFIX)) {
             for (String tool : new String[] {"workspace_query", "artifact_head", "artifact_tail", "artifact_grep",
                     "artifact_count", "artifact_rows", "artifact_select", "artifact_jq", "execute_code",
-                    "artifact-access.workspace_query", "workspace_head", "workspace_tail", "workspace_grep",
-                    "workspace_list", "workspace_describe", "artifact-access.workspace_head"}) {
+                    "workspace-access.workspace_query", "workspace_head", "workspace_tail", "workspace_grep",
+                    "workspace_list", "workspace_describe", "workspace-access.workspace_head"}) {
                 assertEquals(Map.of(WorkspaceScope.META_KEY, PREFIX), WorkspaceScope.metaFor(tool), tool);
             }
             for (String tool : new String[] {"resources_list", "pods_list", "execute_query", "validate_code",

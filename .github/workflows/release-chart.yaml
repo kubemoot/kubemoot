@@ -21,7 +21,7 @@ on:
       - Release Accelerator MCP
       - Release Agent Runtime
       - Release Agent Sidecar
-      - Release Artifact Access
+      - Release Workspace Access
       - Release Crew Liaison
       - Release Dashboard
       - Release Discussion Gateway

@@ -431,7 +431,7 @@ How it behaves:
 - When the KubemootConfig does not exist, or has no image for that name, the server stays
   in phase `Error` with `ImageResolved=False` and a message naming what is missing. It
   recovers on its own once the image appears.
-- The sidecars of an MCPServer (the artifact-access materializer next to the code sandbox)
+- The sidecars of an MCPServer (the workspace-access materializer next to the code sandbox)
   still name their image; `kubemootImage` applies to the server's main container.
 
 ### Connect an external MCP server that needs a key

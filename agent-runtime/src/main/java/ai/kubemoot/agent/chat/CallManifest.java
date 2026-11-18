@@ -120,7 +120,7 @@ public final class CallManifest {
     /** Most characters of a call's arguments in a manifest or catalog line. */
     public static final int ARGS_SUMMARY_CHARS = 60;
 
-    /** A run of the white space Go's strings.Fields-style folding in artifact-access treats as space: ASCII only. */
+    /** A run of the white space Go's strings.Fields-style folding in workspace-access treats as space: ASCII only. */
     private static final Pattern ASCII_SPACE_RUNS = Pattern.compile("[ \\t\\n\\x0B\\f\\r]+");
     private static final Pattern EDGE_SPACE = Pattern.compile("^ | $");
 
@@ -166,7 +166,7 @@ public final class CallManifest {
      * The arguments on one line, cut at {@link #ARGS_SUMMARY_CHARS} characters. Arguments that
      * were shortened end with "... (args cut at N of M chars)", M being the length of the one-line
      * form, so a cut cannot be read as the real call. Square brackets become parentheses so a list
-     * in the arguments cannot end the [CALL ...] line early. artifact-access's {@code argsSummary}
+     * in the arguments cannot end the [CALL ...] line early. workspace-access's {@code argsSummary}
      * gives the same text.
      */
     public static String argsSummary(String arguments) {

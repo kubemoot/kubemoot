@@ -55,7 +55,7 @@ func TestBuildDeployment_AppliesSpecSecurityContext(t *testing.T) {
 	mcp := &kubemootv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "readops", Namespace: "ns"},
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			Image:           "artifact-access:1",
+			Image:           "workspace-access:1",
 			Transport:       kubemootv1alpha1.TransportHTTP,
 			SecurityContext: &corev1.SecurityContext{ReadOnlyRootFilesystem: &readOnly},
 		},

@@ -16,7 +16,7 @@ You may obtain a copy of the License at
 //
 // IMPORTANT: the subject formats and token validation are shared with
 // kubemoot/discussion-gateway/internal/crewscope, kubemoot/scheduling-mcp/internal/scope
-// and kubemoot/artifact-access/internal/scope (per-module builds cannot share
+// and kubemoot/workspace-access/internal/scope (per-module builds cannot share
 // source). If you change one, change the others.
 package crewscope
 

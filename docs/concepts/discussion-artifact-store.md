@@ -171,9 +171,9 @@ size cap is stored as `text/plain`, a reader ignores the header of an object mar
 section by section.
 
 The detection rule lives in two places because the runtime (Java) writes the header and
-artifact-access (Go) reads objects stored without one. Both run the cases in
+workspace-access (Go) reads objects stored without one. Both run the cases in
 `test/fixtures/result-types.json` and 1,500 seeded random inputs in `test/fixtures/result-types-generated.json`
-(regenerate it with `UPDATE_RESULT_CORPUS=1 go test ./internal/workspace` in `artifact-access`), the way both run `test/fixtures/column-names.json` for column
+(regenerate it with `UPDATE_RESULT_CORPUS=1 go test ./internal/workspace` in `workspace-access`), the way both run `test/fixtures/column-names.json` for column
 names, so they cannot drift apart. Objects stored without a `Content-Type` are detected from their content.
 
 ### Column names
@@ -372,7 +372,7 @@ depending on the agent's network posture.
 
 Toolers, analysts, and the coordinator can reach NATS directly. They read a file's
 description (tool, arguments, rows, bytes, columns), decide which slice they need, and
-issue a targeted read through the **read-ops MCP service** (`artifact-access` in `mcp`
+issue a targeted read through the **read-ops MCP service** (`workspace-access` in `mcp`
 mode; an MCPServer with `kubemootImage: artifactAccess` runs it without naming a version,
 see the [MCPServer guide](../../reference/mcpserver-guide/#run-a-kubemoot-built-server-without-naming-a-version)). That service exposes output-bounded tools that extract only the slice an
 agent needs:
@@ -436,7 +436,7 @@ no files outside the named artifacts and no network ([Limits and safety](#limits
 | Thing | Persists? |
 |-------|-----------|
 | The artifact in the NATS object store (`kubemoot_workspace`) | Yes. This is the only persistence for artifacts, until [garbage collection](#garbage-collection) removes it. |
-| The files under `/artifacts` | No. A local copy that artifact-access reads from. It is lost with the pod and fetched again from the store on next use ([Workspace directory](#workspace-directory)). |
+| The files under `/artifacts` | No. A local copy that workspace-access reads from. It is lost with the pod and fetched again from the store on next use ([Workspace directory](#workspace-directory)). |
 | The SQLite database | No. It exists for one query. |
 
 SQLite stores nothing. Crew memory is separate and lives in NATS KV; see
@@ -450,7 +450,7 @@ The tool is on by default, backed by SQLite. The operator chart value
 `spec.artifacts.queryEngine`, or the whole `artifacts` object, also gets `sqlite`. To turn
 the tool off, set `artifacts.queryEngine: none` in the chart values (or
 `spec.artifacts.queryEngine: none` in the KubemootConfig). Turning the engine on changes
-no CPU or memory request or limit of the artifact-access pod: an MCPServer that sets no
+no CPU or memory request or limit of the workspace-access pod: an MCPServer that sets no
 `spec.resources` keeps the operator's default MCPServer resources (see the
 [MCPServer reference](../../reference/mcpserver-guide/)), which hold the growth the memory watch allows for one query. The
 only addition is the 1Gi `/artifacts` volume described below. If you set `spec.resources`
@@ -499,7 +499,7 @@ header decides how it is read; an object without one is detected from its conten
 key with a `*` reads every stored call that matches as one table. `*` stands for any
 characters except `/`. A short key (`k8s-workloads/*-pods_list`) is read inside the current thread
 ([Short keys](#short-keys)); a full key must name the namespace, crew and thread
-(`ns/crew/thread/`), and the namespace must be the artifact-access pod's own
+(`ns/crew/thread/`), and the namespace must be the workspace-access pod's own
 (`KUBEMOOT_NAMESPACE`). `k8s-workloads/*-pods_list` is every
 `pods_list` call of one agent in the thread; `*/*-pods_list` is every
 `pods_list` call of every agent. Calls of the same shape are stacked as the rows of one
@@ -567,7 +567,7 @@ community extension that downloads at run time, which a server with no network c
 - **Bounded.** A query that runs past the time limit (10 seconds by default) is stopped.
   An artifact over 32 MiB is refused, and the result is cut at the row limit and at
   the tool output cap. DuckDB's memory is capped at the memory setting (256 MB by
-  default). The pure-Go SQLite build has no heap limit of its own, so artifact-access
+  default). The pure-Go SQLite build has no heap limit of its own, so workspace-access
   watches the size of its process: a query that grows it by more than the memory
   setting is stopped, a single value cannot exceed a quarter of the setting, and at
   most two SQLite queries run at once. The watch reads `/proc`; where that is
@@ -581,7 +581,7 @@ The service reads these variables; the chart value sets only the engine. Each on
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `ARTIFACT_QUERY_ENGINE` | `none` | `none`, `sqlite` or `duckdb`. The service itself defaults to `none` when run on its own; the operator sets it from the KubemootConfig `spec.artifacts.queryEngine` (`sqlite` when unset) unless the MCPServer sets it. |
-| `ARTIFACT_DUCKDB_BIN` | `duckdb` | The `duckdb` program. The artifact-access image that serves `duckdb` must carry it; when it is missing the service logs the reason and offers no query tool. |
+| `ARTIFACT_DUCKDB_BIN` | `duckdb` | The `duckdb` program. The workspace-access image that serves `duckdb` must carry it; when it is missing the service logs the reason and offers no query tool. |
 | `ARTIFACT_QUERY_TIMEOUT` | `10s` | Time limit per query. |
 | `ARTIFACT_QUERY_MAX_ROWS` | `100` | Rows per result. |
 | `ARTIFACT_QUERY_MEMORY` | `256MB` | DuckDB memory limit. For SQLite, the growth of the process that stops a query, and a quarter of it is the ceiling on any one value. |
@@ -610,12 +610,12 @@ exceeds it. With `none` nothing is added. A volume the MCPServer already mounts 
 
 **Why SQLite is the recommended engine.**
 
-- It runs inside the artifact-access process. There is no extra image, no extra process
+- It runs inside the workspace-access process. There is no extra image, no extra process
   to start and no program to install, and it needs a few MB of memory.
 - Its database is a new in-memory one for each query and holds nothing afterward; see
   [What persists](#what-persists).
 - SQLite is public domain and written in C. Kubemoot uses a pure-Go translation of it,
-  so artifact-access stays a single static binary on its existing image.
+  so workspace-access stays a single static binary on its existing image.
 - "Lite" means embedded and serverless, not limited. SQLite is the most widely deployed
   database engine, and it has full SQL: joins, grouping, window functions, common table
   expressions and JSON functions.
@@ -626,15 +626,15 @@ exceeds it. With `none` nothing is added. A volume the MCPServer already mounts 
 
 - DuckDB is a column store, built for analytical scans over large tables, and it reads
   JSON and CSV files directly.
-- It is a C library and a separate program, so the artifact-access image must carry the
-  `duckdb` program. When `duckdb` is chosen and the program is missing, artifact-access
+- It is a C library and a separate program, so the workspace-access image must carry the
+  `duckdb` program. When `duckdb` is chosen and the program is missing, workspace-access
   logs why and offers no query tool.
 - Choose it when artifacts are large (many thousands of rows and up) and queries scan
   them whole.
 
 Measured with the same kind of query on both, a group-by over a JSON list:
 
-| Case | SQLite, in the artifact-access process | DuckDB, separate process |
+| Case | SQLite, in the workspace-access process | DuckDB, separate process |
 |------|----------------------------------------|--------------------------|
 | `SELECT 1` | about 3 MB more than an idle process, 1 to 2 ms | 42 MiB peak, 0.07 s |
 | 50 rows | about 3 MB more, 1 to 2 ms | 45 MiB peak, 0.07 s |
@@ -690,6 +690,7 @@ The discussion's artifacts are the discussion's workspace, and the names follow.
 |-----|-----|-------|
 | `artifact_head`, `artifact_tail`, `artifact_grep` | `workspace_head`, `workspace_tail`, `workspace_grep` | Both are served and answer the same. The old tools say they are deprecated in their descriptions, and the first call of each logs a warning. |
 | `artifact_count`, `artifact_rows`, `artifact_select`, `artifact_jq` | `workspace_query` | The four still work. Their descriptions say to use `workspace_query`, and the first call of each logs a warning. |
+| image and component `artifact-access` (its image `ghcr.io/kubemoot/artifact-access`, its release tags) | `workspace-access` | The workspace server is built, tagged and published as `workspace-access`. Name the new image wherever a crew or a registry mirror names the old one. |
 | `ARTIFACT_MODE`, `ARTIFACT_DIR`, `ARTIFACT_SUBJECT`, `ARTIFACT_QUERY_*`, `ARTIFACT_DUCKDB_BIN` | the same names with `WORKSPACE_` | The service reads the new name first and the old name second. |
 | bucket `kubemoot_discussion_artifacts` | bucket `kubemoot_workspace` | Every writer stores into the new bucket; the agent runtime creates it with the 48-hour TTL, and nothing else creates it. Readers (the workspace server, and the agent runtime's catalog, stored-result read and clean-up) look in the new bucket first and the old one second, skipping a bucket that does not exist, so a discussion that spans the change keeps its calls, and call numbers continue across both buckets. Data in the old bucket expires within 48 hours; nothing is copied. Start the change with no discussion running. |
 
@@ -761,7 +762,7 @@ an MCP stdio server that exposes `execute_code` and `validate_code` for Python
 (standard library only) or bash. The pod is the sandbox: the container that runs
 programs holds no credentials and talks to nothing itself, and the crew's network policy
 limits the pod's egress to the message bus. A **materializer sidecar** (the same
-`artifact-access` binary in its default mode) is the only part of the pod that reads
+`workspace-access` binary in its default mode) is the only part of the pod that reads
 NATS. It fetches referenced objects from the store and writes them into a shared local volume under `/artifacts`. The sandbox
 reads the materialised file and computes over it locally, then publishes its
 result through the normal discussion signal path.

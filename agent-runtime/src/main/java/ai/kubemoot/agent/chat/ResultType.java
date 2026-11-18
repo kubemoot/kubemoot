@@ -19,10 +19,10 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * {@code Content-Type} header ({@link CallHeaders#CONTENT_TYPE}). Every reader of the workspace
  * believes the header and looks at the bytes only when it is missing.
  *
- * <p>The rule is the one in artifact-access ({@code internal/workspace/format.go}, {@code Detect}
+ * <p>The rule is the one in workspace-access ({@code internal/workspace/format.go}, {@code Detect}
  * and {@code contenttype.go}): JSON when the whole text is one JSON object or list; otherwise the
  * first five non-blank lines decide, in this order: a Markdown table, a kubectl table, YAML, CSV;
- * anything else is plain text. The artifact-access test and {@code ResultTypeTest} run the same
+ * anything else is plain text. The workspace-access test and {@code ResultTypeTest} run the same
  * cases from {@code test/fixtures/result-types.json}, so the type shown on a {@code [CALL ...]}
  * line and the one a query reads cannot drift apart.
  */
