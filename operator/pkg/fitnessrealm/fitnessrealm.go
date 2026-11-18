@@ -30,6 +30,7 @@ const (
 	PartModels    = "models"
 	PartVersions  = "versions"
 	PartResources = "resources"
+	PartIsolation = "isolation"
 )
 
 // DigestsOf hashes the comparable parts of a snapshot. Time, residency, memory in
@@ -44,6 +45,7 @@ func DigestsOf(s *kubemootv1alpha1.RealmSnapshot) *kubemootv1alpha1.RealmDigests
 		Models:    hashLines(modelLines(s)),
 		Versions:  hashLines(versionLines(s)),
 		Resources: hashLines(resourceLines(s)),
+		Isolation: hashLines([]string{"trialIsolation=" + s.TrialIsolation}),
 	}
 }
 
@@ -59,6 +61,7 @@ func DifferingParts(a, b *kubemootv1alpha1.RealmDigests) []string {
 		{PartModels, a.Models, b.Models},
 		{PartVersions, a.Versions, b.Versions},
 		{PartResources, a.Resources, b.Resources},
+		{PartIsolation, a.Isolation, b.Isolation},
 	} {
 		if p.a != p.b {
 			out = append(out, p.name)
@@ -89,6 +92,9 @@ func differences(a, b *kubemootv1alpha1.RealmSnapshot, limit int, withResidency 
 	out = append(out, diffLines("model", modelLines(a), modelLines(b))...)
 	out = append(out, diffLines("version", versionLines(a), versionLines(b))...)
 	out = append(out, diffLines("resource", resourceLines(a), resourceLines(b))...)
+	if a.TrialIsolation != b.TrialIsolation {
+		out = append(out, fmt.Sprintf("trial isolation: %s -> %s", a.TrialIsolation, b.TrialIsolation))
+	}
 	if withResidency {
 		out = append(out, diffLines("residency", residencyLines(a), residencyLines(b))...)
 	}

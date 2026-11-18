@@ -77,6 +77,10 @@ type RealmDigests struct {
 	Versions string `json:"versions"`
 	// Resources covers the requests and limits of the crew's pods.
 	Resources string `json:"resources"`
+	// Isolation covers how the run's trials were isolated (see
+	// RealmSnapshot.TrialIsolation): runs whose trials shared crew memory and
+	// runs whose trials did not are not comparable.
+	Isolation string `json:"isolation"`
 }
 
 // RealmSnapshot is the realm at one moment.
@@ -93,7 +97,15 @@ type RealmSnapshot struct {
 	// +optional
 	CrewVersion string `json:"crewVersion,omitempty"`
 
-	// ModelServers lists the model servers the crew's models can run on.
+	// TrialIsolation is how the run's trials were isolated: PerTrial (crew
+	// memory cleared before every trial), PerSuite (cleared once), or None
+	// (never cleared).
+	// +optional
+	TrialIsolation string `json:"trialIsolation,omitempty"`
+
+	// ModelServers lists the model servers the crew's models can run on: those
+	// that host a model the crew's scheduling policy can select, or every model
+	// server when no policy applies to the crew or none of its rules match a model.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=20

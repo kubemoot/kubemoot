@@ -22,6 +22,7 @@ func snapshot() *kubemootv1alpha1.RealmSnapshot {
 		ObservedAt:      metav1.NewTime(time.Unix(1_700_000_000, 0)),
 		OperatorVersion: "1.2.3",
 		CrewVersion:     "0.4.0",
+		TrialIsolation:  "PerTrial",
 		ModelServers: []kubemootv1alpha1.RealmModelServer{
 			{
 				Name: "fast", Namespace: "kubemoot", Engine: "vllm", EngineVersion: "0.9",
@@ -79,6 +80,7 @@ func TestDigestsMoveWithEachComparablePart(t *testing.T) {
 		{"operator version", func(s *kubemootv1alpha1.RealmSnapshot) { s.OperatorVersion = "1.2.4" }, PartVersions},
 		{"agent image", func(s *kubemootv1alpha1.RealmSnapshot) { s.Agents[0].Image = "agent-runtime:2" }, PartVersions},
 		{"memory limit", func(s *kubemootv1alpha1.RealmSnapshot) { s.Agents[0].MemoryLimit = "4Gi" }, PartResources},
+		{"trial isolation", func(s *kubemootv1alpha1.RealmSnapshot) { s.TrialIsolation = "PerSuite" }, PartIsolation},
 	}
 	base := DigestsOf(snapshot())
 	for _, c := range cases {

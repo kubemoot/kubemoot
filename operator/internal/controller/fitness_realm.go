@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,7 @@ type realmInputs struct {
 	suite           *kubemootv1alpha1.CrewFitnessSuite
 	operatorVersion string
 	crewVersion     string
+	policies        []kubemootv1alpha1.CrewSchedulingPolicy
 	servers         []kubemootv1alpha1.ModelServer
 	models          []kubemootv1alpha1.Model
 	pods            []corev1.Pod
@@ -50,12 +52,73 @@ func buildRealmSnapshot(in realmInputs) *kubemootv1alpha1.RealmSnapshot {
 		ObservedAt:      in.now,
 		OperatorVersion: in.operatorVersion,
 		CrewVersion:     in.crewVersion,
-		ModelServers:    realmServers(in.servers, in.models),
+		TrialIsolation:  effectiveIsolation(in.suite),
+		ModelServers:    realmServers(scopeServers(in.servers, in.models, in.policies, in.suite.Spec.CrewRef)),
 		Agents:          realmAgents(in.pods, in.suite.Spec.CrewRef),
 	}
 	snap.ResourceNotes = capStrings(fitnessrealm.ResourceNotes(snap.Agents), kubemootv1alpha1.MaxRealmNotes)
 	snap.ConcurrentSuites, snap.ConcurrentRuns = realmConcurrency(in.suite, in.suites, in.runs)
 	return snap
+}
+
+// effectiveIsolation is how the suite's trials were isolated.
+func effectiveIsolation(suite *kubemootv1alpha1.CrewFitnessSuite) string {
+	switch {
+	case !kubemootv1alpha1.BoolOrTrue(suite.Spec.PurgeMemory):
+		return "None"
+	case trialIsolation(suite) == kubemootv1alpha1.FitnessTrialIsolationPerSuite:
+		return string(kubemootv1alpha1.FitnessTrialIsolationPerSuite)
+	}
+	return string(kubemootv1alpha1.FitnessTrialIsolationPerTrial)
+}
+
+// scopeServers narrows the realm to what the crew can use: the models that a rule
+// of a scheduling policy for the crew can select, and the servers hosting them. With
+// no policy for the crew, or when no model matches a rule, the realm is cluster-wide.
+func scopeServers(servers []kubemootv1alpha1.ModelServer, models []kubemootv1alpha1.Model,
+	policies []kubemootv1alpha1.CrewSchedulingPolicy, crew string) ([]kubemootv1alpha1.ModelServer, []kubemootv1alpha1.Model) {
+	var rules []*kubemootv1alpha1.SchedulingRule
+	for i := range policies {
+		if policies[i].Spec.CrewRef != crew {
+			continue
+		}
+		for j := range policies[i].Spec.Rules {
+			rules = append(rules, &policies[i].Spec.Rules[j])
+		}
+	}
+	if len(rules) == 0 {
+		return servers, models
+	}
+	var scopedModels []kubemootv1alpha1.Model
+	hosts := map[string]bool{}
+	for _, m := range models {
+		if selectableBy(rules, m.Labels) {
+			scopedModels = append(scopedModels, m)
+			hosts[m.Namespace+"/"+m.Spec.ServerRef] = true
+		}
+	}
+	if len(scopedModels) == 0 {
+		return servers, models
+	}
+	var scopedServers []kubemootv1alpha1.ModelServer
+	for _, s := range servers {
+		if hosts[s.Namespace+"/"+s.Name] {
+			scopedServers = append(scopedServers, s)
+		}
+	}
+	return scopedServers, scopedModels
+}
+
+// selectableBy reports whether any rule admits a model with these labels. A rule
+// with a constraint that is not valid is treated as admitting it: over-reporting
+// the realm is safer than leaving a model out.
+func selectableBy(rules []*kubemootv1alpha1.SchedulingRule, lbls map[string]string) bool {
+	for _, rule := range rules {
+		if ok, err := requireMatches(rule, lbls); ok || err != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // realmServers lists the model servers with their accelerator capability and models.
@@ -161,16 +224,17 @@ func realmAgents(pods []corev1.Pod, crew string) []kubemootv1alpha1.RealmAgentCo
 		shape.Pods = n
 		out = append(out, shape)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Container != out[j].Container {
-			return out[i].Container < out[j].Container
-		}
-		return out[i].Image < out[j].Image
-	})
+	sort.Slice(out, func(i, j int) bool { return agentKey(out[i]) < agentKey(out[j]) })
 	if len(out) > kubemootv1alpha1.MaxRealmAgents {
 		out = out[:kubemootv1alpha1.MaxRealmAgents]
 	}
 	return out
+}
+
+// agentKey orders container shapes totally (every field that distinguishes two
+// shapes), so the capped list is the same on every run.
+func agentKey(a kubemootv1alpha1.RealmAgentContainer) string {
+	return strings.Join([]string{a.Container, a.Image, a.CPURequest, a.CPULimit, a.MemoryRequest, a.MemoryLimit}, "\x00")
 }
 
 // containerShape is the container's name, image and resources, with Pods unset so it
@@ -235,6 +299,7 @@ func (r *CrewFitnessSuiteReconciler) collectRealm(ctx context.Context, suite *ku
 	var pods corev1.PodList
 	var suites kubemootv1alpha1.CrewFitnessSuiteList
 	var runs kubemootv1alpha1.CrewFitnessList
+	var policies kubemootv1alpha1.CrewSchedulingPolicyList
 	reads := []struct {
 		what string
 		list client.ObjectList
@@ -245,6 +310,7 @@ func (r *CrewFitnessSuiteReconciler) collectRealm(ctx context.Context, suite *ku
 		{"pods", &pods, []client.ListOption{client.InNamespace(suite.Namespace), client.MatchingLabels{labelCrew: suite.Spec.CrewRef}}},
 		{"fitness suites", &suites, nil},
 		{"fitness runs", &runs, nil},
+		{"scheduling policies", &policies, []client.ListOption{client.InNamespace(suite.Namespace)}},
 	}
 	for _, rd := range reads {
 		if err := reader.List(ctx, rd.list, rd.opts...); err != nil {
@@ -252,7 +318,12 @@ func (r *CrewFitnessSuiteReconciler) collectRealm(ctx context.Context, suite *ku
 		}
 	}
 	in.servers, in.models, in.pods, in.suites, in.runs = servers.Items, models.Items, pods.Items, suites.Items, runs.Items
-	in.crewVersion = resolveCrewVersion(ctx, reader, suite.Namespace, suite.Spec.CrewRef)
+	in.policies = policies.Items
+	crew := &kubemootv1alpha1.Crew{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: suite.Namespace, Name: suite.Spec.CrewRef}, crew); err != nil {
+		return nil, fmt.Errorf("reading the crew for the realm: %w", err)
+	}
+	in.crewVersion = crew.Labels[crewVersionLabel] // a crew without the label is hand-applied: no version
 	return buildRealmSnapshot(in), nil
 }
 
@@ -290,6 +361,22 @@ func (r *CrewFitnessSuiteReconciler) recordRealmEnd(ctx context.Context, suite *
 	}
 	suite.Status.Realm.End = snap
 	suite.Status.Realm.Drift = fitnessrealm.Drift(suite.Status.Realm.Start, snap, kubemootv1alpha1.MaxRealmDrift)
+}
+
+// retryRealmEnd takes the end snapshot again on a terminal reconcile when the first
+// read failed, and saves it. A re-judge suite's realm is a copy and is left alone.
+func (r *CrewFitnessSuiteReconciler) retryRealmEnd(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) {
+	realm := suite.Status.Realm
+	if realm == nil || realm.Start == nil || realm.End != nil || realm.CopiedFrom != nil {
+		return
+	}
+	base := suite.DeepCopy()
+	if r.recordRealmEnd(ctx, suite); suite.Status.Realm.End == nil {
+		return
+	}
+	if err := r.Status().Patch(ctx, suite, client.MergeFrom(base)); err != nil {
+		logf.FromContext(ctx).Info("realm: end snapshot not saved; retried on the next reconcile", "suite", suite.Name, "err", err.Error())
+	}
 }
 
 // copyRealm gives a re-judge suite the realm of the run whose answers it judges.

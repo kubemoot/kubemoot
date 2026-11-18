@@ -7,7 +7,7 @@ import type { CrewFitnessSuite, FitnessRealm, RealmDigests } from '#lib/types/ku
 
 type SuiteLike = Pick<CrewFitnessSuite, 'metadata' | 'spec' | 'status'>;
 
-const PARTS: ReadonlyArray<keyof RealmDigests> = ['servers', 'models', 'versions', 'resources'];
+const PARTS: ReadonlyArray<keyof RealmDigests> = ['servers', 'models', 'versions', 'resources', 'isolation'];
 
 /** The parts of two realms that differ, in a fixed order; ['unknown'] when either run recorded none. */
 export function differingParts(a: RealmDigests | undefined, b: RealmDigests | undefined): string[] {
@@ -69,6 +69,6 @@ export function realmView(suite: SuiteLike, all: SuiteLike[]): RealmView {
 		return { label: 'not recorded', warnings: ['no realm recorded: cannot be compared to another run'] };
 	}
 	const d = realm.digests;
-	const label = [d.servers, d.models, d.versions, d.resources].map((h) => h.slice(0, 4)).join('.');
+	const label = [d.servers, d.models, d.versions, d.resources, d.isolation].map((h) => h.slice(0, 4)).join('.');
 	return { label, warnings: [...comparisonWarning(suite, all), ...recordedWarnings(realm)] };
 }

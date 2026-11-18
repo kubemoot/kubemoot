@@ -539,6 +539,12 @@ spec:
                       residency, and concurrent activity, which are recorded but never make
                       two runs incomparable on their own.
                     properties:
+                      isolation:
+                        description: |-
+                          Isolation covers how the run's trials were isolated (see
+                          RealmSnapshot.TrialIsolation): runs whose trials shared crew memory and
+                          runs whose trials did not are not comparable.
+                        type: string
                       models:
                         description: |-
                           Models covers each model on each server: name, digest, quantization,
@@ -559,6 +565,7 @@ spec:
                           images of the crew's pods.
                         type: string
                     required:
+                    - isolation
                     - models
                     - resources
                     - servers
@@ -636,8 +643,10 @@ spec:
                           kubemoot.ai/crew-version label; absent for a hand-applied crew.
                         type: string
                       modelServers:
-                        description: ModelServers lists the model servers the crew's
-                          models can run on.
+                        description: |-
+                          ModelServers lists the model servers the crew's models can run on: those
+                          that host a model the crew's scheduling policy can select, or every model
+                          server when no policy applies to the crew or none of its rules match a model.
                         items:
                           description: RealmModelServer is one model server and what
                             it ran on.
@@ -742,6 +751,12 @@ spec:
                         maxItems: 20
                         type: array
                         x-kubernetes-list-type: atomic
+                      trialIsolation:
+                        description: |-
+                          TrialIsolation is how the run's trials were isolated: PerTrial (crew
+                          memory cleared before every trial), PerSuite (cleared once), or None
+                          (never cleared).
+                        type: string
                     required:
                     - observedAt
                     type: object
@@ -806,8 +821,10 @@ spec:
                           kubemoot.ai/crew-version label; absent for a hand-applied crew.
                         type: string
                       modelServers:
-                        description: ModelServers lists the model servers the crew's
-                          models can run on.
+                        description: |-
+                          ModelServers lists the model servers the crew's models can run on: those
+                          that host a model the crew's scheduling policy can select, or every model
+                          server when no policy applies to the crew or none of its rules match a model.
                         items:
                           description: RealmModelServer is one model server and what
                             it ran on.
@@ -912,6 +929,12 @@ spec:
                         maxItems: 20
                         type: array
                         x-kubernetes-list-type: atomic
+                      trialIsolation:
+                        description: |-
+                          TrialIsolation is how the run's trials were isolated: PerTrial (crew
+                          memory cleared before every trial), PerSuite (cleared once), or None
+                          (never cleared).
+                        type: string
                     required:
                     - observedAt
                     type: object

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,13 @@ const (
 	realmEngine  = "vllm"
 	realm2Gi     = "2Gi"
 	realmAbc     = "abc"
+	realmGone    = "gone"
+	realmOther   = "someone-else"
+	realmLarge   = "large"
+	realmSmall   = "small"
+	realmBig     = "big"
+	realmNone    = "none"
+	realmTier    = "tier"
 )
 
 func realmServerCR(name string, vramTotal int64, loaded ...string) *kubemootv1alpha1.ModelServer {
@@ -187,7 +195,7 @@ func TestRealmAgentsGroupsCrewPodsOnly(t *testing.T) {
 		*realmPod("p3", realmCrew, corev1.PodRunning, nil, agentContainer("", "", "", "")),
 		*realmPod("pending", realmCrew, corev1.PodPending, nil, same),
 		*realmPod("harness", realmCrew, corev1.PodRunning, map[string]string{labelFitnessHarness: "true"}, same),
-		*realmPod("other-crew", "someone-else", corev1.PodRunning, nil, same),
+		*realmPod("other-crew", realmOther, corev1.PodRunning, nil, same),
 	}
 	got := realmAgents(pods, realmCrew)
 	if len(got) != 2 {
@@ -276,6 +284,14 @@ func realmClient(t *testing.T, objs ...client.Object) (client.WithWatch, *runtim
 	scheme := reapScheme(t)
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
+	}
+	hasCrew := false
+	for _, o := range objs {
+		_, isCrew := o.(*kubemootv1alpha1.Crew)
+		hasCrew = hasCrew || isCrew
+	}
+	if !hasCrew {
+		objs = append(objs, &kubemootv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: realmCrew, Namespace: realmNS}})
 	}
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).WithStatusSubresource(&kubemootv1alpha1.ModelServer{}).Build(), scheme
 }
@@ -468,4 +484,171 @@ func hasRow(rows [][]string, label, contains string) bool {
 		}
 	}
 	return false
+}
+
+func TestCollectRealmFailsWhenTheCrewCannotBeRead(t *testing.T) {
+	cli, scheme := realmClient(t)
+	failing := interceptor.NewClient(cli, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*kubemootv1alpha1.Crew); ok {
+				return errors.New("apiserver unavailable")
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	r := &CrewFitnessSuiteReconciler{Client: failing, Scheme: scheme}
+	if snap, err := r.collectRealm(context.Background(), realmSuite("s")); err == nil || snap != nil {
+		t.Fatalf("a crew that cannot be read must fail the snapshot, got %v, %v", snap, err)
+	}
+	// A crew with no version label is hand-applied: that is no version, not a failure.
+	ok := &CrewFitnessSuiteReconciler{Client: cli, Scheme: scheme}
+	snap, err := ok.collectRealm(context.Background(), realmSuite("s"))
+	if err != nil || snap.CrewVersion != "" {
+		t.Fatalf("unlabeled crew: %+v, %v", snap, err)
+	}
+}
+
+func TestCollectRealmFailsWhenTheCrewIsMissing(t *testing.T) {
+	cli, scheme := realmClient(t)
+	r := &CrewFitnessSuiteReconciler{Client: cli, Scheme: scheme}
+	suite := realmSuite("s")
+	suite.Spec.CrewRef = realmGone
+	if _, err := r.collectRealm(context.Background(), suite); err == nil {
+		t.Fatal("a missing crew must fail the snapshot")
+	}
+}
+
+func TestAdvanceRunningRetriesTheRealmStart(t *testing.T) {
+	scheme := reapScheme(t)
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	suite := realmSuite("s")
+	suite.Status = kubemootv1alpha1.CrewFitnessSuiteStatus{Phase: kubemootv1alpha1.CrewFitnessSuitePhaseRunning, RunID: testDeadbeef, IterationsTotal: 2}
+	suite.Spec.Suspend = true // schedule nothing: the tick only refreshes status
+	crew := &kubemootv1alpha1.Crew{ObjectMeta: metav1.ObjectMeta{Name: realmCrew, Namespace: realmNS}}
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(suite, crew).
+		WithStatusSubresource(&kubemootv1alpha1.CrewFitnessSuite{}).Build()
+	failing := true
+	cli := interceptor.NewClient(base, interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, isServers := list.(*kubemootv1alpha1.ModelServerList); isServers && failing {
+				return errors.New("apiserver unavailable")
+			}
+			return c.List(ctx, list, opts...)
+		},
+	})
+	r := &CrewFitnessSuiteReconciler{Client: cli, APIReader: cli, Scheme: scheme}
+
+	if _, err := r.advanceRunning(context.Background(), suite); err != nil {
+		t.Fatal(err)
+	}
+	if suite.Status.Realm != nil {
+		t.Fatal("the failed read records nothing")
+	}
+	failing = false
+	if _, err := r.advanceRunning(context.Background(), suite); err != nil {
+		t.Fatal(err)
+	}
+	if suite.Status.Realm == nil || suite.Status.Realm.Start == nil {
+		t.Fatal("the next tick must record the start (retryRealmStart runs in advanceRunning)")
+	}
+}
+
+func TestRetryRealmEndSavesTheEndOnATerminalReconcile(t *testing.T) {
+	cli, scheme := realmClient(t, realmServerCR(realmServer1, 1024))
+	suite := realmSuite("s")
+	suite.Status.Phase = kubemootv1alpha1.CrewFitnessSuitePhaseCompleted
+	suite.Status.Realm = &kubemootv1alpha1.FitnessRealm{Start: buildRealmSnapshot(realmInputs{suite: suite})}
+	if err := cli.Create(context.Background(), suite); err != nil {
+		t.Fatal(err)
+	}
+	r := &CrewFitnessSuiteReconciler{Client: cli, Scheme: scheme}
+	r.retryRealmEnd(context.Background(), suite)
+	if suite.Status.Realm.End == nil {
+		t.Fatal("the end must be taken on the terminal reconcile")
+	}
+	if len(suite.Status.Realm.Drift) == 0 {
+		t.Error("a server appeared since the start: that is drift")
+	}
+
+	copied := realmSuite("c")
+	copied.Status.Realm = &kubemootv1alpha1.FitnessRealm{Start: &kubemootv1alpha1.RealmSnapshot{}, CopiedFrom: &kubemootv1alpha1.RejudgeSource{Suite: "x", RunID: "r"}}
+	r.retryRealmEnd(context.Background(), copied)
+	if copied.Status.Realm.End != nil {
+		t.Error("a re-judge suite's realm is a copy and is not re-taken")
+	}
+}
+
+func TestScopeServersToWhatTheCrewCanSelect(t *testing.T) {
+	big := *realmModelCR(realmBig, "gpu-a", realmBig, "", false)
+	big.Labels = map[string]string{realmTier: realmLarge}
+	small := *realmModelCR(realmSmall, "gpu-b", realmSmall, "", false)
+	small.Labels = map[string]string{realmTier: realmSmall}
+	servers := []kubemootv1alpha1.ModelServer{*bareServer("gpu-a"), *bareServer("gpu-b"), *bareServer("gpu-c")}
+	policy := kubemootv1alpha1.CrewSchedulingPolicy{Spec: kubemootv1alpha1.CrewSchedulingPolicySpec{
+		CrewRef: realmCrew,
+		Rules: []kubemootv1alpha1.SchedulingRule{{Phase: "mulling",
+			Require: &metav1.LabelSelector{MatchLabels: map[string]string{realmTier: realmLarge}}}},
+	}}
+	other := policy
+	other.Spec.CrewRef = realmOther
+	other.Spec.Rules = []kubemootv1alpha1.SchedulingRule{{Phase: "mulling", Require: &metav1.LabelSelector{MatchLabels: map[string]string{realmTier: realmSmall}}}}
+
+	gotS, gotM := scopeServers(servers, []kubemootv1alpha1.Model{big, small}, []kubemootv1alpha1.CrewSchedulingPolicy{policy, other}, realmCrew)
+	if len(gotS) != 1 || gotS[0].Name != "gpu-a" || len(gotM) != 1 || gotM[0].Name != realmBig {
+		t.Errorf("want only gpu-a and big, got %v %v", names(gotS), gotM)
+	}
+	// No policy for the crew: the whole cluster.
+	gotS, _ = scopeServers(servers, []kubemootv1alpha1.Model{big, small}, []kubemootv1alpha1.CrewSchedulingPolicy{other}, "no-policy-crew")
+	if len(gotS) != 3 {
+		t.Errorf("no policy: want all servers, got %v", names(gotS))
+	}
+	// A policy that selects no model: the whole cluster, not an empty realm.
+	policy.Spec.Rules[0].Require.MatchLabels = map[string]string{realmTier: realmNone}
+	gotS, _ = scopeServers(servers, []kubemootv1alpha1.Model{big, small}, []kubemootv1alpha1.CrewSchedulingPolicy{policy}, realmCrew)
+	if len(gotS) != 3 {
+		t.Errorf("no match: want all servers, got %v", names(gotS))
+	}
+}
+
+func names(s []kubemootv1alpha1.ModelServer) []string {
+	out := make([]string, 0, len(s))
+	for _, x := range s {
+		out = append(out, x.Name)
+	}
+	return out
+}
+
+func TestRealmAgentsTieBreakIsDeterministic(t *testing.T) {
+	pods := make([]corev1.Pod, 0, kubemootv1alpha1.MaxRealmAgents+4)
+	for i := range kubemootv1alpha1.MaxRealmAgents + 4 {
+		c := agentContainer(strings.Repeat("1", 1)+string(rune('0'+i%10)), "", "", "")
+		c.Image = "same-image"
+		pods = append(pods, *realmPod("p"+string(rune('a'+i)), realmCrew, corev1.PodRunning, nil, c))
+	}
+	first := realmAgents(pods, realmCrew)
+	for range 5 {
+		slices.Reverse(pods)
+		again := realmAgents(pods, realmCrew)
+		if fmt.Sprint(first) != fmt.Sprint(again) {
+			t.Fatal("the capped agent list must not depend on pod order or map iteration")
+		}
+	}
+}
+
+func TestEffectiveIsolation(t *testing.T) {
+	s := realmSuite("s")
+	if effectiveIsolation(s) != "PerTrial" {
+		t.Error("default is PerTrial")
+	}
+	s.Spec.TrialIsolation = kubemootv1alpha1.FitnessTrialIsolationPerSuite
+	if effectiveIsolation(s) != "PerSuite" {
+		t.Error("PerSuite")
+	}
+	off := false
+	s.Spec.PurgeMemory = &off
+	if effectiveIsolation(s) != "None" {
+		t.Error("purge off is None")
+	}
 }
