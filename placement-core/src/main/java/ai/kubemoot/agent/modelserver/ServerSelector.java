@@ -740,6 +740,12 @@ public class ServerSelector {
             long claimFootprint = c.warm() ? WARM_SCRATCH_MIB : request.footprintMiB();
             Optional<Ticket> ticket = claimOn(c, new Claim(modelName, claimFootprint, kvForThisCall, request.mode(),
                     request.serving()));
+            if (ticket.isPresent() && leftWarmSinceRanked(c, modelName)) {
+                log.debug("Releasing the ticket on {}: {} stopped being awake after it was ranked", c.server().name(),
+                        modelName);
+                ticketManager.release(ticket.get());
+                continue;
+            }
             if (ticket.isPresent()) {
                 log.debug("JIT pick: server={} model={} warm={} claim={}MiB kv={}MiB slots={}/{} (attempt={})",
                         c.server().name(), modelName, c.warm(), claimFootprint, kvForThisCall,
@@ -750,6 +756,28 @@ public class ServerSelector {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * True when {@code c} was ranked as a warm copy and the server's state, read afresh after
+     * the ticket was claimed, no longer shows the model awake: the operator started draining
+     * it, or it went to sleep. An engine that keeps models asleep (vLLM) counts the tickets
+     * on a draining model's server before it puts the model to sleep, so the order is total:
+     * a ticket claimed before the operator's read is counted and holds the switch, and one
+     * claimed after it reads the draining state here, is released, and the call is placed
+     * again (a call placed on the model once it reads as not awake waits for the switch
+     * through the operator). Engines that budget memory never drain; a state that cannot be
+     * read leaves the ticket, since a state that cannot be read cannot have shown the call
+     * anything newer.
+     */
+    private boolean leftWarmSinceRanked(Candidate c, String modelName) {
+        if (!c.warm() || c.server().engineFit().budgetsMemory()) return false;
+        cache.set(null);
+        return readState().stream()
+                .filter(p -> p.name().equals(c.server().name()))
+                .findFirst()
+                .map(p -> p.isDraining(modelName) || !p.hasModelLoaded(modelName))
+                .orElse(false);
     }
 
     /**
