@@ -36,6 +36,9 @@ const (
 	// ReasonFQDNNotSupported means the cluster's CNI cannot enforce host names, so the
 	// declared hosts are allowed as the internet outside the cluster.
 	ReasonFQDNNotSupported = "FQDNNotSupported"
+	// ReasonEndpointInvalid means an endpoint the workload fronts is not a usable http or
+	// https URL, so it got no rule.
+	ReasonEndpointInvalid = "EndpointInvalid"
 )
 
 // APIServerEndpoint is one address of the Kubernetes API server.
@@ -62,6 +65,9 @@ type Workload struct {
 	// Unresolved describes each allowed Service that could not be resolved; the status
 	// reports it and the workload gets no rule for that Service.
 	Unresolved []string
+	// Invalid describes each endpoint the workload fronts that is not a usable http or
+	// https URL; the status reports it and the workload gets no rule for it.
+	Invalid []string
 }
 
 // EgressStatus is what the egress policy enforces, for the EgressEnforced condition.
@@ -112,7 +118,7 @@ func Egress(c Config, w Workload) EgressResult {
 	case w.Rules.APIServer && c.UseCilium:
 		out = append(out, ciliumEgress(c, w, nil))
 	}
-	return EgressResult{Objects: out, Status: withUnresolved(status, w.Unresolved)}
+	return EgressResult{Objects: out, Status: withInvalid(withUnresolved(status, w.Unresolved), w.Invalid)}
 }
 
 // withUnresolved folds the Services that could not be resolved into the status.
@@ -125,6 +131,18 @@ func withUnresolved(st EgressStatus, unresolved []string) EgressStatus {
 		msg += "; " + st.Message
 	}
 	return EgressStatus{Applicable: true, Reason: ReasonServiceNotResolved, Message: msg}
+}
+
+// withInvalid folds the endpoints that could not become a rule into the status.
+func withInvalid(st EgressStatus, invalid []string) EgressStatus {
+	if len(invalid) == 0 {
+		return st
+	}
+	msg := "not enforced: " + strings.Join(invalid, "; ")
+	if !st.Enforced {
+		msg += "; " + st.Message
+	}
+	return EgressStatus{Applicable: true, Reason: ReasonEndpointInvalid, Message: msg}
 }
 
 // egressPlan collects the destinations of one workload before they become rules.
