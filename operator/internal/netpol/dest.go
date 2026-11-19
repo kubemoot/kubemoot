@@ -43,6 +43,7 @@ const labelSvc = "svc"
 // schemePorts are the ports a URL without one uses.
 var schemePorts = map[string]int32{
 	"http": 80, "ws": 80, "https": 443, "wss": 443, "nats": 4222, "tls": 4222,
+	"redis": 6379, "rediss": 6379, "postgres": 5432, "postgresql": 5432,
 }
 
 // DestsFromURL derives the destinations of a URL, or of a comma separated list of URLs.
@@ -150,32 +151,46 @@ type ExternalEndpoint struct {
 // every other name, including one with two labels such as example.com or x.kube-system, is
 // a host outside the cluster. A trailing dot and letter case are dropped.
 func ParseExternalEndpoint(raw, defaultNamespace string) (ExternalEndpoint, error) {
-	host, port, err := httpHostPort(raw)
+	if u, err := url.Parse(raw); err == nil && u.Scheme != "http" && u.Scheme != "https" {
+		return ExternalEndpoint{}, fmt.Errorf("%q must be an http or https URL", raw)
+	}
+	return ParseEndpoint(raw, defaultNamespace)
+}
+
+// ParseEndpoint reads a URL of any scheme the way ParseExternalEndpoint does: the same host
+// rule, so a name with two labels is a host outside the cluster. The port is the URL's own
+// or the scheme's default (http, https, ws, wss, nats, tls, redis, rediss, postgres,
+// postgresql); a URL whose port cannot be determined is an error.
+func ParseEndpoint(raw, defaultNamespace string) (ExternalEndpoint, error) {
+	host, port, err := hostPort(raw)
 	if err != nil {
 		return ExternalEndpoint{}, err
 	}
+	return classifyHost(host, defaultNamespace, port), nil
+}
+
+// classifyHost is the one host rule of the gateway's endpoints: an address is a /32 (/128),
+// a single label is a Service in defaultNamespace, name.namespace.svc[.domain] is a Service
+// in namespace, and every other name is a host outside the cluster.
+func classifyHost(host, defaultNamespace string, port int32) ExternalEndpoint {
 	if net.ParseIP(host) != nil {
-		return ExternalEndpoint{Dest: Dest{CIDR: AddrCIDR(host), Port: port}}, nil
+		return ExternalEndpoint{Dest: Dest{CIDR: AddrCIDR(host), Port: port}}
 	}
 	labels := strings.Split(host, ".")
 	switch {
 	case len(labels) == 1:
-		return ExternalEndpoint{Service: &ServiceRef{Namespace: defaultNamespace, Name: labels[0], Port: port}}, nil
+		return ExternalEndpoint{Service: &ServiceRef{Namespace: defaultNamespace, Name: labels[0], Port: port}}
 	case len(labels) >= 3 && labels[2] == labelSvc:
-		return ExternalEndpoint{Service: &ServiceRef{Namespace: labels[1], Name: labels[0], Port: port}}, nil
+		return ExternalEndpoint{Service: &ServiceRef{Namespace: labels[1], Name: labels[0], Port: port}}
 	}
-	return ExternalEndpoint{Dest: Dest{Host: host, Port: port}}, nil
+	return ExternalEndpoint{Dest: Dest{Host: host, Port: port}}
 }
 
-// httpHostPort checks an http or https URL and returns its lower case host without a
-// trailing dot, and its port.
-func httpHostPort(raw string) (string, int32, error) {
+// hostPort returns the lower case host of a URL without a trailing dot, and its port.
+func hostPort(raw string) (string, int32, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "", 0, fmt.Errorf("%q is not a URL", raw)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", 0, fmt.Errorf("%q must be an http or https URL", raw)
 	}
 	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
 	if host == "" || (net.ParseIP(host) == nil && !hostNameRE.MatchString(host)) {
@@ -189,3 +204,11 @@ func httpHostPort(raw string) (string, int32, error) {
 }
 
 var hostNameRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)
+
+// Port is the endpoint's port, whether it names a Service or a destination.
+func (e ExternalEndpoint) Port() int32 {
+	if e.Service != nil {
+		return e.Service.Port
+	}
+	return e.Dest.Port
+}
