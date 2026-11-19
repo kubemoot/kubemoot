@@ -108,4 +108,26 @@ class DrainingClaimTest {
                 "a draining model is never read as awake");
         verify(tickets, never()).release(eq(issued.get(0)));
     }
+
+    @Test
+    void aCopyAnotherCallIsWakingStaysClaimedSoASecondCallCanJoinIt() {
+        // The model is asleep in the published state and a first call's ticket is waking it, so
+        // it ranks warm only through the loading overlay. It reads not awake in the fresh state
+        // too: that is not a copy that left the awake state, and the claim must stay.
+        ServerState waking = new ServerState("vllm-a", "", 1, 0, 0, List.of(), true, "2026-10-19T00:00:00Z", 0L,
+                Map.of(), Map.of(MODEL, 0L), 0L, Map.of(), Map.of(), "vllm", Map.of(MODEL, "http://vllm-a:8000"),
+                0, 0, 0.1, Map.of(), Map.of(MODEL, "asleep"));
+        when(tickets.activeModelsOn("vllm-a")).thenReturn(java.util.Set.of(MODEL));
+        issueTickets(() -> { });
+        ServerSelector selector = new ServerSelector(null, new ObjectMapper(), tickets, null, new OllamaDriver(null)) {
+            @Override
+            public List<ServerState> readState() {
+                return List.of(waking);
+            }
+        };
+        Optional<Placement> placed = new AlgorithmPlacement(selector, tickets, null)
+                .place(new PlacementRequest(MODEL, List.of(), List.of(waking), m -> FOOTPRINT_MIB, m -> 0L, 500L));
+        assertEquals("vllm-a", placed.orElseThrow().pick().server().name());
+        verify(tickets, never()).release(any(Ticket.class));
+    }
 }

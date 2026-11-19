@@ -57,6 +57,19 @@ public interface EngineDriver {
     }
 
     /**
+     * {@link #ensureReady(ServerState, String)} for the call that holds placement ticket
+     * {@code ticketId}. A driver that does not tell the server which call asks ignores it.
+     */
+    default boolean ensureReady(ServerState server, String model, String ticketId) {
+        return ensureReady(server, model);
+    }
+
+    /** {@link #warm(ServerState, String)} for the call that holds placement ticket {@code ticketId}. */
+    default void warm(ServerState server, String model, String ticketId) {
+        warm(server, model);
+    }
+
+    /**
      * Whether this driver can free a resident model. A driver that cannot (an engine with
      * no runtime driver) is never planned an eviction, because the memory would be
      * recorded as free while the server still holds it.

@@ -116,11 +116,11 @@ type recordingRefresher struct {
 	calls []int64
 	// drains is each SetDraining call, as "model:true" or "model:false".
 	drains []string
-	// placed is what PlacedCalls answers.
-	placed int
+	// placed is the ticket ids PlacedCalls answers.
+	placed []string
 }
 
-func (r *recordingRefresher) PlacedCalls(_ context.Context, _ *aiv1alpha1.ModelServer, _ []string) (int, error) {
+func (r *recordingRefresher) PlacedCalls(_ context.Context, _ *aiv1alpha1.ModelServer, _ []string) ([]string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.placed, nil
@@ -390,12 +390,25 @@ func TestTheSwitchPublishesTheDrainingStateAroundTheWait(t *testing.T) {
 	}
 }
 
-func TestACallWaitingForTheSwitchIsNotCountedAsPlacedWork(t *testing.T) {
+func requestFor(t *testing.T, model, ticket string) []byte {
+	t.Helper()
+	raw, err := json.Marshal(bus.ModelLifecycleRequest{Action: bus.ModelLifecycleRequestActionReady, Model: model, TicketID: ticket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// drainWhileAWaiterQueues runs a switch that reports draining of candModel32 and, while it holds
+// the turn, queues a ready request for candModel32 with the given ticket id (none when empty).
+// It returns how many placed calls the adapter was told were outstanding.
+func drainWhileAWaiterQueues(t *testing.T, tickets []string, waiterTicket string) int {
+	t.Helper()
 	adapter := asleepAwake()
 	adapter.drains = candModel32
 	adapter.hold = 40 * time.Millisecond
 	s, ref := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
-	ref.placed = 2 // two tickets on the draining model: one running call, one waiting for this switch
+	ref.placed = tickets
 
 	first := make(chan bus.ModelLifecycleReply, 1)
 	go func() {
@@ -404,18 +417,31 @@ func TestACallWaitingForTheSwitchIsNotCountedAsPlacedWork(t *testing.T) {
 	time.Sleep(10 * time.Millisecond) // the first request holds the turn
 	second := make(chan bus.ModelLifecycleReply, 1)
 	go func() {
-		second <- s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, candModel32))
+		second <- s.Handle(context.Background(), lifecycleSubject, requestFor(t, candModel32, waiterTicket))
 	}()
-	time.Sleep(10 * time.Millisecond) // the second waits for the turn
-	if got := s.waitingForTurn(lifecycleServerName, []string{candModel32}); got != 1 {
-		t.Errorf("waiting = %d, want the one request waiting for the turn", got)
-	}
 	<-first
 	<-second
-	if got := s.waitingForTurn(lifecycleServerName, []string{candModel32}); got != 0 {
-		t.Errorf("waiting = %d after both ended", got)
+	if len(s.waiting) != 0 {
+		for k, n := range s.waiting {
+			if n != 0 {
+				t.Errorf("waiter %q still counted %d after both ended", k, n)
+			}
+		}
 	}
-	if adapter.placedSeen != 1 {
-		t.Errorf("the adapter was told %d placed calls, want 2 tickets less the 1 waiting request", adapter.placedSeen)
+	return adapter.placedSeen
+}
+
+func TestACallWaitingForTheSwitchWithItsTicketIsNotCountedAsPlacedWork(t *testing.T) {
+	// two tickets on the draining model: t-run is a running call, t-wait is the call waiting for this switch
+	if got := drainWhileAWaiterQueues(t, []string{"t-run", "t-wait"}, "t-wait"); got != 1 {
+		t.Errorf("outstanding = %d, want only the running call's ticket", got)
+	}
+}
+
+func TestAReadyRequestWithNoTicketDoesNotHideAnInFlightTicket(t *testing.T) {
+	// a ready request that carries no ticket (a warm-up outside a placed call) waits too, but
+	// it stands for no ticket, so both tickets are still outstanding
+	if got := drainWhileAWaiterQueues(t, []string{"t-run", "t-other"}, ""); got != 2 {
+		t.Errorf("outstanding = %d, want both tickets", got)
 	}
 }

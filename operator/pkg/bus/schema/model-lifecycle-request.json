@@ -7,6 +7,7 @@
   "properties": {
     "action": { "type": "string", "enum": ["ready", "release"], "description": "ready wakes the model's server (putting the awake one on the same accelerator to sleep first); release puts it to sleep." },
     "model": { "type": "string", "description": "The model, by the name the server serves it under." },
-    "agent": { "type": "string", "description": "The agent asking, for the operator's log." }
+    "agent": { "type": "string", "description": "The agent asking, for the operator's log." },
+    "ticketId": { "type": "string", "description": "The placement ticket of the call the request is made for, on a ready request. While the operator drains a model before putting it to sleep it counts the tickets held for that model as work it must wait for, except those whose call is itself waiting for the switch; this names which ticket that is. Absent when the request is not made for a placed call." }
   }
 }

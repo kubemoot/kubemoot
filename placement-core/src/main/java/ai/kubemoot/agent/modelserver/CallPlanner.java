@@ -219,7 +219,7 @@ public class CallPlanner implements CallPlacement {
             drop(previous);
         }
         if (p.coldLoad()) {
-            selector.driverFor(p.pick().server()).warm(p.pick().server(), p.model());
+            selector.driverFor(p.pick().server()).warm(p.pick().server(), p.model(), p.pick().ticket().ticketId());
         }
         log.info("Planned first call for thread {}: {} on {}{}", threadId, p.model(), p.pick().server().name(),
                 p.coldLoad() ? " (loading now)" : "");

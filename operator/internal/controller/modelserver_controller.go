@@ -180,6 +180,9 @@ type ModelServerReconciler struct {
 	// drains holds the models each server is draining before a switch puts them to
 	// sleep; the state publish marks them so placement sends them no new call.
 	drains drainLog
+
+	// publishing holds one lock per server name, taken by every state publish.
+	publishing sync.Map
 }
 
 // OllamaVersionResponse represents the response from Ollama /api/version
@@ -736,6 +739,11 @@ func (r *ModelServerReconciler) publishState(ctx context.Context, server *aiv1al
 		return nil
 	}
 
+	// One publish at a time per server, from the read of the drain log to the write: a
+	// publish that read the log before a mark was set must not write after the publish that
+	// carries the mark, and one that read the mark must not write after the clear.
+	unlock := r.lockPublish(server.Name)
+	defer unlock()
 	state := buildServerState(server)
 	state.ModelSpeeds = speeds
 	var reported map[string]int
