@@ -37,6 +37,9 @@ type Dest struct {
 	Port int32
 }
 
+// labelSvc is the third label of a cluster Service name.
+const labelSvc = "svc"
+
 // schemePorts are the ports a URL without one uses.
 var schemePorts = map[string]int32{
 	"http": 80, "ws": 80, "https": 443, "wss": 443, "nats": 4222, "tls": 4222,
@@ -73,7 +76,7 @@ func destsFromOne(raw string) []Dest {
 	switch {
 	case len(labels) == 1:
 		return []Dest{{SameNamespace: true, Port: port}}
-	case len(labels) == 2 || labels[2] == "svc":
+	case len(labels) == 2 || labels[2] == labelSvc:
 		return []Dest{{Namespace: labels[1], Port: port}}
 	}
 	return []Dest{{Host: host, Port: port}}
@@ -103,7 +106,7 @@ func ServiceFromURL(raw, defaultNamespace string) (ServiceRef, bool) {
 	switch {
 	case len(labels) == 1:
 		return ServiceRef{Namespace: defaultNamespace, Name: labels[0], Port: port}, true
-	case len(labels) == 2 || labels[2] == "svc":
+	case len(labels) == 2 || labels[2] == labelSvc:
 		return ServiceRef{Namespace: labels[1], Name: labels[0], Port: port}, true
 	}
 	return ServiceRef{}, false
@@ -131,25 +134,58 @@ func AddrCIDR(addr string) string {
 	return ip.String() + "/128"
 }
 
-// CheckHTTPEndpoint reports why a URL cannot be an external tool server's endpoint: it must
-// be an http or https URL with a host name or address, and a port that is the URL's own or
-// the scheme's default. It returns nil for a usable URL.
-func CheckHTTPEndpoint(raw string) error {
+// ExternalEndpoint is where an external tool server's URL points: a Service inside the
+// cluster, or a destination outside it.
+type ExternalEndpoint struct {
+	// Service is set when the host names a Service in the cluster.
+	Service *ServiceRef
+	// Dest is set otherwise: a host name or an address, with the URL's port.
+	Dest Dest
+}
+
+// ParseExternalEndpoint reads an external tool server's URL. It must be an http or https
+// URL with a host name or address and a port that is the URL's own or the scheme's default
+// (80 or 443). A host is a cluster Service only when it is a single label (a Service in
+// defaultNamespace) or has the form name.namespace.svc or name.namespace.svc.<domain>;
+// every other name, including one with two labels such as example.com or x.kube-system, is
+// a host outside the cluster. A trailing dot and letter case are dropped.
+func ParseExternalEndpoint(raw, defaultNamespace string) (ExternalEndpoint, error) {
+	host, port, err := httpHostPort(raw)
+	if err != nil {
+		return ExternalEndpoint{}, err
+	}
+	if net.ParseIP(host) != nil {
+		return ExternalEndpoint{Dest: Dest{CIDR: AddrCIDR(host), Port: port}}, nil
+	}
+	labels := strings.Split(host, ".")
+	switch {
+	case len(labels) == 1:
+		return ExternalEndpoint{Service: &ServiceRef{Namespace: defaultNamespace, Name: labels[0], Port: port}}, nil
+	case len(labels) >= 3 && labels[2] == labelSvc:
+		return ExternalEndpoint{Service: &ServiceRef{Namespace: labels[1], Name: labels[0], Port: port}}, nil
+	}
+	return ExternalEndpoint{Dest: Dest{Host: host, Port: port}}, nil
+}
+
+// httpHostPort checks an http or https URL and returns its lower case host without a
+// trailing dot, and its port.
+func httpHostPort(raw string) (string, int32, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("%q is not a URL", raw)
+		return "", 0, fmt.Errorf("%q is not a URL", raw)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("%q must be an http or https URL", raw)
+		return "", 0, fmt.Errorf("%q must be an http or https URL", raw)
 	}
-	host := u.Hostname()
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
 	if host == "" || (net.ParseIP(host) == nil && !hostNameRE.MatchString(host)) {
-		return fmt.Errorf("%q has no usable host name", raw)
+		return "", 0, fmt.Errorf("%q has no usable host name", raw)
 	}
-	if _, ok := urlPort(u); !ok {
-		return fmt.Errorf("%q has no usable port", raw)
+	port, ok := urlPort(u)
+	if !ok {
+		return "", 0, fmt.Errorf("%q has no usable port", raw)
 	}
-	return nil
+	return host, port, nil
 }
 
 var hostNameRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)

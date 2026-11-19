@@ -14,6 +14,7 @@ import (
 	"context"
 	"testing"
 
+	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -269,5 +270,113 @@ func TestGatewayEgressWithoutNetPolDoesNothing(t *testing.T) {
 	r := &MCPGatewayReconciler{}
 	if err := r.reconcileEgress(context.Background(), gwEgressGateway()); err != nil {
 		t.Errorf("no network policy setting, no work: %v", err)
+	}
+}
+
+func (e *gwEgressEnv) condition() *metav1.Condition {
+	return meta.FindStatusCondition(e.gw.Status.Conditions, netpol.ConditionEgressEnforced)
+}
+
+func TestGatewayEgressReadsEveryKindOfEndpoint(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), true,
+		gwEgressServer("a", "https://example.com"), gwEgressServer("b", "https://x.kube-system/mcp"),
+		gwEgressServer("c", "http://plain.example.net/mcp"), gwEgressServer("d", "https://user:pw@auth.example.org/mcp"),
+		gwEgressServer("e", "https://trailing.example.io./mcp"))
+	e.reconcile()
+	assertHostPorts(t, fqdnRule(t, e.cli), map[string]string{
+		"example.com": "443", "x.kube-system": "443", "plain.example.net": "80",
+		"auth.example.org": "443", "trailing.example.io": "443",
+	})
+}
+
+func TestGatewayEgressAllowsAnAddressLiteralAsASingleAddress(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), false, gwEgressServer("ip", "https://203.0.113.7/mcp"))
+	e.reconcile()
+	found := false
+	for _, rule := range e.policy().Spec.Egress {
+		if len(rule.To) == 1 && rule.To[0].IPBlock != nil && rule.To[0].IPBlock.CIDR == "203.0.113.7/32" {
+			found = len(rule.Ports) == 1 && rule.Ports[0].Port.IntVal == 443
+		}
+	}
+	if !found {
+		t.Errorf("the address on 443 only: %+v", e.policy().Spec.Egress)
+	}
+	if got := worldPorts(e.policy()); len(got) != 1 {
+		t.Errorf("no internet fallback for an address: %v", got)
+	}
+}
+
+func TestGatewayEgressDropsTheRuleOfADeletedServer(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), true,
+		gwEgressServer("one", "https://one.example.com"), gwEgressServer("two", "https://two.example.com"))
+	e.reconcile()
+	if err := e.cli.Delete(context.Background(), gwEgressServer("two", "")); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcile()
+	assertHostPorts(t, fqdnRule(t, e.cli), map[string]string{"one.example.com": "443"})
+
+	if err := e.cli.Delete(context.Background(), gwEgressServer("one", "")); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcile()
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(netpol.CiliumPolicyGVK)
+	err := e.cli.Get(context.Background(), types.NamespacedName{Namespace: gwEgressNS, Name: gwEgressPolicy + "-fqdn"}, u)
+	if err == nil || e.policy() != nil {
+		t.Error("with no external server left the gateway is not restricted and its policies are removed")
+	}
+}
+
+func TestGatewayEgressAllowsAnInClusterServerInAnotherNamespace(t *testing.T) {
+	core := gwEgressServer("core", "")
+	core.Namespace = npOperatorNS
+	core.Labels = map[string]string{labelCoreMCP: valueTrue}
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), false, gwEgressServer("oreilly-mcp", "https://"+gwOReilly), core)
+	servers := []aiv1alpha1.MCPServer{*gwEgressServer("oreilly-mcp", "https://"+gwOReilly), *core}
+	w := netpol.Workload{Name: "gateway-gw", Namespace: gwEgressNS, Selector: gatewayLabels(e.gw)}
+	if err := e.r.NetPol.attachGatewayDestinations(context.Background(), e.gw, servers, &w); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, d := range w.Defaults {
+		found = found || (d.Namespace == npOperatorNS && !d.SameNamespace && d.Port == 3000 && d.PodLabels[labelName] == "core")
+	}
+	if !found {
+		t.Errorf("the core server's pods in its own namespace: %+v", w.Defaults)
+	}
+}
+
+func TestGatewayEgressKeepsTheContextForgeDatabaseRedisAndToolIndex(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), false, gwEgressServer("oreilly-mcp", "https://"+gwOReilly))
+	e.gw.Spec.ContextForge = &aiv1alpha1.ContextForgeConfig{
+		DatabaseURL: "postgresql://db.example.com:5432/forge", RedisURL: "redis://cache.example.com:6379",
+	}
+	e.gw.Spec.ToolIndex = &aiv1alpha1.ToolIndexConfig{}
+	e.gw.Status.ToolIndexEndpoint = "http://tools-query.example.com:8000"
+	e.reconcile()
+	got := worldPorts(e.policy())
+	want := map[int32]bool{443: false, 5432: false, 6379: false, 8000: false}
+	for _, p := range got {
+		if _, ok := want[p]; ok {
+			want[p] = true
+		}
+	}
+	for p, seen := range want {
+		if !seen {
+			t.Errorf("port %d is allowed: %v", p, got)
+		}
+	}
+}
+
+func TestGatewayEgressReportsAServiceEndpointThatDoesNotExist(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), false, gwEgressServer("svc", "http://missing.other.svc:9000"))
+	scheme := e.r.Scheme
+	if err := discoveryv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcile()
+	if c := e.condition(); c == nil || c.Reason != netpol.ReasonEndpointInvalid {
+		t.Errorf("a Service that does not exist is reported: %+v", c)
 	}
 }
