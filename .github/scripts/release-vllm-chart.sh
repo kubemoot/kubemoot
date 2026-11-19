@@ -24,8 +24,13 @@
 #                unless dry; the caller logs helm in
 #   OUT_DIR      where the packaged chart lands (default: chart-release)
 #   RELEASE_LIB  release-lib.sh of kubemoot/release-actions (its actions set it)
-# Outputs ($GITHUB_OUTPUT): released, chart_version.
+# Outputs ($GITHUB_OUTPUT): will_release (a candidate is due: true in a dry run too, so a
+# workflow can plan first and mint its push token only when one is), released,
+# chart_version.
 set -euo pipefail
+# The release token leaves the environment before any other command runs (see push-token.sh).
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/push-token.sh"
 # A failure inside $(...) stops the script too.
 shopt -s inherit_errexit
 
@@ -58,6 +63,7 @@ main() {
   body=$(manifest "$commit")
   if [ "$FORCE" != "true" ] && [ "$body" = "$(current_manifest "$commit")" ]; then
     echo "The latest chart candidate already has these chart sources; nothing to build"
+    output will_release false
     output released false
     return 0
   fi
@@ -66,6 +72,7 @@ main() {
   package_chart_at "$commit" "$CHART_DIR" "$version" "$OUT_DIR"
   echo "kubemoot-vllm chart ${version} at ${commit}; dry run: ${DRY_RUN:-true}"
   output chart_version "$version"
+  output will_release true
   if rl_is_dry; then
     output released false
     return 0

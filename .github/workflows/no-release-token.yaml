@@ -1,0 +1,24 @@
+name: No Release Token
+
+# Releases mint a short-lived installation token for the kubemoot-release-bot GitHub App
+# with actions/create-github-app-token. The personal RELEASE_TOKEN is retired, so a
+# workflow that references it again fails this check.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  no-release-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test the check
+        run: bash .github/scripts/test-check-no-release-token.sh
+      - name: Fail on any use of the retired personal token
+        run: bash .github/scripts/check-no-release-token.sh

@@ -44,8 +44,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # RELEASE_TOKEN (contents+workflows write) pushes even when main's workflow files changed after this commit; GITHUB_TOKEN is refused there.
-          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          # No credential is stored; the release token is minted at the step that pushes.
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
 
@@ -76,9 +76,31 @@ jobs:
 
           .github/scripts/retag-image.sh "${FULL_IMAGE}" "${SHA}" "${VERSION}"
 
+      - name: Mint a release token
+        id: app-token
+        if: steps.version.outputs.release_created == 'true'
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          repositories: kubemoot
+          permission-contents: write
+          permission-workflows: write
+
       - name: Create and push tag
         if: steps.version.outputs.release_created == 'true'
+        env:
+          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          if [ "${DRY_RUN:-false}" != true ]; then
+            if [ -z "${GH_APP_TOKEN:-}" ]; then
+              echo "::error::no release token: the mint step did not run" >&2
+              exit 1
+            fi
+            auth="$(printf 'x-access-token:%s' "${GH_APP_TOKEN}" | base64 -w0)"
+            echo "::add-mask::${auth}"
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
+          fi
           VERSION="${{ steps.version.outputs.version }}"
           TAG="indexer-v$VERSION"
 

@@ -176,10 +176,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # RELEASE_TOKEN (contents and workflows write) lets the final tag land on the
-          # candidate's commit when workflow files changed on main after it; the default
-          # token is refused there. Falls back to the default token.
-          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          # No credential is stored; the release token is minted at the step that pushes.
+          persist-credentials: false
           fetch-depth: 0
           filter: blob:none
 
@@ -220,9 +218,24 @@ jobs:
           echo "${HARBOR_PASSWORD}" | helm registry login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
           echo "${GHCR_TOKEN}" | crane auth login "${RELEASE_REGISTRY%%/*}" -u "${GHCR_USERNAME}" --password-stdin
 
+      - name: Mint a release token
+        id: app-token
+        if: ${{ !inputs.dry_run }}
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          repositories: kubemoot
+          permission-contents: write
+          permission-workflows: write
+
       - name: Publish
         id: publish
         env:
+          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          # The tag identity, as env, so no git command runs before the script moves the token.
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
           # The candidate the quickstart passed, not "latest" again.
           RC_TAG: ${{ needs.candidate.outputs.rc_tag }}
           DRY_RUN: ${{ inputs.dry_run }}
@@ -233,10 +246,9 @@ jobs:
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OUT_DIR: release-files
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          bash .github/scripts/publish-release.sh
+        # publish-release.sh takes GH_APP_TOKEN out of the environment before helm, crane or
+        # cosign run and uses it only for git push (push-token.sh).
+        run: bash .github/scripts/publish-release.sh
 
       - name: Release notes to the run summary
         run: |
@@ -344,7 +356,7 @@ jobs:
   # asks each for a new candidate (the crews and kmctl build it against the finals just
   # published), and publishing those candidates is a Publish Release run in each repository.
   # A dry run dispatches nothing and says what it would dispatch. Only a GitHub API call,
-  # with RELEASE_TOKEN (contents write on each repository); the job's own token needs nothing.
+  # with a release bot installation token (contents write on each repository); the job's own token needs nothing.
   # The release status below reports what is still unpublished.
   dispatch:
     needs: [publish, release]
@@ -359,10 +371,21 @@ jobs:
           sparse-checkout: .github/scripts
           persist-credentials: false
 
+      - name: Mint a release token
+        id: app-token
+        # A dry run never mints the token.
+        if: ${{ !inputs.dry_run }}
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          repositories: crews,kmctl,vscode-crewforge
+          permission-contents: write
+
       - name: Dispatch the candidate builds
         env:
-          # A dry run never holds the token. (`a && '' || b` would fall through to b.)
-          GH_TOKEN: ${{ !inputs.dry_run && secrets.RELEASE_TOKEN || '' }}
+          # Empty in a dry run, when the mint step is skipped.
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           DRY_RUN: ${{ inputs.dry_run }}
           CHART_VERSION: ${{ needs.publish.outputs.chart_version }}
         run: |

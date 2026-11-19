@@ -76,8 +76,11 @@ repo="$(new_repo current)"
 tree="$(git -C "$repo" rev-parse HEAD:vllm/charts/kubemoot-vllm)"
 tag "$repo" vllm-chart-v0.2.0-rc.0 "chart-source ${tree}"
 check "a current chart builds nothing" "" "$(dry "$repo")"
+check "a current chart is not due for a release" "false" "$(sed -n 's/^will_release=//p' "$repo/output" | tail -n 1)"
 rm -f "$repo/output"
 check "FORCE builds a current chart" "0.2.0-rc.1" "$(dry "$repo" true)"
+check "a dry run reports a due candidate as will_release" "true|false" \
+  "$(sed -n 's/^will_release=//p' "$repo/output" | tail -n 1)|$(sed -n 's/^released=//p' "$repo/output" | tail -n 1)"
 
 if [ "$failures" -ne 0 ]; then
   echo "${failures} failed"

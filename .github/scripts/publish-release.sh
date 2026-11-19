@@ -58,6 +58,9 @@
 #   OUT_DIR           where packaged charts and notes.md land (default: release-files)
 #   RELEASE_LIB       release-lib.sh of kubemoot/release-actions (its actions set it)
 set -euo pipefail
+# The release token leaves the environment before any other command runs (see push-token.sh).
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/push-token.sh"
 # A failure inside $(...) stops the script too.
 shopt -s inherit_errexit
 

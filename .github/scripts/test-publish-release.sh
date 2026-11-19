@@ -162,6 +162,8 @@ git push -q origin main --tags 2>/dev/null
 
 export REGISTRY=harbor.test RELEASE_REGISTRY=ghcr.test/kubemoot
 export HARBOR_USERNAME=u HARBOR_PASSWORD=p GHCR_USERNAME=u GHCR_TOKEN=t
+# The release bot's token; the scripts move it out of the environment and use it only for git push.
+export GH_APP_TOKEN=test-release-token
 # The variables GitHub Actions sets for a job with id-token: write.
 export ACTIONS_ID_TOKEN_REQUEST_URL=https://oidc.test ACTIONS_ID_TOKEN_REQUEST_TOKEN=t GITHUB_WORKFLOW_REF=kubemoot/kubemoot/.github/workflows/publish-release.yaml@refs/heads/main
 run_chart() {
@@ -207,6 +209,7 @@ check "dry build pushes no chart" 0 "$(grep -c '^helm push' "$LOG" || true)"
 check "dry build pushes no tag" 0 "$(remote_tag operator-chart-v0.92.582-rc.0)"
 check "dry build leaves git at 0.0.0" "" "$(git status --porcelain)"
 check "dry build reports no release" false "$(gh_out dry released)"
+check "a dry build reports a due candidate" true "$(gh_out dry will_release)"
 
 # 2. The real build: the tag claims the version on HEAD, then the chart goes to Harbor.
 DRY_RUN=false run_chart rc0 && status=0 || status=$?
@@ -222,7 +225,7 @@ check "the build commits nothing" "$c2" "$(git ls-remote origin refs/heads/main 
 
 # 3. Nothing changed: no new candidate. A forced build makes one.
 DRY_RUN=false run_chart same && status=0 || status=$?
-check "an unchanged chart builds nothing" "0|false" "${status}|$(gh_out same released)"
+check "an unchanged chart builds nothing" "0|false|false" "${status}|$(gh_out same released)|$(gh_out same will_release)"
 check "and pushes no chart" 1 "$(grep -c '^helm push' "$LOG")"
 FORCE=true DRY_RUN=true run_chart force && status=0 || status=$?
 check "a forced build makes the next candidate" 1 "$([ -f "${root}/chart-force/kubemoot-operator-0.92.582-rc.1.tgz" ] && echo 1 || echo 0)"
@@ -357,6 +360,9 @@ check "a run where cosign does not run fails" "1|1" "${status}|$(grep -c 'cosign
 : > "$LOG"
 GHCR_TOKEN='' DRY_RUN=false RC_TAG="$cand" run_publish notoken && status=0 || status=$?
 check "a real run without a registry token fails before publishing" "1|0" "${status}|$(grep -c '^crane copy' "$LOG" || true)"
+: > "$LOG"
+GH_APP_TOKEN='' DRY_RUN=false RC_TAG="$cand" run_publish nomint && status=0 || status=$?
+check "a real run without the release token fails before publishing" "1|0|1" "${status}|$(grep -c '^crane copy' "$LOG" || true)|$(grep -c 'no release token' "${root}/run-nomint.log")"
 : > "$LOG"
 GHCR_USERNAME='' GHCR_TOKEN='' DRY_RUN=true RC_TAG="$cand" run_publish dryntoken && status=0 || status=$?
 check "a dry run needs no registry token and pushes nothing" "0|0" "${status}|$(grep -c '^crane copy' "$LOG" || true)"
@@ -566,8 +572,9 @@ dispatch_job="$(awk '$0 == "  dispatch:" {on=1; print; next} on && /^  [a-z][a-z
 check "the dispatch job runs dispatch-clients.sh" "1" "$(grep -cE 'bash \.github/scripts/dispatch-clients\.sh' <<<"$dispatch_job")"
 check "the dispatch job passes the dry-run input" "1" \
   "$(grep -cE '^[[:space:]]+DRY_RUN: \$\{\{ inputs\.dry_run \}\}$' <<<"$dispatch_job")"
-check "the dispatch token is empty in a dry run" "1" \
-  "$(grep -cF "GH_TOKEN: \${{ !inputs.dry_run && secrets.RELEASE_TOKEN || '' }}" <<<"$dispatch_job")"
+# shellcheck disable=SC2016 # the patterns are literal workflow text
+check "the dispatch token is minted only outside a dry run, for the three clients" "1|1|1" \
+  "$(grep -cF 'if: ${{ !inputs.dry_run }}' <<<"$dispatch_job")|$(grep -cF 'repositories: crews,kmctl,vscode-crewforge' <<<"$dispatch_job")|$(grep -cF 'GH_TOKEN: ${{ steps.app-token.outputs.token }}' <<<"$dispatch_job")"
 check "no workflow dispatches kubemoot-published by other means" "0" \
   "$(grep -cE 'event-type: kubemoot-published|repository-dispatch' .github/workflows/publish-release.yaml || true)"
 # Publishing takes the candidate the quickstart passed, and needs that pass.
