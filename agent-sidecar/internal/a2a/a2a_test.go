@@ -192,7 +192,9 @@ func TestTheTurnCanBeCanceledOnceTheTaskIsKnown(t *testing.T) {
 		t.Fatal("the harness was not told to cancel")
 	}
 	stop()
-	<-done
+	if err := <-done; err != nil {
+		t.Logf("the server ended with %v", err)
+	}
 }
 
 func TestAHarnessOnAnotherProfileIsAMismatch(t *testing.T) {

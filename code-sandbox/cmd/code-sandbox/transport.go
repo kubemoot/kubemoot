@@ -93,7 +93,9 @@ func serveListener(ctx context.Context, s *server.Server, ln net.Listener) error
 	// Runs still going when the drain time ends are cut: the pod is stopping.
 	if err := hs.Shutdown(sctx); err != nil {
 		_ = hs.Close()
-		<-done
+		if serveErr := <-done; !errors.Is(serveErr, http.ErrServerClosed) {
+			err = errors.Join(err, serveErr)
+		}
 		return err
 	}
 	if err := <-done; !errors.Is(err, http.ErrServerClosed) {
