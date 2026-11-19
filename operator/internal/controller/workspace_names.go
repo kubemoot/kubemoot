@@ -8,19 +8,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/workspacetools"
 )
 
 const (
-	// legacyWorkspaceDir is the mount path the workspace had before it was named: a volume mounted
-	// at it is also mounted at workspaceDir, and the other way round, for one release.
-	legacyWorkspaceDir = "/artifacts"
-
 	// conditionTypeDeprecatedNames lists the old workspace names an MCPServer still uses.
 	conditionTypeDeprecatedNames = "DeprecatedNames"
 	reasonDeprecatedNamesInUse   = "OldWorkspaceNames"
-
-	legacyWorkspaceEnvPrefix = "ARTIFACT_"
 )
+
+// deprecated is the published list of deprecated names; the condition, the mount alias and the
+// image check all read it.
+var deprecated = workspacetools.DeprecatedNames()
+
+// legacyWorkspaceDir is the mount path the workspace had before it was named: a volume mounted
+// at it is also mounted at workspaceDir, and the other way round, for one release.
+var legacyWorkspaceDir = deprecated.Mount
 
 // emptyDirVolumeMounts returns the mounts of the MCPServer's emptyDir volumes, each at its own
 // path and, for a workspace server, at the other workspace path too (see emptyDirMountPaths).
@@ -101,13 +104,15 @@ func workspaceAlias(path string) string {
 	}
 }
 
-// legacyWorkspaceEnv names the variables workspace-access read before the workspace had its name;
-// each is WORKSPACE_ plus the same word now.
-var legacyWorkspaceEnv = map[string]bool{
-	"ARTIFACT_MODE": true, "ARTIFACT_DIR": true, "ARTIFACT_SUBJECT": true, "ARTIFACT_BUCKET": true,
-	"ARTIFACT_QUERY_ENGINE": true, "ARTIFACT_DUCKDB_BIN": true, "ARTIFACT_QUERY_TIMEOUT": true,
-	"ARTIFACT_QUERY_MAX_ROWS": true, "ARTIFACT_QUERY_MEMORY": true, "ARTIFACT_QUERY_MAX_ARTIFACT_BYTES": true,
-}
+// legacyWorkspaceEnv names the variables workspace-access read before the workspace had its name,
+// from the published list.
+var legacyWorkspaceEnv = func() map[string]bool {
+	m := make(map[string]bool, len(deprecated.EnvNames))
+	for _, name := range deprecated.EnvNames {
+		m[name] = true
+	}
+	return m
+}()
 
 // deprecatedWorkspaceNames lists the old workspace names an MCPServer spec still uses, each as
 // the thing to change.
@@ -122,7 +127,7 @@ func deprecatedWorkspaceNames(mcpServer *kubemootv1alpha1.MCPServer) []string {
 	}
 	for _, e := range mcpServer.Spec.Env {
 		if legacyWorkspaceEnv[e.Name] {
-			found = append(found, "env "+e.Name+" is WORKSPACE_"+strings.TrimPrefix(e.Name, legacyWorkspaceEnvPrefix))
+			found = append(found, "env "+e.Name+" is WORKSPACE_"+strings.TrimPrefix(e.Name, deprecated.EnvPrefix))
 		}
 	}
 	if usesWorkspace(mcpServer) && mountsPath(mcpServer.Spec.EmptyDirVolumes, legacyWorkspaceDir) {
@@ -135,7 +140,7 @@ func deprecatedWorkspaceNames(mcpServer *kubemootv1alpha1.MCPServer) []string {
 // was renamed: its repository name is artifact-access.
 func isOldWorkspaceImage(image string) bool {
 	repo, _, _ := strings.Cut(image, ":")
-	return repo == "artifact-access" || strings.HasSuffix(repo, "/artifact-access")
+	return repo == deprecated.ImageRepo || strings.HasSuffix(repo, "/"+deprecated.ImageRepo)
 }
 
 // setDeprecatedNamesCondition records the old workspace names the MCPServer uses on its status,

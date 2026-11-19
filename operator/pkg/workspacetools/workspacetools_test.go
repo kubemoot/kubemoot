@@ -13,7 +13,9 @@ package workspacetools
 import (
 	"encoding/json"
 	"os"
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -85,5 +87,48 @@ func TestListsMatchTheSharedFixture(t *testing.T) {
 		if legacy[old] != current {
 			t.Errorf("legacy[%q] = %q, fixture %q", old, legacy[old], current)
 		}
+	}
+}
+
+func TestDeprecatedNamesCoverEveryOldName(t *testing.T) {
+	d := DeprecatedNames()
+	if !reflect.DeepEqual(d.Tools, Legacy()) {
+		t.Errorf("tools %v, want the legacy tools %v", d.Tools, Legacy())
+	}
+	if len(d.EnvNames) == 0 || d.Mount == "" || d.ImageRepo == "" || len(d.Fields) == 0 || len(d.Markers) == 0 {
+		t.Fatalf("an empty part: %+v", d)
+	}
+	for _, name := range d.EnvNames {
+		if !strings.HasPrefix(name, d.EnvPrefix) {
+			t.Errorf("%s does not start with %s", name, d.EnvPrefix)
+		}
+	}
+	if d.Mount == WorkspaceDir {
+		t.Errorf("the old mount is the current one")
+	}
+}
+
+func TestDeprecatedNamesListTheOldAPIFields(t *testing.T) {
+	d := DeprecatedNames()
+	for _, f := range []string{"spec.artifacts", "artifactAccess", "artifactReadOps"} {
+		if !slices.Contains(d.Fields, f) {
+			t.Errorf("fields %v miss %s", d.Fields, f)
+		}
+	}
+}
+
+func TestDeprecatedNamesStringsListsEachPartAndIsACopy(t *testing.T) {
+	d := DeprecatedNames()
+	got := d.Strings()
+	for _, want := range []string{"artifact_head", "ARTIFACT_", "/artifacts", "artifact-access", "artifactAccess", "[ARTIFACT"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("Strings() misses %q: %v", want, got)
+		}
+	}
+	d.EnvNames[0] = tChanged
+	d.Tools["artifact_head"] = tChanged
+	again := DeprecatedNames()
+	if again.EnvNames[0] == tChanged || again.Tools["artifact_head"] == tChanged {
+		t.Errorf("the list can be changed by a caller")
 	}
 }
