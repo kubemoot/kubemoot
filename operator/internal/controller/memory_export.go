@@ -12,6 +12,7 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -40,34 +41,37 @@ type MemoryExportReport struct {
 	Namespace string         `json:"namespace"`
 	Crew      string         `json:"crew"`
 	Memories  int            `json:"memories"`
-	Screened  bool           `json:"screened"`
 	LeftOut   []LeftOutEntry `json:"leftOut"`
 }
 
 // memoryExportReport summarizes an export for display.
-func memoryExportReport(scope crewscope.Scope, exp ompi.Export, opts ompi.Options) MemoryExportReport {
+func memoryExportReport(scope crewscope.Scope, exp ompi.Export) MemoryExportReport {
 	left := make([]LeftOutEntry, 0, len(exp.Skipped))
 	for _, o := range exp.Skipped {
 		left = append(left, LeftOutEntry{Key: o.Key, Reason: o.Reason})
 	}
 	return MemoryExportReport{
-		Namespace: scope.Namespace, Crew: scope.Crew, Memories: len(exp.Memories),
-		Screened: !opts.AllowUnscreened, LeftOut: left,
+		Namespace: scope.Namespace, Crew: scope.Crew, Memories: len(exp.Memories), LeftOut: left,
 	}
 }
 
 // serveMemoryExport answers GET /memory-export/{namespace}/{crew}: the crew's
 // memory as the same OMPI export ompi-export writes, as a zip, or with
-// report=true the selection report as JSON. Facts holding a credential are left
-// out unless allowUnscreened=true.
+// report=true the selection report as JSON. The export is always screened: a
+// fact that holds a credential is left out, and a request for allowUnscreened is
+// refused. The caller must present a bearer token whose identity may get the Crew.
 func (s *ReportServer) serveMemoryExport(w http.ResponseWriter, r *http.Request) {
 	scope, err := crewscope.New(r.PathValue("namespace"), r.PathValue("crew"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if s.Memory == nil {
-		http.Error(w, "crew memory is not available", http.StatusServiceUnavailable)
+	q := r.URL.Query()
+	if q.Has("allowUnscreened") {
+		http.Error(w, "an unscreened export is not available here; use kmctl", http.StatusBadRequest)
+		return
+	}
+	if !s.authorizeMemoryExport(w, r, scope) {
 		return
 	}
 	reader, err := s.Memory.OpenCrewMemory()
@@ -76,9 +80,7 @@ func (s *ReportServer) serveMemoryExport(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "crew memory is not reachable: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	q := r.URL.Query()
-	opts := ompi.Options{ExportedAt: time.Now(), AllowUnscreened: q.Get("allowUnscreened") == valueTrue}
-	exp, files, err := ompi.ExportFiles(reader, scope, false, opts)
+	exp, files, err := ompi.ExportFiles(reader, scope, false, ompi.Options{ExportedAt: time.Now()})
 	if err != nil {
 		reportLog.Error(err, "memory export failed", "namespace", scope.Namespace, "crew", scope.Crew)
 		http.Error(w, "memory export failed: "+err.Error(), http.StatusInternalServerError)
@@ -87,7 +89,7 @@ func (s *ReportServer) serveMemoryExport(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Cache-Control", "no-store")
 	if q.Get("report") == valueTrue {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(memoryExportReport(scope, exp, opts))
+		_ = json.NewEncoder(w).Encode(memoryExportReport(scope, exp))
 		return
 	}
 	archive, err := ompi.Archive(files)
@@ -98,4 +100,28 @@ func (s *ReportServer) serveMemoryExport(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s-memory-ompi.zip", scope.Crew))
 	_, _ = w.Write(archive)
+}
+
+// authorizeMemoryExport answers the request itself and returns false when the export
+// may not be served: no memory store or no authorizer configured (fail closed), no
+// valid token (401), an identity that may not read the crew (403), or a review failure.
+func (s *ReportServer) authorizeMemoryExport(w http.ResponseWriter, r *http.Request, scope crewscope.Scope) bool {
+	if s.Memory == nil || s.MemoryAuth == nil {
+		http.Error(w, "crew memory export is not available", http.StatusServiceUnavailable)
+		return false
+	}
+	err := s.MemoryAuth.Authorize(r.Context(), bearerToken(r), scope)
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, errUnauthenticated):
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+	case errors.Is(err, errForbidden):
+		http.Error(w, err.Error(), http.StatusForbidden)
+	default:
+		reportLog.Error(err, "memory export authorization failed", "namespace", scope.Namespace, "crew", scope.Crew)
+		http.Error(w, "could not check the caller's access", http.StatusServiceUnavailable)
+	}
+	return false
 }

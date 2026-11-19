@@ -376,7 +376,9 @@ type ReportServer struct {
 	Publisher *kubemootnats.Publisher
 	// Memory opens the crew memory store for the memory export; nil answers 503.
 	Memory memoryOpener
-	Addr   string
+	// MemoryAuth decides who may export a crew's memory; nil answers 503 (fail closed).
+	MemoryAuth memoryAuthorizer
+	Addr       string
 }
 
 // ComponentStatus is one control-plane component's health, in the spirit of

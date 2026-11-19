@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import MemoryExportPanel from './MemoryExportPanel.svelte';
 
 const scope = { namespace: 'pilot', crew: 'homelab-pilot' };
-const held = { namespace: 'pilot', crew: 'homelab-pilot', memories: 2, screened: true, leftOut: [] };
+const held = { namespace: 'pilot', crew: 'homelab-pilot', memories: 2, leftOut: [] };
 const withLeftOut = {
 	...held,
 	leftOut: [
@@ -16,7 +16,7 @@ const answer = (body: unknown, status = 200) =>
 	vi.fn().mockResolvedValue({ ok: status < 400, status, json: async () => body });
 
 describe('MemoryExportPanel', () => {
-	it('is screened by default and says so', async () => {
+	it('says the export is screened', async () => {
 		const fetchFn = answer(held);
 		render(MemoryExportPanel, { scope, endpoint: '/api/export', fetchFn });
 		expect(screen.getByText(/Screened: a fact whose topic, key or value holds a credential is left out/)).toBeTruthy();
@@ -38,17 +38,12 @@ describe('MemoryExportPanel', () => {
 		expect(screen.getByText('The export holds 2 facts; 2 entries were left out.')).toBeTruthy();
 	});
 
-	it('asks again, with a warning, when unscreened facts are included', async () => {
-		const fetchFn = answer(held);
-		render(MemoryExportPanel, { scope, endpoint: '/api/export', fetchFn });
+	it('offers no way to include facts that hold a credential, and points to kmctl', async () => {
+		render(MemoryExportPanel, { scope, endpoint: '/api/export', fetchFn: answer(held) });
 		await screen.findByRole('link', { name: 'Download' });
-		await fireEvent.click(screen.getByRole('checkbox'));
-		await waitFor(() =>
-			expect(fetchFn).toHaveBeenLastCalledWith('/api/export?namespace=pilot&crew=homelab-pilot&allowUnscreened=true&report=true')
-		);
-		expect(screen.getByText(/Unscreened: credentials in fact values go into the file/)).toBeTruthy();
-		const link = await screen.findByRole('link', { name: 'Download' });
-		expect(link.getAttribute('href')).toContain('allowUnscreened=true');
+		expect(screen.queryByRole('checkbox')).toBeNull();
+		expect(screen.getByText('kmctl')).toBeTruthy();
+		expect(document.body.innerHTML).not.toMatch(/allowUnscreened/);
 	});
 
 	it('shows the failure and offers no download when the report cannot be had', async () => {
