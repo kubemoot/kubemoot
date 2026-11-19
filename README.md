@@ -5,21 +5,49 @@
 
 [![Latest release](https://img.shields.io/github/v/release/kubemoot/kubemoot?sort=semver&filter=operator-chart-v*)](https://github.com/kubemoot/kubemoot/releases/latest) [![Build status](https://github.com/kubemoot/kubemoot/actions/workflows/release.yaml/badge.svg?branch=main)](https://github.com/kubemoot/kubemoot/actions/workflows/release.yaml?query=branch%3Amain) [![License: Apache 2.0](https://img.shields.io/github/license/kubemoot/kubemoot)](https://github.com/kubemoot/kubemoot/blob/main/LICENSE) [![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/kubemoot/kubemoot?label=openssf%20scorecard)](https://scorecard.dev/viewer/?uri=github.com/kubemoot/kubemoot) [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15226/badge)](https://www.bestpractices.dev/projects/15226)
 
-Kubemoot is a Kubernetes operator and runtime for **multi-agent AI consensus**. A
-question is answered not by one model but by a **crew** of small, specialized agents
-that deliberate over a message bus and settle by signal. The crew, its agents, their
-prompts, and the models they use are all Kubernetes resources you declare and version
-like any other workload.
+Declare a crew of AI agents on Kubernetes. Kubemoot convenes them, schedules their
+models on the accelerators you choose, governs what they say, and lets them deliberate
+to one answer you can measure.
+
+You declare the crew and how it decides; Kubemoot runs the discussion. A question is
+answered not by one model but by a **crew** of small, specialized agents that deliberate
+over a message bus and settle by signal. The crew, its agents, their prompts, and the
+models they use are all Kubernetes resources you declare and version like any other
+workload.
 
 ## Why Kubemoot
 
-Agent frameworks are good for prototyping a single agent; Kubernetes runs a container.
-Neither operates a *multi-agent* AI workflow as infrastructure - that gap is Kubemoot's
-lane. Instead of routing every question through one large hosted model, Kubemoot
-composes capability **horizontally** from many small models, scheduled just in time
-across the accelerators you choose, and settles an answer by deliberation rather than by one
-model asserting it. Crew quality is measured by executable fitness functions, not
-eyeballed from transcripts.
+Other projects run an agent, serve a model, or sandbox code on Kubernetes. Kubemoot
+convenes them into a crew that decides together. Instead of routing every question
+through one large hosted model, it composes capability **horizontally** from many small
+models, scheduled just in time across the accelerators you choose, and settles an answer
+by deliberation rather than by one model asserting it.
+
+**What Kubemoot builds**
+
+1. **The moot.** Crews deliberate to one answer with agree, concern, block, and
+   stand-aside signals; failure counts as a signal; a declared archetype sets how a crew
+   decides.
+2. **Governance as code.** ADL rules are Kubernetes resources applied to every agent.
+3. **Scheduling across accelerators.** Each model call is placed on the accelerators the
+   cluster offers, across all crews.
+4. **Evidence.** Fitness suites with a judge, and every run records its realm so runs say
+   whether they are comparable.
+
+**What Kubemoot stands on** (each behind a swappable seam)
+
+- Tools through MCP.
+- The message bus on NATS.
+- Model servers: vLLM by default, and Ollama, through the Model Server Protocol.
+- Isolation: Kubernetes RBAC and network policies, with code run in a sandboxed pod.
+- Other harnesses at the table: goose already holds a seat.
+- Crew memory exported in the Open Memory Protocol (OMPI) format.
+
+**When a crew is the wrong tool**
+
+A crew spends several times the tokens of one agent. Use one when a question benefits
+from several specialists' views; for a single step-by-step task, one agent is the better
+tool.
 
 See [Why Kubemoot](docs/introduction/why-kubemoot.md) for who it's for and how it
 differs from a single-model agent or a hosted agent platform.
