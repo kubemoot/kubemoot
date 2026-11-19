@@ -204,8 +204,15 @@ fronts:
 - DNS, as for every restricted workload.
 - The pods and port of each in-cluster MCPServer the gateway fronts, the same pods and port
   the server's own ingress policy admits the gateway to. These stay as they are today.
-- An `externalEndpoint` that names a Service inside the cluster is read as a Service, as
-  described above.
+- The gateway's other calls: the database and Redis of a ContextForge gateway
+  (`spec.contextForge.databaseURL`, `redisURL`), and the query service of its tool index.
+- An `externalEndpoint` host is a Service inside the cluster only when it is a single label
+  (a Service in the gateway's namespace) or has the form `name.namespace.svc` or
+  `name.namespace.svc.<cluster domain>`. Every other name is a host outside the cluster,
+  including a two-label name such as `example.com` or `x.kube-system`, which gets a host rule
+  and never a rule for the cluster Service of that name. An address literal is allowed as a
+  single address, a trailing dot and letter case in the host are ignored, and a URL with no
+  port uses the scheme's port.
 
 A gateway that fronts no external server declares nothing and is not restricted, as for any
 workload without `spec.egress`. A gateway that does front one is restricted to the list
@@ -280,8 +287,6 @@ the `default` namespace, which lists the control plane node addresses and port (
 - A mode that denies all outbound traffic unless declared (`Deny`) is a possible later
   option. The only egress mode today is `Declared`.
 - The RAG indexer and fitness Jobs are not restricted.
-- A gateway's tool index query service is not added to the gateway's rules; a gateway that
-  fronts an external server and uses a tool index needs a hand-written policy for that call.
 - Control per host and per HTTP path is outside what a `NetworkPolicy` or a host rule can
   express. It belongs to a gateway that sees the request.
 - The operator namespace has no generated default-deny.

@@ -18,6 +18,18 @@ import (
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 )
 
+// reconcileGatewayNetwork creates the admin token and the ingress policy, then the egress
+// policy, before the gateway that reads them starts.
+func (r *MCPGatewayReconciler) reconcileGatewayNetwork(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) error {
+	if err := r.reconcileAdminAccess(ctx, gateway); err != nil {
+		return fmt.Errorf("admin access: %w", err)
+	}
+	if err := r.reconcileEgress(ctx, gateway); err != nil {
+		return fmt.Errorf("egress policy: %w", err)
+	}
+	return nil
+}
+
 // reconcileEgress applies the gateway's egress policy and records the EgressEnforced
 // condition. It does nothing when the reconciler has no NetPolicySync.
 func (r *MCPGatewayReconciler) reconcileEgress(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) error {
@@ -34,7 +46,7 @@ func (r *MCPGatewayReconciler) reconcileEgress(ctx context.Context, gateway *kub
 		if err != nil {
 			return err
 		}
-		if err := r.NetPol.attachGatewayDestinations(ctx, gateway.Namespace, servers, &workload); err != nil {
+		if err := r.NetPol.attachGatewayDestinations(ctx, gateway, servers, &workload); err != nil {
 			return err
 		}
 	}
@@ -45,15 +57,22 @@ func (r *MCPGatewayReconciler) reconcileEgress(ctx context.Context, gateway *kub
 
 // attachGatewayDestinations derives a gateway's egress from the servers it fronts. A
 // gateway that fronts an external server (spec.externalEndpoint) makes that call itself, so
-// it is restricted to DNS, the host and port of each external endpoint, and the pods of the
-// in-cluster servers it fronts. A gateway that fronts no external server declares nothing
+// it is restricted to DNS, the host and port of each external endpoint, the pods of the
+// in-cluster servers it fronts, and its other calls (ContextForge database and Redis, the
+// tool index query service). A gateway that fronts no external server declares nothing
 // and is not restricted. An endpoint that is not a usable http or https URL gets no rule
 // and is listed in the workload's Invalid.
-func (s *NetPolicySync) attachGatewayDestinations(ctx context.Context, namespace string, servers []kubemootv1alpha1.MCPServer, w *netpol.Workload) error {
+func (s *NetPolicySync) attachGatewayDestinations(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, servers []kubemootv1alpha1.MCPServer, w *netpol.Workload) error {
 	if !frontsExternalServer(servers) {
 		return nil
 	}
+	namespace := gateway.Namespace
 	w.Rules = &kubemootv1alpha1.EgressRules{}
+	other, err := s.gatewayOtherDests(ctx, gateway)
+	if err != nil {
+		return err
+	}
+	w.Defaults = append(w.Defaults, other...)
 	for i := range servers {
 		mcp := &servers[i]
 		if mcp.Spec.ExternalEndpoint == "" {
@@ -100,16 +119,45 @@ func inClusterServerDests(gatewayNamespace string, mcp *kubemootv1alpha1.MCPServ
 // gateway may call: its host and port, or the Service it names. The reason is set, and no
 // destination returned, when the endpoint cannot become a rule.
 func (s *NetPolicySync) externalEndpointDests(ctx context.Context, mcp *kubemootv1alpha1.MCPServer, namespace string) ([]netpol.Dest, string, error) {
-	raw := mcp.Spec.ExternalEndpoint
-	if err := netpol.CheckHTTPEndpoint(raw); err != nil {
-		return nil, fmt.Sprintf("MCPServer %s/%s externalEndpoint: %v", mcp.Namespace, mcp.Name, err), nil
+	where := fmt.Sprintf("MCPServer %s/%s externalEndpoint: ", mcp.Namespace, mcp.Name)
+	ep, err := netpol.ParseExternalEndpoint(mcp.Spec.ExternalEndpoint, namespace)
+	if err != nil {
+		return nil, where + err.Error(), nil
 	}
-	dests, reason, err := s.serviceURLDests(ctx, raw, namespace)
+	if ep.Service == nil {
+		return []netpol.Dest{ep.Dest}, "", nil
+	}
+	res, err := s.resolveService(ctx, ep.Service.Namespace, ep.Service.Name, []int32{ep.Service.Port})
 	if err != nil {
 		return nil, "", err
 	}
-	if reason != "" {
-		reason = fmt.Sprintf("MCPServer %s/%s externalEndpoint: %s", mcp.Namespace, mcp.Name, reason)
+	if res.Reason != "" {
+		return nil, where + res.Reason, nil
 	}
-	return dests, reason, nil
+	return res.Dests, "", nil
+}
+
+// gatewayOtherDests are the gateway's other outbound calls: the database and Redis of a
+// ContextForge gateway, and the query service of its tool index. The query service is read
+// from its Service when it exists, and from the URL alone before that.
+func (s *NetPolicySync) gatewayOtherDests(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) ([]netpol.Dest, error) {
+	var urls []string
+	if cf := gateway.Spec.ContextForge; cf != nil {
+		urls = append(urls, cf.DatabaseURL, cf.RedisURL)
+	}
+	var out []netpol.Dest
+	for _, u := range urls {
+		out = append(out, netpol.DestsFromURL(u)...)
+	}
+	if gateway.Spec.ToolIndex == nil || gateway.Status.ToolIndexEndpoint == "" {
+		return out, nil
+	}
+	found, reason, err := s.serviceURLDestsAnyPort(ctx, gateway.Status.ToolIndexEndpoint, gateway.Namespace)
+	if err != nil {
+		return nil, err
+	}
+	if reason != "" {
+		found = netpol.DestsFromURL(gateway.Status.ToolIndexEndpoint)
+	}
+	return append(out, found...), nil
 }

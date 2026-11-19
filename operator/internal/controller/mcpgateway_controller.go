@@ -202,11 +202,8 @@ func (r *MCPGatewayReconciler) reconcileDeployment(ctx context.Context, gateway 
 	log := logf.FromContext(ctx)
 
 	// The admin token and the NetworkPolicy exist before the gateway that reads them starts
-	if err := r.reconcileAdminAccess(ctx, gateway); err != nil {
-		return nil, fmt.Errorf("admin access: %w", err)
-	}
-	if err := r.reconcileEgress(ctx, gateway); err != nil {
-		return nil, fmt.Errorf("egress policy: %w", err)
+	if err := r.reconcileGatewayNetwork(ctx, gateway); err != nil {
+		return nil, err
 	}
 
 	deployment := &appsv1.Deployment{}
