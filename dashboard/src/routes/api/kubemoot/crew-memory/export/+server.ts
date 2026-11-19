@@ -1,7 +1,6 @@
 import type { RequestHandler } from './$types';
 import { tryCrewScope } from '#lib/crewScope.js';
-import { operatorReportBase } from '#lib/server/operator-report.js';
-import { serviceAccountToken } from '#lib/server/service-account-token.js';
+import { operatorAuthHeaders, operatorReportBase } from '#lib/server/operator-report.js';
 import { guardNamespace } from '#lib/server/scope.js';
 
 /**
@@ -46,12 +45,6 @@ async function relay(upstream: Response): Promise<Response> {
 	const disposition = upstream.headers.get('Content-Disposition');
 	if (disposition) headers['Content-Disposition'] = disposition;
 	return new Response(Buffer.from(await upstream.arrayBuffer()), { status: 200, headers });
-}
-
-/** The dashboard's service account token as the bearer the operator checks; none when it has no token. */
-function operatorAuthHeaders(): Record<string, string> {
-	const token = serviceAccountToken();
-	return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export const GET: RequestHandler = async ({ url }) => {

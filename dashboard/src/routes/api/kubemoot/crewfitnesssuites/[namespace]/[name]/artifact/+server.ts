@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { operatorReportBase } from '#lib/server/operator-report.js';
+import { operatorAuthHeaders, operatorReportBase } from '#lib/server/operator-report.js';
 import { guardNamespace } from '#lib/server/scope.js';
 
 /**
@@ -26,7 +26,7 @@ export const GET: RequestHandler = async ({ params }) => {
 	const url = `${operatorReportBase()}/report/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
 	let upstream: Response;
 	try {
-		upstream = await fetch(url);
+		upstream = await fetch(url, { headers: operatorAuthHeaders() });
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : 'fetch failed';
 		throw error(502, `report service unreachable: ${msg}`);

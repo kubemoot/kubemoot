@@ -49,7 +49,7 @@ func reviewClient(authenticated, allowed bool) (*fake.Clientset, *authorizationv
 func TestReviewAuthorizerAdmitsAnIdentityThatMayGetTheCrew(t *testing.T) {
 	scope, _ := crewscope.New("ns", "c")
 	c, asked := reviewClient(true, true)
-	if err := NewReviewAuthorizer(c).Authorize(context.Background(), sampleToken, scope); err != nil {
+	if err := NewReviewAuthorizer(c).Authorize(context.Background(), sampleToken, crewAccess(scope)); err != nil {
 		t.Fatal(err)
 	}
 	attrs := asked.Spec.ResourceAttributes
@@ -61,6 +61,7 @@ func TestReviewAuthorizerAdmitsAnIdentityThatMayGetTheCrew(t *testing.T) {
 
 func TestReviewAuthorizerRefuses(t *testing.T) {
 	scope, _ := crewscope.New("ns", "c")
+	attrs := crewAccess(scope)
 	cases := map[string]struct {
 		authenticated, allowed bool
 		token                  string
@@ -72,7 +73,7 @@ func TestReviewAuthorizerRefuses(t *testing.T) {
 	}
 	for name, c := range cases {
 		client, _ := reviewClient(c.authenticated, c.allowed)
-		if err := NewReviewAuthorizer(client).Authorize(context.Background(), c.token, scope); !errors.Is(err, c.want) {
+		if err := NewReviewAuthorizer(client).Authorize(context.Background(), c.token, attrs); !errors.Is(err, c.want) {
 			t.Errorf("%s: err = %v, want %v", name, err, c.want)
 		}
 	}
@@ -84,7 +85,7 @@ func TestReviewAuthorizerReportsAFailedReviewAsNeitherAdmitNorRefuse(t *testing.
 	c.PrependReactor("create", "tokenreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("apiserver down")
 	})
-	err := NewReviewAuthorizer(c).Authorize(context.Background(), sampleToken, scope)
+	err := NewReviewAuthorizer(c).Authorize(context.Background(), sampleToken, crewAccess(scope))
 	if err == nil || errors.Is(err, errUnauthenticated) || errors.Is(err, errForbidden) {
 		t.Errorf("err = %v, want a review failure", err)
 	}

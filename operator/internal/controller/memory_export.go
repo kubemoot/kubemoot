@@ -17,6 +17,8 @@ import (
 	"net/http"
 	"time"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
+
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/ompi"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
@@ -60,19 +62,17 @@ func memoryExportReport(scope crewscope.Scope, exp ompi.Export) MemoryExportRepo
 // memory as the same OMPI export ompi-export writes, as a zip, or with
 // report=true the selection report as JSON. The export is always screened: a
 // fact that holds a credential is left out, and a request for allowUnscreened is
-// refused. The caller must present a bearer token whose identity may get the Crew.
+// refused. It is served behind requireAccess: the caller must present a bearer token
+// whose identity may get the Crew.
 func (s *ReportServer) serveMemoryExport(w http.ResponseWriter, r *http.Request) {
-	scope, err := crewscope.New(r.PathValue("namespace"), r.PathValue("crew"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+	scope, _ := crewscope.New(r.PathValue("namespace"), r.PathValue("crew")) // validated by memoryExportAccess
 	q := r.URL.Query()
 	if q.Has("allowUnscreened") {
 		http.Error(w, "an unscreened export is not available here; use kmctl", http.StatusBadRequest)
 		return
 	}
-	if !s.authorizeMemoryExport(w, r, scope) {
+	if s.Memory == nil {
+		http.Error(w, "crew memory export is not available", http.StatusServiceUnavailable)
 		return
 	}
 	reader, err := s.Memory.OpenCrewMemory()
@@ -119,26 +119,11 @@ func failMemoryExport(w http.ResponseWriter, scope crewscope.Scope, cause error,
 	http.Error(w, message, status)
 }
 
-// authorizeMemoryExport answers the request itself and returns false when the export
-// may not be served: no memory store or no authorizer configured (fail closed), no
-// valid token (401), an identity that may not read the crew (403), or a review failure.
-func (s *ReportServer) authorizeMemoryExport(w http.ResponseWriter, r *http.Request, scope crewscope.Scope) bool {
-	if s.Memory == nil || s.MemoryAuth == nil {
-		http.Error(w, "crew memory export is not available", http.StatusServiceUnavailable)
-		return false
+// memoryExportAccess is the access a memory export equals: get the Crew it is of.
+func memoryExportAccess(r *http.Request) (authorizationv1.ResourceAttributes, error) {
+	scope, err := crewscope.New(r.PathValue("namespace"), r.PathValue("crew"))
+	if err != nil {
+		return authorizationv1.ResourceAttributes{}, err
 	}
-	err := s.MemoryAuth.Authorize(r.Context(), bearerToken(r), scope)
-	switch {
-	case err == nil:
-		return true
-	case errors.Is(err, errUnauthenticated):
-		w.Header().Set("WWW-Authenticate", "Bearer")
-		http.Error(w, err.Error(), http.StatusUnauthorized)
-	case errors.Is(err, errForbidden):
-		http.Error(w, err.Error(), http.StatusForbidden)
-	default:
-		reportLog.Error(err, "memory export authorization failed", "namespace", scope.Namespace, "crew", scope.Crew)
-		http.Error(w, "could not check the caller's access", http.StatusServiceUnavailable)
-	}
-	return false
+	return crewAccess(scope), nil
 }

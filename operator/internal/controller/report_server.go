@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -376,9 +377,9 @@ type ReportServer struct {
 	Publisher *kubemootnats.Publisher
 	// Memory opens the crew memory store for the memory export; nil answers 503.
 	Memory memoryOpener
-	// MemoryAuth decides who may export a crew's memory; nil answers 503 (fail closed).
-	MemoryAuth memoryAuthorizer
-	Addr       string
+	// Auth decides who may read each endpoint; nil answers 503 (fail closed).
+	Auth reportAuthorizer
+	Addr string
 }
 
 // ComponentStatus is one control-plane component's health, in the spirit of
@@ -433,33 +434,48 @@ func buildComponentStatuses(ctx context.Context, c client.Client, natsConnected 
 	return out
 }
 
-// Start implements manager.Runnable.
-func (s *ReportServer) Start(ctx context.Context) error {
+// routes is the report service's handler. Every endpoint but /healthz sits behind
+// requireAccess, with the access it equals: the service is plain HTTP reachable by any pod.
+func (s *ReportServer) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	mux.HandleFunc("GET /componentstatuses", func(w http.ResponseWriter, r *http.Request) {
-		natsConnected := s.Publisher != nil && s.Publisher.Connected()
-		statuses := buildComponentStatuses(r.Context(), s.Client, natsConnected)
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(statuses)
-	})
-	mux.HandleFunc("GET /memory-export/{namespace}/{crew}", s.serveMemoryExport)
-	mux.HandleFunc("GET /report/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		ns, name := r.PathValue("namespace"), r.PathValue("name")
-		data, err := GenerateSuiteReport(r.Context(), s.Client, s.Publisher, ns, name)
-		if err != nil {
-			reportLog.Error(err, "report generation failed", "namespace", ns, "name", name)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.xlsx", name))
-		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(data)
-	})
+	mux.HandleFunc("GET /componentstatuses", s.requireAccess(
+		func(*http.Request) (authorizationv1.ResourceAttributes, error) { return componentStatusAccess(), nil },
+		s.serveComponentStatuses))
+	mux.HandleFunc("GET /memory-export/{namespace}/{crew}", s.requireAccess(memoryExportAccess, s.serveMemoryExport))
+	mux.HandleFunc("GET /report/{namespace}/{name}", s.requireAccess(
+		func(r *http.Request) (authorizationv1.ResourceAttributes, error) {
+			return suiteAccess(r.PathValue("namespace"), r.PathValue("name")), nil
+		},
+		s.serveSuiteReport))
+	return mux
+}
 
-	srv := &http.Server{Addr: s.Addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+func (s *ReportServer) serveComponentStatuses(w http.ResponseWriter, r *http.Request) {
+	natsConnected := s.Publisher != nil && s.Publisher.Connected()
+	statuses := buildComponentStatuses(r.Context(), s.Client, natsConnected)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(statuses)
+}
+
+func (s *ReportServer) serveSuiteReport(w http.ResponseWriter, r *http.Request) {
+	ns, name := r.PathValue("namespace"), r.PathValue("name")
+	data, err := GenerateSuiteReport(r.Context(), s.Client, s.Publisher, ns, name)
+	if err != nil {
+		reportLog.Error(err, "report generation failed", "namespace", ns, "name", name)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.xlsx", name))
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(data)
+}
+
+// Start implements manager.Runnable.
+func (s *ReportServer) Start(ctx context.Context) error {
+	srv := &http.Server{Addr: s.Addr, Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

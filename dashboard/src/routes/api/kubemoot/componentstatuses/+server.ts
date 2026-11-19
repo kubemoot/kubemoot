@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { operatorReportBase } from '#lib/server/operator-report.js';
+import { operatorAuthHeaders, operatorReportBase } from '#lib/server/operator-report.js';
 
 /**
  * GET /api/kubemoot/componentstatuses
@@ -17,7 +17,7 @@ import { operatorReportBase } from '#lib/server/operator-report.js';
 export const GET: RequestHandler = async () => {
 	let upstream: Response;
 	try {
-		upstream = await fetch(`${operatorReportBase()}/componentstatuses`);
+		upstream = await fetch(`${operatorReportBase()}/componentstatuses`, { headers: operatorAuthHeaders() });
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : 'fetch failed';
 		throw error(502, `component status service unreachable: ${msg}`);

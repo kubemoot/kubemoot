@@ -24,9 +24,9 @@ import (
 	"time"
 
 	"github.com/go-logr/logr/funcr"
+	authorizationv1 "k8s.io/api/authorization/v1"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
-	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 const credentialValue = "Authorization: Bearer abcdefgh12345678"
@@ -69,7 +69,7 @@ type fakeAuth struct {
 	err     error
 }
 
-func (f fakeAuth) Authorize(_ context.Context, token string, _ crewscope.Scope) error {
+func (f fakeAuth) Authorize(_ context.Context, token string, _ authorizationv1.ResourceAttributes) error {
 	switch {
 	case f.err != nil:
 		return f.err
@@ -84,12 +84,11 @@ func (f fakeAuth) Authorize(_ context.Context, token string, _ crewscope.Scope) 
 const goodToken = "dashboard-token"
 
 func serverWith(memory memoryOpener) *ReportServer {
-	return &ReportServer{Memory: memory, MemoryAuth: fakeAuth{allowed: goodToken}}
+	return &ReportServer{Memory: memory, Auth: fakeAuth{allowed: goodToken}}
 }
 
 func getExport(s *ReportServer, query string, header ...string) *httptest.ResponseRecorder {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /memory-export/{namespace}/{crew}", s.serveMemoryExport)
+	mux := s.routes()
 	req := httptest.NewRequest(http.MethodGet, "/memory-export/ns/c"+query, nil)
 	for i := 0; i+1 < len(header); i += 2 {
 		req.Header.Set(header[i], header[i+1])
@@ -186,8 +185,8 @@ func TestMemoryExportDoesNotReadMemoryBeforeTheCallerIsChecked(t *testing.T) {
 func TestMemoryExportFailsClosed(t *testing.T) {
 	cases := map[string]*ReportServer{
 		"no authorizer":             {Memory: fakeOpener{reader: crewFacts()}},
-		"no memory store":           {MemoryAuth: fakeAuth{allowed: goodToken}},
-		"access review unavailable": {Memory: fakeOpener{reader: crewFacts()}, MemoryAuth: fakeAuth{err: errors.New("apiserver down")}},
+		"no memory store":           {Auth: fakeAuth{allowed: goodToken}},
+		"access review unavailable": {Memory: fakeOpener{reader: crewFacts()}, Auth: fakeAuth{err: errors.New("apiserver down")}},
 	}
 	for name, s := range cases {
 		if rec := asDashboard(s, ""); rec.Code != http.StatusServiceUnavailable {
@@ -243,8 +242,7 @@ func TestMemoryExportReportsAnUnreachableStore(t *testing.T) {
 
 func TestMemoryExportRejectsAnInvalidScope(t *testing.T) {
 	s := serverWith(fakeOpener{reader: crewFacts()})
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /memory-export/{namespace}/{crew}", s.serveMemoryExport)
+	mux := s.routes()
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/memory-export/n.s/c", nil))
 	if rec.Code != http.StatusBadRequest {

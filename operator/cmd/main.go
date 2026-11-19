@@ -139,10 +139,10 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 			Client:    mgr.GetClient(),
 			Publisher: natsPublisher,
 			Memory:    natsPublisher,
-			// The report service is reachable by any pod; the memory export checks the
-			// caller's token and RBAC before it reads a crew's memory.
-			MemoryAuth: controller.NewReviewAuthorizer(kube),
-			Addr:       ":8082",
+			// The report service is reachable by any pod; every endpoint checks the
+			// caller's token and RBAC before it answers.
+			Auth: controller.NewReviewAuthorizer(kube),
+			Addr: ":8082",
 		}},
 	}
 	for _, r := range runnables {
