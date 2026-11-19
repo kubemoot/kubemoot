@@ -421,12 +421,11 @@ func drainWhileAWaiterQueues(t *testing.T, tickets []string, waiterTicket string
 	}()
 	<-first
 	<-second
-	if len(s.waiting) != 0 {
-		for k, n := range s.waiting {
-			if n != 0 {
-				t.Errorf("waiter %q still counted %d after both ended", k, n)
-			}
-		}
+	s.waitMu.Lock()
+	left := len(s.waiting)
+	s.waitMu.Unlock()
+	if left != 0 {
+		t.Errorf("the waiting map holds %d entries after both requests ended, want it empty", left)
 	}
 	return adapter.placedSeen
 }

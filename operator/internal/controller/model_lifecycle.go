@@ -276,7 +276,11 @@ func (s *ModelLifecycleServer) noteWaiting(server, ticket string, delta int) {
 	if s.waiting == nil {
 		s.waiting = map[string]int{}
 	}
-	s.waiting[waiterKey(server, ticket)] += delta
+	key := waiterKey(server, ticket)
+	s.waiting[key] += delta
+	if s.waiting[key] <= 0 {
+		delete(s.waiting, key)
+	}
 }
 
 // outstanding is how many of the tickets are calls that must finish before the switch:
