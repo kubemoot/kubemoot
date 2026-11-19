@@ -20,14 +20,16 @@ import (
 )
 
 const (
-	tGrep    = "workspace_grep"
-	tPods    = "pods_list"
-	tChanged = "changed"
+	tGrep      = "workspace_grep"
+	tPods      = "pods_list"
+	tChanged   = "changed"
+	tOldHead   = "artifact_head"
+	tOldPrefix = "ARTIFACT_"
 )
 
 func TestIsRead(t *testing.T) {
 	for name, want := range map[string]bool{
-		"workspace_query": true, tGrep: true, "artifact_select": true, "artifact_head": true,
+		"workspace_query": true, tGrep: true, "artifact_select": true, tOldHead: true,
 		"mcp.workspace_head": true, tPods: false, "": false, "workspace_write": false,
 	} {
 		if got := IsRead(name); got != want {
@@ -54,8 +56,8 @@ func TestCanonicalIsExact(t *testing.T) {
 
 func TestListsAreCopies(t *testing.T) {
 	ReadTools()[0] = tChanged
-	Legacy()["artifact_head"] = tChanged
-	if ReadTools()[0] == tChanged || Legacy()["artifact_head"] == tChanged {
+	Legacy()[tOldHead] = tChanged
+	if ReadTools()[0] == tChanged || Legacy()[tOldHead] == tChanged {
 		t.Error("a caller must not be able to change the lists")
 	}
 }
@@ -120,15 +122,15 @@ func TestDeprecatedNamesListTheOldAPIFields(t *testing.T) {
 func TestDeprecatedNamesNamesListsEachPartAndIsACopy(t *testing.T) {
 	d := DeprecatedNames()
 	got := d.Names()
-	for _, want := range []string{"artifact_head", "ARTIFACT_", "/artifacts", "artifact-access", "artifactAccess", "[ARTIFACT"} {
+	for _, want := range []string{tOldHead, tOldPrefix, "/artifacts", "artifact-access", "artifactAccess", "[ARTIFACT"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("Names() misses %q: %v", want, got)
 		}
 	}
 	d.EnvNames[0] = tChanged
-	d.Tools["artifact_head"] = tChanged
+	d.Tools[tOldHead] = tChanged
 	again := DeprecatedNames()
-	if again.EnvNames[0] == tChanged || again.Tools["artifact_head"] == tChanged {
+	if again.EnvNames[0] == tChanged || again.Tools[tOldHead] == tChanged {
 		t.Errorf("the list can be changed by a caller")
 	}
 }
@@ -139,12 +141,12 @@ func TestFindFlagsOldNamesAtTheStartOfAWordOnly(t *testing.T) {
 		text string
 		want []string
 	}{
-		{"name: ARTIFACT_MODE", []string{"ARTIFACT_"}},
-		{"ARTIFACT_MODE", []string{"ARTIFACT_"}},
+		{"name: ARTIFACT_MODE", []string{tOldPrefix}},
+		{"ARTIFACT_MODE", []string{tOldPrefix}},
 		{"name: WORKSPACE_QUERY_MAX_ARTIFACT_BYTES", nil},
 		{"WORKSPACE_MODE WORKSPACE_DIR WORKSPACE_QUERY_ENGINE", nil},
-		{"WORKSPACE_QUERY_MAX_ARTIFACT_BYTES and ARTIFACT_MODE", []string{"ARTIFACT_"}},
-		{"tools: [artifact_head, workspace_head]", []string{"artifact_head"}},
+		{"WORKSPACE_QUERY_MAX_ARTIFACT_BYTES and ARTIFACT_MODE", []string{tOldPrefix}},
+		{"tools: [artifact_head, workspace_head]", []string{tOldHead}},
 		{"tools: [my_artifact_head]", nil},
 		{"image: ghcr.io/kubemoot/artifact-access:1", []string{"artifact-access"}},
 		{"image: reg/my-artifact-access:1", nil},
