@@ -171,7 +171,7 @@ func TestVLLMServerReconcilePublishesStatesAndRequestCounts(t *testing.T) {
 // wantStates fails unless the first model is awake and loaded and the second asleep.
 func wantStates(t *testing.T, state bus.ServerState) {
 	t.Helper()
-	if state.ModelStates[vllmModel14] != "awake" || state.ModelStates[vllmModel8] != stateAsleepName {
+	if state.ModelStates[vllmModel14] != bus.ServerStateModelStatesValueAwake || state.ModelStates[vllmModel8] != stateAsleepName {
 		t.Errorf("modelStates = %v", state.ModelStates)
 	}
 	if len(state.LoadedModels) != 1 || state.LoadedModels[0] != vllmModel14 {

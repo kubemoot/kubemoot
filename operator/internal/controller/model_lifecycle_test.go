@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -41,6 +42,8 @@ type fakeAdapter struct {
 	inAction  atomic.Int32
 	overlap   atomic.Bool
 	hold      time.Duration
+	// drains, when set, is a model the adapter reports draining while it makes another ready.
+	drains string
 }
 
 func (f *fakeAdapter) Probe(_ context.Context, _ aiv1alpha1.ModelServerSpec) (engine.Snapshot, error) {
@@ -82,11 +85,15 @@ func (f *fakeAdapter) change(model string, to engine.ModelState) error {
 	return nil
 }
 
-func (f *fakeAdapter) Ready(_ context.Context, _ aiv1alpha1.ModelServerSpec, model string) error {
+func (f *fakeAdapter) Ready(ctx context.Context, _ aiv1alpha1.ModelServerSpec, model string) error {
 	f.mu.Lock()
 	f.readied = append(f.readied, model)
 	err := f.readyErr
 	f.mu.Unlock()
+	if f.drains != "" {
+		engine.NotifyDraining(ctx, []string{f.drains}, true)
+		defer engine.NotifyDraining(ctx, []string{f.drains}, false)
+	}
 	if err != nil {
 		return err
 	}
@@ -103,6 +110,16 @@ func (f *fakeAdapter) Release(_ context.Context, _ aiv1alpha1.ModelServerSpec, m
 type recordingRefresher struct {
 	mu    sync.Mutex
 	calls []int64
+	// drains is each SetDraining call, as "model:true" or "model:false".
+	drains []string
+}
+
+func (r *recordingRefresher) SetDraining(_ context.Context, _ *aiv1alpha1.ModelServer, models []string, draining bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, m := range models {
+		r.drains = append(r.drains, fmt.Sprintf("%s:%t", m, draining))
+	}
 }
 
 func (r *recordingRefresher) RefreshAfterSwitch(_ context.Context, _ *aiv1alpha1.ModelServer, _ string, ms int64) {
@@ -150,7 +167,7 @@ func request(t *testing.T, action bus.ModelLifecycleRequestAction, model string)
 var lifecycleSubject = bus.ModelLifecycleSubject(lifecycleServerName)
 
 func asleepAwake() *fakeAdapter {
-	return &fakeAdapter{states: map[string]engine.ModelState{vllmModel14: engine.StateAsleep, "qwen3:32b": engine.StateAwake}}
+	return &fakeAdapter{states: map[string]engine.ModelState{vllmModel14: engine.StateAsleep, candModel32: engine.StateAwake}}
 }
 
 func TestReadyWakesAnAsleepModelAndRepliesOnceItIsAwake(t *testing.T) {
@@ -344,5 +361,18 @@ func TestTwoRequestsToWakeTheSameModelWakeItOnce(t *testing.T) {
 	if len(adapter.readied) != 1 || len(ref.calls) != 1 {
 		t.Errorf("the second request waited on the first wake instead of waking again: readied %v, published %v",
 			adapter.readied, ref.calls)
+	}
+}
+
+func TestTheSwitchPublishesTheDrainingStateAroundTheWait(t *testing.T) {
+	adapter := asleepAwake()
+	adapter.drains = "qwen3:32b"
+	s, ref := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
+	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, vllmModel14))
+	if !reply.Ok {
+		t.Fatalf("reply = %+v", reply)
+	}
+	if got := fmt.Sprint(ref.drains); got != "[qwen3:32b:true qwen3:32b:false]" {
+		t.Errorf("draining must be published, then cleared: %s", got)
 	}
 }

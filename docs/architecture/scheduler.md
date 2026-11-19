@@ -249,7 +249,7 @@ Beyond the fields described above, the server state carries these optional field
 
 | Field | Meaning | Ollama | vLLM |
 |---|---|---|---|
-| `modelStates` | Each model by name: `awake` (loaded now), `asleep` (parked by the engine and quick to wake), or `available` (the server has it, not loaded) | Filled from the loaded models (`awake`) and the downloaded ones (`available`); never `asleep` | Each answering vLLM server's `/is_sleeping`: `awake` or `asleep`; never `available`, because a started vLLM server is one or the other |
+| `modelStates` | Each model by name: `awake` (loaded now), `asleep` (parked by the engine and quick to wake), `available` (the server has it, not loaded), or `draining` (awake, finishing the calls it holds before a switch sleeps it; takes no new call) | Filled from the loaded models (`awake`) and the downloaded ones (`available`); never `asleep` | Each answering vLLM server's `/is_sleeping`: `awake` or `asleep`; never `available`, because a started vLLM server is one or the other |
 | `requestsRunning`, `requestsWaiting` | Requests the engine is running and holding in its own queue, across the whole ModelServer | Absent: Ollama exports no metrics, so the agents' tickets keep the live counts | From `/metrics`, summed over the ModelServer's vLLM servers |
 | `kvCacheUsage` | Fraction of the engine's key-value cache in use, 0 to 1 | Absent | From `/metrics`, the highest over the ModelServer's vLLM servers |
 | `switchCostMs` | Observed time to make each model ready, by model, in milliseconds | Absent; the calibrated load time in `modelSpeeds` is the measure | The last observed switch to each model (sleeping the awake one, then waking it), recorded by the operator when it wakes one for an agent |
@@ -268,12 +268,16 @@ The agent runtime never sends Ollama's load and unload calls to another engine's
 
 #### Switching waits for running calls
 
-The adapter is the one place that puts a vLLM server to sleep, for `ready` (the awake vLLM server gives way) and for `release`, so the wait lives there. Before it sends `/sleep` it reads the server's `/metrics` and waits until `vllm:num_requests_running` plus `vllm:num_requests_waiting` (the server's own queue) are zero, polling the count. Only then does it sleep the server and, for `ready`, wake the target. An idle server switches at once.
+The adapter is the one place that puts a vLLM server to sleep, for `ready` (the awake vLLM server gives way) and for `release`, so the wait and the admission gate both live there. A switch goes in three steps:
 
-- **Safety net.** The wait ends after 10 minutes, below the lifecycle request's 30 minute limit. The switch then fails, the server stays awake, and the reply says how many requests were still in flight. The normal path ends on the count and never reaches it.
-- **Count unavailable.** A server whose `/metrics` cannot be read, or has no `vllm:num_requests_running`, cannot be shown idle. The switch fails with that reason and the server stays awake: an unread count is not treated as zero.
-- **The asker gives up.** If the request ends during the wait, the server stays awake.
-- **Other requests meanwhile.** The operator holds one turn per ModelServer for the whole switch, so a lifecycle request for another model queues behind the drain and runs after it. Calls the agents send straight to the awake model are not stopped by the operator; they join the engine's batch and can keep the count above zero, which ends in the safety net.
+1. **Stop admitting.** The adapter tells the lifecycle server the models of that vLLM server (every name it answers to) are draining, and the operator publishes `draining` as their `modelStates` entry before the adapter reads any count. A draining model is also left out of `loadedModels`. Placement never sends a new call to a draining model: it ranks it as not awake, so a call goes to another awake provider of an acceptable model by the usual rules, or, when none is cheaper, waits for the switch and then wakes the model through the operator, whose per-server turn holds it behind the drain.
+2. **Wait by state.** The adapter polls the server's `/metrics` until `vllm:num_requests_running` plus `vllm:num_requests_waiting` (the server's own queue) are zero. Calls placed before `draining` was published are the ones counted, so nothing new arrives to keep the count up and no call slips in between the last read and the sleep. An idle server goes straight to step 3.
+3. **Sleep.** The adapter sends `/sleep`, and for `ready` then wakes the target. When the switch ends, whether the server slept or stayed awake, `draining` is cleared and the state published again.
+
+- **Safety net.** The wait ends after 10 minutes, below the lifecycle request's 30 minute limit. The switch then fails, the server stays awake and stops being draining, and the reply says how many requests were still in flight. The normal path ends on the count and never reaches it.
+- **Count unavailable.** A server whose `/metrics` cannot be read, or has no `vllm:num_requests_running`, cannot be shown idle. The switch fails with that reason and the server stays awake: an unread count is not treated as zero. A server that hides `/metrics` therefore cannot be switched.
+- **The asker gives up.** If the request ends during the wait, the server stays awake and stops being draining.
+- **Compatibility.** `draining` is an additive value of `modelStates` in the server-state contract. A reader that does not know it never sees the model as awake, because it is not in `loadedModels`, and a reader that does not read `modelStates` at all treats the model as asleep and asks the operator to make it ready, which waits behind the switch.
 
 #### Waking and sleeping over NATS
 

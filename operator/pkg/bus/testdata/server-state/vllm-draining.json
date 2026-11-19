@@ -1,0 +1,27 @@
+{
+  "name": "vllm-rig2",
+  "endpoint": "",
+  "engine": "vllm",
+  "modelEndpoints": {
+    "qwen3:14b": "http://vllm-rig2-qwen3-14b.vllm:8000",
+    "qwen3:32b": "http://vllm-rig2-qwen3-32b.vllm:8000"
+  },
+  "maxParallel": 256,
+  "activeCount": 0,
+  "queueDepth": 0,
+  "loadedModels": [
+    "qwen3:32b"
+  ],
+  "ready": true,
+  "lastProbedAt": "2026-10-19T21:25:33Z",
+  "loadedModelFootprintsMiB": {
+    "qwen3:32b": 0
+  },
+  "modelStates": {
+    "qwen3:14b": "draining",
+    "qwen3:32b": "awake"
+  },
+  "requestsRunning": 2,
+  "requestsWaiting": 0,
+  "kvCacheUsage": 0.12
+}

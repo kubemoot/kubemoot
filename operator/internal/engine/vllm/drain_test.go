@@ -19,9 +19,14 @@ package vllm
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/engine"
 )
 
 const (
@@ -185,5 +190,88 @@ func TestDrainDefaults(t *testing.T) {
 	a := New(http.DefaultClient)
 	if a.pollEvery() != DefaultDrainPoll || a.limit() != DefaultDrainLimit {
 		t.Errorf("defaults = %v %v", a.pollEvery(), a.limit())
+	}
+}
+
+// drainEvents records what an adapter reports to its DrainNotifier, and the /metrics reads
+// the server had received by the time of each report.
+type drainEvents struct {
+	mu     sync.Mutex
+	events []string
+	reads  []int
+	server *fakeServer
+}
+
+func (d *drainEvents) notify(_ context.Context, models []string, draining bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	state := "end"
+	if draining {
+		state = "start"
+	}
+	d.events = append(d.events, state+":"+strings.Join(models, ","))
+	n := 0
+	for _, c := range d.server.calls() {
+		if strings.HasPrefix(c, "GET "+pathMetrics) {
+			n++
+		}
+	}
+	d.reads = append(d.reads, n)
+}
+
+func TestDrainingIsPublishedBeforeTheCountIsReadAndClearedAfterTheSleep(t *testing.T) {
+	awake, asleep, adapter := switchPair(t)
+	awake.setMetrics(busyMetrics)
+	events := &drainEvents{server: awake}
+	ctx := engine.WithDrainNotifier(context.Background(), events.notify)
+	servers := map[string]*fakeServer{qwen14: awake, qwen8: asleep}
+	spec := specOf(1, servers, qwen14, qwen8)
+
+	done := make(chan error, 1)
+	go func() { done <- adapter.Ready(ctx, spec, qwen8) }()
+	time.Sleep(50 * time.Millisecond)
+	awake.setMetrics(idleMetrics) // the drain completes after the state was published
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(events.events, []string{"start:" + qwen14, "end:" + qwen14}) {
+		t.Fatalf("events = %v", events.events)
+	}
+	if events.reads[0] != 0 {
+		t.Errorf("draining must be published before the first read of the count, %d reads had happened", events.reads[0])
+	}
+	if !awake.isAsleep() {
+		t.Error("the server sleeps once the drain completes")
+	}
+}
+
+func TestDrainingIsClearedWhenTheSwitchFailsAndTheModelStaysAwake(t *testing.T) {
+	awake, asleep, adapter := switchPair(t)
+	awake.setMetrics(busyMetrics)
+	adapter.WithDrain(fastPoll, 30*time.Millisecond)
+	events := &drainEvents{server: awake}
+	ctx := engine.WithDrainNotifier(context.Background(), events.notify)
+	servers := map[string]*fakeServer{qwen14: awake, qwen8: asleep}
+	if err := adapter.Ready(ctx, specOf(1, servers, qwen14, qwen8), qwen8); err == nil {
+		t.Fatal("the safety net must fail the switch")
+	}
+	if !slices.Equal(events.events, []string{"start:" + qwen14, "end:" + qwen14}) {
+		t.Errorf("a model that stays awake must stop being draining: %v", events.events)
+	}
+}
+
+func TestReleaseReportsEveryNameOfTheServerDraining(t *testing.T) {
+	a := newFake(t, qwen14, false)
+	a.aliases = []string{"alias14"}
+	a.setMetrics(idleMetrics)
+	events := &drainEvents{server: a}
+	ctx := engine.WithDrainNotifier(context.Background(), events.notify)
+	spec := specOf(1, map[string]*fakeServer{qwen14: a}, qwen14)
+	spec.Servers = append(spec.Servers, aiv1alpha1.VLLMServer{Model: "alias14", Endpoint: a.URL})
+	if err := New(http.DefaultClient).Release(ctx, spec, "alias14"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "start:" + qwen14 + ",alias14"; events.events[0] != want {
+		t.Errorf("events = %v, want %s first", events.events, want)
 	}
 }

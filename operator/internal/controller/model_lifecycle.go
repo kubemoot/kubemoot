@@ -55,6 +55,8 @@ const (
 // see the new state without waiting for the next probe.
 type switchRefresher interface {
 	RefreshAfterSwitch(ctx context.Context, server *aiv1alpha1.ModelServer, model string, switchMs int64)
+	// SetDraining marks models as draining, or not, and publishes the state.
+	SetDraining(ctx context.Context, server *aiv1alpha1.ModelServer, models []string, draining bool)
 }
 
 // subscriber is the slice of the NATS publisher the server uses.
@@ -197,6 +199,7 @@ func (s *ModelLifecycleServer) carryOut(ctx context.Context, server *aiv1alpha1.
 		return failed(err.Error())
 	}
 	spec := server.EffectiveSpec()
+	ctx = s.withDrainPublishing(ctx, server)
 
 	state, err := stateOf(ctx, adapter, spec, req.Model)
 	if err != nil {
@@ -220,6 +223,17 @@ func (s *ModelLifecycleServer) carryOut(ctx context.Context, server *aiv1alpha1.
 		s.Refresher.RefreshAfterSwitch(ctx, server, req.Model, switchMs)
 	}
 	return bus.ModelLifecycleReply{Ok: true, State: bus.ModelLifecycleReplyState(want), SwitchMs: switchMs}
+}
+
+// withDrainPublishing lets the adapter publish a model as draining before it waits for the
+// model's calls to finish.
+func (s *ModelLifecycleServer) withDrainPublishing(ctx context.Context, server *aiv1alpha1.ModelServer) context.Context {
+	if s.Refresher == nil {
+		return ctx
+	}
+	return engine.WithDrainNotifier(ctx, func(c context.Context, models []string, draining bool) {
+		s.Refresher.SetDraining(c, server, models, draining)
+	})
 }
 
 // adapterFor is the engine adapter for a server type, over a client with no timeout of
@@ -332,15 +346,19 @@ func (l *switchLog) Forget(server string) {
 // probe. A failed probe leaves the last published state as it was.
 func (r *ModelServerReconciler) RefreshAfterSwitch(ctx context.Context, server *aiv1alpha1.ModelServer, model string, switchMs int64) {
 	r.switches.Record(server.Name, model, switchMs)
-	httpClient := r.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
-	}
-	if _, err := r.probeSnapshot(ctx, server, httpClient); err != nil {
+	if _, err := r.probeSnapshot(ctx, server, r.refreshClient()); err != nil {
 		logf.FromContext(ctx).V(1).Info("could not refresh the server state after a switch", "server", server.Name, "err", err)
 		return
 	}
 	r.publishStateToKV(ctx, server)
+}
+
+// refreshClient is the client a state refresh probes with.
+func (r *ModelServerReconciler) refreshClient() *http.Client {
+	if r.HTTPClient != nil {
+		return r.HTTPClient
+	}
+	return &http.Client{Timeout: 10 * time.Second}
 }
 
 // mergeSwitchCosts adds the observed switch times to what the engine reported.
