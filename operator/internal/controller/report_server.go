@@ -434,20 +434,40 @@ func buildComponentStatuses(ctx context.Context, c client.Client, natsConnected 
 	return out
 }
 
-// routes is the report service's handler. Every endpoint but /healthz sits behind
-// requireAccess, with the access it equals: the service is plain HTTP reachable by any pod.
+// reportRoute is one endpoint of the report service behind the access gate.
+type reportRoute struct {
+	pattern string
+	access  accessFor
+	handler http.HandlerFunc
+}
+
+// healthzPattern is the one endpoint served without a token.
+const healthzPattern = "GET /healthz"
+
+// routeTable lists every endpoint but /healthz; routes() registers only these, each
+// behind requireAccess, so an endpoint cannot be served without the gate.
+func (s *ReportServer) routeTable() []reportRoute {
+	return []reportRoute{
+		{"GET /componentstatuses",
+			func(*http.Request) (authorizationv1.ResourceAttributes, error) { return componentStatusAccess(), nil },
+			s.serveComponentStatuses},
+		{"GET /memory-export/{namespace}/{crew}", memoryExportAccess, s.serveMemoryExport},
+		{"GET /report/{namespace}/{name}",
+			func(r *http.Request) (authorizationv1.ResourceAttributes, error) {
+				return suiteAccess(r.PathValue("namespace"), r.PathValue("name")), nil
+			},
+			s.serveSuiteReport},
+	}
+}
+
+// routes is the report service's handler: /healthz, and the route table behind requireAccess
+// (the service is plain HTTP reachable by any pod).
 func (s *ReportServer) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	mux.HandleFunc("GET /componentstatuses", s.requireAccess(
-		func(*http.Request) (authorizationv1.ResourceAttributes, error) { return componentStatusAccess(), nil },
-		s.serveComponentStatuses))
-	mux.HandleFunc("GET /memory-export/{namespace}/{crew}", s.requireAccess(memoryExportAccess, s.serveMemoryExport))
-	mux.HandleFunc("GET /report/{namespace}/{name}", s.requireAccess(
-		func(r *http.Request) (authorizationv1.ResourceAttributes, error) {
-			return suiteAccess(r.PathValue("namespace"), r.PathValue("name")), nil
-		},
-		s.serveSuiteReport))
+	mux.HandleFunc(healthzPattern, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	for _, rt := range s.routeTable() {
+		mux.HandleFunc(rt.pattern, s.requireAccess(rt.access, rt.handler))
+	}
 	return mux
 }
 
@@ -464,7 +484,7 @@ func (s *ReportServer) serveSuiteReport(w http.ResponseWriter, r *http.Request) 
 	data, err := GenerateSuiteReport(r.Context(), s.Client, s.Publisher, ns, name)
 	if err != nil {
 		reportLog.Error(err, "report generation failed", "namespace", ns, "name", name)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "fitness report generation failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
