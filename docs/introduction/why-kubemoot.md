@@ -83,6 +83,41 @@ be **operable infrastructure**.
   [crew liaison](../../integrations/crew-liaison/), and a crew is itself a harness made
   of harnesses; see [The Table and the Harnesses](../../concepts/the-table-and-the-harnesses/).
 
+## What it builds, what it convenes
+
+Kubemoot builds the parts nobody else does, and stands on open-source projects for the
+rest, each behind a swappable seam.
+
+**What Kubemoot builds**
+
+1. **The moot.** Crews deliberate to one answer with agree, concern, block, and
+   stand-aside signals; failure counts as a signal; a declared archetype sets how a crew
+   decides.
+2. **Governance as code.** ADL rules are Kubernetes resources applied to every agent.
+3. **Scheduling across accelerators.** Each model call is placed on the accelerators the
+   cluster offers, across all crews.
+4. **Evidence.** Fitness suites with a judge, and every run records its realm so runs say
+   whether they are comparable.
+
+**What Kubemoot stands on** (each behind a swappable seam)
+
+- Tools through MCP.
+- The message bus on NATS.
+- Model servers: vLLM by default, and Ollama, through the Model Server Protocol.
+- Isolation: Kubernetes RBAC and network policies, with code run in a sandboxed pod.
+- Other harnesses at the table: goose already holds a seat.
+- Crew memory exported in the Open Memory Protocol (OMPI) format.
+
+Other projects run an agent, serve a model, or sandbox code on Kubernetes. Kubemoot
+convenes them into a crew that decides together. [Related Projects](../related-projects/)
+says which of them Kubemoot builds on or can convene beside.
+
+## When a crew is the wrong tool
+
+A crew spends several times the tokens of one agent. Use one when a question benefits
+from several specialists' views; for a single step-by-step task, one agent is the better
+tool.
+
 ## What it is not
 
 Kubemoot is a young, independent open-source project. It assumes Kubernetes and at
