@@ -41,6 +41,12 @@ class ModelReadinessTest {
         }
 
         @Override
+        public Reply ready(String server, String model, String ticketId) {
+            asked.add("ready " + server + " for " + ticketId);
+            return answer;
+        }
+
+        @Override
         public Reply release(String server, String model) {
             return answer;
         }
@@ -51,7 +57,7 @@ class ModelReadinessTest {
         Operator operator = new Operator();
         selector.useLifecycle(operator);
         ModelReadiness.ensure(selector, placement, pick(vllm(false)), MODEL);
-        assertEquals(List.of("ready vllm-rig1"), operator.asked);
+        assertEquals(List.of("ready vllm-rig1 for t1"), operator.asked);
         verify(selector).invalidateCache();
         verify(tickets, never()).release(any());
     }
@@ -64,7 +70,7 @@ class ModelReadinessTest {
                 Map.of(), Map.of(), 0L, Map.of(), Map.of(), "vllm", Map.of(MODEL, "http://v:8000"), 0, 0, 0.0,
                 Map.of(), Map.of(MODEL, "draining"));
         ModelReadiness.ensure(selector, placement, pick(draining), MODEL);
-        assertEquals(List.of("ready vllm-rig1"), operator.asked);
+        assertEquals(List.of("ready vllm-rig1 for t1"), operator.asked);
     }
 
     @Test

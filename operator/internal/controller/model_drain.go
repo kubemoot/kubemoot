@@ -107,6 +107,14 @@ func applyDraining(state *ServerState, draining []string) {
 	})
 }
 
+// lockPublish takes the server's publish lock and returns the function that gives it up.
+func (r *ModelServerReconciler) lockPublish(server string) func() {
+	m, _ := r.publishing.LoadOrStore(server, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
 // SetDraining marks the models of the server draining, or no longer draining, and
 // publishes the server state, so agents stop placing new calls on them before the switch
 // starts to wait. The publish does not depend on a fresh probe: a probe that fails leaves
@@ -126,35 +134,36 @@ type ticketValue struct {
 	ModelName string `json:"modelName"`
 }
 
-// PlacedCalls is the placement tickets held on the server for any of the models: calls the
-// scheduler placed and that have not ended, including ones the engine has not received
-// yet. A ticket without a model name cannot be attributed and is not counted. With no KV
-// configured there are none.
-func (r *ModelServerReconciler) PlacedCalls(_ context.Context, server *aiv1alpha1.ModelServer, models []string) (int, error) {
+// PlacedCalls is the ids of the placement tickets held on the server for any of the models:
+// calls the scheduler placed and that have not ended, including ones the engine has not
+// received yet. A ticket without a model name cannot be attributed and is not listed. With
+// no KV configured there are none.
+func (r *ModelServerReconciler) PlacedCalls(_ context.Context, server *aiv1alpha1.ModelServer, models []string) ([]string, error) {
 	kv := r.store()
 	if kv == nil {
-		return 0, nil
+		return nil, nil
 	}
 	keys, err := kv.ListKVKeys(bus.ServerTicketsBucket)
 	if err != nil {
-		return 0, fmt.Errorf("listing placement tickets: %w", err)
+		return nil, fmt.Errorf("listing placement tickets: %w", err)
 	}
 	prefix := bus.ServerTicketPrefix(server.Name)
-	count := 0
+	var ids []string
 	for _, k := range keys {
-		if !strings.HasPrefix(k, prefix) {
+		id, ok := strings.CutPrefix(k, prefix)
+		if !ok {
 			continue
 		}
 		raw, err := kv.GetKVValue(bus.ServerTicketsBucket, k)
 		if err != nil {
-			return 0, fmt.Errorf("reading placement ticket %s: %w", k, err)
+			return nil, fmt.Errorf("reading placement ticket %s: %w", k, err)
 		}
 		var t ticketValue
 		if len(raw) > 0 && json.Unmarshal(raw, &t) == nil && slices.Contains(models, t.ModelName) {
-			count++
+			ids = append(ids, id)
 		}
 	}
-	return count, nil
+	return ids, nil
 }
 
 // ServerStateRepublisher runs once at operator start, when the bus is ready, and publishes

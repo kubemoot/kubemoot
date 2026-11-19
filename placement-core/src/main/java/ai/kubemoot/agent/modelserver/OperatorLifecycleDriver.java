@@ -101,8 +101,13 @@ final class OperatorLifecycleDriver implements EngineDriver {
 
     @Override
     public void warm(ServerState server, String model) {
+        warm(server, model, null);
+    }
+
+    @Override
+    public void warm(ServerState server, String model, String ticketId) {
         background.execute(() -> {
-            ModelLifecycle.Reply reply = lifecycle.ready(server.name(), model);
+            ModelLifecycle.Reply reply = lifecycle.ready(server.name(), model, ticketId);
             if (!reply.ok()) {
                 log.info("Warming {} on {} failed: {}", model, server.name(), reply.error());
             }
@@ -120,7 +125,12 @@ final class OperatorLifecycleDriver implements EngineDriver {
 
     @Override
     public boolean ensureReady(ServerState server, String model) {
-        ModelLifecycle.Reply reply = lifecycle.ready(server.name(), model);
+        return ensureReady(server, model, null);
+    }
+
+    @Override
+    public boolean ensureReady(ServerState server, String model, String ticketId) {
+        ModelLifecycle.Reply reply = lifecycle.ready(server.name(), model, ticketId);
         if (!reply.ok()) {
             throw new ModelNotReadyException("server " + server.name() + " could not make " + model
                     + " ready: " + reply.error());

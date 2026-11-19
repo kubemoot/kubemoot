@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -140,12 +141,12 @@ func TestPlacedCallsCountsTheTicketsOnTheServerForTheModelsOnly(t *testing.T) {
 	ticket(t, kv, p.Name, "c", vllmModel8)                                             // another model: the call that asked for the switch
 	ticket(t, kv, "other-server", "d", vllmModel14)                                    // another ModelServer
 	_ = kv.PutKVValue(bus.ServerTicketsBucket, p.Name+"__e", []byte(`{"server":"x"}`)) // no model name
-	n, err := r.PlacedCalls(context.Background(), p, []string{vllmModel14, "alias14"})
-	if err != nil || n != 2 {
-		t.Errorf("placed = %d, %v; want 2", n, err)
+	ids, err := r.PlacedCalls(context.Background(), p, []string{vllmModel14, "alias14"})
+	if err != nil || !slices.Equal(ids, []string{"a", "b"}) {
+		t.Errorf("placed = %v, %v; want the ids a and b", ids, err)
 	}
-	if n, _ := (&ModelServerReconciler{}).PlacedCalls(context.Background(), p, []string{vllmModel14}); n != 0 {
-		t.Errorf("with no KV there are no tickets, got %d", n)
+	if ids, _ := (&ModelServerReconciler{}).PlacedCalls(context.Background(), p, []string{vllmModel14}); len(ids) != 0 {
+		t.Errorf("with no KV there are no tickets, got %v", ids)
 	}
 }
 
@@ -175,5 +176,73 @@ func TestStartRepublishesAStaleDrainingEntryOnceTheBusIsReady(t *testing.T) {
 	}
 	if got, ok := kv.published(t, p.Name).ModelStates[vllmModel14]; ok && got == "draining" {
 		t.Error("the stale draining entry was not overwritten at start")
+	}
+}
+
+// gatedKV holds the first write until released, so a test can run a publish in between the
+// read of the drain log and the write of another.
+type gatedKV struct {
+	*kvFake
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gatedKV) PutKVValue(bucket, key string, value []byte) error {
+	g.once.Do(func() {
+		close(g.entered)
+		<-g.release
+	})
+	return g.kvFake.PutKVValue(bucket, key, value)
+}
+
+func TestAReconcileThatReadTheLogBeforeAMarkCannotEraseItWithALaterWrite(t *testing.T) {
+	kv := &gatedKV{kvFake: newKV(), entered: make(chan struct{}), release: make(chan struct{})}
+	r := &ModelServerReconciler{StateStore: kv}
+	p := deadVLLM()
+
+	reconcile := make(chan struct{})
+	go func() { // a reconcile: reads the (empty) drain log, then stalls before its write
+		r.publishStateToKV(context.Background(), p)
+		close(reconcile)
+	}()
+	<-kv.entered
+
+	marked := make(chan error, 1)
+	go func() { marked <- r.SetDraining(context.Background(), p, []string{vllmModel14}, true) }()
+	time.Sleep(50 * time.Millisecond) // the mark is set; its publish must wait for the reconcile's write
+	close(kv.release)
+	<-reconcile
+	if err := <-marked; err != nil {
+		t.Fatal(err)
+	}
+	if got := kv.published(t, p.Name).ModelStates[vllmModel14]; got != string(engine.StateDraining) {
+		t.Errorf("the final state shows %q: the reconcile's older write erased the mark", got)
+	}
+}
+
+func TestAReconcileThatReadTheMarkCannotRestoreItAfterTheClear(t *testing.T) {
+	kv := &gatedKV{kvFake: newKV(), entered: make(chan struct{}), release: make(chan struct{})}
+	r := &ModelServerReconciler{StateStore: kv}
+	p := deadVLLM()
+	r.drains.Set(p.Name, []string{vllmModel14}, true) // the mark is set before the reconcile reads it
+
+	reconcile := make(chan struct{})
+	go func() {
+		r.publishStateToKV(context.Background(), p)
+		close(reconcile)
+	}()
+	<-kv.entered
+
+	cleared := make(chan error, 1)
+	go func() { cleared <- r.SetDraining(context.Background(), p, []string{vllmModel14}, false) }()
+	time.Sleep(50 * time.Millisecond)
+	close(kv.release)
+	<-reconcile
+	if err := <-cleared; err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := kv.published(t, p.Name).ModelStates[vllmModel14]; ok {
+		t.Errorf("the final state still shows %q after the clear", got)
 	}
 }

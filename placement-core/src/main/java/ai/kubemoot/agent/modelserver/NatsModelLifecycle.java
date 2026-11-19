@@ -63,6 +63,11 @@ public final class NatsModelLifecycle implements ModelLifecycle {
     }
 
     @Override
+    public Reply ready(String server, String model, String ticketId) {
+        return request("ready", server, model, ticketId);
+    }
+
+    @Override
     public Reply release(String server, String model) {
         return request("release", server, model);
     }
@@ -72,6 +77,10 @@ public final class NatsModelLifecycle implements ModelLifecycle {
     }
 
     private Reply request(String action, String server, String model) {
+        return request(action, server, model, null);
+    }
+
+    private Reply request(String action, String server, String model, String ticketId) {
         Connection conn = nats == null ? null : nats.getConnection();
         if (conn == null) {
             return Reply.failure("NATS is not available, so the operator cannot be asked to " + action + " " + model);
@@ -79,6 +88,9 @@ public final class NatsModelLifecycle implements ModelLifecycle {
         ObjectNode body = mapper.createObjectNode().put("action", action).put("model", model);
         if (agent != null && !agent.isBlank()) {
             body.put("agent", agent);
+        }
+        if (ticketId != null && !ticketId.isBlank()) {
+            body.put("ticketId", ticketId);
         }
         CompletableFuture<Message> pending;
         try {

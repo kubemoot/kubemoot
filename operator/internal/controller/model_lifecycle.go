@@ -58,8 +58,8 @@ type switchRefresher interface {
 	// SetDraining marks models as draining, or not, and publishes the state. It returns
 	// the failure to publish.
 	SetDraining(ctx context.Context, server *aiv1alpha1.ModelServer, models []string, draining bool) error
-	// PlacedCalls is the calls placed on the models that have not ended.
-	PlacedCalls(ctx context.Context, server *aiv1alpha1.ModelServer, models []string) (int, error)
+	// PlacedCalls is the ids of the placement tickets held for the models.
+	PlacedCalls(ctx context.Context, server *aiv1alpha1.ModelServer, models []string) ([]string, error)
 }
 
 // subscriber is the slice of the NATS publisher the server uses.
@@ -86,7 +86,8 @@ type ModelLifecycleServer struct {
 	// awake one to sleep, so two requests on one accelerator must not interleave.
 	locks sync.Map
 
-	// waiting counts the ready requests waiting for a server's turn, by server and model.
+	// waiting counts the ready requests waiting for a server's turn, by server and the ticket
+	// of the call they are made for.
 	waitMu  sync.Mutex
 	waiting map[string]int
 }
@@ -149,11 +150,11 @@ func (s *ModelLifecycleServer) Handle(ctx context.Context, subject string, data 
 	ctx, cancel := context.WithTimeout(ctx, s.safetyLimit())
 	defer cancel()
 	if req.Action == bus.ModelLifecycleRequestActionReady {
-		s.noteWaiting(server.Name, req.Model, 1)
+		s.noteWaiting(server.Name, req.TicketID, 1)
 	}
 	release, err := s.lockServer(ctx, server.Name)
 	if req.Action == bus.ModelLifecycleRequestActionReady {
-		s.noteWaiting(server.Name, req.Model, -1)
+		s.noteWaiting(server.Name, req.TicketID, -1)
 	}
 	if err != nil {
 		return failed(err.Error())
@@ -251,36 +252,44 @@ func (s *ModelLifecycleServer) withDrainPublishing(ctx context.Context, server *
 			return s.Refresher.SetDraining(c, server, models, draining)
 		},
 		Placed: func(c context.Context, models []string) (int, error) {
-			placed, err := s.Refresher.PlacedCalls(c, server, models)
+			ids, err := s.Refresher.PlacedCalls(c, server, models)
 			if err != nil {
 				return 0, err
 			}
-			return max(0, placed-s.waitingForTurn(server.Name, models)), nil
+			return s.outstanding(server.Name, ids), nil
 		},
 	})
 }
 
-// waiterKey is the key of a request waiting for the server's turn.
-func waiterKey(server, model string) string { return server + "\x00" + model }
+// waiterKey is the key of a request waiting for the server's turn on behalf of a ticket.
+func waiterKey(server, ticket string) string { return server + "\x00" + ticket }
 
-// noteWaiting counts a ready request for the model as waiting for the server's turn, or no
-// longer waiting.
-func (s *ModelLifecycleServer) noteWaiting(server, model string, delta int) {
+// noteWaiting counts a ready request made for the ticket as waiting for the server's turn,
+// or no longer waiting. A request that names no ticket is not tracked: it is not known to
+// stand for any placed call.
+func (s *ModelLifecycleServer) noteWaiting(server, ticket string, delta int) {
+	if ticket == "" {
+		return
+	}
 	s.waitMu.Lock()
 	defer s.waitMu.Unlock()
 	if s.waiting == nil {
 		s.waiting = map[string]int{}
 	}
-	s.waiting[waiterKey(server, model)] += delta
+	s.waiting[waiterKey(server, ticket)] += delta
 }
 
-// waitingForTurn is the ready requests for any of the models waiting for the server's turn.
-func (s *ModelLifecycleServer) waitingForTurn(server string, models []string) int {
+// outstanding is how many of the tickets are calls that must finish before the switch:
+// those whose ready request is not waiting for the server's turn. A ticket whose call
+// waits for this switch cannot finish before it, so it is not outstanding work.
+func (s *ModelLifecycleServer) outstanding(server string, tickets []string) int {
 	s.waitMu.Lock()
 	defer s.waitMu.Unlock()
 	n := 0
-	for _, m := range models {
-		n += s.waiting[waiterKey(server, m)]
+	for _, id := range tickets {
+		if s.waiting[waiterKey(server, id)] <= 0 {
+			n++
+		}
 	}
 	return n
 }

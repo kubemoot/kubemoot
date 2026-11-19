@@ -158,7 +158,9 @@ func namesAt(spec aiv1alpha1.ModelServerSpec, endpoint string) []string {
 // model name, and a caller outside the placement path that sends to vLLM directly. A call
 // the placement path placed holds its ticket from the claim until it ends, so it is
 // covered whether or not the engine has received it. vLLM has no call that refuses new
-// requests, so nothing else stops a ticketless call. The draining state is cleared when
+// requests, so nothing else stops a ticketless call. The caller's re-read of the state
+// after its claim fails open: a state it cannot read leaves its ticket in place, and if
+// this switch had already listed the tickets the call can be cut off. The draining state is cleared when
 // the switch ends, whether the server slept or stayed awake.
 func (a *Adapter) sleepWhenIdle(ctx context.Context, models []string, endpoint string, level int) error {
 	if err := engine.NotifyDraining(ctx, models, true); err != nil {

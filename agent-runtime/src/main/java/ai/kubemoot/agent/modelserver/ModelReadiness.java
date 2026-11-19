@@ -24,7 +24,7 @@ public final class ModelReadiness {
             return;
         }
         try {
-            if (selector.driverFor(server).ensureReady(server, model)) {
+            if (selector.driverFor(server).ensureReady(server, model, pick.ticket() == null ? null : pick.ticket().ticketId())) {
                 selector.invalidateCache();
             }
         } catch (ModelNotReadyException e) {

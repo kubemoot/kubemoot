@@ -759,19 +759,21 @@ public class ServerSelector {
     }
 
     /**
-     * True when {@code c} was ranked as a warm copy and the server's state, read afresh after
-     * the ticket was claimed, no longer shows the model awake: the operator started draining
-     * it, or it went to sleep. An engine that keeps models asleep (vLLM) counts the tickets
+     * True when the server's state the candidate was ranked on showed the model awake and the
+     * state, read afresh after the ticket was claimed, no longer does: the operator started
+     * draining it, or it went to sleep. A candidate ranked warm only because another call's
+     * ticket is waking the model reads not awake in both states and stays claimed, so a
+     * second call can join the copy the first is waking. An engine that keeps models asleep (vLLM) counts the tickets
      * on a draining model's server before it puts the model to sleep, so the order is total:
      * a ticket claimed before the operator's read is counted and holds the switch, and one
      * claimed after it reads the draining state here, is released, and the call is placed
      * again (a call placed on the model once it reads as not awake waits for the switch
-     * through the operator). Engines that budget memory never drain; a state that cannot be
-     * read leaves the ticket, since a state that cannot be read cannot have shown the call
-     * anything newer.
+     * through the operator). Engines that budget memory never drain. A state that cannot be
+     * read after the claim fails open: the ticket stays, and if the operator's drain had
+     * already listed the tickets the call can be cut off by the switch.
      */
     private boolean leftWarmSinceRanked(Candidate c, String modelName) {
-        if (!c.warm() || c.server().engineFit().budgetsMemory()) return false;
+        if (!c.server().hasModelLoaded(modelName) || c.server().engineFit().budgetsMemory()) return false;
         cache.set(null);
         return readState().stream()
                 .filter(p -> p.name().equals(c.server().name()))

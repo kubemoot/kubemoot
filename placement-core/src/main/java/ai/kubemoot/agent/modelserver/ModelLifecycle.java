@@ -19,6 +19,15 @@ public interface ModelLifecycle {
     /** Makes {@code model} ready on {@code server}; returns when the server reports it awake. */
     Reply ready(String server, String model);
 
+    /**
+     * {@link #ready(String, String)} made for the call that holds placement ticket
+     * {@code ticketId}; the operator uses it to tell a call waiting for a switch from one
+     * running. A lifecycle that does not pass it on asks without it.
+     */
+    default Reply ready(String server, String model, String ticketId) {
+        return ready(server, model);
+    }
+
     /** Releases {@code model} on {@code server}; returns when the server reports it asleep. */
     Reply release(String server, String model);
 }

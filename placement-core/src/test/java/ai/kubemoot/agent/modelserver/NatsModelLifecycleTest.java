@@ -68,6 +68,21 @@ class NatsModelLifecycleTest {
     }
 
     @Test
+    void aReadyRequestMadeForAPlacedCallNamesItsTicket_andOneMadeWithoutOneDoesNot() throws Exception {
+        Connection conn = mock(Connection.class);
+        Message answer = reply("{\"ok\":true,\"state\":\"awake\"}");
+        when(conn.requestWithTimeout(anyString(), any(byte[].class), any(Duration.class)))
+                .thenReturn(CompletableFuture.completedFuture(answer));
+        NatsModelLifecycle lifecycle = over(conn);
+        lifecycle.ready("vllm-rig0", "qwen3:14b", "ticket-7");
+        lifecycle.ready("vllm-rig0", "qwen3:14b");
+        ArgumentCaptor<byte[]> body = ArgumentCaptor.forClass(byte[].class);
+        verify(conn, org.mockito.Mockito.times(2)).requestWithTimeout(anyString(), body.capture(), any(Duration.class));
+        assertEquals("ticket-7", JSON.readTree(body.getAllValues().get(0)).path("ticketId").asText());
+        assertTrue(JSON.readTree(body.getAllValues().get(1)).path("ticketId").isMissingNode());
+    }
+
+    @Test
     void releaseSendsTheReleaseAction() throws Exception {
         Connection conn = mock(Connection.class);
         Message answer = reply("{\"ok\":true,\"state\":\"asleep\"}");
