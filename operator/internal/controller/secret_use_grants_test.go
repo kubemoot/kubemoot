@@ -342,9 +342,58 @@ var _ = Describe("Secret use grants", Ordered, func() {
 	})
 })
 
-// installUseGrants renders the chart with extraArgs, applies every object, and waits until the
-// policies are enforced (or, for an Audit binding, until they warn). It returns the objects so a
-// spec can remove them.
+// denyProbes returns, per resource kind the policies guard, an object naming a Secret nobody
+// granted. A create of it as the author is denied only once that kind's policy and binding are
+// in force, so each kind needs its own probe.
+func denyProbes(tag string) map[string]client.Object {
+	meta := func(name string) metav1.ObjectMeta {
+		return metav1.ObjectMeta{Name: name + "-" + tag, Namespace: grantsNamespace}
+	}
+	return map[string]client.Object{
+		"MCPServer": &kubemootv1alpha1.MCPServer{ObjectMeta: meta("probe-mcp"),
+			Spec: kubemootv1alpha1.MCPServerSpec{Image: grantsImage, Transport: kubemootv1alpha1.TransportHTTP, SecretRef: csProbe}},
+		"Agent": &kubemootv1alpha1.Agent{ObjectMeta: meta("probe-agent"),
+			Spec: kubemootv1alpha1.AgentSpec{Memory: &kubemootv1alpha1.MemoryConfig{SecretRef: csProbe}}},
+	}
+}
+
+// probeCreate creates obj as the author and removes it again when it was admitted.
+func probeCreate(obj client.Object) error {
+	c := rest.CopyConfig(cfg)
+	c.Impersonate = rest.ImpersonationConfig{UserName: grantsAuthor}
+	cl, err := client.New(c, client.Options{Scheme: scheme.Scheme})
+	if err != nil {
+		return err
+	}
+	if err = cl.Create(ctx, obj); err == nil {
+		_ = k8sClient.Delete(ctx, obj)
+	}
+	return err
+}
+
+// waitForDenial waits until a create of every kind's probe is Forbidden, that is until every
+// policy and binding the specs rely on is enforced.
+func waitForDenial(tag string) {
+	for kind := range denyProbes(tag) {
+		Eventually(func() bool {
+			return apierrors.IsForbidden(probeCreate(denyProbes(tag)[kind]))
+		}, "30s", "250ms").Should(BeTrue(), "%s policy never started denying", kind)
+	}
+}
+
+// waitForAdmission waits until a create of every kind's probe is no longer denied, so the next
+// spec starts from a settled API server.
+func waitForAdmission(tag string) {
+	for kind := range denyProbes(tag) {
+		Eventually(func() error {
+			return probeCreate(denyProbes(tag)[kind])
+		}, "30s", "250ms").Should(Succeed(), "%s policy still denying", kind)
+	}
+}
+
+// installUseGrants renders the chart with extraArgs, applies every object, and waits until each
+// kind's policy is enforced (or, for an Audit binding, returns so the spec can wait for the
+// warning). It returns the objects so a spec can remove them.
 func installUseGrants(extraArgs ...string) []*unstructured.Unstructured {
 	objs, err := renderUseGrants(extraArgs...)
 	Expect(err).NotTo(HaveOccurred())
@@ -352,47 +401,16 @@ func installUseGrants(extraArgs ...string) []*unstructured.Unstructured {
 	for _, o := range objs {
 		Expect(k8sClient.Create(ctx, o)).To(Succeed())
 	}
-	if len(extraArgs) > 0 && strings.Contains(strings.Join(extraArgs, " "), "validationActions") {
-		return objs
+	if !strings.Contains(strings.Join(extraArgs, " "), "validationActions") {
+		waitForDenial(fmt.Sprint(len(objs)))
 	}
-	Eventually(func() bool {
-		probe := &kubemootv1alpha1.MCPServer{
-			ObjectMeta: metav1.ObjectMeta{Name: "probe-" + fmt.Sprint(len(objs)), Namespace: grantsNamespace},
-			Spec:       kubemootv1alpha1.MCPServerSpec{Image: grantsImage, Transport: kubemootv1alpha1.TransportHTTP, SecretRef: csProbe},
-		}
-		c := rest.CopyConfig(cfg)
-		c.Impersonate = rest.ImpersonationConfig{UserName: grantsAuthor}
-		cl, cerr := client.New(c, client.Options{Scheme: scheme.Scheme})
-		Expect(cerr).NotTo(HaveOccurred())
-		err := cl.Create(ctx, probe)
-		if err == nil {
-			_ = k8sClient.Delete(ctx, probe)
-		}
-		return apierrors.IsForbidden(err)
-	}, "30s", "250ms").Should(BeTrue())
 	return objs
 }
 
-// removeUseGrants deletes the objects and waits until the policy no longer denies, so the next
-// spec starts from a settled API server.
+// removeUseGrants deletes the objects and waits until no policy denies any kind.
 func removeUseGrants(objs []*unstructured.Unstructured) {
 	for _, o := range objs {
 		_ = k8sClient.Delete(ctx, o)
 	}
-	Eventually(func() error {
-		probe := &kubemootv1alpha1.MCPServer{
-			ObjectMeta: metav1.ObjectMeta{Name: "gone-" + fmt.Sprint(len(objs)), Namespace: grantsNamespace},
-			Spec:       kubemootv1alpha1.MCPServerSpec{Image: grantsImage, Transport: kubemootv1alpha1.TransportHTTP, SecretRef: csProbe},
-		}
-		c := rest.CopyConfig(cfg)
-		c.Impersonate = rest.ImpersonationConfig{UserName: grantsAuthor}
-		cl, err := client.New(c, client.Options{Scheme: scheme.Scheme})
-		if err != nil {
-			return err
-		}
-		if err = cl.Create(ctx, probe); err == nil {
-			_ = k8sClient.Delete(ctx, probe)
-		}
-		return err
-	}, "30s", "250ms").Should(Succeed())
+	waitForAdmission("gone-" + fmt.Sprint(len(objs)))
 }
