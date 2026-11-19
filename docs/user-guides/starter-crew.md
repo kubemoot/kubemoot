@@ -21,8 +21,9 @@ answers from what it found. It never changes anything.
 |---|---|
 | Specialists | A coordinator plus 1 to 5 specialists, set by `--members`. Size 1 is `workloads`; sizes 2 to 4 add `events`, `networking`, and `config` in that order; size 5 adds a `reviewer`. |
 | Toolers | `workloads` (Pods, Deployments, ReplicaSets, StatefulSets, Jobs), `events` (Warning events, restarts, recent failures), `networking` (Services, endpoints, Ingresses or HTTPRoutes, NetworkPolicies), `config` (ConfigMaps, ServiceAccounts, Secret references). |
-| Analyst | `reviewer` checks the answer against the data the Toolers gathered and flags unsupported claims. |
-| Tools | One Kubernetes MCP server in read-only mode, behind an MCPGateway. Each specialist enables only the tools for its slice. |
+| Analyst | `reviewer` checks the answer against the data the Toolers gathered, reads their stored results when a finding holds only a pointer, and flags unsupported claims. |
+| Tools | One Kubernetes MCP server in read-only mode, behind an MCPGateway. Each specialist enables only the tools for its slice. At size 5 a second server, the workspace server, lets the `reviewer` read stored results (`workspace_head`, `workspace_tail`, `workspace_grep`). |
+| Workspace | Every agent that calls tools declares its [workspace access](../../concepts/workspace/#workspace-access): Toolers `write`, the `reviewer` `read`. The coordinator calls no tool and declares nothing. |
 | Access | A namespaced `Role` with `get`, `list`, and `watch`, and no Secret access. |
 | Prompts | ADL PromptModules, one per specialist, plus the coordinator's and the shared discussion rules. |
 | Models | None of its own. Its CrewSchedulingPolicy requires a model that can call tools in every phase; mulling ranks the allowed models with `qualityBias` and triage favors the fastest. The scheduler matches that against the cluster's [model catalog](../../reference/models/#the-model-catalog). |
@@ -146,8 +147,8 @@ PromptModule changes what that specialist gathers and reports in the same way; s
 
 - The prompts carry the namespace name, so a bundle is tied to the namespace it was
   rendered for.
-- At size 5 the `reviewer` cannot see Tooler findings over 4 KB, which the Toolers post as
-  artifact pointers.
+- The workspace server reads NATS at the address in the chart value `nats.url`, which
+  defaults to where the quickstart installs NATS; set it when NATS runs elsewhere.
 
 ## Next
 
