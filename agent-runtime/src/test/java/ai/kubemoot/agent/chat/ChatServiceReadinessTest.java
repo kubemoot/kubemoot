@@ -51,6 +51,8 @@ import static org.mockito.Mockito.*;
 class ChatServiceReadinessTest {
 
     private static final String MODEL = "qwen2.5:32b";
+    /** The ticket the placement claimed: the operator is told which call asks for the wake. */
+    private static final String CLAIMED_TICKET = "t-1";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private ServerSelector selector;
@@ -66,13 +68,13 @@ class ChatServiceReadinessTest {
         pool = mock(ChatModelPool.class);
         tickets = mock(TicketManager.class);
         driver = mock(EngineDriver.class);
-        when(driver.ensureReady(any(), anyString())).thenReturn(true);
+        when(driver.ensureReady(any(), anyString(), anyString())).thenReturn(true);
         when(selector.driver()).thenReturn(driver);
         when(selector.driverFor(any())).thenReturn(driver);
         // A vLLM server that is asleep: the server hosts the model but does not list it as loaded.
         asleep = new ServerState("vllm-rig1", "", 1, 0, 0, List.of(), true, "2026-10-19T00:00:00Z", 0L,
                 Map.of(), Map.of(MODEL, 0L), 0L, Map.of(), Map.of(), "vllm", Map.of(MODEL, "http://vllm-rig1:8000"));
-        pick = new Pick(asleep, new Ticket("t-1", asleep.name(), 512, "test", "2026-10-19T00:00:00Z"));
+        pick = new Pick(asleep, new Ticket(CLAIMED_TICKET, asleep.name(), 512, "test", "2026-10-19T00:00:00Z"));
         when(selector.readState()).thenReturn(List.of(asleep));
         when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pick));
         when(selector.pickAndClaimRoom(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.of(pick));
@@ -121,7 +123,7 @@ class ChatServiceReadinessTest {
 
     private void assertAskedBeforeSending() {
         InOrder order = inOrder(driver, pool);
-        order.verify(driver).ensureReady(asleep, MODEL);
+        order.verify(driver).ensureReady(asleep, MODEL, CLAIMED_TICKET);
         order.verify(pool, atLeastOnce()).streamingForEndpoint(any(), eq("http://vllm-rig1:8000"), eq(MODEL),
                 anyDouble(), anyInt(), any(), any());
     }
@@ -148,7 +150,7 @@ class ChatServiceReadinessTest {
         service().directChat(new ChatService.ChatRequest("conv", "question"), true, CapacityWait.NONE);
 
         InOrder order = inOrder(driver, pool);
-        order.verify(driver).ensureReady(asleep, MODEL);
+        order.verify(driver).ensureReady(asleep, MODEL, CLAIMED_TICKET);
         order.verify(pool).forEndpoint(any(), eq("http://vllm-rig1:8000"), eq(MODEL), anyDouble(), anyInt(), any(),
                 any());
     }
@@ -166,12 +168,12 @@ class ChatServiceReadinessTest {
 
         service().triageChatWithTokens("system", "conversation");
 
-        verify(driver, never()).ensureReady(any(), anyString());
+        verify(driver, never()).ensureReady(any(), anyString(), any());
     }
 
     @Test
     void aWakeThatFailsReleasesTheTicketAndNothingIsSent() {
-        when(driver.ensureReady(any(), anyString())).thenThrow(new ModelNotReadyException("the server has no sleep mode"));
+        when(driver.ensureReady(any(), anyString(), anyString())).thenThrow(new ModelNotReadyException("the server has no sleep mode"));
         poolServes("{}");
 
         var e = assertThrows(IllegalStateException.class, () -> service().triageChatWithTokens("system", "c"));
