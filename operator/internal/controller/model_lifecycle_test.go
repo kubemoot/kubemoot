@@ -44,6 +44,8 @@ type fakeAdapter struct {
 	hold      time.Duration
 	// drains, when set, is a model the adapter reports draining while it makes another ready.
 	drains string
+	// placedSeen is what the adapter was told about the calls placed on the draining model.
+	placedSeen int
 }
 
 func (f *fakeAdapter) Probe(_ context.Context, _ aiv1alpha1.ModelServerSpec) (engine.Snapshot, error) {
@@ -91,8 +93,10 @@ func (f *fakeAdapter) Ready(ctx context.Context, _ aiv1alpha1.ModelServerSpec, m
 	err := f.readyErr
 	f.mu.Unlock()
 	if f.drains != "" {
-		engine.NotifyDraining(ctx, []string{f.drains}, true)
-		defer engine.NotifyDraining(ctx, []string{f.drains}, false)
+		_ = engine.NotifyDraining(ctx, []string{f.drains}, true)
+		time.Sleep(f.hold) // the drain polls after a while
+		f.placedSeen, _ = engine.PlacedCalls(ctx, []string{f.drains})
+		defer func() { _ = engine.NotifyDraining(ctx, []string{f.drains}, false) }()
 	}
 	if err != nil {
 		return err
@@ -112,14 +116,23 @@ type recordingRefresher struct {
 	calls []int64
 	// drains is each SetDraining call, as "model:true" or "model:false".
 	drains []string
+	// placed is what PlacedCalls answers.
+	placed int
 }
 
-func (r *recordingRefresher) SetDraining(_ context.Context, _ *aiv1alpha1.ModelServer, models []string, draining bool) {
+func (r *recordingRefresher) PlacedCalls(_ context.Context, _ *aiv1alpha1.ModelServer, _ []string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.placed, nil
+}
+
+func (r *recordingRefresher) SetDraining(_ context.Context, _ *aiv1alpha1.ModelServer, models []string, draining bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, m := range models {
 		r.drains = append(r.drains, fmt.Sprintf("%s:%t", m, draining))
 	}
+	return nil
 }
 
 func (r *recordingRefresher) RefreshAfterSwitch(_ context.Context, _ *aiv1alpha1.ModelServer, _ string, ms int64) {
@@ -189,7 +202,7 @@ func TestReadyWakesAnAsleepModelAndRepliesOnceItIsAwake(t *testing.T) {
 func TestReadyOnAnAwakeModelDoesNothing(t *testing.T) {
 	adapter := asleepAwake()
 	s, ref := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
-	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, "qwen3:32b"))
+	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, candModel32))
 	if !reply.Ok || reply.SwitchMs != 0 || len(adapter.readied) != 0 || len(ref.calls) != 0 {
 		t.Errorf("reply %+v readied %v published %v", reply, adapter.readied, ref.calls)
 	}
@@ -198,14 +211,14 @@ func TestReadyOnAnAwakeModelDoesNothing(t *testing.T) {
 func TestReleasePutsAnAwakeModelToSleep(t *testing.T) {
 	adapter := asleepAwake()
 	s, _ := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
-	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionRelease, "qwen3:32b"))
+	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionRelease, candModel32))
 	if !reply.Ok || reply.State != bus.ModelLifecycleReplyStateAsleep || reply.SwitchMs != 0 {
 		t.Fatalf("reply = %+v", reply)
 	}
 	if len(adapter.released) != 1 {
 		t.Errorf("released = %v", adapter.released)
 	}
-	again := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionRelease, "qwen3:32b"))
+	again := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionRelease, candModel32))
 	if !again.Ok || len(adapter.released) != 1 {
 		t.Errorf("an asleep model needs nothing: %+v released %v", again, adapter.released)
 	}
@@ -272,7 +285,7 @@ func TestRequestsOnOneServerNeverInterleave(t *testing.T) {
 	adapter.hold = 30 * time.Millisecond
 	s, _ := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
 	var wg sync.WaitGroup
-	for _, m := range []string{vllmModel14, "qwen3:32b", vllmModel14} {
+	for _, m := range []string{vllmModel14, candModel32, vllmModel14} {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -336,7 +349,7 @@ func TestARequestQueuedBehindAStuckWakeEndsAtTheSafetyLimit(t *testing.T) {
 	}()
 	time.Sleep(50 * time.Millisecond) // the first request holds the server's turn
 	start := time.Now()
-	queued := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionRelease, "qwen3:32b"))
+	queued := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionRelease, candModel32))
 	if queued.Ok || time.Since(start) > time.Second {
 		t.Errorf("the queued request must give up with the limit, not wait for the stuck one: %+v after %v", queued, time.Since(start))
 	}
@@ -366,7 +379,7 @@ func TestTwoRequestsToWakeTheSameModelWakeItOnce(t *testing.T) {
 
 func TestTheSwitchPublishesTheDrainingStateAroundTheWait(t *testing.T) {
 	adapter := asleepAwake()
-	adapter.drains = "qwen3:32b"
+	adapter.drains = candModel32
 	s, ref := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
 	reply := s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, vllmModel14))
 	if !reply.Ok {
@@ -374,5 +387,35 @@ func TestTheSwitchPublishesTheDrainingStateAroundTheWait(t *testing.T) {
 	}
 	if got := fmt.Sprint(ref.drains); got != "[qwen3:32b:true qwen3:32b:false]" {
 		t.Errorf("draining must be published, then cleared: %s", got)
+	}
+}
+
+func TestACallWaitingForTheSwitchIsNotCountedAsPlacedWork(t *testing.T) {
+	adapter := asleepAwake()
+	adapter.drains = candModel32
+	adapter.hold = 40 * time.Millisecond
+	s, ref := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
+	ref.placed = 2 // two tickets on the draining model: one running call, one waiting for this switch
+
+	first := make(chan bus.ModelLifecycleReply, 1)
+	go func() {
+		first <- s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, vllmModel14))
+	}()
+	time.Sleep(10 * time.Millisecond) // the first request holds the turn
+	second := make(chan bus.ModelLifecycleReply, 1)
+	go func() {
+		second <- s.Handle(context.Background(), lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, candModel32))
+	}()
+	time.Sleep(10 * time.Millisecond) // the second waits for the turn
+	if got := s.waitingForTurn(lifecycleServerName, []string{candModel32}); got != 1 {
+		t.Errorf("waiting = %d, want the one request waiting for the turn", got)
+	}
+	<-first
+	<-second
+	if got := s.waitingForTurn(lifecycleServerName, []string{candModel32}); got != 0 {
+		t.Errorf("waiting = %d after both ended", got)
+	}
+	if adapter.placedSeen != 1 {
+		t.Errorf("the adapter was told %d placed calls, want 2 tickets less the 1 waiting request", adapter.placedSeen)
 	}
 }

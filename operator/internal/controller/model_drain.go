@@ -18,11 +18,19 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"slices"
+	"strings"
 	"sync"
+	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/engine"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -100,14 +108,104 @@ func applyDraining(state *ServerState, draining []string) {
 }
 
 // SetDraining marks the models of the server draining, or no longer draining, and
-// publishes the server state read now, so agents stop placing new calls on them before
-// the switch starts to wait. A failed probe leaves the last published state as it was
-// and the mark in place for the next publish.
-func (r *ModelServerReconciler) SetDraining(ctx context.Context, server *aiv1alpha1.ModelServer, models []string, draining bool) {
+// publishes the server state, so agents stop placing new calls on them before the switch
+// starts to wait. The publish does not depend on a fresh probe: a probe that fails leaves
+// the last snapshot in place and the state is still written, with the mark. The error is
+// the failure to write it; the caller fails the switch on it when starting, and has
+// nothing to undo when clearing (the next publish clears the mark too).
+func (r *ModelServerReconciler) SetDraining(ctx context.Context, server *aiv1alpha1.ModelServer, models []string, draining bool) error {
 	r.drains.Set(server.Name, models, draining)
 	if _, err := r.probeSnapshot(ctx, server, r.refreshClient()); err != nil {
-		logf.FromContext(ctx).V(1).Info("could not refresh the server state around a drain", "server", server.Name, "err", err)
-		return
+		logf.FromContext(ctx).V(1).Info("could not probe the server around a drain; publishing its last snapshot", "server", server.Name, "err", err)
 	}
-	r.publishStateToKV(ctx, server)
+	return r.publishState(ctx, server)
+}
+
+// ticketValue is the part of a placement ticket the drain reads.
+type ticketValue struct {
+	ModelName string `json:"modelName"`
+}
+
+// PlacedCalls is the placement tickets held on the server for any of the models: calls the
+// scheduler placed and that have not ended, including ones the engine has not received
+// yet. A ticket without a model name cannot be attributed and is not counted. With no KV
+// configured there are none.
+func (r *ModelServerReconciler) PlacedCalls(_ context.Context, server *aiv1alpha1.ModelServer, models []string) (int, error) {
+	kv := r.store()
+	if kv == nil {
+		return 0, nil
+	}
+	keys, err := kv.ListKVKeys(bus.ServerTicketsBucket)
+	if err != nil {
+		return 0, fmt.Errorf("listing placement tickets: %w", err)
+	}
+	prefix := bus.ServerTicketPrefix(server.Name)
+	count := 0
+	for _, k := range keys {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		raw, err := kv.GetKVValue(bus.ServerTicketsBucket, k)
+		if err != nil {
+			return 0, fmt.Errorf("reading placement ticket %s: %w", k, err)
+		}
+		var t ticketValue
+		if len(raw) > 0 && json.Unmarshal(raw, &t) == nil && slices.Contains(models, t.ModelName) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// ServerStateRepublisher runs once at operator start, when the bus is ready, and publishes
+// every ModelServer's state, so an entry the previous operator left marked draining (it
+// ended mid-switch) is overwritten at once and not at the next reconcile.
+type ServerStateRepublisher struct {
+	Reader  client.Reader
+	Servers *ModelServerReconciler
+	// Ready is nil when the bus is ready, else why not; nil means ready.
+	Ready func() error
+	// PollInterval paces the wait for the bus; zero is one second. It never ends the wait.
+	PollInterval time.Duration
+}
+
+// NeedLeaderElection keeps the publish to the leader.
+func (p *ServerStateRepublisher) NeedLeaderElection() bool { return true }
+
+// Start waits for the bus by state, publishes once, and returns; the manager keeps running.
+func (p *ServerStateRepublisher) Start(ctx context.Context) error {
+	every := p.PollInterval
+	if every <= 0 {
+		every = time.Second
+	}
+	for p.Ready != nil && p.Ready() != nil {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(every):
+		}
+	}
+	if err := p.Republish(ctx); err != nil {
+		logf.FromContext(ctx).Error(err, "Could not republish the server states at start")
+	}
+	return nil
+}
+
+// Republish probes (best effort) and publishes the state of every ModelServer.
+func (p *ServerStateRepublisher) Republish(ctx context.Context) error {
+	list := &aiv1alpha1.ModelServerList{}
+	if err := p.Reader.List(ctx, list); err != nil {
+		return fmt.Errorf("listing ModelServers: %w", err)
+	}
+	var errs []error
+	for i := range list.Items {
+		server := &list.Items[i]
+		if _, err := p.Servers.probeSnapshot(ctx, server, p.Servers.refreshClient()); err != nil {
+			logf.FromContext(ctx).V(1).Info("could not probe the server at start; publishing its last snapshot", "server", server.Name, "err", err)
+		}
+		if err := p.Servers.publishState(ctx, server); err != nil {
+			errs = append(errs, fmt.Errorf("server %s: %w", server.Name, err))
+		}
+	}
+	return errors.Join(errs...)
 }

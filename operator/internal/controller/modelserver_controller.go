@@ -139,6 +139,9 @@ type ModelServerReconciler struct {
 	HTTPClient    *http.Client
 	ConfigCache   *ConfigCache
 	NATSPublisher *kubemootnats.Publisher
+	// StateStore replaces NATSPublisher as the KV the server state and the placement tickets
+	// are read and written in tests.
+	StateStore stateKV
 
 	// Pulls is the tracker shared with the Model controllers; it reports the disk
 	// held by unfinished downloads. Nil counts none.
@@ -697,13 +700,41 @@ func (r *ModelServerReconciler) updateStatusWaiting(ctx context.Context, server 
 // methods no-op, which leaves agents on whatever they were previously
 // configured against (legacy single-endpoint env vars).
 func (r *ModelServerReconciler) publishStateToKV(ctx context.Context, server *aiv1alpha1.ModelServer) {
+	if err := r.publishState(ctx, server); err != nil {
+		logf.FromContext(ctx).V(1).Info("Failed to publish server state to NATS KV", "server", server.Name, "error", err)
+	}
+}
+
+// stateKV is the slice of the NATS publisher the state publish and the ticket reads use.
+type stateKV interface {
+	PutKVValue(bucket, key string, value []byte) error
+	GetKVValue(bucket, key string) ([]byte, error)
+	ListKVKeys(bucket string) ([]string, error)
+}
+
+// store is the KV the state is published to: StateStore when a test sets one, else the NATS
+// publisher; nil when neither is configured.
+func (r *ModelServerReconciler) store() stateKV {
+	if r.StateStore != nil {
+		return r.StateStore
+	}
+	if r.NATSPublisher == nil {
+		return nil
+	}
+	return r.NATSPublisher
+}
+
+// publishState is publishStateToKV that returns the failure, for a caller that must know
+// the state is out. It publishes from the last engine snapshot when no fresh probe was
+// stored; with no KV configured there is nothing to publish and it returns nil.
+func (r *ModelServerReconciler) publishState(ctx context.Context, server *aiv1alpha1.ModelServer) error {
 	observed, load := r.observed(ctx, server)
 	speeds := modelSpeeds(server.Status.Calibration, observed, load)
 	recordServerMetrics(server, speeds)
-	if r.NATSPublisher == nil {
-		return
+	kv := r.store()
+	if kv == nil {
+		return nil
 	}
-	log := logf.FromContext(ctx)
 
 	state := buildServerState(server)
 	state.ModelSpeeds = speeds
@@ -718,12 +749,9 @@ func (r *ModelServerReconciler) publishStateToKV(ctx context.Context, server *ai
 
 	payload, err := json.Marshal(state)
 	if err != nil {
-		log.V(1).Info("Failed to marshal server state", "server", server.Name, "error", err)
-		return
+		return fmt.Errorf("marshal server state: %w", err)
 	}
-	if err := r.NATSPublisher.PutKVValue(ServerStateBucket, server.Name, payload); err != nil {
-		log.V(1).Info("Failed to publish server state to NATS KV", "server", server.Name, "error", err)
-	}
+	return kv.PutKVValue(ServerStateBucket, server.Name, payload)
 }
 
 // removeServerState deletes the server's entry from the state bucket once no

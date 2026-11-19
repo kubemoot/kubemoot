@@ -104,7 +104,7 @@ func TestNoBridgeSidecarWithoutStdioOrInjection(t *testing.T) {
 		"injection disabled": stdioMCPServer(&kubemootv1alpha1.ProxyInjectionConfig{Enabled: &disabled}),
 	}
 	for name, mcp := range cases {
-		c := corev1.Container{Name: "server", Command: mcp.Spec.Command}
+		c := corev1.Container{Name: jsonKeyServer, Command: mcp.Spec.Command}
 		sidecars, _, main := r.applyBridgeSidecar(mcp, c, nil, nil)
 		if len(sidecars) != 0 {
 			t.Errorf("%s: want no bridge sidecar, got %d", name, len(sidecars))

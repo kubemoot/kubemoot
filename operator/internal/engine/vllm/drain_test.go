@@ -18,6 +18,7 @@ package vllm
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -202,7 +203,7 @@ type drainEvents struct {
 	server *fakeServer
 }
 
-func (d *drainEvents) notify(_ context.Context, models []string, draining bool) {
+func (d *drainEvents) notify(_ context.Context, models []string, draining bool) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	state := "end"
@@ -217,13 +218,14 @@ func (d *drainEvents) notify(_ context.Context, models []string, draining bool) 
 		}
 	}
 	d.reads = append(d.reads, n)
+	return nil
 }
 
 func TestDrainingIsPublishedBeforeTheCountIsReadAndClearedAfterTheSleep(t *testing.T) {
 	awake, asleep, adapter := switchPair(t)
 	awake.setMetrics(busyMetrics)
 	events := &drainEvents{server: awake}
-	ctx := engine.WithDrainNotifier(context.Background(), events.notify)
+	ctx := engine.WithDrain(context.Background(), engine.Drain{Notify: events.notify})
 	servers := map[string]*fakeServer{qwen14: awake, qwen8: asleep}
 	spec := specOf(1, servers, qwen14, qwen8)
 
@@ -250,7 +252,7 @@ func TestDrainingIsClearedWhenTheSwitchFailsAndTheModelStaysAwake(t *testing.T) 
 	awake.setMetrics(busyMetrics)
 	adapter.WithDrain(fastPoll, 30*time.Millisecond)
 	events := &drainEvents{server: awake}
-	ctx := engine.WithDrainNotifier(context.Background(), events.notify)
+	ctx := engine.WithDrain(context.Background(), engine.Drain{Notify: events.notify})
 	servers := map[string]*fakeServer{qwen14: awake, qwen8: asleep}
 	if err := adapter.Ready(ctx, specOf(1, servers, qwen14, qwen8), qwen8); err == nil {
 		t.Fatal("the safety net must fail the switch")
@@ -265,7 +267,7 @@ func TestReleaseReportsEveryNameOfTheServerDraining(t *testing.T) {
 	a.aliases = []string{"alias14"}
 	a.setMetrics(idleMetrics)
 	events := &drainEvents{server: a}
-	ctx := engine.WithDrainNotifier(context.Background(), events.notify)
+	ctx := engine.WithDrain(context.Background(), engine.Drain{Notify: events.notify})
 	spec := specOf(1, map[string]*fakeServer{qwen14: a}, qwen14)
 	spec.Servers = append(spec.Servers, aiv1alpha1.VLLMServer{Model: "alias14", Endpoint: a.URL})
 	if err := New(http.DefaultClient).Release(ctx, spec, "alias14"); err != nil {
@@ -273,5 +275,96 @@ func TestReleaseReportsEveryNameOfTheServerDraining(t *testing.T) {
 	}
 	if want := "start:" + qwen14 + ",alias14"; events.events[0] != want {
 		t.Errorf("events = %v, want %s first", events.events, want)
+	}
+}
+
+// placedCalls is a Drain.Placed whose answer the test changes.
+type placedCalls struct {
+	mu  sync.Mutex
+	n   int
+	err error
+}
+
+func (p *placedCalls) set(n int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.n = n
+}
+
+func (p *placedCalls) count(context.Context, []string) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.n, p.err
+}
+
+func TestAnIdleServerWithAPlacedCallNotYetArrivedHoldsTheSwitch(t *testing.T) {
+	awake, asleep, adapter := switchPair(t)
+	awake.setMetrics(idleMetrics) // the engine reports nothing: the placed call has not arrived
+	placed := &placedCalls{n: 1}
+	ctx := engine.WithDrain(context.Background(), engine.Drain{Placed: placed.count})
+	servers := map[string]*fakeServer{qwen14: awake, qwen8: asleep}
+	done := make(chan error, 1)
+	go func() { done <- adapter.Ready(ctx, specOf(1, servers, qwen14, qwen8), qwen8) }()
+
+	time.Sleep(50 * time.Millisecond)
+	if awake.isAsleep() {
+		t.Fatal("slept with a placed call outstanding on an idle-looking server")
+	}
+	placed.set(0) // the call ended
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !awake.isAsleep() {
+		t.Error("the server sleeps once no call is outstanding")
+	}
+}
+
+func TestAPlacedCallThatNeverEndsFailsTheSwitchAtTheSafetyNet(t *testing.T) {
+	awake, asleep, adapter := switchPair(t)
+	awake.setMetrics(idleMetrics)
+	adapter.WithDrain(fastPoll, 30*time.Millisecond)
+	ctx := engine.WithDrain(context.Background(), engine.Drain{Placed: (&placedCalls{n: 2}).count})
+	servers := map[string]*fakeServer{qwen14: awake, qwen8: asleep}
+	err := adapter.Ready(ctx, specOf(1, servers, qwen14, qwen8), qwen8)
+	if err == nil || !strings.Contains(err.Error(), "2 requests were still in flight or placed") {
+		t.Fatalf("err = %v", err)
+	}
+	if awake.isAsleep() {
+		t.Error("the model stays awake")
+	}
+}
+
+func TestPlacedCallsThatCannotBeReadFailTheSwitchWithoutSleeping(t *testing.T) {
+	awake, asleep, adapter := switchPair(t)
+	awake.setMetrics(idleMetrics)
+	ctx := engine.WithDrain(context.Background(), engine.Drain{Placed: (&placedCalls{err: errors.New("bucket gone")}).count})
+	servers := map[string]*fakeServer{qwen14: awake, qwen8: asleep}
+	err := adapter.Ready(ctx, specOf(1, servers, qwen14, qwen8), qwen8)
+	if err == nil || !strings.Contains(err.Error(), "cannot tell whether it is idle") || !strings.Contains(err.Error(), "bucket gone") {
+		t.Fatalf("err = %v", err)
+	}
+	if awake.isAsleep() {
+		t.Error("an unreadable ledger must not cut a call")
+	}
+}
+
+func TestAFailureToPublishDrainingFailsTheSwitchBeforeAnythingIsRead(t *testing.T) {
+	awake, asleep, adapter := switchPair(t)
+	awake.setMetrics(idleMetrics)
+	ctx := engine.WithDrain(context.Background(), engine.Drain{
+		Notify: func(_ context.Context, _ []string, draining bool) error {
+			if draining {
+				return errors.New("bus down")
+			}
+			return nil
+		},
+	})
+	servers := map[string]*fakeServer{qwen14: awake, qwen8: asleep}
+	err := adapter.Ready(ctx, specOf(1, servers, qwen14, qwen8), qwen8)
+	if err == nil || !strings.Contains(err.Error(), "could not publish it as draining") {
+		t.Fatalf("err = %v", err)
+	}
+	if awake.isAsleep() || len(awake.posts()) != 0 {
+		t.Error("with nothing stopping new calls the server must stay awake")
 	}
 }

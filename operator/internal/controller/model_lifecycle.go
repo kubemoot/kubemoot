@@ -55,8 +55,11 @@ const (
 // see the new state without waiting for the next probe.
 type switchRefresher interface {
 	RefreshAfterSwitch(ctx context.Context, server *aiv1alpha1.ModelServer, model string, switchMs int64)
-	// SetDraining marks models as draining, or not, and publishes the state.
-	SetDraining(ctx context.Context, server *aiv1alpha1.ModelServer, models []string, draining bool)
+	// SetDraining marks models as draining, or not, and publishes the state. It returns
+	// the failure to publish.
+	SetDraining(ctx context.Context, server *aiv1alpha1.ModelServer, models []string, draining bool) error
+	// PlacedCalls is the calls placed on the models that have not ended.
+	PlacedCalls(ctx context.Context, server *aiv1alpha1.ModelServer, models []string) (int, error)
 }
 
 // subscriber is the slice of the NATS publisher the server uses.
@@ -82,6 +85,10 @@ type ModelLifecycleServer struct {
 	// name, so a waiter can give up with its context): waking a model first puts the
 	// awake one to sleep, so two requests on one accelerator must not interleave.
 	locks sync.Map
+
+	// waiting counts the ready requests waiting for a server's turn, by server and model.
+	waitMu  sync.Mutex
+	waiting map[string]int
 }
 
 // NeedLeaderElection keeps one operator answering.
@@ -141,7 +148,13 @@ func (s *ModelLifecycleServer) Handle(ctx context.Context, subject string, data 
 	// request queued behind a stuck wake ends before its asker gives up.
 	ctx, cancel := context.WithTimeout(ctx, s.safetyLimit())
 	defer cancel()
+	if req.Action == bus.ModelLifecycleRequestActionReady {
+		s.noteWaiting(server.Name, req.Model, 1)
+	}
 	release, err := s.lockServer(ctx, server.Name)
+	if req.Action == bus.ModelLifecycleRequestActionReady {
+		s.noteWaiting(server.Name, req.Model, -1)
+	}
 	if err != nil {
 		return failed(err.Error())
 	}
@@ -225,15 +238,51 @@ func (s *ModelLifecycleServer) carryOut(ctx context.Context, server *aiv1alpha1.
 	return bus.ModelLifecycleReply{Ok: true, State: bus.ModelLifecycleReplyState(want), SwitchMs: switchMs}
 }
 
-// withDrainPublishing lets the adapter publish a model as draining before it waits for the
-// model's calls to finish.
+// withDrainPublishing gives the adapter what a switch needs: to publish a model as draining
+// before it waits for the model's calls to finish, and to count the calls placed on it.
+// A call waiting on this server's turn for the switch to finish is placed on the draining
+// model too; it is not outstanding work, so it is not counted.
 func (s *ModelLifecycleServer) withDrainPublishing(ctx context.Context, server *aiv1alpha1.ModelServer) context.Context {
 	if s.Refresher == nil {
 		return ctx
 	}
-	return engine.WithDrainNotifier(ctx, func(c context.Context, models []string, draining bool) {
-		s.Refresher.SetDraining(c, server, models, draining)
+	return engine.WithDrain(ctx, engine.Drain{
+		Notify: func(c context.Context, models []string, draining bool) error {
+			return s.Refresher.SetDraining(c, server, models, draining)
+		},
+		Placed: func(c context.Context, models []string) (int, error) {
+			placed, err := s.Refresher.PlacedCalls(c, server, models)
+			if err != nil {
+				return 0, err
+			}
+			return max(0, placed-s.waitingForTurn(server.Name, models)), nil
+		},
 	})
+}
+
+// waiterKey is the key of a request waiting for the server's turn.
+func waiterKey(server, model string) string { return server + "\x00" + model }
+
+// noteWaiting counts a ready request for the model as waiting for the server's turn, or no
+// longer waiting.
+func (s *ModelLifecycleServer) noteWaiting(server, model string, delta int) {
+	s.waitMu.Lock()
+	defer s.waitMu.Unlock()
+	if s.waiting == nil {
+		s.waiting = map[string]int{}
+	}
+	s.waiting[waiterKey(server, model)] += delta
+}
+
+// waitingForTurn is the ready requests for any of the models waiting for the server's turn.
+func (s *ModelLifecycleServer) waitingForTurn(server string, models []string) int {
+	s.waitMu.Lock()
+	defer s.waitMu.Unlock()
+	n := 0
+	for _, m := range models {
+		n += s.waiting[waiterKey(server, m)]
+	}
+	return n
 }
 
 // adapterFor is the engine adapter for a server type, over a client with no timeout of
