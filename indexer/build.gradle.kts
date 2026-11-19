@@ -2,7 +2,7 @@ plugins {
     java
     jacoco
     checkstyle
-    id("org.springframework.boot") version "4.1.1"
+    id("org.springframework.boot") version "4.1.2"
     id("io.spring.dependency-management") version "1.1.7"
 }
 
@@ -32,7 +32,7 @@ repositories {
 
 dependencyManagement {
     imports {
-        mavenBom("org.springframework.ai:spring-ai-bom:2.0.1")
+        mavenBom("org.springframework.ai:spring-ai-bom:2.0.2")
     }
 }
 
@@ -51,10 +51,10 @@ dependencies {
     implementation("org.springframework.ai:spring-ai-tika-document-reader")
 
     // Git support
-    implementation("org.eclipse.jgit:org.eclipse.jgit:7.8.0.202609011348-r")
+    implementation("org.eclipse.jgit:org.eclipse.jgit:7.8.1.202611041320-r")
 
     // AWS S3 support
-    implementation("software.amazon.awssdk:s3:2.57.0")
+    implementation("software.amazon.awssdk:s3:2.59.4")
 
     // HTTP client for URL sources and MCP registries
     implementation("org.springframework.boot:spring-boot-starter-webflux")
@@ -63,7 +63,7 @@ dependencies {
     implementation("io.fabric8:kubernetes-client:8.0.0")
 
     // NATS client for KV source
-    implementation("io.nats:jnats:2.26.4")
+    implementation("io.nats:jnats:2.27.0")
 
     // JSON processing
     implementation("com.fasterxml.jackson.core:jackson-databind")
