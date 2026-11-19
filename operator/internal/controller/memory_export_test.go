@@ -16,11 +16,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-logr/logr/funcr"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
@@ -190,6 +193,45 @@ func TestMemoryExportFailsClosed(t *testing.T) {
 		if rec := asDashboard(s, ""); rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("%s: status = %d, want 503", name, rec.Code)
 		}
+	}
+}
+
+// failingEntry lists the key of a fact whose key holds a credential and fails reading it
+// with an error that carries that key, as natskv and ReadFacts wrap one.
+type failingEntry struct{ memReader }
+
+func (failingEntry) GetKVEntry(_, key string) (crewmemory.Entry, error) {
+	return crewmemory.Entry{}, fmt.Errorf("read %s: server went away", key)
+}
+
+func TestMemoryExportErrorsCarryNoKeyToTheClientOrTheLog(t *testing.T) {
+	const keySecret = "ghp_abcdefghijklmnopqrstuvwxyz0123"
+	var logged strings.Builder
+	saved := memoryExportLog
+	memoryExportLog = funcr.New(func(prefix, args string) { logged.WriteString(prefix + args + "\n") }, funcr.Options{})
+	defer func() { memoryExportLog = saved }()
+
+	reader := failingEntry{memReader{"ns.c.ops." + keySecret: `{"value":"x","learnedBy":"a"}`}}
+	opens := map[string]memoryOpener{
+		"reading a fact fails":    fakeOpener{reader: reader},
+		"opening the store fails": fakeOpener{err: fmt.Errorf("bucket for key %s: down", keySecret)},
+	}
+	for name, opener := range opens {
+		for _, q := range []string{"", "?report=true"} {
+			rec := asDashboard(serverWith(opener), q)
+			if rec.Code < 500 {
+				t.Fatalf("%s%s: status = %d, want a server error", name, q, rec.Code)
+			}
+			if body := rec.Body.String(); strings.Contains(body, keySecret) || strings.Contains(body, "server went away") {
+				t.Errorf("%s%s: the body carries the cause: %q", name, q, body)
+			}
+		}
+	}
+	if !strings.Contains(logged.String(), "crew memory") {
+		t.Error("the failure was not logged")
+	}
+	if strings.Contains(logged.String(), keySecret) {
+		t.Errorf("the log carries the key: %s", logged.String())
 	}
 }
 
