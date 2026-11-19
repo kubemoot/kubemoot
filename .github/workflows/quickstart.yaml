@@ -2,6 +2,13 @@
 # GitHub-hosted runners, an empty kind cluster, nothing from the homelab: no Harbor, no
 # ARC runner, no cluster secrets.
 #
+# After the quickstart's own crew answers, each end-to-end run does one more thing: it
+# scaffolds a crew with the latest published kmctl (`kmctl create`), installs it, asks it
+# about its own namespace and checks the answer against the cluster
+# (.github/scripts/quickstart-scaffold-crew.sh). kmctl releases after Kubemoot, so there is
+# no kmctl candidate to use here; the check is that the scaffold users get today still
+# makes a crew that answers on the Kubemoot being tested or published.
+#
 # Three checks, because main's release candidates live in Harbor only and a hosted runner
 # cannot reach it:
 #
@@ -183,7 +190,6 @@ jobs:
       - name: Checkout the shared scripts
         # The release being tested may predate them, so they come from the commit this run
         # started on, next to the release's files.
-        if: inputs.candidate_tag == ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -247,6 +253,15 @@ jobs:
           KUBEMOOT_CHART_VERSION: ${{ steps.chart.outputs.version }}
         run: quickstart/quickstart.sh | tee quickstart.log
 
+      - name: Scaffolded crew answers
+        # The crew kmctl create scaffolds, on the same cluster: installed, waited for by state
+        # (Crew and Agents ready), asked about its own namespace, and the answer checked
+        # against the cluster's pods by name, with no model judging it.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .ci/.github/scripts/quickstart-scaffold-crew.sh | tee scaffold-crew.log
+
       - name: Answer to the job summary
         if: success()
         run: |
@@ -257,6 +272,10 @@ jobs:
             cat images.txt
             echo '```'
             sed -n '/^--- answer ---$/,/^--------------$/p' quickstart.log | sed '1d;$d'
+            echo
+            echo '### Scaffolded crew answer'
+            echo
+            sed -n '/^--- scaffold answer ---$/,/^-----------------------$/p' scaffold-crew.log | sed '1d;$d'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Collect diagnostics
@@ -270,6 +289,9 @@ jobs:
           kubectl logs -n kubemoot deployment/kubemoot-operator --tail=-1 > diag/operator.log 2>&1 || true
           kubectl logs -n hello -l kubemoot.ai/crew=hello --all-containers --tail=-1 --prefix > diag/crew.log 2>&1 || true
           kubectl logs -n hello deployment/hello-discussion --tail=-1 > diag/discussion-gateway.log 2>&1 || true
+          kubectl get crews,agents,mcpservers,mcpgateways -n crew-starter-guide -o yaml > diag/scaffold-crs.yaml 2>&1 || true
+          kubectl logs -n crew-starter-guide -l kubemoot.ai/crew=starter-guide --all-containers --tail=-1 --prefix > diag/scaffold-crew.log 2>&1 || true
+          kubectl get pods -n crew-starter-guide -o wide > diag/scaffold-pods.txt 2>&1 || true
           kubectl logs -n ollama deployment/ollama --tail=-1 > diag/ollama.log 2>&1 || true
           kubectl logs -n kubemoot job/kubemoot-operator-nats-bootstrap > diag/nats-bootstrap.log 2>&1 || true
           kubectl describe pods -A > diag/describe-pods.txt 2>&1 || true
@@ -282,4 +304,5 @@ jobs:
           path: |
             diag/
             quickstart.log
+            scaffold-crew.log
           if-no-files-found: ignore

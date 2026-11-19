@@ -10,8 +10,10 @@
 # Tested by test-quickstart-images.sh.
 set -euo pipefail
 
-# The component images the quickstart can run; the first three are always pinned.
-QUICKSTART_COMPONENTS="kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison|dashboard"
+# The component images the quickstart can run; the first three are always pinned. mcp-gateway
+# and mcp-bridge are the ones a crew with an MCP server runs (the scaffolded crew), and
+# workspace-access the one its reviewer reads stored results with.
+QUICKSTART_COMPONENTS="kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison|dashboard|mcp-gateway|mcp-bridge|workspace-access"
 QUICKSTART_CORE_COMPONENTS="kubemoot-operator agent-runtime discussion-gateway"
 
 # quickstart_images: component image references in the manifests on stdin, distinct and sorted.

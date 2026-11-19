@@ -123,6 +123,7 @@ jobs:
       - name: Test the export scripts
         run: |
           bash .github/scripts/test-quickstart-images.sh
+          bash .github/scripts/test-quickstart-scaffold-crew.sh
           bash .github/scripts/test-export-quickstart-candidate.sh
           bash .github/scripts/test-install-crane.sh
 
