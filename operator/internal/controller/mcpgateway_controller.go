@@ -205,6 +205,9 @@ func (r *MCPGatewayReconciler) reconcileDeployment(ctx context.Context, gateway 
 	if err := r.reconcileAdminAccess(ctx, gateway); err != nil {
 		return nil, fmt.Errorf("admin access: %w", err)
 	}
+	if err := r.reconcileEgress(ctx, gateway); err != nil {
+		return nil, fmt.Errorf("egress policy: %w", err)
+	}
 
 	deployment := &appsv1.Deployment{}
 	deploymentName := types.NamespacedName{
@@ -781,6 +784,16 @@ func (r *MCPGatewayReconciler) reconcileService(ctx context.Context, gateway *ku
 // listMCPServers lists the ready MCPServers the gateway registers: those in its
 // namespace matching its selector, then the core servers its core selector picks.
 func (r *MCPGatewayReconciler) listMCPServers(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) ([]kubemootv1alpha1.MCPServer, error) {
+	selected, err := r.selectedServers(ctx, gateway)
+	if err != nil {
+		return nil, err
+	}
+	return readyServers(selected), nil
+}
+
+// selectedServers are the MCPServers the gateway fronts, ready or not: its own and the
+// core servers it is offered, with a core server shadowed by an own server of the same name left out.
+func (r *MCPGatewayReconciler) selectedServers(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) ([]kubemootv1alpha1.MCPServer, error) {
 	own, err := r.listServersIn(ctx, gateway.Namespace, gateway.Spec.MCPServerSelector, nil)
 	if err != nil {
 		return nil, err
@@ -789,7 +802,7 @@ func (r *MCPGatewayReconciler) listMCPServers(ctx context.Context, gateway *kube
 	if err != nil {
 		return nil, err
 	}
-	return readyServers(withoutShadowed(own, core)), nil
+	return withoutShadowed(own, core), nil
 }
 
 // listServersIn lists MCPServers in namespace matching selector (nil matches all)

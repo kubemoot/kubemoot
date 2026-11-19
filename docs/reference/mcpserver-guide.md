@@ -160,7 +160,7 @@ spec:
 | `description` | string | | What the server is for, in a sentence or two (up to 500 characters). The dashboard shows it on the server's tile and detail page. Agents do not see it; they see the tool descriptions the server reports |
 | `image` | string | | Container image. Exactly one of `image`, `kubemootImage`, or `externalEndpoint` is required |
 | `kubemootImage` | enum | | Run a Kubemoot-built image without naming a version: `workspaceAccess` (`artifactAccess` is its old name and is removed in the next release). The operator uses the matching `spec.images` entry of [KubemootConfig](../kubemootconfig-guide/). Mutually exclusive with `image` and `externalEndpoint` |
-| `externalEndpoint` | string | | URL of an external MCP server (no deployment created) |
+| `externalEndpoint` | string | | URL of an external MCP server (no deployment created). The gateway that fronts it makes the call, so with egress mode `Declared` the operator allows that gateway the URL's host and port; see [A gateway's outbound traffic](../../concepts/network-policies/#a-gateways-outbound-traffic) |
 | `command` | []string | | Override container entrypoint |
 | `args` | []string | | Arguments to the MCP server |
 | `transport` | enum | `http` | Transport protocol: `http`, `sse`, `stdio` |

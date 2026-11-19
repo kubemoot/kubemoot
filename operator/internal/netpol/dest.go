@@ -11,8 +11,10 @@ You may obtain a copy of the License at
 package netpol
 
 import (
+	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -128,3 +130,26 @@ func AddrCIDR(addr string) string {
 	}
 	return ip.String() + "/128"
 }
+
+// CheckHTTPEndpoint reports why a URL cannot be an external tool server's endpoint: it must
+// be an http or https URL with a host name or address, and a port that is the URL's own or
+// the scheme's default. It returns nil for a usable URL.
+func CheckHTTPEndpoint(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%q is not a URL", raw)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("%q must be an http or https URL", raw)
+	}
+	host := u.Hostname()
+	if host == "" || (net.ParseIP(host) == nil && !hostNameRE.MatchString(host)) {
+		return fmt.Errorf("%q has no usable host name", raw)
+	}
+	if _, ok := urlPort(u); !ok {
+		return fmt.Errorf("%q has no usable port", raw)
+	}
+	return nil
+}
+
+var hostNameRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)

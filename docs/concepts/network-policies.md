@@ -45,6 +45,7 @@ operator wants, the operator reports an error and leaves it alone.
 | Each crew namespace (a namespace that holds at least one `Crew`; the operator labels it `kubemoot.ai/crew`) | `km-default-deny`, `km-crew-internal` | Every pod refuses ingress unless a policy admits it. The pods of the namespace, the operator, and the metrics scraper may reach every pod that is not a tool server or a tool gateway. |
 | Each MCPServer with a pod | `km-mcp-<name>-ingress` | Only the crew's gateway and the operator reach the server, on its port (the bridge port for a stdio server). A shared server in the operator namespace admits the gateway of every namespace that holds a `Crew`. |
 | Each MCPGateway | the `<gateway>-admin` policy (created for every gateway, with the flag on or off) | The tool port admits the crew's namespace, the operator, and the metrics scraper when the chart names one, instead of every pod. The admin port stays operator only. |
+| Each MCPGateway that fronts an external MCPServer (`spec.externalEndpoint`) | `km-gateway-<name>-egress`, and on Cilium the same name with `-fqdn` | Outbound rules derived from the external servers, described in [A gateway's outbound traffic](#a-gateways-outbound-traffic). |
 | Each Crew with a discussion gateway | `km-crew-<crew>-gateway-ingress`, and on Cilium `km-crew-<crew>-gateway-entities` | Callers from outside the namespace reach the gateway on port 8080: the namespaces in `spec.network.allowedIngress`, the Gateway API proxy, and the API server's service proxy used by `kubectl ask`. kmctl reaches the gateway by a port-forward through the kubelet and needs no entry here. |
 | Each MCPServer or Agent with `spec.egress` | `km-mcp-<name>-egress` or `km-agent-<name>-egress`, and on Cilium the same name with `-fqdn` | Outbound rules, described below. |
 
@@ -190,6 +191,43 @@ rule. Each query service rule uses the port of its real Service (the RAGSource's
 `placementService`), so an agent gets an allow for it only while a Service exists behind the
 URL in the KubemootConfig.
 
+### A gateway's outbound traffic
+
+An MCPServer with `spec.externalEndpoint` has no pod: the crew's MCP gateway makes the call
+to it, and holds the credential. A gateway has no `egress` field to fill in, so when egress
+mode is `Declared` the operator derives the gateway's outbound rules from the servers it
+fronts:
+
+- For each external server whose `externalEndpoint` is an `http` or `https` URL, the host
+  and the port of that URL (the scheme's port when the URL has none: 80 or 443). Nothing
+  broader: no other port on the host, no wildcard, no other host.
+- DNS, as for every restricted workload.
+- The pods and port of each in-cluster MCPServer the gateway fronts, the same pods and port
+  the server's own ingress policy admits the gateway to. These stay as they are today.
+- An `externalEndpoint` that names a Service inside the cluster is read as a Service, as
+  described above.
+
+A gateway that fronts no external server declares nothing and is not restricted, as for any
+workload without `spec.egress`. A gateway that does front one is restricted to the list
+above, so the operator rewrites its policy whenever an MCPServer it fronts is added, removed,
+or has its endpoint changed.
+
+An endpoint that is not an `http` or `https` URL with a usable host name or address and
+port gets no rule. The gateway reports it, and the rest of the list still applies:
+
+```yaml
+status:
+  conditions:
+    - type: EgressEnforced
+      status: "False"
+      reason: EndpointInvalid
+      message: 'not enforced: MCPServer crew-a/oreilly-mcp externalEndpoint: "ftp://x" must be an http or https URL'
+```
+
+The host rules follow the table below: Cilium enforces the host, and any other CNI allows the
+internet outside the cluster's private ranges on the endpoint's ports and reports
+`FQDNNotSupported`.
+
 ### Host names and the CNI
 
 A `NetworkPolicy` can name an address range but not a host name. What happens to
@@ -219,7 +257,7 @@ status:
 ```
 
 `EgressEnforced` is `True` when every declared rule is enforced, and absent when the
-workload declares no egress. Cilium is found by the presence of the `CiliumNetworkPolicy`
+workload declares no egress. A gateway reports it too, from the external servers it fronts. Cilium is found by the presence of the `CiliumNetworkPolicy`
 kind when the operator starts, so restart the operator after installing Cilium. Set
 `security.networkPolicies.cilium` to `on` or `off` to decide yourself.
 
@@ -242,6 +280,8 @@ the `default` namespace, which lists the control plane node addresses and port (
 - A mode that denies all outbound traffic unless declared (`Deny`) is a possible later
   option. The only egress mode today is `Declared`.
 - The RAG indexer and fitness Jobs are not restricted.
+- A gateway's tool index query service is not added to the gateway's rules; a gateway that
+  fronts an external server and uses a tool index needs a hand-written policy for that call.
 - Control per host and per HTTP path is outside what a `NetworkPolicy` or a host rule can
   express. It belongs to a gateway that sees the request.
 - The operator namespace has no generated default-deny.
