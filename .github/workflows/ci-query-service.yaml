@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   build:
+    name: query-service-build
     # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
     # cluster runners take push, dispatch, and workflow_call runs from main only.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
@@ -44,6 +45,7 @@ jobs:
         run: python -m unittest discover -s . -p 'test_*.py' -v
 
   build-image:
+    name: query-service-build-image
     needs: build
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/build-dockerfile-image.yaml

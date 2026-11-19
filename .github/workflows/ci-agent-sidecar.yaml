@@ -26,6 +26,7 @@ permissions:
 
 jobs:
   test:
+    name: agent-sidecar-test
     # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
     # cluster runners take push, dispatch, and workflow_call runs from main only.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
@@ -75,6 +76,7 @@ jobs:
 
   # The operator starts the image through its entrypoint with --config; it names no binary.
   build-image:
+    name: agent-sidecar-build-image
     needs: test
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/build-go-binary-image.yaml

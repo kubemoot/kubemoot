@@ -31,6 +31,7 @@ jobs:
   # Pull requests (including forks) build the image on a GitHub-hosted runner without
   # pushing, so the gates inside the Dockerfile still run and no cluster is reached.
   validate:
+    name: dashboard-validate
     needs: brand
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -46,6 +47,7 @@ jobs:
   # npm run check, npm run lint, npm test, and npm run build inside node:26-alpine,
   # so the image build is the single source of truth.
   build-image:
+    name: dashboard-build-image
     needs: brand
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/build-dockerfile-image.yaml

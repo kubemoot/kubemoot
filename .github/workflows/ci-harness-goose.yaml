@@ -22,6 +22,7 @@ permissions:
 
 jobs:
   test:
+    name: harness-goose-test
     # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
     # cluster runners take push, dispatch, and workflow_call runs from main only.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
@@ -63,6 +64,7 @@ jobs:
   # The image is the shim plus the pinned goose release; the Dockerfile verifies the
   # release's sha256 and builds the shim.
   build-image:
+    name: harness-goose-build-image
     needs: test
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/build-dockerfile-image.yaml
