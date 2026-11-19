@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/workspacetools"
 )
 
 const (
@@ -238,12 +239,38 @@ func TestTheLegacyEnvironmentVariablesAreTheSharedFixture(t *testing.T) {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatal(err)
 	}
-	have := make([]string, 0, len(legacyWorkspaceEnv))
-	for name := range legacyWorkspaceEnv {
-		have = append(have, name)
-	}
-	slices.Sort(have)
+	have := slices.Sorted(slices.Values(workspacetools.DeprecatedNames().EnvNames))
 	if !slices.Equal(have, f.Legacy) {
 		t.Errorf("the operator flags %v, the fixture lists %v", have, f.Legacy)
+	}
+}
+
+// The condition reads the published list: every old environment variable the export names is
+// flagged, the old mount and the old image repository are flagged, and a variable the export
+// does not name is not.
+func TestTheConditionAndThePublishedListAgree(t *testing.T) {
+	d := workspacetools.DeprecatedNames()
+	if len(legacyWorkspaceEnv) != len(d.EnvNames) || legacyWorkspaceDir != d.Mount {
+		t.Fatalf("the controller holds %d names at %s, the export %d at %s", len(legacyWorkspaceEnv), legacyWorkspaceDir, len(d.EnvNames), d.Mount)
+	}
+	for _, name := range d.EnvNames {
+		ms := workspaceServer()
+		ms.Spec.Env = []corev1.EnvVar{{Name: name}}
+		got := strings.Join(deprecatedWorkspaceNames(ms), ";")
+		if !strings.Contains(got, "env "+name+" is WORKSPACE_"+strings.TrimPrefix(name, d.EnvPrefix)) {
+			t.Errorf("%s is in the export and not flagged: %q", name, got)
+		}
+	}
+	ms := workspaceServer(kubemootv1alpha1.EmptyDirVolume{MountPath: d.Mount})
+	ms.Spec.Image = "ghcr.io/kubemoot/" + d.ImageRepo + ":1"
+	got := strings.Join(deprecatedWorkspaceNames(ms), ";")
+	for _, want := range []string{"the emptyDir mount " + d.Mount, "image ghcr.io/kubemoot/" + d.ImageRepo} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q is not flagged: %q", want, got)
+		}
+	}
+	ms.Spec.Env = []corev1.EnvVar{{Name: d.EnvPrefix + "NOT_A_WORKSPACE_VARIABLE"}}
+	if strings.Contains(strings.Join(deprecatedWorkspaceNames(ms), ";"), "NOT_A_WORKSPACE_VARIABLE") {
+		t.Errorf("a name outside the export is flagged")
 	}
 }

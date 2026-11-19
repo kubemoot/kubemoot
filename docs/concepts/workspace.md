@@ -717,6 +717,8 @@ The discussion's artifacts are the discussion's workspace, and the names follow.
 | mount `/artifacts` | mount `/kubemoot/workspace` | On a workspace server and on a pod with sidecars (the code sandbox with its materializer), a volume mounted at either path is also mounted at the other in the same containers unless another volume holds that path, so crews and sandbox code that name either path find the files. The agent runtime writes `/kubemoot/workspace` in the paths it hands out and reads both in code. |
 | bucket `kubemoot_discussion_artifacts` | bucket `kubemoot_workspace` | Every writer stores into the new bucket; the agent runtime creates it with the 48-hour TTL, and nothing else creates it. Readers (the workspace server, and the agent runtime's catalog, stored-result read and clean-up) look in the new bucket first and the old one second, skipping a bucket that does not exist, so a discussion that spans the change keeps its calls, and call numbers continue across both buckets. Data in the old bucket expires within 48 hours; nothing is copied. Start the change with no discussion running. |
 
+The old names are one list in the operator module, `workspacetools.DeprecatedNames()` (old tools, `ARTIFACT_*` variables, the `/artifacts` mount, the old image repository, the old API fields and the old finding marker). The operator's `DeprecatedNames` condition reads that list, and a tool that writes crews, such as `kmctl create`, checks its output against it.
+
 A crew that declares workspace access governs both sets of tool names: a tool the access does not grant is disabled under either name.
 
 ### List and describe the workspace
