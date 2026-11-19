@@ -89,6 +89,7 @@ func TestReadyByAnAliasDoesNotPutTheTargetsOwnServerToSleep(t *testing.T) {
 	a := newFake(t, qwen14, true)
 	a.aliases = []string{qwen14Alias}
 	b := newFake(t, qwen8, false)
+	b.metrics = idleMetrics
 	if err := New(http.DefaultClient).Ready(context.Background(), aliased(a, b), qwen14Alias); err != nil {
 		t.Fatal(err)
 	}

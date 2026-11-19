@@ -32,6 +32,9 @@ import (
 )
 
 const (
+	// idleMetrics is a /metrics page of a server holding no request.
+	idleMetrics = "# TYPE vllm:num_requests_running gauge\nvllm:num_requests_running{model_name=\"x\"} 0.0\n# TYPE vllm:num_requests_waiting gauge\nvllm:num_requests_waiting{model_name=\"x\"} 0.0\n"
+
 	qwen14 = "qwen3:14b"
 	qwen8  = "qwen3:8b"
 
@@ -385,6 +388,7 @@ func TestReadyWakesTheServerAtLevelOne(t *testing.T) {
 
 func TestReadySleepsTheAwakeServerFirst(t *testing.T) {
 	a := newFake(t, qwen14, false)
+	a.metrics = idleMetrics
 	b := newFake(t, qwen8, true)
 	servers := map[string]*fakeServer{qwen14: a, qwen8: b}
 	if err := New(http.DefaultClient).Ready(context.Background(), specOf(1, servers, qwen14, qwen8), qwen8); err != nil {
@@ -403,6 +407,7 @@ func TestReadySleepsTheAwakeServerFirst(t *testing.T) {
 
 func TestReadyDoesNotTouchServersAlreadyInTheRightState(t *testing.T) {
 	a := newFake(t, qwen14, false)
+	a.metrics = idleMetrics
 	b := newFake(t, qwen8, true)
 	servers := map[string]*fakeServer{qwen14: a, qwen8: b}
 	if err := New(http.DefaultClient).Ready(context.Background(), specOf(1, servers, qwen14, qwen8), qwen14); err != nil {
@@ -432,6 +437,7 @@ func TestReadyLevelTwoWakesInOrder(t *testing.T) {
 
 func TestReadySleepsOthersAtTheServersLevel(t *testing.T) {
 	a := newFake(t, qwen14, false)
+	a.metrics = idleMetrics
 	b := newFake(t, qwen8, true)
 	servers := map[string]*fakeServer{qwen14: a, qwen8: b}
 	if err := New(http.DefaultClient).Ready(context.Background(), specOf(2, servers, qwen14, qwen8), qwen8); err != nil {
@@ -444,6 +450,7 @@ func TestReadySleepsOthersAtTheServersLevel(t *testing.T) {
 
 func TestReadySkipsAnUnreachableOtherServer(t *testing.T) {
 	a := newFake(t, qwen14, false)
+	a.metrics = idleMetrics
 	a.Close()
 	b := newFake(t, qwen8, true)
 	servers := map[string]*fakeServer{qwen14: a, qwen8: b}
@@ -457,6 +464,7 @@ func TestReadySkipsAnUnreachableOtherServer(t *testing.T) {
 
 func TestReadyFailsWhenAnAwakeServerCannotSleep(t *testing.T) {
 	a := newFake(t, qwen14, false)
+	a.metrics = idleMetrics
 	a.noSleep = true
 	b := newFake(t, qwen8, true)
 	servers := map[string]*fakeServer{qwen14: a, qwen8: b}
@@ -483,6 +491,7 @@ func TestReadyAndReleaseRejectAnUnknownModel(t *testing.T) {
 func TestReleasePutsTheServerToSleepAtTheServersLevel(t *testing.T) {
 	for _, level := range []int{0, 1, 2} {
 		a := newFake(t, qwen14, false)
+		a.metrics = idleMetrics
 		spec := specOf(level, map[string]*fakeServer{qwen14: a}, qwen14)
 		if err := New(http.DefaultClient).Release(context.Background(), spec, qwen14); err != nil {
 			t.Fatal(err)
@@ -506,6 +515,7 @@ func TestReleaseLeavesASleepingServerAlone(t *testing.T) {
 
 func TestReleaseFailsWithoutSleepMode(t *testing.T) {
 	a := newFake(t, qwen14, false)
+	a.metrics = idleMetrics
 	a.noSleep = true
 	if err := New(http.DefaultClient).Release(context.Background(), specOf(1, map[string]*fakeServer{qwen14: a}, qwen14), qwen14); err == nil {
 		t.Error("a server without sleep endpoints cannot be released")
@@ -514,6 +524,7 @@ func TestReleaseFailsWithoutSleepMode(t *testing.T) {
 
 func TestReadyOnAServerWithoutSleepEndpointsNeedsNothing(t *testing.T) {
 	a := newFake(t, qwen14, false)
+	a.metrics = idleMetrics
 	a.noSleep = true
 	if err := New(http.DefaultClient).Ready(context.Background(), specOf(1, map[string]*fakeServer{qwen14: a}, qwen14), qwen14); err != nil {
 		t.Fatalf("a server that is always awake is already ready: %v", err)
@@ -525,6 +536,7 @@ func TestReadyOnAServerWithoutSleepEndpointsNeedsNothing(t *testing.T) {
 
 func TestReadyFailsWhenAnotherServersSleepStateCannotBeRead(t *testing.T) {
 	a := newFake(t, qwen14, false)
+	a.metrics = idleMetrics
 	a.sleepStatus = http.StatusInternalServerError
 	b := newFake(t, qwen8, true)
 	servers := map[string]*fakeServer{qwen14: a, qwen8: b}
