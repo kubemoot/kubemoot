@@ -284,7 +284,8 @@ Each Tooler reads one slice of the namespace: `workloads` (Pods, Deployments, Re
 StatefulSets, Jobs), `events` (Warning events, restarts, recent failures), `networking`
 (Services, endpoints, Ingresses or HTTPRoutes, NetworkPolicies), and `config` (ConfigMaps,
 ServiceAccounts, and the Secrets that pod specs reference). The `reviewer` checks the answer
-against the data the Toolers gathered and flags unsupported claims.
+against the data the Toolers gathered, reads their stored results when a finding holds only a
+pointer, and flags unsupported claims.
 
 **Access.** The tool server runs with `--read-only` and a namespaced `Role` that grants only
 `get`, `list`, and `watch`. The Role has no Secret access: Kubernetes cannot grant a Secret's
@@ -292,9 +293,18 @@ name without its data, so the `config` specialist names Secrets from the referen
 specs. Set `access.clusterWide: true` in the chart's `values.yaml` to use a `ClusterRole` and
 let the crew read every namespace; it stays read-only and still has no Secret access.
 
+**Workspace.** Every tool result is stored as a file in the discussion's
+[workspace](../../concepts/workspace/). Each Tooler declares `workspace.access: write` (it
+stores what it fetched and reads nothing), the coordinator calls no tool and declares
+nothing, and the `reviewer` declares `read`. At `--members 5` the crew has a second MCP
+server, `<name>-workspace-mcp` (`kubemootImage: workspaceAccess`), and the reviewer enables
+`workspace_head`, `workspace_tail` and `workspace_grep` from it, so it reads a result too
+large to post in the discussion by its key. The server reads the workspace from NATS: the
+chart value `nats.url` (a bundle's `tools.yaml` holds the literal) defaults to where the
+quickstart installs NATS. The crew needs a Kubemoot with the workspace names (0.95 or later).
+
 **Limits.** The prompts carry the namespace name, which Helm fills in at install, so a
-rendered bundle is tied to its namespace. The `reviewer` cannot see Tooler findings over 4 KB,
-which the Toolers post as artifact pointers.
+rendered bundle is tied to its namespace.
 
 **Example (interactive):**
 
