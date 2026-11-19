@@ -726,7 +726,7 @@
 																				{:else if !isTranscript(transcripts[tid])}
 																					<p class="status-msg small error">{transcripts[tid].error}</p>
 																				{:else}
-																					{@const t = transcripts[tid] as Transcript}
+																					{@const t = transcripts[tid]}
 									{@const standAsides = (t.events ?? []).filter((e) => e.type === 'phase' && e.stood_aside)}
 									{@const convEvents = dedupeSynthesis(t.events ?? [])}
 																					{#if t.question}<div class="q"><strong>Q:</strong> {t.question}</div>{/if}
