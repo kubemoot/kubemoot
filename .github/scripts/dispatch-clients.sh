@@ -8,7 +8,7 @@
 # Environment:
 #   DRY_RUN        "true" (default) dispatches nothing and prints what would be dispatched
 #   CHART_VERSION  the operator chart version just published
-#   GH_TOKEN       a token with contents write on each repository (RELEASE_TOKEN); not needed
+#   GH_TOKEN       a token with contents write on each repository (a release bot installation token); not needed
 #                  in a dry run
 #   RELEASE_STATUS_OWNER  the GitHub owner of the repositories (default kubemoot)
 # Every repository is tried even when an earlier one fails; exit 1 when any dispatch failed.

@@ -47,8 +47,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
-          # RELEASE_TOKEN (contents+workflows write) pushes the tag even when main's workflow files changed after this commit; GITHUB_TOKEN is refused there.
-          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          # No credential is stored; the release token is minted at the step that pushes.
+          persist-credentials: false
           # Every tag and commit, no file blobs beyond the checkout: the version comes
           # from the tags.
           fetch-depth: 0
@@ -64,15 +64,47 @@ jobs:
           # --insecure-skip-tls-verify (newer helm refuses Harbor's http token realm).
           version: 'v3.14.0'
 
-      - name: Package and push the chart candidate
+      # The plan runs the release script as a dry run, with no push credential in reach, to
+      # learn whether a candidate is due; only then is the release token minted.
+      - name: Plan the chart candidate
+        id: plan
+        env:
+          DRY_RUN: 'true'
+          FORCE: ${{ inputs.force_release || false }}
+        run: bash .github/scripts/release-vllm-chart.sh
+
+      - name: Mint a release token
+        id: app-token
+        if: steps.plan.outputs.will_release == 'true'
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          repositories: kubemoot
+          permission-contents: write
+          permission-workflows: write
+
+      # helm keeps its Harbor login in its config file, so the push step needs no login of
+      # its own, and helm never runs beside the release token before the script moves it.
+      - name: Log in to Harbor
+        if: steps.plan.outputs.will_release == 'true'
         env:
           HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
           HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
           REGISTRY: ${{ vars.REGISTRY }}
+        run: echo "${HARBOR_PASSWORD}" | helm registry login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
+
+      # The script takes GH_APP_TOKEN out of the environment before anything else runs and
+      # uses it only for git push (push-token.sh).
+      - name: Package and push the chart candidate
+        id: chart
+        if: steps.plan.outputs.will_release == 'true'
+        env:
+          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          # The tag identity, as env, so no git command runs before the script moves the token.
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
+          REGISTRY: ${{ vars.REGISTRY }}
           DRY_RUN: 'false'
           FORCE: ${{ inputs.force_release || false }}
-        run: |
-          echo "${HARBOR_PASSWORD}" | helm registry login --insecure "${REGISTRY}" -u "${HARBOR_USERNAME}" --password-stdin
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          bash .github/scripts/release-vllm-chart.sh
+        run: bash .github/scripts/release-vllm-chart.sh
