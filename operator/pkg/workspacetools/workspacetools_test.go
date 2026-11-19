@@ -117,12 +117,12 @@ func TestDeprecatedNamesListTheOldAPIFields(t *testing.T) {
 	}
 }
 
-func TestDeprecatedNamesStringsListsEachPartAndIsACopy(t *testing.T) {
+func TestDeprecatedNamesNamesListsEachPartAndIsACopy(t *testing.T) {
 	d := DeprecatedNames()
-	got := d.Strings()
+	got := d.Names()
 	for _, want := range []string{"artifact_head", "ARTIFACT_", "/artifacts", "artifact-access", "artifactAccess", "[ARTIFACT"} {
 		if !slices.Contains(got, want) {
-			t.Errorf("Strings() misses %q: %v", want, got)
+			t.Errorf("Names() misses %q: %v", want, got)
 		}
 	}
 	d.EnvNames[0] = tChanged
@@ -130,5 +130,32 @@ func TestDeprecatedNamesStringsListsEachPartAndIsACopy(t *testing.T) {
 	again := DeprecatedNames()
 	if again.EnvNames[0] == tChanged || again.Tools["artifact_head"] == tChanged {
 		t.Errorf("the list can be changed by a caller")
+	}
+}
+
+func TestFindFlagsOldNamesAtTheStartOfAWordOnly(t *testing.T) {
+	d := DeprecatedNames()
+	cases := []struct {
+		text string
+		want []string
+	}{
+		{"name: ARTIFACT_MODE", []string{"ARTIFACT_"}},
+		{"ARTIFACT_MODE", []string{"ARTIFACT_"}},
+		{"name: WORKSPACE_QUERY_MAX_ARTIFACT_BYTES", nil},
+		{"WORKSPACE_MODE WORKSPACE_DIR WORKSPACE_QUERY_ENGINE", nil},
+		{"WORKSPACE_QUERY_MAX_ARTIFACT_BYTES and ARTIFACT_MODE", []string{"ARTIFACT_"}},
+		{"tools: [artifact_head, workspace_head]", []string{"artifact_head"}},
+		{"tools: [my_artifact_head]", nil},
+		{"image: ghcr.io/kubemoot/artifact-access:1", []string{"artifact-access"}},
+		{"image: reg/my-artifact-access:1", nil},
+		{"mountPath: /artifacts", []string{"/artifacts"}},
+		{"mountPath: /kubemoot/workspace", nil},
+		{"[ARTIFACT x]", []string{"[ARTIFACT"}},
+		{"", nil},
+	}
+	for _, tc := range cases {
+		if got := d.Find(tc.text); !slices.Equal(got, tc.want) {
+			t.Errorf("Find(%q) = %v, want %v", tc.text, got, tc.want)
+		}
 	}
 }

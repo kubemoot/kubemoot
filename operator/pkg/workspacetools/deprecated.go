@@ -13,6 +13,7 @@ package workspacetools
 import (
 	"maps"
 	"slices"
+	"strings"
 )
 
 // Deprecated is every name Kubemoot renamed when the discussion's shared store became the
@@ -60,12 +61,48 @@ func DeprecatedNames() Deprecated {
 	}
 }
 
-// Strings returns the names as a flat, sorted list of substrings to look for in text: the old
-// tools, the environment prefix, the mount, the image repository, the fields and the markers.
-func (d Deprecated) Strings() []string {
+// Names returns every deprecated name as one flat, sorted list: the old tools, the environment
+// prefix, the mount, the image repository, the fields and the markers. Look for them in text with
+// Find, not with a plain substring search: the prefix ARTIFACT_ is inside the current variable
+// WORKSPACE_QUERY_MAX_ARTIFACT_BYTES.
+func (d Deprecated) Names() []string {
 	out := slices.Sorted(maps.Keys(d.Tools))
 	out = append(out, d.EnvPrefix, d.Mount, d.ImageRepo)
 	out = append(out, d.Fields...)
 	out = append(out, d.Markers...)
 	return out
+}
+
+// Find returns the deprecated names the text uses, each once, in Names order. A name that starts
+// with a letter, digit or underscore counts only where it starts a word: it is not preceded by a
+// letter, digit, underscore or hyphen, so WORKSPACE_QUERY_MAX_ARTIFACT_BYTES and my-artifact-access
+// are not flagged while ARTIFACT_MODE and artifact-access are.
+func (d Deprecated) Find(text string) []string {
+	var found []string
+	for _, name := range d.Names() {
+		if usesName(text, name) && !slices.Contains(found, name) {
+			found = append(found, name)
+		}
+	}
+	return found
+}
+
+// usesName reports whether text holds name at the start of a word (see Find).
+func usesName(text, name string) bool {
+	wordName := isWordByte(name[0])
+	for from := 0; ; {
+		i := strings.Index(text[from:], name)
+		if i < 0 {
+			return false
+		}
+		i += from
+		if !wordName || i == 0 || !isWordByte(text[i-1]) && text[i-1] != '-' {
+			return true
+		}
+		from = i + 1
+	}
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
