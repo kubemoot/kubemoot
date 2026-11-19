@@ -8,7 +8,8 @@ on:
 
 permissions:
   checks: read
+  statuses: read
 
 jobs:
   all-checks:
-    uses: kubemoot/release-actions/.github/workflows/all-checks.yaml@b78d1a218811e2a0376eed26240451b2f353f367 # v0.11.4
+    uses: kubemoot/release-actions/.github/workflows/all-checks.yaml@2567883262a937e8aa9be375fd5dd4a31369fc80 # v0.12.1
