@@ -29,6 +29,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/natskv"
 	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
 )
 
@@ -84,6 +86,21 @@ func (p *Publisher) connect() error {
 	p.conn = conn
 	log.Info("Connected to NATS", "url", p.url)
 	return nil
+}
+
+// OpenCrewMemory returns a read-only reader of the crew memory bucket. Unlike
+// ListKVKeys it reports every failure (NATS not configured, unreachable, bucket
+// missing), so an export never mistakes an unreachable store for "no facts".
+func (p *Publisher) OpenCrewMemory() (crewmemory.EntryReader, error) {
+	if p.url == "" {
+		return nil, errors.New("NATS is not configured")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.connect(); err != nil {
+		return nil, fmt.Errorf("connect NATS: %w", err)
+	}
+	return natskv.Open(p.conn)
 }
 
 // Publish JSON-encodes the payload and publishes to the given subject.

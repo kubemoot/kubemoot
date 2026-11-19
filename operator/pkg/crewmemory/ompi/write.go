@@ -11,12 +11,15 @@ You may obtain a copy of the License at
 package ompi
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -133,4 +136,33 @@ func checkRelative(rel string) error {
 		return fmt.Errorf("unsafe export path %q", rel)
 	}
 	return nil
+}
+
+// Archive packs the files of an export into a zip, in path order and with a
+// fixed modification time, so the same export is the same bytes. Every path is
+// checked as Write checks it.
+func Archive(files map[string][]byte) ([]byte, error) {
+	names := make([]string, 0, len(files))
+	for rel := range files {
+		if err := checkRelative(rel); err != nil {
+			return nil, err
+		}
+		names = append(names, rel)
+	}
+	sort.Strings(names)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, rel := range names {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: rel, Method: zip.Deflate})
+		if err != nil {
+			return nil, fmt.Errorf("archive %s: %w", rel, err)
+		}
+		if _, err := w.Write(files[rel]); err != nil {
+			return nil, fmt.Errorf("archive %s: %w", rel, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }

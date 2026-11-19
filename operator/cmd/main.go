@@ -132,6 +132,7 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 		{"fitness report server", &controller.ReportServer{
 			Client:    mgr.GetClient(),
 			Publisher: natsPublisher,
+			Memory:    natsPublisher,
 			Addr:      ":8082",
 		}},
 	}

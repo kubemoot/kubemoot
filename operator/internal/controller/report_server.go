@@ -374,7 +374,9 @@ func buildSuiteReport(ctx context.Context, c client.Client, store objectStore, s
 type ReportServer struct {
 	Client    client.Client
 	Publisher *kubemootnats.Publisher
-	Addr      string
+	// Memory opens the crew memory store for the memory export; nil answers 503.
+	Memory memoryOpener
+	Addr   string
 }
 
 // ComponentStatus is one control-plane component's health, in the spirit of
@@ -440,6 +442,7 @@ func (s *ReportServer) Start(ctx context.Context) error {
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(statuses)
 	})
+	mux.HandleFunc("GET /memory-export/{namespace}/{crew}", s.serveMemoryExport)
 	mux.HandleFunc("GET /report/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		ns, name := r.PathValue("namespace"), r.PathValue("name")
 		data, err := GenerateSuiteReport(r.Context(), s.Client, s.Publisher, ns, name)

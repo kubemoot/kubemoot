@@ -133,6 +133,8 @@ The span graph draws one bar per agent from its first to its last message. Each 
 
 Shows the working memory of the crew selected in the top bar, the same crew picker the Discussions page uses. Working memory is what a crew has learned about the cluster and keeps between discussions, stored as facts with a topic, a key and a value; the least recently used are dropped over time. With All crews selected the page asks you to pick a crew. A crew with no facts shows an empty state that explains this. **Add or update a fact** enables Save once a crew is selected and the topic, key and value are filled in; until then the line under the form says what is missing. Saving an existing topic and key updates that fact.
 
+**Export** (shown whenever a crew is selected, also on a read-only dashboard) opens a panel that downloads the crew's memory as a zip in the OMPI (Open Memory Protocol Initiative) interchange format, working spec v0.6: a manifest and one memory object per fact. The operator builds the file with the same code as `ompi-export`; the dashboard only relays it and never maps facts to the format itself. The export is screened by default: a fact whose topic, key or value holds a credential is left out. Before you download, the panel shows what the export holds and a table of what it left out, each entry named by its key (an opaque id such as `<namespace>.<crew>.#1a2b3c4d` when the key itself held the credential) and the reason, for example the shape of the credential. It never shows a fact's text. **Include facts that hold a credential (unscreened)** is the dashboard form of `--allow-unscreened`: the credentials then go into the file as stored, so treat the file as a secret. The same namespace scope as the rest of the page applies; a crew outside it answers 404.
+
 ### Messages
 
 Your chat with a crew. The crew picker is the same **Crew** selector in the top bar that Discussions uses; sending stays disabled until one crew is selected. The left panel lists your conversations with that crew, and the right panel shows them as a chat: your messages and the crew's answers (the synthesis on each thread). A follow-up goes into the same conversation as a reply on the same thread. Nothing of the agents' internal discussion appears here; the **Discussion** link beside an answer opens its thread in Discussions, which shows the consensus messages and statistics.
@@ -188,6 +190,7 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 | `/api/kubemoot/mcpserverreports/<name>` | PATCH | Pin a verdict |
 | `/api/kubemoot/modelservers/<name>/load`, `/unload`, `/delete` | POST | Model server actions |
 | `/api/kubemoot/crew-memory` | GET, POST, DELETE | Crew memory facts |
+| `/api/kubemoot/crew-memory/export?namespace=&crew=` | GET | The crew's memory as an OMPI v0.6 zip, screened; `allowUnscreened=true` keeps facts that hold a credential, `report=true` returns the selection report as JSON (left-out entries by key or opaque id and reason, never text) |
 | `/api/kubemoot/watch/<plural>` | GET | Kubernetes resource updates as server-sent events |
 | `/api/nats/subscribe?subject=` | GET | Server-sent events for a NATS subject |
 | `/api/nats/history?stream=&subject=&limit=` | GET | JetStream history replay as a JSON array |

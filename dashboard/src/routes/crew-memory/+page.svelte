@@ -4,6 +4,7 @@
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel } from '#lib/crew-display-name.js';
 	import { canSaveFact, factFormProblem, trimmedDraft } from '#lib/crew-memory-form.js';
+	import MemoryExportPanel from '#lib/components/memory/MemoryExportPanel.svelte';
 
 	interface Fact {
 		namespace: string;
@@ -56,6 +57,10 @@
 	$effect(() => {
 		load(scope);
 	});
+
+	// Export: the operator builds the OMPI export; the panel previews it and offers the download.
+	let exportOpen = $state(false);
+	const exportEndpoint = resolve('/api/kubemoot/crew-memory/export');
 
 	async function send(method: string, url: string, body?: unknown) {
 		const res = await fetch(url, {
@@ -111,8 +116,13 @@
 <div class="page">
 	<div class="page-header">
 		<h1>Crew Memory</h1>
-		{#if scope && !$readOnly}
-			<button class="danger" onclick={clearAll} disabled={loading || facts.length === 0} title="Delete every fact this crew remembers">Clear all ({facts.length})</button>
+		{#if scope}
+			<div class="header-actions">
+				<button onclick={() => (exportOpen = !exportOpen)} aria-expanded={exportOpen} title="Download this crew's memory in the OMPI interchange format">Export</button>
+				{#if !$readOnly}
+					<button class="danger" onclick={clearAll} disabled={loading || facts.length === 0} title="Delete every fact this crew remembers">Clear all ({facts.length})</button>
+				{/if}
+			</div>
 		{/if}
 	</div>
 	<p class="sub">
@@ -121,6 +131,10 @@
 	</p>
 
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
+
+	{#if scope && exportOpen}
+		<MemoryExportPanel {scope} endpoint={exportEndpoint} />
+	{/if}
 
 	{#if !scope}
 		<div class="empty-state">Pick one crew in the top bar to see and edit what it remembers.</div>
@@ -171,6 +185,7 @@
 
 <style>
 	.page { padding: 1.5rem; max-width: 1100px; }
+	.header-actions { display: flex; gap: 0.5rem; }
 	.page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 	h1, h2 { color: var(--color-text); }
 	h2 { font-size: 1rem; margin-top: 1.5rem; }
