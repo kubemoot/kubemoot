@@ -32,6 +32,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
@@ -93,6 +94,11 @@ type runnableSetup struct {
 // mustAddRunnables registers the operator's non-controller runnables, logging
 // and exiting on any failure.
 func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
+	kube, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "unable to create the Kubernetes client for access reviews")
+		os.Exit(1)
+	}
 	runnables := []runnableSetup{
 		// Agent self-scheduling poller. Reads the kubemoot_scheduled KV bucket
 		// every 30s and publishes thread_start for any due records.
@@ -133,7 +139,10 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 			Client:    mgr.GetClient(),
 			Publisher: natsPublisher,
 			Memory:    natsPublisher,
-			Addr:      ":8082",
+			// The report service is reachable by any pod; the memory export checks the
+			// caller's token and RBAC before it reads a crew's memory.
+			MemoryAuth: controller.NewReviewAuthorizer(kube),
+			Addr:       ":8082",
 		}},
 	}
 	for _, r := range runnables {

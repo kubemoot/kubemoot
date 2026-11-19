@@ -13,19 +13,18 @@ const report: MemoryExportReport = {
 	namespace: 'pilot',
 	crew: 'homelab-pilot',
 	memories: 3,
-	screened: true,
 	leftOut: [{ key: 'pilot.homelab-pilot.#1a2b3c4d', reason: 'its topic or key holds a credential; not exported as memory' }]
 };
 
 describe('exportQuery', () => {
-	it('is screened and a download by default', () => {
-		expect(exportQuery(scope, { allowUnscreened: false, report: false })).toBe('namespace=pilot&crew=homelab-pilot');
+	it('is a download of the screened zip by default', () => {
+		expect(exportQuery(scope, { report: false })).toBe('namespace=pilot&crew=homelab-pilot');
 	});
 
-	it('asks for the report and for unscreened facts only when told to', () => {
-		const q = new URLSearchParams(exportQuery(scope, { allowUnscreened: true, report: true }));
-		expect(q.get('allowUnscreened')).toBe('true');
+	it('asks for the report only when told to, and has no way to ask for unscreened facts', () => {
+		const q = new URLSearchParams(exportQuery(scope, { report: true }));
 		expect(q.get('report')).toBe('true');
+		expect(q.has('allowUnscreened')).toBe(false);
 	});
 });
 
@@ -37,9 +36,9 @@ describe('parseExportReport', () => {
 	it.each([
 		['null', null],
 		['a string', 'nope'],
-		['no count', { screened: true, leftOut: [] }],
-		['no leftOut list', { memories: 1, screened: true }],
-		['a left-out entry without a reason', { memories: 1, screened: true, leftOut: [{ key: 'k' }] }]
+		['no count', { leftOut: [] }],
+		['no leftOut list', { memories: 1 }],
+		['a left-out entry without a reason', { memories: 1, leftOut: [{ key: 'k' }] }]
 	])('rejects %s', (_name, body) => {
 		expect(parseExportReport(body)).toBeNull();
 	});
@@ -73,17 +72,17 @@ describe('fetchExportReport', () => {
 
 	it('requests the report for the scope and returns it', async () => {
 		const fetchFn = respond(report);
-		await expect(fetchExportReport(fetchFn, '/api/export', scope, false)).resolves.toEqual(report);
+		await expect(fetchExportReport(fetchFn, '/api/export', scope)).resolves.toEqual(report);
 		expect(fetchFn).toHaveBeenCalledWith('/api/export?namespace=pilot&crew=homelab-pilot&report=true');
 	});
 
 	it('throws the server message when the export cannot be had', async () => {
-		await expect(fetchExportReport(respond({ error: 'memory export service unreachable' }, 502), '/e', scope, false)).rejects.toThrow(
+		await expect(fetchExportReport(respond({ error: 'memory export service unreachable' }, 502), '/e', scope)).rejects.toThrow(
 			'memory export service unreachable'
 		);
 	});
 
 	it('throws when the body is not a report', async () => {
-		await expect(fetchExportReport(respond({ hello: 1 }), '/e', scope, false)).rejects.toThrow(/not understood/);
+		await expect(fetchExportReport(respond({ hello: 1 }), '/e', scope)).rejects.toThrow(/not understood/);
 	});
 });
