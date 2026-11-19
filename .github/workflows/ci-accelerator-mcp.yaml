@@ -26,6 +26,7 @@ permissions:
 
 jobs:
   test:
+    name: accelerator-mcp-test
     # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
     # cluster runners take push, dispatch, and workflow_call runs from main only.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
@@ -70,6 +71,7 @@ jobs:
           retention-days: 3
 
   build-image:
+    name: accelerator-mcp-build-image
     needs: test
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/build-go-binary-image.yaml

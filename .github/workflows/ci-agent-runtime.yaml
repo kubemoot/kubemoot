@@ -37,6 +37,7 @@ permissions:
 
 jobs:
   test:
+    name: agent-runtime-test
     # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
     # cluster runners take push, dispatch, and workflow_call runs from main only.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
@@ -154,6 +155,7 @@ jobs:
           .github/scripts/run-native-check.sh "${runners[0]}"
 
   build-image:
+    name: agent-runtime-build-image
     # Runs in parallel with test — pushes SHA-tagged image only.
     # The release job gates on ALL CI jobs passing before creating
     # the version tag that Flux deploys. A failed test means the

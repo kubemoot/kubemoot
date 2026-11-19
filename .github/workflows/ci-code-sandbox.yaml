@@ -20,6 +20,7 @@ permissions:
 
 jobs:
   test:
+    name: code-sandbox-test
     # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
     # cluster runners take push, dispatch, and workflow_call runs from main only.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
@@ -63,6 +64,7 @@ jobs:
         run: go test ./...
 
   build-image:
+    name: code-sandbox-build-image
     needs: test
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/build-dockerfile-image.yaml
