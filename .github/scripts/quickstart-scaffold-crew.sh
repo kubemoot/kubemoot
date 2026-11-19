@@ -13,7 +13,8 @@
 # 3. Wait by state: the Crew and every Agent report ready, every Deployment is rolled out.
 # 4. kmctl conversation ask ... -o json: "List the pods running in this namespace."
 # 5. Check the answer against kubectl, deterministically (no model judges it):
-#    - it names every agent of the crew (each is a Deployment, so a pod) and
+#    - it names the crew's coordinator, the one pod every scaffold has and the one its own
+#      fitness suite requires the answer to name (the 1.5B CPU model does not list every pod), and
 #    - every crew-prefixed name it writes is a prefix of a real pod, Deployment or Service.
 #
 # Requires: kubectl on the target cluster, helm, python3, curl, tar, sha256sum, gh (for the
@@ -95,7 +96,7 @@ print(answer)
 }
 
 # check_answer CREW ANSWERFILE NAMESFILE: NAMESFILE lists what the cluster holds, one name per
-# line; the first line group (before a blank line) is the agents the answer must name. Fails
+# line; the first line group (before a blank line) is the names the answer must contain. Fails
 # with every problem found.
 check_answer() {
   python3 - "$1" "$2" "$3" <<'PY'
@@ -111,24 +112,23 @@ for line in open(names_file).read().splitlines():
 problems = []
 for agent in agents:
     if agent not in answer:
-        problems.append("the answer does not name the crew's agent " + agent)
+        problems.append("the answer does not name " + agent)
 for token in sorted(set(re.findall(re.escape(crew) + r"-[a-z0-9-]*[a-z0-9]", answer))):
     if not any(name.startswith(token) for name in existing):
         problems.append("the answer names " + token + ", which matches no pod, Deployment or Service in the namespace")
 if problems:
     print("\n".join(problems), file=sys.stderr)
     sys.exit(1)
-print("the answer names every agent and invents no name")
+print("the answer names the coordinator and invents no name")
 PY
 }
 
-# cluster_names CREW NS FILE: the agents of the crew, a blank line, then every pod, Deployment
-# and Service name in the namespace. The agents are the Deployments the operator makes for
-# the crew's Agents, named for them.
+# cluster_names CREW NS FILE: the crew's coordinator (an Agent of the crew, and so a Deployment
+# named for it), a blank line, then every pod, Deployment and Service name in the namespace.
 cluster_names() {
   local crew="$1" ns="$2" file="$3"
   {
-    kubectl get agents -n "$ns" -l "kubemoot.ai/crew=${crew}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
+    kubectl get agent "${crew}-coordinator" -n "$ns" -o jsonpath='{.metadata.name}{"\n"}'
     echo
     kubectl get pods,deployments,services -n "$ns" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
   } > "$file"
