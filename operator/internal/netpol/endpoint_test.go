@@ -21,6 +21,7 @@ const (
 	hostOReilly = "api.oreilly.com"
 	hostTools   = "tools.example.com"
 	svcTools    = "tools"
+	hostDB      = "db.example.com"
 )
 
 func TestParseExternalEndpointReadsHostsAddressesAndServices(t *testing.T) {
@@ -96,4 +97,43 @@ func TestEgressWithNoInvalidEndpointsStaysEnforced(t *testing.T) {
 	})
 	eq(t, "enforced", res.Status.Enforced, true)
 	eq(t, "policy and Cilium policy", len(res.Objects), 2)
+}
+
+func TestParseEndpointUsesTheSameHostRuleAndSchemeDefaults(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want ExternalEndpoint
+	}{
+		{"redis://cache.example.com", ExternalEndpoint{Dest: Dest{Host: "cache.example.com", Port: 6379}}},
+		{"rediss://cache.example.com", ExternalEndpoint{Dest: Dest{Host: "cache.example.com", Port: 6379}}},
+		{"postgres://u:p@db.example.com/forge", ExternalEndpoint{Dest: Dest{Host: hostDB, Port: 5432}}},
+		{"postgresql://db.example.com:6432/forge", ExternalEndpoint{Dest: Dest{Host: hostDB, Port: 6432}}},
+		{"postgresql://example.com/forge", ExternalEndpoint{Dest: Dest{Host: "example.com", Port: 5432}}},
+		{"redis://x.kube-system:6379", ExternalEndpoint{Dest: Dest{Host: "x.kube-system", Port: 6379}}},
+		{"postgres://10.1.2.3/forge", ExternalEndpoint{Dest: Dest{CIDR: "10.1.2.3/32", Port: 5432}}},
+		{"redis://cache.ns.svc", ExternalEndpoint{Service: &ServiceRef{Namespace: "ns", Name: "cache", Port: 6379}}},
+		{"redis://cache", ExternalEndpoint{Service: &ServiceRef{Namespace: testNS, Name: "cache", Port: 6379}}},
+	}
+	for _, c := range cases {
+		got, err := ParseEndpoint(c.raw, testNS)
+		if err != nil {
+			t.Errorf("%s: %v", c.raw, err)
+			continue
+		}
+		eq(t, c.raw, got, c.want)
+	}
+}
+
+func TestParseEndpointReportsAPortItCannotDetermine(t *testing.T) {
+	for _, raw := range []string{"mysql://db.example.com/forge", "amqp://mq.example.com", "db.example.com", "redis://"} {
+		if _, err := ParseEndpoint(raw, testNS); err == nil {
+			t.Errorf("%q has no determinable port or host and must be reported", raw)
+		}
+	}
+}
+
+func TestParseExternalEndpointStillRefusesOtherSchemes(t *testing.T) {
+	if _, err := ParseExternalEndpoint("redis://cache.example.com", testNS); err == nil {
+		t.Error("an external tool server endpoint is http or https")
+	}
 }

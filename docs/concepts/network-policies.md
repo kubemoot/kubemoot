@@ -206,6 +206,10 @@ fronts:
   the server's own ingress policy admits the gateway to. These stay as they are today.
 - The gateway's other calls: the database and Redis of a ContextForge gateway
   (`spec.contextForge.databaseURL`, `redisURL`), and the query service of its tool index.
+  They follow the same host rule as an `externalEndpoint` (below). A URL with no port uses
+  the scheme's port (`postgres` and `postgresql` 5432, `redis` and `rediss` 6379), and a
+  URL whose port cannot be determined is reported as `EndpointInvalid`, not dropped. A file
+  database such as `sqlite:///./mcp.db` makes no network call and adds nothing.
 - An `externalEndpoint` host is a Service inside the cluster only when it is a single label
   (a Service in the gateway's namespace) or has the form `name.namespace.svc` or
   `name.namespace.svc.<cluster domain>`. Every other name is a host outside the cluster,

@@ -12,6 +12,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -378,5 +379,44 @@ func TestGatewayEgressReportsAServiceEndpointThatDoesNotExist(t *testing.T) {
 	e.reconcile()
 	if c := e.condition(); c == nil || c.Reason != netpol.ReasonEndpointInvalid {
 		t.Errorf("a Service that does not exist is reported: %+v", c)
+	}
+}
+
+func gwContextForge(e *gwEgressEnv, db, redis string) {
+	e.gw.Spec.ContextForge = &aiv1alpha1.ContextForgeConfig{DatabaseURL: db, RedisURL: redis}
+}
+
+func TestGatewayEgressAllowsPortlessDatabaseAndRedisURLsOnTheirDefaultPorts(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), true, gwEgressServer("oreilly-mcp", "https://"+gwOReilly))
+	gwContextForge(e, "postgresql://db.example.com/forge", "rediss://cache.example.net")
+	e.reconcile()
+	assertHostPorts(t, fqdnRule(t, e.cli), map[string]string{
+		gwOReilly: "443", "db.example.com": "5432", "cache.example.net": "6379",
+	})
+	if c := e.condition(); c == nil || c.Status != metav1.ConditionTrue {
+		t.Errorf("everything is enforced: %+v", c)
+	}
+}
+
+func TestGatewayEgressReadsATwoLabelDatabaseHostAsAHost(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), true, gwEgressServer("oreilly-mcp", "https://"+gwOReilly))
+	gwContextForge(e, "postgresql://example.com/forge", "redis://x.kube-system")
+	e.reconcile()
+	assertHostPorts(t, fqdnRule(t, e.cli), map[string]string{
+		gwOReilly: "443", "example.com": "5432", "x.kube-system": "6379",
+	})
+}
+
+func TestGatewayEgressReportsAnOtherURLWhosePortItCannotDetermine(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), false, gwEgressServer("oreilly-mcp", "https://"+gwOReilly))
+	gwContextForge(e, "mysql://db.example.com/forge", "sqlite:///./mcp.db")
+	e.reconcile()
+	c := e.condition()
+	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != netpol.ReasonEndpointInvalid ||
+		!strings.Contains(c.Message, "databaseURL") {
+		t.Fatalf("the database URL with no port is reported, not dropped: %+v", c)
+	}
+	if strings.Contains(c.Message, "sqlite") || strings.Contains(c.Message, "redisURL") {
+		t.Errorf("a file database and an empty Redis URL are not network calls: %s", c.Message)
 	}
 }

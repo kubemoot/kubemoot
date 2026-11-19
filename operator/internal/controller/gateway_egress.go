@@ -13,6 +13,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
@@ -68,11 +69,12 @@ func (s *NetPolicySync) attachGatewayDestinations(ctx context.Context, gateway *
 	}
 	namespace := gateway.Namespace
 	w.Rules = &kubemootv1alpha1.EgressRules{}
-	other, err := s.gatewayOtherDests(ctx, gateway)
+	other, invalidOther, err := s.gatewayOtherDests(ctx, gateway)
 	if err != nil {
 		return err
 	}
 	w.Defaults = append(w.Defaults, other...)
+	w.Invalid = append(w.Invalid, invalidOther...)
 	for i := range servers {
 		mcp := &servers[i]
 		if mcp.Spec.ExternalEndpoint == "" {
@@ -121,13 +123,21 @@ func inClusterServerDests(gatewayNamespace string, mcp *kubemootv1alpha1.MCPServ
 func (s *NetPolicySync) externalEndpointDests(ctx context.Context, mcp *kubemootv1alpha1.MCPServer, namespace string) ([]netpol.Dest, string, error) {
 	where := fmt.Sprintf("MCPServer %s/%s externalEndpoint: ", mcp.Namespace, mcp.Name)
 	ep, err := netpol.ParseExternalEndpoint(mcp.Spec.ExternalEndpoint, namespace)
-	if err != nil {
-		return nil, where + err.Error(), nil
+	return s.endpointDests(ctx, where, ep, err, []int32{ep.Port()})
+}
+
+// endpointDests turns a parsed endpoint into destinations: its host or address, or the
+// Service it names read on the given Service ports (every TCP port when ports is nil).
+// A parse error, or a Service that cannot be resolved, comes back as a reason prefixed
+// with where, and no destination.
+func (s *NetPolicySync) endpointDests(ctx context.Context, where string, ep netpol.ExternalEndpoint, parseErr error, ports []int32) ([]netpol.Dest, string, error) {
+	if parseErr != nil {
+		return nil, where + parseErr.Error(), nil
 	}
 	if ep.Service == nil {
 		return []netpol.Dest{ep.Dest}, "", nil
 	}
-	res, err := s.resolveService(ctx, ep.Service.Namespace, ep.Service.Name, []int32{ep.Service.Port})
+	res, err := s.resolveService(ctx, ep.Service.Namespace, ep.Service.Name, ports)
 	if err != nil {
 		return nil, "", err
 	}
@@ -139,25 +149,43 @@ func (s *NetPolicySync) externalEndpointDests(ctx context.Context, mcp *kubemoot
 
 // gatewayOtherDests are the gateway's other outbound calls: the database and Redis of a
 // ContextForge gateway, and the query service of its tool index. The query service is read
-// from its Service when it exists, and from the URL alone before that.
-func (s *NetPolicySync) gatewayOtherDests(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) ([]netpol.Dest, error) {
-	var urls []string
+// from its Service on any port the Service lists. A URL read by the same host rule as an
+// external endpoint, whose port cannot be determined or whose Service does not exist, is
+// returned as a reason, not dropped.
+func (s *NetPolicySync) gatewayOtherDests(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) ([]netpol.Dest, []string, error) {
+	type call struct{ what, raw string }
+	var calls []call
 	if cf := gateway.Spec.ContextForge; cf != nil {
-		urls = append(urls, cf.DatabaseURL, cf.RedisURL)
+		calls = append(calls, call{"spec.contextForge.databaseURL", cf.DatabaseURL}, call{"spec.contextForge.redisURL", cf.RedisURL})
 	}
-	var out []netpol.Dest
-	for _, u := range urls {
-		out = append(out, netpol.DestsFromURL(u)...)
+	if gateway.Spec.ToolIndex != nil {
+		calls = append(calls, call{"the tool index query endpoint", gateway.Status.ToolIndexEndpoint})
 	}
-	if gateway.Spec.ToolIndex == nil || gateway.Status.ToolIndexEndpoint == "" {
-		return out, nil
+	var dests []netpol.Dest
+	var invalid []string
+	for _, c := range calls {
+		if !callsTheNetwork(c.raw) {
+			continue
+		}
+		ep, err := netpol.ParseEndpoint(c.raw, gateway.Namespace)
+		found, reason, rerr := s.endpointDests(ctx, "gateway "+c.what+": ", ep, err, nil)
+		if rerr != nil {
+			return nil, nil, rerr
+		}
+		dests = append(dests, found...)
+		if reason != "" {
+			invalid = append(invalid, reason)
+		}
 	}
-	found, reason, err := s.serviceURLDestsAnyPort(ctx, gateway.Status.ToolIndexEndpoint, gateway.Namespace)
-	if err != nil {
-		return nil, err
+	return dests, invalid, nil
+}
+
+// callsTheNetwork reports whether a configured URL names a server: an empty URL and a
+// local file database such as sqlite:///./mcp.db do not.
+func callsTheNetwork(raw string) bool {
+	if raw == "" {
+		return false
 	}
-	if reason != "" {
-		found = netpol.DestsFromURL(gateway.Status.ToolIndexEndpoint)
-	}
-	return append(out, found...), nil
+	u, err := url.Parse(raw)
+	return err != nil || u.Hostname() != ""
 }
