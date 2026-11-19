@@ -1,6 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetPrivateEnv, setPrivateEnv } from '../../../vitest-mocks/app-env-private';
-import { IN_CLUSTER_REPORT_URL, operatorReportBase } from './operator-report';
+const mocks = vi.hoisted(() => ({ token: vi.fn() }));
+vi.mock('#lib/server/service-account-token.js', () => ({ serviceAccountToken: mocks.token }));
+
+import { IN_CLUSTER_REPORT_URL, operatorAuthHeaders, operatorReportBase } from './operator-report';
 
 describe('operatorReportBase', () => {
 	afterEach(() => {
@@ -17,5 +20,17 @@ describe('operatorReportBase', () => {
 		expect(operatorReportBase()).toBe('https://report.example.test');
 		setPrivateEnv({ OPERATOR_REPORT_URL: '' });
 		expect(operatorReportBase()).toBe(IN_CLUSTER_REPORT_URL);
+	});
+});
+
+describe('operatorAuthHeaders', () => {
+	it('sends the service account token as the bearer', () => {
+		mocks.token.mockReturnValue('sa-token');
+		expect(operatorAuthHeaders()).toEqual({ Authorization: 'Bearer sa-token' });
+	});
+
+	it('sends no header when there is no token, so the operator answers 401', () => {
+		mocks.token.mockReturnValue('');
+		expect(operatorAuthHeaders()).toEqual({});
 	});
 });
