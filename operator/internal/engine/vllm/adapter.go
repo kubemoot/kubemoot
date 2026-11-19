@@ -34,6 +34,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/engine"
@@ -62,6 +63,9 @@ const DefaultMaxSequences = 256
 // Adapter talks to the vLLM servers of one ModelServer over HTTP.
 type Adapter struct {
 	client *http.Client
+	// drainPoll and drainLimit pace and bound the wait for a server to go idle before
+	// it is put to sleep; zero means the defaults.
+	drainPoll, drainLimit time.Duration
 }
 
 var _ engine.Adapter = (*Adapter)(nil)
@@ -109,8 +113,8 @@ func serverFor(spec aiv1alpha1.ModelServerSpec, model string) (aiv1alpha1.VLLMSe
 }
 
 // Ready wakes the vLLM server of model. Any other vLLM server of the ModelServer that is
-// awake is put to sleep first, so the accelerator has room; a server that does
-// not answer holds nothing and is left alone. A model whose server is already
+// awake is put to sleep first, once it holds no request, so the accelerator has
+// room; a server that does not answer holds nothing and is left alone. A model whose server is already
 // awake, or has no sleep endpoints, needs nothing.
 func (a *Adapter) Ready(ctx context.Context, spec aiv1alpha1.ModelServerSpec, model string) error {
 	target, err := serverFor(spec, model)
@@ -153,7 +157,7 @@ func (a *Adapter) Release(ctx context.Context, spec aiv1alpha1.ModelServerSpec, 
 	if sleeping {
 		return nil
 	}
-	return a.sleep(ctx, target.Endpoint, spec.SleepLevelOrDefault())
+	return a.sleepWhenIdle(ctx, target.Endpoint, model, spec.SleepLevelOrDefault())
 }
 
 // sleepIfAwake puts srv to sleep when it is awake. A server that is down (its
@@ -173,10 +177,7 @@ func (a *Adapter) sleepIfAwake(ctx context.Context, srv aiv1alpha1.VLLMServer, l
 	case sleeping:
 		return nil
 	}
-	if err := a.sleep(ctx, srv.Endpoint, level); err != nil {
-		return fmt.Errorf("putting %q to sleep: %w", srv.Model, err)
-	}
-	return nil
+	return a.sleepWhenIdle(ctx, srv.Endpoint, srv.Model, level)
 }
 
 // sleep asks the server to sleep at level.
