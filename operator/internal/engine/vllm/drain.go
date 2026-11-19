@@ -84,28 +84,42 @@ func (a *Adapter) inFlight(ctx context.Context, endpoint string) (int, error) {
 	return n, nil
 }
 
-// drain returns when the server at endpoint holds no request. It fails, leaving the
-// server awake, when the count cannot be read or the safety net ends the wait.
-// New calls are not stopped here: the lifecycle server queues switches behind one
-// another, and a call that arrives meanwhile is the caller's to place.
-func (a *Adapter) drain(ctx context.Context, endpoint, model string) error {
+// holds is what keeps the server at endpoint from sleeping: the requests it reports (running
+// plus queued) and the calls placed on its models that have not ended. A placed call may
+// not have reached the server yet, so its request count cannot show it.
+func (a *Adapter) holds(ctx context.Context, endpoint string, models []string) (int, error) {
+	n, err := a.inFlight(ctx, endpoint)
+	if err != nil {
+		return 0, err
+	}
+	placed, err := engine.PlacedCalls(ctx, models)
+	if err != nil {
+		return 0, fmt.Errorf("reading the calls placed on it: %w", err)
+	}
+	return max(n, placed), nil
+}
+
+// drain returns when nothing holds the server at endpoint. It fails, leaving the server
+// awake, when what holds it cannot be read or the safety net ends the wait. It does not
+// stop new calls: the caller publishes the draining state first.
+func (a *Adapter) drain(ctx context.Context, endpoint string, models []string) error {
 	waitCtx, cancel := context.WithTimeout(ctx, a.limit())
 	defer cancel()
 	last := 0
 	for {
-		n, err := a.inFlight(waitCtx, endpoint)
+		n, err := a.holds(waitCtx, endpoint, models)
 		if err == nil && n == 0 {
 			return nil
 		}
 		if err != nil && waitCtx.Err() == nil {
-			return fmt.Errorf("not putting %q to sleep: cannot tell whether it is idle: %w; it stays awake", model, err)
+			return fmt.Errorf("not putting %q to sleep: cannot tell whether it is idle: %w; it stays awake", models[0], err)
 		}
 		if err == nil {
 			last = n
 		}
 		select {
 		case <-waitCtx.Done():
-			return drainEnded(ctx, model, last, a.limit())
+			return drainEnded(ctx, models[0], last, a.limit())
 		case <-time.After(a.pollEvery()):
 		}
 	}
@@ -115,9 +129,9 @@ func (a *Adapter) drain(ctx context.Context, endpoint, model string) error {
 // the safety net ended it.
 func drainEnded(ctx context.Context, model string, last int, limit time.Duration) error {
 	if ctx.Err() != nil {
-		return fmt.Errorf("not putting %q to sleep: the request ended with %d still in flight; it stays awake: %w", model, last, ctx.Err())
+		return fmt.Errorf("not putting %q to sleep: the request ended with %d still in flight or placed; it stays awake: %w", model, last, ctx.Err())
 	}
-	return fmt.Errorf("not putting %q to sleep: %d requests were still in flight after the %s safety limit; it stays awake", model, last, limit)
+	return fmt.Errorf("not putting %q to sleep: %d requests were still in flight or placed after the %s safety limit; it stays awake", model, last, limit)
 }
 
 // namesAt is every name the server at endpoint answers to.
@@ -130,14 +144,23 @@ func namesAt(spec aiv1alpha1.ModelServerSpec, endpoint string) []string {
 	return nil
 }
 
-// sleepWhenIdle publishes the server's models as draining, waits for the server to hold
-// no request, then puts it to sleep. The draining state is published before the count
-// is read, so a call placed after it is not one the wait must outlast, and it is
-// cleared when the switch ends, whether the server slept or stayed awake.
+// sleepWhenIdle publishes the server's models as draining, waits until nothing holds the
+// server, then puts it to sleep. The draining state is published before anything is read.
+// Placement stops sending new calls to a draining model once an agent reads the state,
+// which can lag the publish by the agent's cache of it, so a call placed from the older
+// state may still arrive; such a call holds a placement ticket, which the wait counts.
+// What is guaranteed: the server sleeps only when the engine reports no running or queued
+// request and no call placed on its models (other than one waiting for this switch) is
+// still outstanding at the moment of the read. Not covered: a call placed from a state
+// read before draining was published whose ticket is claimed only after that read, and a
+// call that reaches the server between the read and /sleep; vLLM has no call to refuse it. The draining state
+// is cleared when the switch ends, whether the server slept or stayed awake.
 func (a *Adapter) sleepWhenIdle(ctx context.Context, models []string, endpoint string, level int) error {
-	engine.NotifyDraining(ctx, models, true)
-	defer engine.NotifyDraining(context.WithoutCancel(ctx), models, false)
-	if err := a.drain(ctx, endpoint, models[0]); err != nil {
+	if err := engine.NotifyDraining(ctx, models, true); err != nil {
+		return fmt.Errorf("not putting %q to sleep: could not publish it as draining: %w; it stays awake", models[0], err)
+	}
+	defer func() { _ = engine.NotifyDraining(context.WithoutCancel(ctx), models, false) }()
+	if err := a.drain(ctx, endpoint, models); err != nil {
 		return err
 	}
 	if err := a.sleep(ctx, endpoint, level); err != nil {

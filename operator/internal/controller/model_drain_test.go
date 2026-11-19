@@ -78,11 +78,11 @@ func TestSetDrainingKeepsTheMarkAcrossARefreshThatCannotProbe(t *testing.T) {
 	r := &ModelServerReconciler{}
 	p := vllmServer()
 	p.Spec.Servers = nil // nothing to probe: the refresh fails and the mark must stay
-	r.SetDraining(context.Background(), p, []string{vllmModel14}, true)
+	_ = r.SetDraining(context.Background(), p, []string{vllmModel14}, true)
 	if got := r.drains.For(p.Name); !slices.Equal(got, []string{vllmModel14}) {
 		t.Errorf("drains = %v", got)
 	}
-	r.SetDraining(context.Background(), p, []string{vllmModel14}, false)
+	_ = r.SetDraining(context.Background(), p, []string{vllmModel14}, false)
 	if r.drains.For(p.Name) != nil {
 		t.Error("the mark clears when the switch ends")
 	}

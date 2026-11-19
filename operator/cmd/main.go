@@ -158,6 +158,17 @@ func mustAddModelLifecycleServer(
 		setupLog.Error(err, "unable to register runnable", "runnable", "model lifecycle server")
 		os.Exit(1)
 	}
+	// Publishes every server's state once the bus is ready, so a draining mark a previous
+	// operator left mid-switch is overwritten at start.
+	republisher := &controller.ServerStateRepublisher{
+		Reader:  mgr.GetAPIReader(),
+		Servers: servers,
+		Ready:   func() error { return natsPublisher.BucketsReady(controller.ServerStateBucket) },
+	}
+	if err := mgr.Add(republisher); err != nil {
+		setupLog.Error(err, "unable to register runnable", "runnable", "server state republisher")
+		os.Exit(1)
+	}
 }
 
 // webhookSetup names a CRD and registers its validating webhook.

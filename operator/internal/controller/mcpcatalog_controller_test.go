@@ -240,7 +240,7 @@ var _ = Describe("MCPCatalog Controller", func() {
 
 			servers := make([]aiv1alpha1.DiscoveredServer, 60)
 			for i := range servers {
-				servers[i] = aiv1alpha1.DiscoveredServer{Name: "server"}
+				servers[i] = aiv1alpha1.DiscoveredServer{Name: jsonKeyServer}
 			}
 
 			_, err := reconciler.updateStatus(ctx, catalog, "Pending", "many servers", servers)
