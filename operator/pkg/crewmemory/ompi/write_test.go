@@ -11,6 +11,8 @@ You may obtain a copy of the License at
 package ompi
 
 import (
+	"archive/zip"
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -192,6 +194,37 @@ func TestWrittenFilesRevalidateFromDisk(t *testing.T) {
 		}
 		if err := ValidateMemory(data); err != nil {
 			t.Errorf("%s on disk: %v", m.Identifier, err)
+		}
+	}
+}
+
+func TestArchiveHoldsEveryFileInPathOrderAndIsRepeatable(t *testing.T) {
+	files := map[string][]byte{"memories/b.json": []byte("{}"), ManifestFile: []byte("{\"a\":1}"), "memories/a.json": []byte("[]")}
+	first, err := Archive(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _ := Archive(files)
+	if !bytes.Equal(first, second) {
+		t.Error("the same files gave different archives")
+	}
+	zr, err := zip.NewReader(bytes.NewReader(first), int64(len(first)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(zr.File))
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	if got := strings.Join(names, ","); got != "manifest.json,memories/a.json,memories/b.json" {
+		t.Errorf("entries = %s", got)
+	}
+}
+
+func TestArchiveRefusesAPathThatLeavesTheExport(t *testing.T) {
+	for _, bad := range []string{"../x", "/etc/passwd", `a\b`} {
+		if _, err := Archive(map[string][]byte{bad: nil}); err == nil {
+			t.Errorf("Archive(%q) = nil error, want a refusal", bad)
 		}
 	}
 }

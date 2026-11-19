@@ -149,3 +149,9 @@ func TestBucketsReady(t *testing.T) {
 		t.Errorf("BucketsReady() with NATS unreachable = %v, want bus.ErrNotReady", err)
 	}
 }
+
+func TestOpenCrewMemoryReportsAnUnconfiguredServerInsteadOfAnEmptyStore(t *testing.T) {
+	if _, err := (&Publisher{}).OpenCrewMemory(); err == nil {
+		t.Fatal("OpenCrewMemory() = nil error with no NATS URL, want an error so an export never reads it as no facts")
+	}
+}

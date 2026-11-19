@@ -22,6 +22,14 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
+const (
+	gpuKey   = "ns.c.hardware.gpu0"
+	loginKey = "ns.c.ops.login"
+
+	gpuFact   = `{"value":"RTX 5090","learnedBy":"a"}`
+	loginFact = `{"value":"Authorization: Bearer abcdefgh12345678","learnedBy":"a"}`
+)
+
 type mapReader map[string]string
 
 func (r mapReader) ListKVKeys(string) ([]string, error) {
@@ -43,7 +51,7 @@ func (listFails) ListKVKeys(string) ([]string, error) { return nil, errors.New("
 func TestExportCrewWritesAValidDirectory(t *testing.T) {
 	scope, _ := crewscope.New("ns", "c")
 	dir := filepath.Join(t.TempDir(), "memory")
-	r := mapReader{"ns.c.hardware.gpu0": `{"value":"RTX 5090","learnedBy":"a"}`, "ns.c.hardware.bad": `nope`}
+	r := mapReader{gpuKey: gpuFact, "ns.c.hardware.bad": `nope`}
 	exp, err := ExportCrew(r, scope, dir, true, Options{ExportedAt: time.Now()})
 	if err != nil {
 		t.Fatal(err)
@@ -73,8 +81,8 @@ func TestExportCrewKeepsACredentialOutOfTheFiles(t *testing.T) {
 	scope, _ := crewscope.New("ns", "c")
 	dir := filepath.Join(t.TempDir(), "memory")
 	r := mapReader{
-		"ns.c.hardware.gpu0": `{"value":"RTX 5090","learnedBy":"a"}`,
-		"ns.c.ops.login":     `{"value":"Authorization: Bearer abcdefgh12345678","learnedBy":"a"}`,
+		gpuKey:   gpuFact,
+		loginKey: loginFact,
 	}
 	exp, err := ExportCrew(r, scope, dir, true, Options{ExportedAt: time.Now()})
 	if err != nil {
@@ -98,5 +106,44 @@ func TestExportCrewKeepsACredentialOutOfTheFiles(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestExportFilesReturnsTheFilesAndTheLeftOutEntriesWithoutWriting(t *testing.T) {
+	scope, _ := crewscope.New("ns", "c")
+	r := mapReader{
+		gpuKey:   gpuFact,
+		loginKey: loginFact,
+	}
+	exp, files, err := ExportFiles(r, scope, false, Options{ExportedAt: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exp.Memories) != 1 || len(exp.Skipped) != 1 || len(files) != 2 {
+		t.Fatalf("memories = %d, skipped = %d, files = %d, want 1, 1 and 2", len(exp.Memories), len(exp.Skipped), len(files))
+	}
+	for path, content := range files {
+		if strings.Contains(string(content), "abcdefgh12345678") {
+			t.Errorf("%s holds the credential", path)
+		}
+	}
+}
+
+func TestExportFilesWithAllowUnscreenedKeepsTheCredentialFact(t *testing.T) {
+	scope, _ := crewscope.New("ns", "c")
+	r := mapReader{loginKey: loginFact}
+	exp, _, err := ExportFiles(r, scope, false, Options{ExportedAt: time.Now(), AllowUnscreened: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exp.Memories) != 1 || len(exp.Skipped) != 0 {
+		t.Errorf("memories = %d, skipped = %d, want 1 and 0", len(exp.Memories), len(exp.Skipped))
+	}
+}
+
+func TestExportFilesReturnsTheStoreError(t *testing.T) {
+	scope, _ := crewscope.New("ns", "c")
+	if _, _, err := ExportFiles(listFails{}, scope, false, Options{ExportedAt: time.Now()}); err == nil {
+		t.Fatal("ExportFiles() = nil error, want the store error")
 	}
 }
