@@ -146,15 +146,20 @@ func namesAt(spec aiv1alpha1.ModelServerSpec, endpoint string) []string {
 
 // sleepWhenIdle publishes the server's models as draining, waits until nothing holds the
 // server, then puts it to sleep. The draining state is published before anything is read.
-// Placement stops sending new calls to a draining model once an agent reads the state,
-// which can lag the publish by the agent's cache of it, so a call placed from the older
-// state may still arrive; such a call holds a placement ticket, which the wait counts.
-// What is guaranteed: the server sleeps only when the engine reports no running or queued
-// request and no call placed on its models (other than one waiting for this switch) is
-// still outstanding at the moment of the read. Not covered: a call placed from a state
-// read before draining was published whose ticket is claimed only after that read, and a
-// call that reaches the server between the read and /sleep; vLLM has no call to refuse it. The draining state
-// is cleared when the switch ends, whether the server slept or stayed awake.
+// The order of the two sides is total. A call placed on the model claims a placement ticket
+// and then reads the server's state afresh; if it reads draining it releases the ticket and
+// is placed again (it waits for this switch on the operator's turn, or goes to another
+// awake provider). A ticket claimed before this switch read the tickets is counted and holds
+// the switch; a ticket claimed after sees the draining state, because the state was
+// published before the tickets were read. What is guaranteed: the server sleeps only when,
+// at the moment of the last read, the engine reports no running or queued request and no
+// call placed on its models (other than one waiting for this switch) holds a ticket.
+// What remains: only calls that hold no ticket, which the wait cannot see: a ticket with no
+// model name, and a caller outside the placement path that sends to vLLM directly. A call
+// the placement path placed holds its ticket from the claim until it ends, so it is
+// covered whether or not the engine has received it. vLLM has no call that refuses new
+// requests, so nothing else stops a ticketless call. The draining state is cleared when
+// the switch ends, whether the server slept or stayed awake.
 func (a *Adapter) sleepWhenIdle(ctx context.Context, models []string, endpoint string, level int) error {
 	if err := engine.NotifyDraining(ctx, models, true); err != nil {
 		return fmt.Errorf("not putting %q to sleep: could not publish it as draining: %w; it stays awake", models[0], err)
