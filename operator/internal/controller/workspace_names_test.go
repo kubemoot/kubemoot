@@ -269,7 +269,10 @@ func TestTheConditionAndThePublishedListAgree(t *testing.T) {
 			t.Errorf("%q is not flagged: %q", want, got)
 		}
 	}
-	ms.Spec.Env = []corev1.EnvVar{{Name: d.EnvPrefix + "NOT_A_WORKSPACE_VARIABLE"}}
+	ms.Spec.Env = []corev1.EnvVar{{Name: "WORKSPACE_QUERY_MAX_ARTIFACT_BYTES"}, {Name: d.EnvPrefix + "NOT_A_WORKSPACE_VARIABLE"}}
+	if got := strings.Join(deprecatedWorkspaceNames(ms), ";"); strings.Contains(got, "WORKSPACE_QUERY_MAX_ARTIFACT_BYTES") {
+		t.Errorf("a current variable is flagged: %q", got)
+	}
 	if strings.Contains(strings.Join(deprecatedWorkspaceNames(ms), ";"), "NOT_A_WORKSPACE_VARIABLE") {
 		t.Errorf("a name outside the export is flagged")
 	}
