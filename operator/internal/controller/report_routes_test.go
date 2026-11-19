@@ -13,8 +13,11 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strings"
 	"testing"
 
+	"github.com/go-logr/logr/funcr"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -104,5 +107,48 @@ func TestHealthzNeedsNoToken(t *testing.T) {
 	s, _ := routesWithReviews(false, false)
 	if rec := serve(s, "/healthz"); rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+// wildcard matches a {name} segment of a route pattern.
+var wildcard = regexp.MustCompile(`\{[^}]+\}`)
+
+func TestNoRouteIsServedWithoutPassingTheAccessGate(t *testing.T) {
+	s, _ := routesWithReviews(false, true)
+	table := s.routeTable()
+	if len(table) == 0 {
+		t.Fatal("the route table is empty")
+	}
+	for _, rt := range table {
+		method, path, _ := strings.Cut(rt.pattern, " ")
+		if rt.pattern == healthzPattern {
+			t.Errorf("%s is in the gated table", rt.pattern)
+		}
+		path = wildcard.ReplaceAllString(path, "x")
+		req := httptest.NewRequest(method, path, nil)
+		rec := httptest.NewRecorder()
+		s.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s without a token: status = %d, want 401", rt.pattern, rec.Code)
+		}
+	}
+}
+
+func TestSuiteReportFailureCarriesNoCauseToTheClient(t *testing.T) {
+	var logged strings.Builder
+	saved := reportLog
+	reportLog = funcr.New(func(prefix, args string) { logged.WriteString(prefix + args + "\n") }, funcr.Options{})
+	defer func() { reportLog = saved }()
+
+	s, _ := routesWithReviews(true, true) // no such suite: the report cannot be built
+	rec := serve(s, "/report/tenant/missing", headerAuthorization, "Bearer "+sampleToken)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "missing") || strings.Contains(body, "not found") {
+		t.Errorf("the body carries the cause: %q", body)
+	}
+	if !strings.Contains(logged.String(), "not found") {
+		t.Errorf("the cause was not logged: %q", logged.String())
 	}
 }
