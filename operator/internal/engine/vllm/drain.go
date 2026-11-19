@@ -21,6 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/engine"
 )
 
 const (
@@ -117,13 +120,28 @@ func drainEnded(ctx context.Context, model string, last int, limit time.Duration
 	return fmt.Errorf("not putting %q to sleep: %d requests were still in flight after the %s safety limit; it stays awake", model, last, limit)
 }
 
-// sleepWhenIdle waits for the server to hold no request, then puts it to sleep.
-func (a *Adapter) sleepWhenIdle(ctx context.Context, endpoint, model string, level int) error {
-	if err := a.drain(ctx, endpoint, model); err != nil {
+// namesAt is every name the server at endpoint answers to.
+func namesAt(spec aiv1alpha1.ModelServerSpec, endpoint string) []string {
+	for _, g := range byEndpoint(serversOf(spec)) {
+		if g.endpoint == endpoint {
+			return g.models
+		}
+	}
+	return nil
+}
+
+// sleepWhenIdle publishes the server's models as draining, waits for the server to hold
+// no request, then puts it to sleep. The draining state is published before the count
+// is read, so a call placed after it is not one the wait must outlast, and it is
+// cleared when the switch ends, whether the server slept or stayed awake.
+func (a *Adapter) sleepWhenIdle(ctx context.Context, models []string, endpoint string, level int) error {
+	engine.NotifyDraining(ctx, models, true)
+	defer engine.NotifyDraining(context.WithoutCancel(ctx), models, false)
+	if err := a.drain(ctx, endpoint, models[0]); err != nil {
 		return err
 	}
 	if err := a.sleep(ctx, endpoint, level); err != nil {
-		return fmt.Errorf("putting %q to sleep: %w", model, err)
+		return fmt.Errorf("putting %q to sleep: %w", models[0], err)
 	}
 	return nil
 }

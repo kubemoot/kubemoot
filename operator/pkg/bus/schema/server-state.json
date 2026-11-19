@@ -38,8 +38,8 @@
     },
     "modelStates": {
       "type": "object",
-      "additionalProperties": { "type": "string", "enum": ["awake", "asleep", "available"] },
-      "description": "Where each model stands on the server, by model: awake (loaded and answering now), asleep (parked by the engine and quick to wake, for engines that sleep models), or available (the server has it but it is not loaded). Ollama fills it from its loaded and downloaded models; engines that sleep models fill asleep from the server. Absent means the server did not report states; readers then use loadedModels. Describes a server that may be a pool of servers, not one process."
+      "additionalProperties": { "type": "string", "enum": ["awake", "asleep", "available", "draining"] },
+      "description": "Where each model stands on the server, by model: awake (loaded and answering now), asleep (parked by the engine and quick to wake, for engines that sleep models), available (the server has it but it is not loaded), or draining (an engine that sleeps models is about to put it to sleep: it finishes the calls it holds and takes no new one, so placement treats it as not awake; a reader that does not know the state treats it as not available). Ollama fills it from its loaded and downloaded models; engines that sleep models fill asleep from the server. A draining model is left out of loadedModels. Absent means the server did not report states; readers then use loadedModels. Describes a server that may be a pool of servers, not one process."
     },
     "requestsRunning": { "type": "integer", "goJSONSchema": { "pointer": true }, "description": "Requests the engine is running now, across the whole server. Filled by engines that export it (the Model Server Protocol metrics); Ollama exports none, so it is absent and the tickets carry the live count." },
     "requestsWaiting": { "type": "integer", "goJSONSchema": { "pointer": true }, "description": "Requests the engine holds in its own queue, across the whole server. Filled by engines that export it; absent for Ollama." },

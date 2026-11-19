@@ -126,7 +126,7 @@ func (a *Adapter) Ready(ctx context.Context, spec aiv1alpha1.ModelServerSpec, mo
 		if other.endpoint == target.Endpoint {
 			continue // the target's own server, whatever alias it is asked for by
 		}
-		if err := a.sleepIfAwake(ctx, aiv1alpha1.VLLMServer{Model: other.models[0], Endpoint: other.endpoint}, level); err != nil {
+		if err := a.sleepIfAwake(ctx, other, level); err != nil {
 			return err
 		}
 	}
@@ -157,27 +157,27 @@ func (a *Adapter) Release(ctx context.Context, spec aiv1alpha1.ModelServerSpec, 
 	if sleeping {
 		return nil
 	}
-	return a.sleepWhenIdle(ctx, target.Endpoint, model, spec.SleepLevelOrDefault())
+	return a.sleepWhenIdle(ctx, namesAt(spec, target.Endpoint), target.Endpoint, spec.SleepLevelOrDefault())
 }
 
 // sleepIfAwake puts srv to sleep when it is awake. A server that is down (its
 // /health does not answer either) holds no accelerator memory and is skipped. A
 // server that answers but has no sleep endpoints cannot give up the accelerator,
 // and one whose sleep state cannot be read might still hold it; both are errors.
-func (a *Adapter) sleepIfAwake(ctx context.Context, srv aiv1alpha1.VLLMServer, level int) error {
-	sleeping, err := a.isSleeping(ctx, srv.Endpoint)
+func (a *Adapter) sleepIfAwake(ctx context.Context, srv endpointModels, level int) error {
+	sleeping, err := a.isSleeping(ctx, srv.endpoint)
 	switch {
 	case isNotFound(err):
-		return fmt.Errorf("the vLLM server for %q is awake but has no sleep mode: start it with --enable-sleep-mode and VLLM_SERVER_DEV_MODE=1", srv.Model)
+		return fmt.Errorf("the vLLM server for %q is awake but has no sleep mode: start it with --enable-sleep-mode and VLLM_SERVER_DEV_MODE=1", srv.models[0])
 	case err != nil:
-		if _, healthErr := a.get(ctx, srv.Endpoint, pathHealth); healthErr != nil {
+		if _, healthErr := a.get(ctx, srv.endpoint, pathHealth); healthErr != nil {
 			return nil
 		}
-		return fmt.Errorf("reading the sleep state of %q: %w", srv.Model, err)
+		return fmt.Errorf("reading the sleep state of %q: %w", srv.models[0], err)
 	case sleeping:
 		return nil
 	}
-	return a.sleepWhenIdle(ctx, srv.Endpoint, srv.Model, level)
+	return a.sleepWhenIdle(ctx, srv.models, srv.endpoint, level)
 }
 
 // sleep asks the server to sleep at level.

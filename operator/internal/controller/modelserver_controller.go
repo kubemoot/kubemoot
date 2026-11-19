@@ -173,6 +173,10 @@ type ModelServerReconciler struct {
 	// switches holds how long each model last took to become ready, by server,
 	// as the model lifecycle server observed it; the state publish carries it.
 	switches switchLog
+
+	// drains holds the models each server is draining before a switch puts them to
+	// sleep; the state publish marks them so placement sends them no new call.
+	drains drainLog
 }
 
 // OllamaVersionResponse represents the response from Ollama /api/version
@@ -710,6 +714,7 @@ func (r *ModelServerReconciler) publishStateToKV(ctx context.Context, server *ai
 	}
 	applyContextWindows(&state, server, reported)
 	state.SwitchCostMs = mergeSwitchCosts(state.SwitchCostMs, r.switches.For(server.Name))
+	applyDraining(&state, r.drains.For(server.Name))
 
 	payload, err := json.Marshal(state)
 	if err != nil {
@@ -727,6 +732,7 @@ func (r *ModelServerReconciler) publishStateToKV(ctx context.Context, server *ai
 func (r *ModelServerReconciler) removeServerState(ctx context.Context, name string) {
 	forgetServerMetrics(name)
 	r.switches.Forget(name)
+	r.drains.Forget(name)
 	r.probes.Delete(name)
 	if r.NATSPublisher == nil {
 		return

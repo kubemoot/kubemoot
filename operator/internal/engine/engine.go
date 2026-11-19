@@ -41,6 +41,10 @@ const (
 	StateAsleep ModelState = "asleep"
 	// StateAvailable is a model the server has but has not loaded.
 	StateAvailable ModelState = "available"
+	// StateDraining is an awake model about to be put to sleep: it finishes the calls
+	// it holds and takes no new one. An adapter does not probe it; the operator
+	// publishes it while a switch waits (see DrainNotifier).
+	StateDraining ModelState = "draining"
 )
 
 // Snapshot is what one probe of a server found. A field the engine does not

@@ -60,7 +60,7 @@ func TestProbeEngineKeepsTheSnapshotForThePublish(t *testing.T) {
 	}
 	state := buildServerState(server)
 	applySnapshotToState(&state, stored.(engine.Snapshot))
-	if state.ModelStates["m:14b"] != "awake" || state.ModelStates["o:8b"] != "available" {
+	if state.ModelStates["m:14b"] != string(engine.StateAwake) || state.ModelStates["o:8b"] != "available" {
 		t.Errorf("ModelStates = %v", state.ModelStates)
 	}
 	if state.RequestsRunning != nil || state.RequestsWaiting != nil || state.KVCacheUsage != nil {

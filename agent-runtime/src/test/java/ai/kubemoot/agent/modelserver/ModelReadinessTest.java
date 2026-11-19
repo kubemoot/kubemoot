@@ -57,6 +57,17 @@ class ModelReadinessTest {
     }
 
     @Test
+    void aDrainingModelIsNotSentTheCall_itWaitsForTheSwitchThroughTheOperator() {
+        Operator operator = new Operator();
+        selector.useLifecycle(operator);
+        ServerState draining = new ServerState("vllm-rig1", "", 1, 0, 0, List.of(MODEL), true, "", 0L,
+                Map.of(), Map.of(), 0L, Map.of(), Map.of(), "vllm", Map.of(MODEL, "http://v:8000"), 0, 0, 0.0,
+                Map.of(), Map.of(MODEL, "draining"));
+        ModelReadiness.ensure(selector, placement, pick(draining), MODEL);
+        assertEquals(List.of("ready vllm-rig1"), operator.asked);
+    }
+
+    @Test
     void anAwakeModelAsksNothing() {
         Operator operator = new Operator();
         selector.useLifecycle(operator);

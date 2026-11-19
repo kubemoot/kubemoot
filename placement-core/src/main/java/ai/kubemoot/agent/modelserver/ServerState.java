@@ -90,8 +90,31 @@ public record ServerState(
         Integer requestsRunning,
         Integer requestsWaiting,
         Double kvCacheUsage,
-        Map<String, Long> switchCostMs
+        Map<String, Long> switchCostMs,
+        Map<String, String> modelStates
 ) {
+    /** The state a model is in while the operator is about to put it to sleep. */
+    public static final String DRAINING = "draining";
+
+    /**
+     * A state that publishes no per-model states: a server whose operator pre-dates
+     * {@link #modelStates}, or an engine that reports none.
+     */
+    public ServerState(String name, String endpoint, int maxParallel,
+                         int activeCount, int queueDepth, List<String> loadedModels,
+                         boolean ready, String lastProbedAt, long totalVramMiB,
+                         Map<String, Long> loadedModelFootprintsMiB,
+                         Map<String, Long> availableModelFootprintsMiB,
+                         long contextLength, Map<String, Long> loadedModelContextLengths,
+                         Map<String, ModelSpeed> modelSpeeds, String engine,
+                         Map<String, String> modelEndpoints, Integer requestsRunning,
+                         Integer requestsWaiting, Double kvCacheUsage, Map<String, Long> switchCostMs) {
+        this(name, endpoint, maxParallel, activeCount, queueDepth, loadedModels,
+                ready, lastProbedAt, totalVramMiB, loadedModelFootprintsMiB,
+                availableModelFootprintsMiB, contextLength, loadedModelContextLengths, modelSpeeds, engine,
+                modelEndpoints, requestsRunning, requestsWaiting, kvCacheUsage, switchCostMs, Map.of());
+    }
+
     /** A state with no observed switch times: every model's wake cost is unknown. */
     public ServerState(String name, String endpoint, int maxParallel,
                          int activeCount, int queueDepth, List<String> loadedModels,
@@ -287,7 +310,17 @@ public record ServerState(
      */
     public boolean hasModelLoaded(String modelName) {
         if (modelName == null || loadedModels == null) return false;
-        return loadedModels.contains(modelName);
+        return loadedModels.contains(modelName) && !isDraining(modelName);
+    }
+
+    /**
+     * True while the operator is waiting for the model's running calls to finish before it
+     * puts the model to sleep. A draining model takes no new call: placement reads it as not
+     * awake, so a call goes to another awake provider of an acceptable model, or waits for
+     * the switch and then wakes it. A state the reader does not know is not draining.
+     */
+    public boolean isDraining(String modelName) {
+        return modelName != null && modelStates != null && DRAINING.equals(modelStates.get(modelName));
     }
 
     /**

@@ -1445,7 +1445,8 @@ public class ServerSelector {
                 optionalInt(n, "requestsRunning"),
                 optionalInt(n, "requestsWaiting"),
                 optionalDouble(n, "kvCacheUsage"),
-                longMapField(n, "switchCostMs")
+                longMapField(n, "switchCostMs"),
+                stringMapField(n, "modelStates")
         );
     }
 
