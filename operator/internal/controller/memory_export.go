@@ -20,6 +20,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/ompi"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/secretscreen"
 )
 
 // memoryOpener opens a read-only reader of the crew memory store.
@@ -76,14 +77,12 @@ func (s *ReportServer) serveMemoryExport(w http.ResponseWriter, r *http.Request)
 	}
 	reader, err := s.Memory.OpenCrewMemory()
 	if err != nil {
-		reportLog.Error(err, "crew memory unreachable", "namespace", scope.Namespace, "crew", scope.Crew)
-		http.Error(w, "crew memory is not reachable: "+err.Error(), http.StatusBadGateway)
+		failMemoryExport(w, scope, err, "crew memory is not reachable", http.StatusBadGateway)
 		return
 	}
 	exp, files, err := ompi.ExportFiles(reader, scope, false, ompi.Options{ExportedAt: time.Now()})
 	if err != nil {
-		reportLog.Error(err, "memory export failed", "namespace", scope.Namespace, "crew", scope.Crew)
-		http.Error(w, "memory export failed: "+err.Error(), http.StatusInternalServerError)
+		failMemoryExport(w, scope, err, "crew memory export failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -92,14 +91,32 @@ func (s *ReportServer) serveMemoryExport(w http.ResponseWriter, r *http.Request)
 		_ = json.NewEncoder(w).Encode(memoryExportReport(scope, exp))
 		return
 	}
+	writeMemoryExportZip(w, scope, files)
+}
+
+// writeMemoryExportZip answers with the export files as a zip download.
+func writeMemoryExportZip(w http.ResponseWriter, scope crewscope.Scope, files map[string][]byte) {
 	archive, err := ompi.Archive(files)
 	if err != nil {
-		http.Error(w, "memory export failed: "+err.Error(), http.StatusInternalServerError)
+		failMemoryExport(w, scope, err, "crew memory export failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s-memory-ompi.zip", scope.Crew))
 	_, _ = w.Write(archive)
+}
+
+// memoryExportLog is the log of memory export failures.
+var memoryExportLog = reportLog
+
+// failMemoryExport answers with a fixed message and logs the cause redacted. An error
+// from the store can carry a store key, and a key that holds a credential is exactly
+// what the export hides behind an opaque id, so the cause reaches neither the client
+// nor the log as it is.
+func failMemoryExport(w http.ResponseWriter, scope crewscope.Scope, cause error, message string, status int) {
+	memoryExportLog.Error(errors.New(secretscreen.Redact(cause.Error())), message,
+		"namespace", scope.Namespace, "crew", scope.Crew)
+	http.Error(w, message, status)
 }
 
 // authorizeMemoryExport answers the request itself and returns false when the export
