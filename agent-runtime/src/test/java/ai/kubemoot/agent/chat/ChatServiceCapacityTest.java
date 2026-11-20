@@ -109,7 +109,7 @@ class ChatServiceCapacityTest {
     }
 
     private void poolServes(String model, ChatModel chat) {
-        when(pool.forEndpoint(any(), eq(EP), eq(model), anyDouble(), anyInt(), any(), any())).thenReturn(chat);
+        when(pool.forEndpoint(any(), eq(EP), eq(model), any(), anyInt(), any(), any())).thenReturn(chat);
     }
 
     private ChatService service(GpuCapacityWaiter waiter, String candidatesJson) {
@@ -152,7 +152,7 @@ class ChatServiceCapacityTest {
                 .thenReturn(Optional.of(pickOn(vllm)));
         var vllmChat = answering("from vllm");
         when(pool.forEndpoint(eq(ai.kubemoot.agent.modelserver.ChatEngines.OPENAI_COMPATIBLE), eq(EP), eq(WARM_CANDIDATE),
-                anyDouble(), anyInt(), any(), any())).thenReturn(vllmChat);
+                any(), anyInt(), any(), any())).thenReturn(vllmChat);
 
         var result = service(null, candidates(70, 60)).directChat(request(), true, CapacityWait.NONE);
 
@@ -177,7 +177,7 @@ class ChatServiceCapacityTest {
                 "the call carries the placement that put it on the server");
         assertEquals("ollama-a", result.serverName());
         verify(pool).forEndpoint(eq(ai.kubemoot.agent.modelserver.ChatEngines.OLLAMA), eq(EP), eq(WARM_CANDIDATE),
-                anyDouble(), anyInt(), any(), any());
+                any(), anyInt(), any(), any());
         verify(selector, never()).pickAndClaim(anyString(), anyLong(), anyLong(), anyLong());
         verify(tickets).recordResidency("ollama-a", WARM_CANDIDATE, 10_000L);
         verifyNoInteractions(staticModel);
@@ -266,7 +266,7 @@ class ChatServiceCapacityTest {
         assertEquals("quality answer", result.response());
         assertEquals(PREFERRED, result.model());
         verify(selector, never()).pickAndClaimWarm(eq(WARM_CANDIDATE), anyLong(), anyLong(), anyLong());
-        verify(pool).forEndpoint(any(), eq(EP), eq(PREFERRED), anyDouble(), anyInt(), any(), any());
+        verify(pool).forEndpoint(any(), eq(EP), eq(PREFERRED), any(), anyInt(), any(), any());
     }
 
     @Test
@@ -507,7 +507,7 @@ class ChatServiceCapacityTest {
 
         assertEquals(NoFitException.REASON_PROMPT_TOO_LARGE, nfe.reason());
         verify(tickets, times(1)).release(any());
-        verify(pool, never()).forEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any());
+        verify(pool, never()).forEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any());
     }
 
     @Test
@@ -525,7 +525,7 @@ class ChatServiceCapacityTest {
     void coordinatorCall_everyGpuBusy_stillFallsBackToTheStaticEndpoint() {
         when(selector.readState()).thenReturn(List.of(serverWithContext(32_768, 32_768)));
         var synthesis = streamingAnswering("synthesis");
-        when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+        when(pool.streamingForEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any()))
                 .thenReturn(synthesis);
 
         var result = service(null, null).simpleLlmCallWithTokens("system", "short");
@@ -535,7 +535,7 @@ class ChatServiceCapacityTest {
         // No server was chosen, so the call goes to the static endpoint, which is Ollama.
         // The agent's own settings apply: its thinking switch is unset here, so null.
         verify(pool).streamingForEndpoint(eq(ai.kubemoot.agent.modelserver.ChatEngines.OLLAMA), anyString(),
-                eq(PREFERRED), anyDouble(), anyInt(), any(), isNull());
+                eq(PREFERRED), any(), anyInt(), any(), isNull());
     }
 
     /** A failed triage call surfaces as before, an UncheckedIOException naming the cause. */
@@ -560,7 +560,7 @@ class ChatServiceCapacityTest {
             when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
                     .thenReturn(Optional.of(pickOn(rig)));
             var realPool = new ai.kubemoot.agent.modelserver.ChatModelPool();
-            when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+            when(pool.streamingForEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any()))
                     .thenAnswer(inv -> realPool.streamingForEndpoint(inv.getArgument(0), inv.getArgument(1),
                             inv.getArgument(2), inv.getArgument(3), inv.getArgument(4), inv.getArgument(5),
                             inv.getArgument(6)));
@@ -653,7 +653,7 @@ class ChatServiceCapacityTest {
             when(selector.pickAndClaim(eq(PREFERRED), anyLong(), anyLong(), anyLong()))
                     .thenReturn(Optional.of(pickOn(rig)));
             var realPool = new ai.kubemoot.agent.modelserver.ChatModelPool();
-            when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+            when(pool.streamingForEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any()))
                     .thenAnswer(inv -> realPool.streamingForEndpoint(inv.getArgument(0), inv.getArgument(1),
                             inv.getArgument(2), inv.getArgument(3), inv.getArgument(4), inv.getArgument(5),
                             inv.getArgument(6)));

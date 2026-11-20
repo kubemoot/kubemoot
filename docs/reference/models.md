@@ -736,11 +736,10 @@ The agent-runtime is Quarkus + LangChain4j. The `quarkus.langchain4j.ollama.chat
 ```properties
 quarkus.langchain4j.ollama.chat-model.model-id=qwen3:32b
 quarkus.langchain4j.ollama.base-url=http://ollama.ollama-a:11434
-quarkus.langchain4j.ollama.chat-model.temperature=0.3
 quarkus.langchain4j.ollama.chat-model.num-predict=2048
 ```
 
-`temperature` and `num-predict` come from `Agent.spec.temperature` and `Agent.spec.maxTokens`.
+`num-predict` comes from `Agent.spec.maxTokens`. Temperature is not written here: it travels as `KUBEMOOT_MODEL_TEMPERATURE` and only when `Agent.spec.temperature` is set.
 
 ## Load on Demand - We Do Not Preload
 
@@ -908,7 +907,7 @@ Either relax the `require` selectors or add a Model that matches them.
 
 ### Temperature and other inference settings
 
-`temperature` and `maxTokens` live on the Agent CR. They're written to `application.properties` by the operator and cannot be overridden via environment variables (Quarkus `BUILD_AND_RUN_TIME_FIXED` constraint). Update the Agent CR and wait for the operator to regenerate the ConfigMap.
+`temperature` and `maxTokens` live on the Agent CR. `temperature` is optional and unset by default: the request then carries no temperature, and the model server applies the model's own published sampling (vLLM from the model's `generation_config.json`, Ollama from the Modelfile). A value on the Agent is sent on every call and overrides the model for that agent. See [Choosing a model](../../concepts/choosing-a-model/#sampling-comes-from-the-model).
 
 ## Migrating from ModelProvider
 

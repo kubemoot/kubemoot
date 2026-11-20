@@ -68,9 +68,9 @@ class ChatServicePickedWindowTest {
             handler.onCompleteResponse(response);
             return null;
         }).when(streaming).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
-        when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+        when(pool.streamingForEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any()))
                 .thenReturn(streaming);
-        when(pool.forEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+        when(pool.forEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any()))
                 .thenReturn(mock(ChatModel.class));
     }
 
@@ -172,7 +172,7 @@ class ChatServicePickedWindowTest {
             handler.onCompleteResponse(ChatResponse.builder().aiMessage(new AiMessage("done")).build());
             return null;
         }).when(streaming).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
-        when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+        when(pool.streamingForEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any()))
                 .thenReturn(streaming);
 
         service().simpleLlmCallFor("pick system", "pick user", w -> new SimplePrompt("built system", "built user"));

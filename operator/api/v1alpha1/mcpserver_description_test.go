@@ -30,7 +30,7 @@ const (
 // The description is optional, and the chart's copy of the CRD carries it as the
 // generated one does.
 func TestMCPServerDescriptionIsAnOptionalBoundedString(t *testing.T) {
-	for _, dir := range [][]string{{"..", "..", "config", crdDir, "bases"}, {"..", "..", "chart", "kubemoot-operator", crdsDir}} {
+	for _, dir := range publishedCRDDirs() {
 		crd := loadCRD(t, append(dir, "kubemoot.ai_mcpservers.yaml")...)
 		spec := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
 		description, ok := spec.Properties[descriptionKey]

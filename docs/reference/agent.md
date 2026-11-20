@@ -106,7 +106,7 @@ To get reference text on demand instead, leave the source out of `ragSources` an
 | `priority` | int32 | Higher = retrieved first. Default: 0 |
 
 ### `spec.temperature`
-String representation of a float (0.0-2.0). Default: `"0.3"` - required for reliable tool selection. The operator writes this to the agent's `application.properties` (Quarkus `BUILD_AND_RUN_TIME_FIXED` constraint; not overridable via env).
+String representation of a float from 0 to 2 (`"0.7"`). Optional, with no default. Unset, the request carries no temperature and the model server applies the model's own published setting: vLLM reads the model's Hugging Face `generation_config.json`, Ollama reads the Modelfile. Set a value only when the agent has a reason to override the model; it is then sent on every call the agent makes. The CRD refuses a value outside 0 to 2. The operator passes it to the runtime as `KUBEMOOT_MODEL_TEMPERATURE`. The agent's triage call sends no temperature either. See [Choosing a model](../../concepts/choosing-a-model/#sampling-comes-from-the-model).
 
 ### `spec.maxTokens`
 Max generation length. Default: 4096. Coordinator typically uses 8192 to fit synthesis output.
@@ -559,7 +559,7 @@ Agents connect to MCP tools via the MCPGateway. The number of registered tools s
 
 ### Guidance
 
-- **Temperature 0.3** (set via `Agent.spec.temperature`) is recommended for reliable tool selection
+- Leave `Agent.spec.temperature` unset unless you have measured a reason to set it; the model's own published sampling is the starting point
 - Keep total tool count under 15 per agent for reliable behavior
 - Specialists should only register tools relevant to their domain (e.g., k8s-helm agent only needs Helm tools + basic read tools)
 

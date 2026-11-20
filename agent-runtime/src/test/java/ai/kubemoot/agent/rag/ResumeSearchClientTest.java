@@ -70,7 +70,7 @@ class ResumeSearchClientTest {
                 @Override public String server() { return "ollama"; }
                 @Override public String model() { return "qwen2.5:32b"; }
                 @Override public String endpoint() { return "http://localhost:11434"; }
-                @Override public double temperature() { return 0.3; }
+                @Override public Optional<Double> temperature() { return Optional.of(0.3); }
                 @Override public int maxTokens() { return 4096; }
                 @Override public int maxToolIterations() { return 10; }
                 @Override public Optional<Boolean> think() { return Optional.empty(); }
@@ -141,7 +141,7 @@ class ResumeSearchClientTest {
             @Override public TriageModel triageModel() { return new TriageModel() {
                 @Override public Optional<String> modelId() { return Optional.empty(); }
                 @Override public Optional<String> endpoint() { return Optional.empty(); }
-                @Override public double temperature() { return 0.3; }
+                @Override public Optional<Double> temperature() { return Optional.of(0.3); }
                 @Override public int maxTokens() { return 2048; }
                 @Override public int timeoutSeconds() { return 120; }
             }; }
