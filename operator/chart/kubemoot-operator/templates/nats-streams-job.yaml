@@ -48,7 +48,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: nats-bootstrap
-          image: natsio/nats-box:0.20.2
+          image: natsio/nats-box:0.20.2@sha256:5162fca0f56ebe6f78e612e1ded143ce978e088393476033020e6251358dba6f
           command: ["/bin/sh", "-c"]
           args:
             - |
