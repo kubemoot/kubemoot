@@ -107,7 +107,7 @@ func agentContainer(cpuReq, cpuLim, memReq, memLim string) corev1.Container {
 func realmSuite(name string) *kubemootv1alpha1.CrewFitnessSuite {
 	return &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: realmNS},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: realmCrew, Iterations: 2, Scripts: scripts("a")},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: realmCrew, Iterations: 2, Scripts: scripts("a")},
 	}
 }
 

@@ -25,9 +25,10 @@ func TestBuildFitnessSuiteXLSXWithMeasures(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: testSuite, Namespace: "ns"},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			CrewRef:    testCrewA,
-			Iterations: 2,
-			Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: testScenarioX}},
+			SkipToolSmoke: true,
+			CrewRef:       testCrewA,
+			Iterations:    2,
+			Scripts:       []kubemootv1alpha1.SuiteScript{{TestRef: testScenarioX}},
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "run1"},
 	}

@@ -63,7 +63,7 @@ func TestIterationFromTranscriptReadsInventedNames(t *testing.T) {
 func TestRunsSheetListsInventedNames(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: testCrewTest},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName, Iterations: 1},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: testCrewName, Iterations: 1},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "inv00001", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	results := []IterationResult{
@@ -101,7 +101,7 @@ func TestScenarioResultsCountsInventedNames(t *testing.T) {
 func TestAddInventedCountsFromTranscripts(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{Scripts: []kubemootv1alpha1.SuiteScript{
+		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, Scripts: []kubemootv1alpha1.SuiteScript{
 			{TestRef: invGotcha}, {TestRef: "quiet"},
 		}},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "r1"},
@@ -151,7 +151,7 @@ func (s failingGetStore) GetObject(b, key string) ([]byte, error) {
 func TestAddInventedCountsKeepsTheCountWhenATranscriptIsUnreadable(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: invGotcha}}},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: invGotcha}}},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "r1"},
 	}
 	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, nil)
@@ -178,7 +178,7 @@ func TestPersistArtifactWritesInventedCountsToStatus(t *testing.T) {
 	scheme := reapScheme(t)
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: invCrew, Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: invGotcha}, {TestRef: "quiet"}}},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: invCrew, Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: invGotcha}, {TestRef: "quiet"}}},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "r1", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	suite.Status.Scenarios = scenarioResults(suite.Spec.Scripts, nil)

@@ -45,7 +45,8 @@ func newWorkerPass(t *testing.T, store fakeStore, crews ...client.Object) *judge
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: testSuite, Namespace: "ns"},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: testScenarioX}},
+			SkipToolSmoke: true,
+			Scripts:       []kubemootv1alpha1.SuiteScript{{TestRef: testScenarioX}},
 		},
 	}
 	return &judgePass{

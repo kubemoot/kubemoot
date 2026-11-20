@@ -79,7 +79,7 @@ func TestStampCrewVersion(t *testing.T) {
 	mkSuite := func(labels map[string]string) *kubemootv1alpha1.CrewFitnessSuite {
 		return &kubemootv1alpha1.CrewFitnessSuite{
 			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: testCrewNamespace, Labels: labels},
-			Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName},
+			Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: testCrewName},
 		}
 	}
 

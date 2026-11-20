@@ -43,7 +43,7 @@ func TestGenerateSuiteReport(t *testing.T) {
 	scheme := agentReconcileScheme(t)
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: testSuite, Namespace: "ns"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: testScenarioX}}},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: testScenarioX}}},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "run"},
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(suite).Build()

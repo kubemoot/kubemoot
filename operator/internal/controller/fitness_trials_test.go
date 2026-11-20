@@ -30,7 +30,8 @@ func trialSuite(iterations int32) *kubemootv1alpha1.CrewFitnessSuite {
 	return &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: testBaseline, Namespace: testCrewTest},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			CrewRef: testCrewName, Iterations: iterations, Scripts: scripts("a"),
+			SkipToolSmoke: true,
+			CrewRef:       testCrewName, Iterations: iterations, Scripts: scripts("a"),
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testDeadbeef},
 	}

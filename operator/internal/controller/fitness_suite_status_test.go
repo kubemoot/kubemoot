@@ -189,7 +189,7 @@ func TestRoundScoreClamps(t *testing.T) {
 func suiteIn(phase kubemootv1alpha1.CrewFitnessSuitePhase, refs ...string) *kubemootv1alpha1.CrewFitnessSuite {
 	return &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: wpSuite, Namespace: "ns"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{Scripts: scripts(refs...)},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, Scripts: scripts(refs...)},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{Phase: phase, RunID: "run"},
 	}
 }

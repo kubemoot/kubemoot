@@ -88,9 +88,10 @@ var _ = Describe("CrewFitnessSuite pause, resume and cancel", func() {
 		suite := &kubemootv1alpha1.CrewFitnessSuite{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-				CrewRef:    "controls-crew",
-				Iterations: iterations,
-				Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: "probe", TestContent: probeScript}},
+				SkipToolSmoke: true,
+				CrewRef:       "controls-crew",
+				Iterations:    iterations,
+				Scripts:       []kubemootv1alpha1.SuiteScript{{TestRef: "probe", TestContent: probeScript}},
 			},
 		}
 		Expect(k8sClient.Create(ctx, suite)).To(Succeed())
@@ -232,10 +233,11 @@ var _ = Describe("CrewFitnessSuite pause, resume and cancel", func() {
 		suite := &kubemootv1alpha1.CrewFitnessSuite{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-				CrewRef:    "controls-crew",
-				Iterations: 2,
-				Cancel:     true,
-				Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: "probe", TestContent: probeScript}},
+				SkipToolSmoke: true,
+				CrewRef:       "controls-crew",
+				Iterations:    2,
+				Cancel:        true,
+				Scripts:       []kubemootv1alpha1.SuiteScript{{TestRef: "probe", TestContent: probeScript}},
 			},
 		}
 		Expect(k8sClient.Create(ctx, suite)).To(Succeed())
@@ -292,7 +294,8 @@ func TestPauseWaitsForChildMissingFromCache(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: cacheTestSuite, Namespace: cacheTestNamespace},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			CrewRef: "c", Iterations: 3, Suspend: true,
+			SkipToolSmoke: true,
+			CrewRef:       "c", Iterations: 3, Suspend: true,
 			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: probeScript}},
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{
@@ -493,7 +496,7 @@ func cancelledOverviewValue(t *testing.T, phase kubemootv1alpha1.CrewFitnessSuit
 	t.Helper()
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "crew-partial"},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: "c", Iterations: 3},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: "c", Iterations: 3},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{
 			RunID: "r1", Phase: phase, IterationsCompleted: 1, IterationsTotal: 3,
 		},
