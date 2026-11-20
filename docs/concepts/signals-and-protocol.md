@@ -112,7 +112,7 @@ per-thread state machine with the following phases:
 `SUBMITTED` → `ADVISORY` → `EVALUATING` → `REVIEW` → `SYNTHESIZING` → `CLOSED`
 
 A `PAUSED` state can interrupt any phase except `SYNTHESIZING` and `CLOSED`; the
-machine resumes to the same phase when unpaused. A dashboard Stop forces an
+machine resumes to the same phase when unpaused. A person's stop request forces an
 immediate transition to `SYNTHESIZING` on whatever signals exist. A human reply on a
 closed thread reopens it to `EVALUATING`.
 
@@ -479,7 +479,7 @@ the threads it holds a lease for and drops the rest, so no replica makes a blank
 message it was not meant to handle.
 
 - A request is pulled by one replica, which takes the thread's lease and owns the new thread.
-- A `thread_start` that another publisher put on the bus (the dashboard's New Discussion) is
+- A `thread_start` that another publisher put on the bus (a person's new discussion) is
   heard by every replica; the one that wins the create owns the thread.
 - A thread whose owner stopped renewing is taken over. Every 10 seconds, and at start, each
   replica reads the last hour of the coordinator log (the longer of an hour and the resume age

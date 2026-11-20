@@ -1,27 +1,21 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
-	import { currentRequester } from '#lib/requester.js';
-	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 	import {
 		crewDirectory,
 		threads,
 		sortedThreads,
 		initDiscussions,
-		addDiscussionMessage,
-		removeThread,
 		showChatDetails,
-		namespace,
-		threadScope,
-		readOnly
+		namespace
 	} from '#lib/stores/index.js';
-	import { discussSubject, tryCrewScope, type CrewScope } from '#lib/crewScope.js';
+	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel } from '#lib/crew-display-name.js';
-	import { canSend, chatAsText, chatTurns, crewThreads, detailsLine } from '#lib/chat-view.js';
+	import { chatAsText, chatTurns, crewThreads, detailsLine } from '#lib/chat-view.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
-	import { firstMessageUnsent, publishDiscussionMessage, sendTracked, threadIsOpen, unsentMessages } from '#lib/send-state.js';
-	import { NotSent } from '#lib/components/discussions/index.js';
+	import { CommandHint } from '#lib/components/common/index.js';
+	import { askCommand, listConversationsCommand } from '#lib/cli-commands.js';
 
 	marked.setOptions({ breaks: true, gfm: true });
 
@@ -37,78 +31,12 @@
 	const selected = $derived(selectedThreadId ? $threads.get(selectedThreadId) : undefined);
 	const turns = $derived(selected ? chatTurns(selected.messages) : []);
 
-	let draft = $state('');
-	let sending = $state(false);
-	let channel = $state('general');
-	let deleteConfirm = $state(false);
 	let copied = $state(false);
-	let timelineEl = $state<HTMLElement | null>(null);
-
-	// A conversation whose first message was not sent takes no reply until that one is sent.
-	const blocked = $derived(selected ? firstMessageUnsent(selected.messages, $unsentMessages) : false);
-
-	const sendable = $derived(
-		canSend({
-			scope: selectedScope,
-			text: draft,
-			sending,
-			readOnly: $readOnly,
-			blocked: blocked
-		})
-	);
 
 	function selectChat(threadId: string | null) {
 		selectedThreadId = threadId;
-		deleteConfirm = false;
 	}
 
-
-	// A new conversation starts a thread (thread_start on the crew's discuss subject, as
-	// New discussion does); a message in an open conversation is a reply on its thread.
-	function outgoing(scope: CrewScope, text: string): { subject: string; msg: DiscussionMessage } {
-		const base = {
-			messageId: crypto.randomUUID(),
-			agentName: 'human',
-			content: text,
-			timestamp: new Date().toISOString()
-		};
-		if (selected) {
-			const threadScopeOf = threadScope(selected) ?? scope;
-			return {
-				subject: discussSubject(threadScopeOf, selected.channel, selected.threadId),
-				msg: { ...base, threadId: selected.threadId, messageType: 'reply', channel: selected.channel }
-			};
-		}
-		const threadId = crypto.randomUUID();
-		return {
-			subject: discussSubject(scope, channel, threadId),
-			msg: {
-				...base,
-				threadId,
-				messageType: 'thread_start',
-				channel,
-				metadata: { userQuery: text, requester: currentRequester() }
-			}
-		};
-	}
-
-	async function send() {
-		if (!sendable || !selectedScope) return;
-		sending = true;
-		try {
-			const { subject, msg } = outgoing(selectedScope, draft.trim());
-			addDiscussionMessage(msg, subject);
-			selectedThreadId = msg.threadId;
-			await sendTracked(publishDiscussionMessage, subject, msg);
-			draft = '';
-			await tick();
-			if (timelineEl) timelineEl.scrollTop = timelineEl.scrollHeight;
-		} catch (e) {
-			console.error('Failed to send message:', e);
-		} finally {
-			sending = false;
-		}
-	}
 
 	async function copyChat() {
 		await navigator.clipboard.writeText(chatAsText(turns, $showChatDetails));
@@ -118,32 +46,13 @@
 		}, 2000);
 	}
 
-	async function deleteChat() {
-		if (!selected) return;
-		const id = selected.threadId;
-		await removeThread(id);
-		deleteConfirm = false;
-		selectedThreadId = chats.find((t) => t.threadId !== id)?.threadId ?? null;
-	}
-
 	function preview(threadId: string, fallback: string): string {
 		const first = $threads.get(threadId);
 		return chatTurns(first?.messages ?? [])[0]?.text || fallback;
 	}
 
-	async function loadChannel() {
-		try {
-			const res = await fetch(resolve('/api/kubemoot/channels'));
-			const data = await res.json();
-			if (data.channels?.length > 0) channel = data.channels[0].name;
-		} catch {
-			// The default channel stays.
-		}
-	}
-
 	onMount(() => {
 		initDiscussions();
-		loadChannel();
 	});
 </script>
 
@@ -151,9 +60,6 @@
 	<div class="sidebar-panel">
 		<div class="panel-header">
 			<h2>Conversations</h2>
-			{#if !$readOnly}
-				<button class="new-btn" onclick={() => selectChat(null)} title="Start a new conversation with the selected crew">+ New</button>
-			{/if}
 		</div>
 		{#if chats.length === 0}
 			<p class="hint">No conversations{selectedScope ? ' with this crew' : ''} yet.</p>
@@ -180,23 +86,14 @@
 				{#if selected}
 					<a class="action-btn" href="{resolve('/discussions')}?thread={selected.threadId}" title="Open this thread in Discussions to see the agents' internal discussion">Discussion</a>
 					<button class="action-btn" onclick={copyChat} title="Copy this conversation to the clipboard">{copied ? '✓' : '📋'}</button>
-					{#if !$readOnly}
-						{#if !deleteConfirm}
-							<button class="action-btn danger" onclick={() => { deleteConfirm = true; }} title="Delete this conversation (removes its thread and purges its messages)">🗑️</button>
-						{:else}
-							<span class="delete-prompt">Delete?</span>
-							<button class="action-btn-text yes" onclick={deleteChat}>Yes</button>
-							<button class="action-btn-text no" onclick={() => { deleteConfirm = false; }}>No</button>
-						{/if}
-					{/if}
 				{/if}
 			</div>
 		</div>
 
-		<div class="chat-timeline" bind:this={timelineEl}>
+		<div class="chat-timeline">
 			{#if !selected}
 				<div class="empty-state">
-					<p>{selectedScope ? 'Start a conversation with this crew below.' : 'Select a crew in the top bar to chat with it.'}</p>
+					<p>{selectedScope ? 'Select a conversation, or start one from a terminal.' : 'Select a crew in the top bar to see its conversations.'}</p>
 				</div>
 			{:else}
 				{#each turns as turn (turn.id)}
@@ -212,36 +109,25 @@
 							{/if}
 						{:else}
 							<div class="plain">{turn.text}</div>
-							<NotSent messageId={turn.id} publish={publishDiscussionMessage} />
 						{/if}
 					</div>
 				{/each}
-				{#if threadIsOpen(selected, $unsentMessages)}
+				{#if selected.status === 'open'}
 					<div class="waiting">The crew is working on an answer...</div>
-				{/if}
-				{#if blocked}
-					<div class="waiting" role="status">The first message was not sent. Retry it before replying.</div>
 				{/if}
 			{/if}
 		</div>
 
-		{#if !$readOnly}
-			<div class="compose-bar">
-				<textarea
-					rows="2"
-					bind:value={draft}
-					placeholder={selectedScope ? 'Message the crew...' : 'Select a crew to send a message'}
-					disabled={!selectedScope}
-					onkeydown={(e) => {
-						if (e.key === 'Enter' && !e.shiftKey) {
-							e.preventDefault();
-							send();
-						}
-					}}
-				></textarea>
-				<button onclick={send} disabled={!sendable} title={selectedScope ? 'Send to the crew' : 'Select a crew first'}>Send</button>
-			</div>
-		{/if}
+		<div class="compose-bar">
+			{#if selected}
+				<CommandHint
+					label="Reply from a terminal (find the id with {listConversationsCommand(selected.crew ?? 'CREW', selected.namespace)}):"
+					command={askCommand(selected.crew ?? 'CREW', selected.namespace, 'CONVERSATION_ID')}
+				/>
+			{:else}
+				<CommandHint label="Ask a crew from a terminal:" command={askCommand(selectedScope?.crew ?? 'CREW', selectedScope?.namespace ?? 'NAMESPACE')} />
+			{/if}
+		</div>
 	</div>
 </div>
 
@@ -253,11 +139,6 @@
 	}
 	.panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
 	.panel-header h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); }
-	.new-btn, .compose-bar button {
-		background: var(--color-primary); color: #fff; border: none; border-radius: 0.3rem;
-		padding: 0.3rem 0.75rem; cursor: pointer; font-size: 0.8rem;
-	}
-	.compose-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
 	.hint { color: var(--color-text-muted); font-size: 0.85rem; }
 	.chat-row {
 		display: flex; flex-direction: column; gap: 0.2rem; text-align: left; background: none;
@@ -277,14 +158,11 @@
 	.main-header h1 { font-size: 1.25rem; font-weight: 600; }
 	.header-controls { display: flex; align-items: center; gap: 0.5rem; }
 	.details-toggle { display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--color-text-muted); cursor: pointer; }
-	.action-btn, .action-btn-text {
+	.action-btn {
 		background: none; border: 1px solid var(--color-border); border-radius: 0.3rem;
 		padding: 0.15rem 0.5rem; cursor: pointer; color: var(--color-text-muted); font-size: 0.8rem; text-decoration: none;
 	}
 	.action-btn:hover { border-color: var(--color-primary); text-decoration: none; }
-	.action-btn.danger:hover { border-color: var(--color-error); }
-	.action-btn-text.yes { color: var(--color-error); border-color: var(--color-error); }
-	.delete-prompt { font-size: 0.8rem; color: var(--color-error); }
 
 	.chat-timeline { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
 	.empty-state { margin: auto; color: var(--color-text-muted); }
@@ -297,9 +175,5 @@
 	.answer-details { margin-top: 0.4rem; font-size: 0.72rem; color: var(--color-text-muted); font-family: var(--font-mono); }
 	.waiting { color: var(--color-text-muted); font-size: 0.85rem; align-self: flex-start; }
 
-	.compose-bar { display: flex; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--color-border); align-items: flex-end; }
-	.compose-bar textarea {
-		flex: 1; resize: none; background: var(--color-bg-secondary); color: var(--color-text);
-		border: 1px solid var(--color-border); border-radius: 0.4rem; padding: 0.5rem; font: inherit;
-	}
+	.compose-bar { padding: 0.75rem 1rem; border-top: 1px solid var(--color-border); }
 </style>

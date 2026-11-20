@@ -3,9 +3,10 @@
 	import { reportComparator } from '#lib/mcp-report-sort.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { readOnly, refreshTrigger } from '#lib/stores/index.js';
+	import { refreshTrigger } from '#lib/stores/index.js';
 	import { ResourceList } from '#lib/components/layout/index.js';
-	import { HelpTooltip } from '#lib/components/common/index.js';
+	import { CommandHint, HelpTooltip } from '#lib/components/common/index.js';
+	import { reportVerdictCommand } from '#lib/cli-commands.js';
 	import type { MCPServerReport } from '#lib/types/kubemoot.js';
 
 	let reports = $state<MCPServerReport[]>([]);
@@ -13,10 +14,6 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let expandedReport = $state<string | null>(null);
-	let editingReport = $state<string | null>(null);
-	let editVerdict = $state('');
-	let editNotes = $state('');
-	let editAuthor = $state('');
 	let filterVerdict = $state('all');
 	let sortBy = $state('lastTested');
 
@@ -47,36 +44,6 @@
 
 	function toggleExpand(name: string) {
 		expandedReport = expandedReport === name ? null : name;
-	}
-
-	function startEdit(report: MCPServerReport) {
-		editingReport = report.metadata.name;
-		editVerdict = report.spec?.adminVerdict || '';
-		editNotes = report.spec?.adminNotes || '';
-		editAuthor = report.spec?.adminAuthor || '';
-	}
-
-	function cancelEdit() {
-		editingReport = null;
-	}
-
-	async function saveEdit(report: MCPServerReport) {
-		try {
-			const res = await fetch(resolve('/api/kubemoot/mcpserverreports/[name]', { name: report.metadata.name }), {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					adminVerdict: editVerdict,
-					adminNotes: editNotes,
-					adminAuthor: editAuthor
-				})
-			});
-			if (!res.ok) throw new Error('Failed to update report');
-			editingReport = null;
-			await fetchReports();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to save';
-		}
 	}
 
 	function verdictColor(verdict: string): string {
@@ -213,43 +180,15 @@
 
 								<div class="detail-section">
 									<h3>Admin Curation</h3>
-									{#if editingReport === report.metadata.name && !$readOnly}
-										<div class="edit-form">
-											<div class="form-field">
-												<label for="edit-verdict">Pin Verdict:</label>
-												<select id="edit-verdict" bind:value={editVerdict}>
-													<option value="">Auto (computed)</option>
-													<option value="use">Use</option>
-													<option value="caution">Caution</option>
-													<option value="avoid">Avoid</option>
-												</select>
-											</div>
-											<div class="form-field">
-												<label for="edit-notes">Notes:</label>
-												<textarea id="edit-notes" bind:value={editNotes} rows="2" placeholder="Why are you pinning this verdict?"></textarea>
-											</div>
-											<div class="form-field">
-												<label for="edit-author">Author:</label>
-												<input id="edit-author" bind:value={editAuthor} placeholder="Your name" />
-											</div>
-											<div class="form-actions">
-												<button class="btn-save" onclick={() => saveEdit(report)}>Save</button>
-												<button class="btn-cancel" onclick={cancelEdit}>Cancel</button>
-											</div>
-										</div>
-									{:else}
-										<div class="admin-info">
-											{#if report.spec?.adminVerdict}
-												<div><strong>Pinned:</strong> {report.spec.adminVerdict} by {report.spec.adminAuthor || 'unknown'}</div>
-												<div><strong>Reason:</strong> {report.spec.adminNotes || '-'}</div>
-											{:else}
-												<div class="muted">No admin override. Verdict is auto-computed from trial history.</div>
-											{/if}
-											{#if !$readOnly}
-												<button class="btn-edit" onclick={() => startEdit(report)}>Edit</button>
-											{/if}
-										</div>
-									{/if}
+									<div class="admin-info">
+										{#if report.spec?.adminVerdict}
+											<div><strong>Pinned:</strong> {report.spec.adminVerdict} by {report.spec.adminAuthor || 'unknown'}</div>
+											<div><strong>Reason:</strong> {report.spec.adminNotes || '-'}</div>
+										{:else}
+											<div class="muted">No admin override. Verdict is auto-computed from trial history.</div>
+										{/if}
+										<CommandHint label="Pin a verdict (use, caution or avoid):" command={reportVerdictCommand(report.metadata.name, report.metadata.namespace)} />
+									</div>
 								</div>
 
 								<div class="detail-section">
@@ -439,59 +378,6 @@
 		margin: 0;
 	}
 
-	.edit-form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.form-field {
-		display: flex;
-		flex-direction: column;
-		gap: 0.2rem;
-	}
-
-	.form-field label {
-		font-size: 0.75rem;
-		color: var(--color-text-muted);
-	}
-
-	.form-field select,
-	.form-field input,
-	.form-field textarea {
-		background: var(--color-bg);
-		color: var(--color-text);
-		border: 1px solid var(--color-border);
-		border-radius: 4px;
-		padding: 0.4rem;
-		font-size: 0.85rem;
-		font-family: inherit;
-	}
-
-	.form-actions {
-		display: flex;
-		gap: 0.5rem;
-		margin-top: 0.25rem;
-	}
-
-	.btn-save, .btn-cancel, .btn-edit {
-		padding: 0.35rem 0.75rem;
-		border-radius: 4px;
-		border: 1px solid var(--color-border);
-		font-size: 0.8rem;
-		cursor: pointer;
-	}
-
-	.btn-save {
-		background: var(--color-success, #22c55e);
-		color: #000;
-		border-color: var(--color-success, #22c55e);
-	}
-
-	.btn-cancel { background: var(--color-bg-secondary); color: var(--color-text); }
-	.btn-edit { background: var(--color-bg-secondary); color: var(--color-text); }
-	.btn-edit:hover { background: var(--color-bg-tertiary); }
-
 	.admin-info {
 		display: flex;
 		flex-direction: column;
@@ -499,7 +385,6 @@
 		font-size: 0.85rem;
 	}
 
-	.admin-info .btn-edit { align-self: flex-start; margin-top: 0.5rem; }
 
 	.muted { color: var(--color-text-muted); font-size: 0.85rem; }
 

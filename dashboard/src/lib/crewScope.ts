@@ -120,17 +120,6 @@ export function discussNamespaceFilter(namespace: string): string {
 	return `${DISCUSS_PREFIX}.${requireNamespace(namespace)}.>`;
 }
 
-/**
- * Every message of one thread, for a stream purge. Scoped to the thread's crew
- * when known, otherwise any namespace, crew, and channel.
- */
-export function discussThreadFilter(threadId: string, scope?: CrewScope | null): string {
-	const thread = requireToken(threadId, 'thread id');
-	if (!scope) return `${DISCUSS_PREFIX}.*.*.*.${thread}`;
-	const s = checkedScope(scope);
-	return `${DISCUSS_PREFIX}.${s.namespace}.${s.crew}.*.${thread}`;
-}
-
 /** Parse `kubemoot.discuss.<ns>.<crew>.<channel>.<thread>`, or null when malformed. */
 export function parseDiscussSubject(subject: string | undefined | null): DiscussSubject | null {
 	if (typeof subject !== 'string') return null;
@@ -194,17 +183,6 @@ export function agentStateFor<T>(
 
 // ----------------------------------------------------------------- crew memory
 
-/** kubemoot_crew_memory key prefix of one crew: `<ns>.<crew>.` */
-export function crewMemoryPrefix(scope: CrewScope): string {
-	const s = checkedScope(scope);
-	return `${s.namespace}.${s.crew}.`;
-}
-
-/** kubemoot_crew_memory key: `<ns>.<crew>.<topic>.<key>` */
-export function crewMemoryKey(scope: CrewScope, topic: string, key: string): string {
-	return `${crewMemoryPrefix(scope)}${requireToken(topic, 'topic')}.${requireToken(key, 'key')}`;
-}
-
 /** Parse `<ns>.<crew>.<topic>.<key>`, or null when malformed. */
 export function parseCrewMemoryKey(raw: string | undefined | null): CrewMemoryKey | null {
 	if (typeof raw !== 'string') return null;
@@ -213,11 +191,6 @@ export function parseCrewMemoryKey(raw: string | undefined | null): CrewMemoryKe
 	const [namespace, crew, topic, key] = parts;
 	if (!isNamespace(namespace) || ![crew, topic, key].every(isToken)) return null;
 	return { namespace, crew, topic, key };
-}
-
-/** The KV-backing stream subject that holds every key with the given prefix. */
-export function kvPrefixSubject(bucket: string, keyPrefix: string): string {
-	return `$KV.${requireToken(bucket, 'bucket')}.${keyPrefix}>`;
 }
 
 // -------------------------------------------------------- discussion artifacts

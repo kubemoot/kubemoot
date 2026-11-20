@@ -1,6 +1,6 @@
 // Pause, resume and stop for a CrewFitnessSuite. The operator reads
-// spec.suspend (pause between iterations) and spec.cancel (stop the suite);
-// the dashboard only flips those two fields with a merge patch.
+// spec.suspend (pause between iterations) and spec.cancel (stop the suite); the
+// dashboard only shows the state and the commands that change it.
 
 import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 
@@ -11,23 +11,6 @@ const SUITE_JUDGED_PHASES: ReadonlySet<string> = new Set(['Completed', 'Failed',
 
 /** Suite phases after which the operator schedules nothing more. */
 export const SUITE_TERMINAL_PHASES: ReadonlySet<string> = new Set([...SUITE_JUDGED_PHASES, 'Cancelled']);
-
-/**
- * The spec merge patch for an action, or null for an unknown action. Resume
- * clears suspend; stop sets cancel and leaves suspend as it is (cancel wins).
- */
-export function suiteActionPatch(action: unknown): { spec: { suspend?: boolean; cancel?: boolean } } | null {
-	switch (action) {
-		case 'pause':
-			return { spec: { suspend: true } };
-		case 'resume':
-			return { spec: { suspend: false } };
-		case 'stop':
-			return { spec: { cancel: true } };
-		default:
-			return null;
-	}
-}
 
 /** The actions that apply to a suite in its current state, in button order. */
 export function availableSuiteActions(suite: Pick<CrewFitnessSuite, 'spec' | 'status'>): SuiteAction[] {

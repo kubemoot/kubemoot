@@ -18,11 +18,7 @@
 <ResourceList title="Model servers" count={live.items.length} loading={live.loading} error={live.error} helpText="Model Servers are the inference backends (such as vLLM) that host and serve AI models. The operator validates connectivity.">
 	{#snippet children()}
 		{#each live.items as server (server.metadata.namespace + '/' + server.metadata.name)}
-			<ModelServerCard
-				{server}
-				showNamespace
-				onAction={() => live.refresh()}
-			/>
+			<ModelServerCard {server} showNamespace />
 		{/each}
 	{/snippet}
 

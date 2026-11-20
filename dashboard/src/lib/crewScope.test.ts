@@ -8,14 +8,10 @@ import {
 	artifactObjectKey,
 	chatNamespaceFilter,
 	chatSubject,
-	crewMemoryKey,
-	crewMemoryPrefix,
 	crewScope,
 	discussCrewFilter,
 	discussNamespaceFilter,
 	discussSubject,
-	discussThreadFilter,
-	kvPrefixSubject,
 	parseAgentStateKey,
 	parseArtifactKey,
 	parseChatSubject,
@@ -71,12 +67,6 @@ describe('discussion subjects', () => {
 		expect(discussNamespaceFilter('team-beta')).toBe('kubemoot.discuss.team-beta.>');
 	});
 
-	it('builds thread purge filters, scoped and unscoped', () => {
-		expect(discussThreadFilter(THREAD, alpha)).toBe(`kubemoot.discuss.team-alpha.homelab-pilot.*.${THREAD}`);
-		expect(discussThreadFilter(THREAD)).toBe(`kubemoot.discuss.*.*.*.${THREAD}`);
-		expect(discussThreadFilter(THREAD, null)).toBe(`kubemoot.discuss.*.*.*.${THREAD}`);
-	});
-
 	it('round-trips build and parse', () => {
 		const subject = discussSubject(beta, 'infra', THREAD);
 		expect(parseDiscussSubject(subject)).toEqual({
@@ -109,7 +99,6 @@ describe('discussion subjects', () => {
 		expect(() => discussSubject(alpha, 'general', '*')).toThrow();
 		expect(() => discussSubject({ namespace: '', crew: 'x' }, 'general', THREAD)).toThrow();
 		expect(() => discussNamespaceFilter('')).toThrow();
-		expect(() => discussThreadFilter('>')).toThrow();
 	});
 });
 
@@ -168,22 +157,13 @@ describe('agent state keys', () => {
 });
 
 describe('crew memory keys', () => {
-	it('builds and parses <ns>.<crew>.<topic>.<key>', () => {
-		expect(crewMemoryPrefix(alpha)).toBe('team-alpha.homelab-pilot.');
-		expect(crewMemoryKey(alpha, 'gpu-topology', 'rig0')).toBe('team-alpha.homelab-pilot.gpu-topology.rig0');
-		expect(crewMemoryKey(alpha, 'gpu-topology', 'rig0')).not.toBe(crewMemoryKey(beta, 'gpu-topology', 'rig0'));
-		expect(parseCrewMemoryKey(crewMemoryKey(beta, 't', 'k'))).toEqual({
+	it('parses <ns>.<crew>.<topic>.<key>', () => {
+		expect(parseCrewMemoryKey('team-beta.homelab-pilot.t.k')).toEqual({
 			namespace: 'team-beta',
 			crew: 'homelab-pilot',
 			topic: 't',
 			key: 'k'
 		});
-	});
-
-	it('builds the KV purge subject for one crew', () => {
-		expect(kvPrefixSubject('kubemoot_crew_memory', crewMemoryPrefix(alpha))).toBe(
-			'$KV.kubemoot_crew_memory.team-alpha.homelab-pilot.>'
-		);
 	});
 
 	it.each([undefined, 'homelab-pilot.topic.key', 'a.b.c.d.e', 'Team.crew.t.k', 'ns.crew..k'])(

@@ -2,11 +2,12 @@
 	import { onMount } from 'svelte';
 	import { marked } from 'marked';
 	import { resolve } from '$app/paths';
-	import { namespace, readOnly, showStandAsides } from '#lib/stores/index.js';
+	import { namespace, showStandAsides } from '#lib/stores/index.js';
 	import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
+	import { CommandHint } from '#lib/components/common/index.js';
+	import { deleteSuiteCommand, suiteControlCommand } from '#lib/cli-commands.js';
 	import {
 		availableSuiteActions,
-		suiteActionPatch,
 		suiteDisplayPhase,
 		suiteIsJudged,
 		type SuiteAction
@@ -37,18 +38,6 @@
 		await navigator.clipboard.writeText([`Thread id: ${threadId}`, question].filter(Boolean).join(' | '));
 		copiedTid = threadId;
 		setTimeout(() => { if (copiedTid === threadId) copiedTid = null; }, 2000);
-	}
-
-	// Copyable, scrollable error surface. Replaces native alert(): alert() truncates,
-	// can't be resized, and can't be copied - which matters for long K8s API errors
-	// (e.g. an RBAC 403 Status body) the user needs to share when asking for support.
-	let errorBox = $state<string | null>(null);
-	let copiedError = $state(false);
-	async function copyError() {
-		if (!errorBox) return;
-		await navigator.clipboard.writeText(errorBox);
-		copiedError = true;
-		setTimeout(() => { copiedError = false; }, 2000);
 	}
 
 	interface Iteration {
@@ -376,66 +365,12 @@
 		}
 	}
 
-	// Remove a suite run: delete the CrewFitnessSuite CR (children GC via owner
-	// refs; the operator finalizer purges the run's NATS artifacts). Optimistically
-	// drop it from the list; the live watch confirms the removal.
-	async function deleteSuite(ns: string, name: string, e: Event) {
-		e.stopPropagation();
-		if (!confirm(`Remove suite run "${name}"?\n\nThis deletes the run and its stored artifacts (transcripts + scores) and cannot be undone.`)) {
-			return;
-		}
-		try {
-			const r = await fetch(resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]', { namespace: ns, name }), {
-				method: 'DELETE',
-				headers: { 'Content-Type': 'application/json' }
-			});
-			if (!r.ok) {
-				const d = await r.json().catch(() => ({}));
-				const detail = d.error ?? d.message ?? JSON.stringify(d, null, 2);
-				errorBox = `Delete failed (HTTP ${r.status})\n\nSuite: ${ns}/${name}\n\n${detail}`;
-				return;
-			}
-			suites = suites.filter((s) => !(s.metadata.namespace === ns && s.metadata.name === name));
-		} catch (err) {
-			errorBox = `Delete failed\n\nSuite: ${ns}/${name}\n\n${err instanceof Error ? (err.stack ?? err.message) : String(err)}`;
-		}
-	}
-
-	// Pause, resume or stop a suite: the server merge-patches spec.suspend /
-	// spec.cancel and the operator does the work. The local spec is updated
-	// optimistically so the badge reads Pausing / Stopping at once; the live watch
-	// then carries the operator's phase change.
-	const ACTION_LABEL: Record<SuiteAction, { text: string; title: string }> = {
-		pause: { text: 'Pause', title: 'Pause: the running iteration finishes, no new one starts' },
-		resume: { text: 'Resume', title: 'Resume from the next iteration' },
-		stop: { text: 'Stop', title: 'Stop: end the running iteration and keep completed results (partial XLSX, not judged)' }
+	// Pause, resume and stop set spec.suspend or spec.cancel; the operator does the work.
+	const CONTROL_LABEL: Record<SuiteAction, string> = {
+		pause: 'Pause (the running iteration finishes, no new one starts):',
+		resume: 'Resume from the next iteration:',
+		stop: 'Stop (end the running iteration, keep completed results):'
 	};
-	async function suiteAction(ns: string, name: string, action: SuiteAction, e: Event) {
-		e.stopPropagation();
-		if (action === 'stop' && !confirm(`Stop suite "${name}"?\n\nThe running iteration is ended and no more start. Completed iterations are kept in a partial XLSX. This cannot be undone.`)) {
-			return;
-		}
-		try {
-			const r = await fetch(resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]', { namespace: ns, name }), {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action })
-			});
-			if (!r.ok) {
-				const d = await r.json().catch(() => ({}));
-				errorBox = `${action} failed (HTTP ${r.status})\n\nSuite: ${ns}/${name}\n\n${d.error ?? JSON.stringify(d, null, 2)}`;
-				return;
-			}
-			const patch = suiteActionPatch(action);
-			suites = suites.map((s) =>
-				s.metadata.namespace === ns && s.metadata.name === name && patch
-					? { ...s, spec: { ...s.spec, ...patch.spec } }
-					: s
-			);
-		} catch (err) {
-			errorBox = `${action} failed\n\nSuite: ${ns}/${name}\n\n${err instanceof Error ? (err.stack ?? err.message) : String(err)}`;
-		}
-	}
 
 	onMount(() => {
 		// Initial list for fast first render, then attach the live watch.
@@ -640,12 +575,6 @@
 						{#if s?.artifactRef?.objectKey}
 							<a class="dl" href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}" download onclick={(e) => e.stopPropagation()} title="Download {formatBytes(s.artifactRef.sizeBytes)}">⬇ XLSX</a>
 						{:else}<span class="muted small">-</span>{/if}
-						{#if !$readOnly}
-							{#each availableSuiteActions(suite) as action (action)}
-								<button class="ctl-btn" title={ACTION_LABEL[action].title} aria-label="{action} suite" onclick={(e) => suiteAction(ns, name, action, e)}>{ACTION_LABEL[action].text}</button>
-							{/each}
-							<button class="del-btn" title="Remove this suite run (deletes the run and its artifacts)" aria-label="Remove suite run" onclick={(e) => deleteSuite(ns, name, e)}>✕</button>
-						{/if}
 					</td>
 				</tr>
 
@@ -654,6 +583,12 @@
 					<tr class="sub">
 						<td></td>
 						<td colspan="6" class="sub-cell">
+							<div class="suite-commands">
+								{#each availableSuiteActions(suite) as action (action)}
+									<CommandHint label={CONTROL_LABEL[action]} command={suiteControlCommand(action, name, ns)} />
+								{/each}
+								<CommandHint label="Remove this run and its artifacts:" command={deleteSuiteCommand(name, ns)} />
+							</div>
 							{#if iterLoading[id]}
 								<p class="status-msg small">Loading iterations…</p>
 							{:else if merged.length === 0}
@@ -817,21 +752,6 @@
 	{/if}
 {/if}
 
-{#if errorBox}
-	<div class="err-overlay" role="dialog" aria-modal="true" onclick={() => (errorBox = null)}>
-		<div class="err-modal" onclick={(e) => e.stopPropagation()}>
-			<div class="err-head">
-				<span class="err-title">Error</span>
-				<div class="err-actions">
-					<button class="err-btn" onclick={copyError}>{copiedError ? '✓ Copied' : '⧉ Copy'}</button>
-					<button class="err-btn" onclick={() => (errorBox = null)}>✕ Close</button>
-				</div>
-			</div>
-			<pre class="err-body">{errorBox}</pre>
-		</div>
-	</div>
-{/if}
-
 <style>
 	.page-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.4rem; }
 	.page-header h1 { font-size: 1.5rem; font-weight: 600; }
@@ -959,46 +879,12 @@
 	.phase-pending { background: var(--color-bg-tertiary); color: var(--color-text-muted); }
 	.phase-paused { background: var(--color-warning-bg, rgba(204, 153, 51, 0.15)); color: var(--color-warning, #c93); }
 	.phase-cancelled { background: var(--color-bg-tertiary); color: var(--color-text-muted); text-decoration: line-through; }
-	.ctl-btn { margin-left: 0.35rem; background: none; border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-muted, #888); cursor: pointer; font-size: 0.75rem; line-height: 1; padding: 0.1rem 0.3rem; }
-	.ctl-btn:hover { color: var(--color-cyan); border-color: var(--color-cyan); }
+	.suite-commands { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem; }
 	.passed { color: var(--color-success); font-weight: 600; }
 	.failed { color: var(--color-error); font-weight: 600; }
 	.errored { color: var(--color-warning, #c66); font-weight: 600; }
 	.dl { color: var(--color-cyan); text-decoration: none; font-family: var(--font-mono); font-size: 0.78rem; padding: 0.08rem 0.35rem; border: 1px solid var(--color-cyan); border-radius: 4px; }
 	.dl:hover { text-decoration: underline; }
-	.del-btn { margin-left: 0.5rem; background: none; border: none; color: var(--color-text-muted, #888); cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 0 0.25rem; }
-	.del-btn:hover { color: #e5534b; }
 	.copy-btn { margin-right: 0.5rem; background: none; border: none; cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 0 0.25rem; }
 	.copy-btn:hover { opacity: 0.7; }
-
-	/* Copyable, scrollable, resizable error modal (replaces native alert()). */
-	.err-overlay {
-		position: fixed; inset: 0; z-index: 1000; display: flex;
-		align-items: center; justify-content: center;
-		background: rgba(0, 0, 0, 0.5); padding: 1.5rem;
-	}
-	.err-modal {
-		display: flex; flex-direction: column;
-		background: var(--color-bg-secondary, #1b1f27);
-		border: 1px solid var(--color-error, #e5534b); border-radius: 8px;
-		width: min(720px, 92vw); max-height: 80vh; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-	}
-	.err-head {
-		display: flex; align-items: center; justify-content: space-between;
-		padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--color-border, #333);
-	}
-	.err-title { color: var(--color-error, #e5534b); font-weight: 600; }
-	.err-actions { display: flex; gap: 0.5rem; }
-	.err-btn {
-		background: none; border: 1px solid var(--color-border, #444);
-		color: var(--color-text, #ddd); cursor: pointer; border-radius: 4px;
-		font-size: 0.8rem; padding: 0.2rem 0.55rem;
-	}
-	.err-btn:hover { border-color: var(--color-cyan, #4aa); color: var(--color-cyan, #4aa); }
-	.err-body {
-		margin: 0; padding: 0.9rem; overflow: auto; flex: 1;
-		white-space: pre-wrap; word-break: break-word;
-		font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.45;
-		color: var(--color-text, #ddd); resize: vertical;
-	}
 </style>

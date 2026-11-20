@@ -6,3 +6,4 @@ export { default as HelpTooltip } from './HelpTooltip.svelte';
 export { default as InfoRow } from './InfoRow.svelte';
 export { default as Section } from './Section.svelte';
 export { default as YamlView } from './YamlView.svelte';
+export { default as CommandHint } from './CommandHint.svelte';

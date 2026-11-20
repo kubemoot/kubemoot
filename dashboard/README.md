@@ -125,13 +125,20 @@ rules:
 | `PORT` | Server port | `3000` |
 | `HOST` | Server host | `0.0.0.0` |
 | `APP_VERSION` | Version displayed in UI | From VERSION file |
-| `KUBEMOOT_DASHBOARD_READ_ONLY` | `true` refuses every request that is not GET, HEAD or OPTIONS with 403, and hides the write controls | `false` |
 | `KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR` | Label selector (for example `kubemoot.ai/workshop-team=true`); only matching namespaces are shown, resolved against the live cluster | empty (all namespaces) |
 | `KUBEMOOT_DASHBOARD_INFRA_NAMESPACE` | With a selector set, the operator namespace whose model servers, models, embedding models, MCP catalogs and quality policies stay visible | `kubemoot` |
 
-### Read-only, namespace-scoped mode
+## Read-only
 
-The same image can run as a read-only view of a few namespaces, for example for workshop
+The dashboard never changes anything. The server refuses every request that is not GET, HEAD or
+OPTIONS with 405, no route writes to Kubernetes or NATS, and its ServiceAccount holds get, list
+and watch only. Where a control used to be, the page shows the kmctl or kubectl command to run
+with your own credentials. A test fails if a write route, a browser write request, or a write
+verb in the chart's RBAC comes back.
+
+### Namespace-scoped mode
+
+The same image can run as a view of a few namespaces, for example for workshop
 attendees who `kubectl port-forward` to it. With a selector set, namespace lists, every
 Kubemoot list, get and watch, NATS history, stream, subscribe and key-value reads, discussion
 artifacts and fitness transcripts show only matching namespaces; a get outside them answers

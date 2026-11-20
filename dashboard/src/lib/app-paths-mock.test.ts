@@ -5,7 +5,7 @@ import { asset, resolve } from '$app/paths';
 // It follows SvelteKit 3: a leading slash marks a route id, asset() takes a file name.
 describe('$app/paths test stand-in', () => {
 	it('returns a route id without parameters unchanged', () => {
-		expect(resolve('/api/nats/purge')).toBe('/api/nats/purge');
+		expect(resolve('/api/health')).toBe('/api/health');
 	});
 
 	it('fills route-id parameters and leaves unknown ones as they are', () => {

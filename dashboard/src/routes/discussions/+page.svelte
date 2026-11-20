@@ -1,14 +1,12 @@
 <script lang="ts">
-	import { currentRequester } from '#lib/requester.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
-	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
-	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, addDiscussionMessage, removeThread, pinnedThreadIds, loadPinnedThreads, pinThread, unpinThread, showStandAsides, showDebugDetail, namespace, threadScope, readOnly } from '#lib/stores/index.js';
+	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, showStandAsides, showDebugDetail, namespace } from '#lib/stores/index.js';
 	import type { Thread } from '#lib/stores/index.js';
-	import { discussSubject, tryCrewScope, type CrewScope } from '#lib/crewScope.js';
+	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewTooltip } from '#lib/crew-display-name.js';
-	import { DeleteDiscussion, DiscussionSpanGraph, NotSent, MessageStatsLine, PlacementPanel, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
+	import { DiscussionSpanGraph, MessageStatsLine, PlacementPanel, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
 	import { debugMessageCount, visibleMessages, afterAnswerMessages } from '#lib/conversation-view.js';
 	import { placementCallsOf } from '#lib/placement-panel.js';
 	import { formatTimestamp, messageStats, summarizeThread } from '#lib/discussion-timing.js';
@@ -18,7 +16,8 @@
 	import { threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
 	import * as tips from '#lib/discussion-actions.js';
-	import { isPaused, publishDiscussionMessage, sendTracked, threadIsOpen, unsentMessages } from '#lib/send-state.js';
+	import { CommandHint } from '#lib/components/common/index.js';
+	import { askCommand, listConversationsCommand } from '#lib/cli-commands.js';
 	import { fetchDashboardVersion, versionLabel, VERSION_UNKNOWN } from '#lib/dashboard-version.js';
 
 	// Configure marked for safe inline rendering
@@ -47,15 +46,6 @@
 		$namespace === '' ? $sortedThreads : $sortedThreads.filter((t) => t.namespace === $namespace)
 	);
 
-	// New discussion form state
-	let showNewForm = $state(false);
-	let newChannel = $state('general');
-	let newQuery = $state('');
-	let sending = $state(false);
-
-	// Reply state
-	let replyText = $state('');
-
 	// Per-synthesis expand toggle (keyed by thread:messageId): a long synthesis
 	// collapses to a faded preview by default and expands to the full text on demand.
 	// Same pattern + helpers as the fitness transcript view (#lib/discussion-artifacts).
@@ -63,7 +53,6 @@
 
 	// Thread actions state
 	let copiedThread = $state(false);
-	let deleteConfirm = $state(false);
 	let showSpanGraph = $state(false);
 	let dashboardVersion = $state(VERSION_UNKNOWN);
 	// Server-id -> discovered GPU model (e.g. "ollama-rig1" -> "RTX 4090"), so the
@@ -145,93 +134,6 @@
 
 	function selectThread(threadId: string) {
 		selectedThreadId = threadId;
-		deleteConfirm = false;
-	}
-
-	function generateId(): string {
-		return crypto.randomUUID();
-	}
-
-	// The subject for a message on an existing thread: the thread's own namespace
-	// and crew, falling back to the selected crew for a thread whose scope is not
-	// yet known. Throws when neither is available rather than publishing unscoped.
-	function threadSubject(thread: Thread, threadId: string = thread.threadId): string {
-		const scope = threadScope(thread) ?? selectedScope;
-		if (!scope) throw new Error(`discussion ${thread.threadId} has no namespace and crew; select a crew first`);
-		return discussSubject(scope, thread.channel, threadId);
-	}
-
-	// Sends a message already on screen; one that did not go is marked "not sent" with a Retry.
-	function deliver(subject: string, msg: DiscussionMessage): Promise<boolean> {
-		return sendTracked(publishDiscussionMessage, subject, msg);
-	}
-
-	async function startNewDiscussion() {
-		if (!newQuery.trim() || sending || !selectedScope) return;
-		sending = true;
-		try {
-			const threadId = generateId();
-			const subject = discussSubject(selectedScope, newChannel, threadId);
-			const msg: DiscussionMessage = {
-				messageId: generateId(),
-				threadId,
-				agentName: 'human',
-				messageType: 'thread_start',
-				content: newQuery.trim(),
-				channel: newChannel,
-				timestamp: new Date().toISOString(),
-				metadata: { userQuery: newQuery.trim(), requester: currentRequester() }
-			};
-			// Optimistic: show message immediately
-			addDiscussionMessage(msg, subject);
-			selectedThreadId = threadId;
-			await deliver(subject, msg);
-			newQuery = '';
-			showNewForm = false;
-		} catch (e) {
-			console.error('Failed to start discussion:', e);
-		} finally {
-			sending = false;
-		}
-	}
-
-	async function sendReply() {
-		if (!replyText.trim() || !selectedThread || sending) return;
-		sending = true;
-		try {
-			const subject = threadSubject(selectedThread);
-			const msg: DiscussionMessage = {
-				messageId: generateId(),
-				threadId: selectedThread.threadId,
-				agentName: 'human',
-				messageType: 'reply',
-				content: replyText.trim(),
-				channel: selectedThread.channel,
-				timestamp: new Date().toISOString()
-			};
-			// Optimistic: show message immediately
-			addDiscussionMessage(msg, subject);
-			await deliver(subject, msg);
-			replyText = '';
-		} catch (e) {
-			console.error('Failed to send reply:', e);
-		} finally {
-			sending = false;
-		}
-	}
-
-	function handleReplyKeydown(event: KeyboardEvent) {
-		if (event.key === 'Enter' && !event.shiftKey) {
-			event.preventDefault();
-			sendReply();
-		}
-	}
-
-	function handleNewKeydown(event: KeyboardEvent) {
-		if (event.key === 'Enter' && !event.shiftKey) {
-			event.preventDefault();
-			startNewDiscussion();
-		}
 	}
 
 	function buildThreadHeader(thread: Thread, version: string): string {
@@ -274,158 +176,6 @@
 		setTimeout(() => { copiedThread = false; }, 2000);
 	}
 
-	// The latest delivered pause or resume wins; a message that was not sent does not count.
-	function isThreadPaused(thread: Thread): boolean {
-		return isPaused(thread.messages, $unsentMessages);
-	}
-
-	async function publishPauseSignal(thread: Thread, paused: boolean) {
-		sending = true;
-		try {
-			const subject = threadSubject(thread);
-			const msg: DiscussionMessage = {
-				messageId: generateId(),
-				threadId: thread.threadId,
-				agentName: 'human',
-				messageType: paused ? 'thread_pause' : 'thread_resume',
-				content: paused ? 'Discussion paused from dashboard' : 'Discussion resumed from dashboard',
-				channel: thread.channel,
-				timestamp: new Date().toISOString(),
-				metadata: {}
-			};
-			addDiscussionMessage(msg, subject);
-			await deliver(subject, msg);
-		} catch (e) {
-			console.error('Failed to publish pause signal:', e);
-		} finally {
-			sending = false;
-		}
-	}
-
-	async function pauseThread() {
-		if (!selectedThread || sending) return;
-		await publishPauseSignal(selectedThread, true);
-	}
-
-	async function resumeThread() {
-		if (!selectedThread || sending) return;
-		await publishPauseSignal(selectedThread, false);
-	}
-
-	// Thread start time (ms) from the thread_start message, falling back to the
-	// first message / startedAt. 0 when unknown.
-	function threadStartMs(t: Thread): number {
-		const start = t.messages.find(m => m.messageType === 'thread_start');
-		const src = start?.timestamp ?? t.messages[0]?.timestamp ?? t.startedAt;
-		const ms = src ? new Date(src).getTime() : NaN;
-		return Number.isFinite(ms) ? ms : 0;
-	}
-
-	async function stopThread() {
-		if (!selectedThread || sending) return;
-		// Warn on an early stop: stopping in the first ~10s makes the coordinator
-		// synthesize on the current (likely empty) signals, which reads as a
-		// non-answer. Confirm before doing it.
-		const startMs = threadStartMs(selectedThread);
-		if (startMs && Date.now() - startMs < 10_000) {
-			const secs = Math.max(1, Math.round((Date.now() - startMs) / 1000));
-			if (!confirm(`This discussion started ${secs}s ago. Stopping now makes the coordinator synthesize on the current (possibly empty) signals, which usually reads as a non-answer. Stop anyway?`)) return;
-		}
-		sending = true;
-		try {
-			const subject = threadSubject(selectedThread);
-			const msg: DiscussionMessage = {
-				messageId: generateId(),
-				threadId: selectedThread.threadId,
-				agentName: 'human',
-				messageType: 'stop_requested',
-				content: 'Manual stop requested from dashboard',
-				channel: selectedThread.channel,
-				timestamp: new Date().toISOString(),
-				metadata: { reason: 'manual_stop' }
-			};
-			addDiscussionMessage(msg, subject);
-			await deliver(subject, msg);
-		} catch (e) {
-			console.error('Failed to stop discussion:', e);
-		} finally {
-			sending = false;
-		}
-	}
-
-	async function replayThread() {
-		if (!selectedThread || sending) return;
-		sending = true;
-		try {
-			const original = selectedThread;
-			const threadId = generateId();
-			const subject = threadSubject(original, threadId);
-			const msg: DiscussionMessage = {
-				messageId: generateId(),
-				threadId,
-				agentName: 'human',
-				messageType: 'thread_start',
-				content: original.userQuery,
-				channel: original.channel,
-				timestamp: new Date().toISOString(),
-				metadata: {
-					userQuery: original.userQuery,
-					requester: currentRequester(),
-					replayOf: original.threadId
-				}
-			};
-			addDiscussionMessage(msg, subject);
-			selectedThreadId = threadId;
-			await deliver(subject, msg);
-		} catch (e) {
-			console.error('Failed to replay discussion:', e);
-		} finally {
-			sending = false;
-		}
-	}
-
-	async function togglePin() {
-		if (!selectedThread) return;
-		const threadId = selectedThread.threadId;
-		if ($pinnedThreadIds.has(threadId)) {
-			await unpinThread(threadId);
-		} else {
-			await pinThread(threadId);
-		}
-	}
-
-	// Per-row remove from the list; the DeleteDiscussion component confirms first, then
-	// removeThread drops it from the timeline and purges its messages from NATS.
-	async function removeDiscussion(threadId: string) {
-		if (selectedThreadId === threadId) selectedThreadId = null;
-		if ($pinnedThreadIds.has(threadId)) await unpinThread(threadId);
-		await removeThread(threadId);
-	}
-
-	async function deleteThread() {
-		if (!selectedThread) return;
-		const threadId = selectedThread.threadId;
-		if ($pinnedThreadIds.has(threadId)) {
-			// Unpinning first lets us reuse the same purge path without a separate confirm.
-			await unpinThread(threadId);
-		}
-		// Find current index within the visible (crew-filtered) list so we select
-		// the natural next VISIBLE thread after deletion, not one hidden by the filter.
-		const vis = visibleThreads;
-		const idx = vis.findIndex(t => t.threadId === threadId);
-		// Remove from local store and purge from NATS JetStream
-		await removeThread(threadId);
-		deleteConfirm = false;
-		// Select next visible thread at the same position (or last if we deleted the last).
-		const remaining = vis.filter(t => t.threadId !== threadId);
-		if (remaining.length > 0) {
-			const nextIdx = Math.min(idx, remaining.length - 1);
-			selectedThreadId = remaining[nextIdx].threadId;
-		} else {
-			selectedThreadId = null;
-		}
-	}
-
 	// Build server-id -> GPU model map from the operator-discovered ModelServer
 	// status. Keys on BOTH the CR name and the endpoint namespace, because span
 	// metadata may carry either form (GpuLabels.fromServer vs fromEndpoint).
@@ -446,8 +196,6 @@
 			const data = await res.json();
 			if (data.channels && data.channels.length > 0) {
 				channels = data.channels;
-				// Default to first channel for new discussions
-				newChannel = channels[0].name;
 			}
 		} catch (e) {
 			console.error('Failed to load channels:', e);
@@ -463,24 +211,6 @@
 		await navigator.clipboard.writeText(text);
 		copiedThreadId = true;
 		setTimeout(() => { copiedThreadId = false; }, 2000);
-	}
-
-	const TEXT_ENTRY_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
-	const CONFIRM_DELETE_KEYS = new Set(['y', 'Y']);
-	const CANCEL_DELETE_KEYS = new Set(['n', 'N', 'Escape']);
-
-	// While the delete prompt is open: y confirms, n or Escape cancels.
-	function answerDeletePrompt(key: string) {
-		if (CONFIRM_DELETE_KEYS.has(key)) deleteThread();
-		else if (CANCEL_DELETE_KEYS.has(key)) deleteConfirm = false;
-	}
-
-	function handleGlobalKeydown(event: KeyboardEvent) {
-		// Ignore when typing in input fields
-		if (TEXT_ENTRY_TAGS.has((event.target as HTMLElement)?.tagName)) return;
-
-		if (deleteConfirm) answerDeletePrompt(event.key);
-		else if (event.key === 'Delete' && selectedThread && !$readOnly) deleteConfirm = true;
 	}
 
 	// Auto-scroll to bottom when the selected thread gains messages.
@@ -511,10 +241,7 @@
 		initDiscussions();
 		loadChannels();
 		loadGpuLabels();
-		loadPinnedThreads();
 		fetchDashboardVersion(fetch, resolve('/api/version')).then((v) => { dashboardVersion = v; });
-		// Keyboard shortcuts for delete confirmation
-		window.addEventListener('keydown', handleGlobalKeydown);
 		// A link from Messages opens its thread: /discussions?thread=<id>
 		selectedThreadId = new URLSearchParams(location.search).get('thread') ?? selectedThreadId;
 		// Auto-select first thread once history loads (if nothing selected)
@@ -525,7 +252,6 @@
 		});
 		return () => {
 			unsub();
-			window.removeEventListener('keydown', handleGlobalKeydown);
 		};
 	});
 </script>
@@ -534,41 +260,12 @@
 	<div class="page-header">
 		<h1>Agent Discussions</h1>
 		<div class="header-actions">
-			{#if !$readOnly}
-				<button class="new-btn" onclick={() => (showNewForm = !showNewForm)} disabled={!tips.canStartDiscussion(selectedScope)} title={tips.newDiscussionTooltip(selectedScope)}>
-					{showNewForm ? 'Cancel' : '+ New Discussion'}
-				</button>
-			{/if}
 			<div class="connection-status" class:connected={$discussionsConnected}>
 				<span class="status-dot"></span>
 				{$discussionsConnected ? 'Connected' : 'Disconnected'}
 			</div>
 		</div>
 	</div>
-
-	{#if showNewForm && !$readOnly}
-		<div class="new-discussion-form">
-			<select bind:value={newChannel} class="channel-select">
-				{#each channels as ch}
-					<option value={ch.name}>{ch.name}</option>
-				{/each}
-			</select>
-			<input
-				type="text"
-				bind:value={newQuery}
-				placeholder="Ask a question to start a discussion..."
-				class="new-query-input"
-				onkeydown={handleNewKeydown}
-				disabled={sending}
-			/>
-			<button class="send-btn" onclick={startNewDiscussion} disabled={sending || !newQuery.trim() || !selectedScope}>
-				{sending ? 'Sending...' : 'Send'}
-			</button>
-			{#if !selectedScope}
-				<span class="scope-hint">Pick a crew in the top bar to start a discussion.</span>
-			{/if}
-		</div>
-	{/if}
 
 	<div class="discussions-layout">
 		<div class="thread-list">
@@ -579,7 +276,7 @@
 					{#if selectedCrew}
 						No discussions for crew "{crewLabel($crewDirectory, $namespace, selectedCrew)}". Pick "All crews" to see all.
 					{:else}
-						No discussions yet. Click "+ New Discussion" to start one.
+						No discussions yet. Start one with <code>{askCommand(selectedScope?.crew ?? 'CREW', selectedScope?.namespace ?? 'NAMESPACE')}</code>.
 					{/if}
 				</div>
 			{:else}
@@ -614,11 +311,6 @@
 							<span title={thread.startedAt}>{formatTimestamp(thread.startedAt)}</span>
 						</div>
 					</button>
-					{#if !$readOnly}
-						<div class="del-thread">
-							<DeleteDiscussion layout="popover" onconfirm={() => removeDiscussion(thread.threadId)} />
-						</div>
-					{/if}
 					</div>
 				{/each}
 			{/if}
@@ -664,37 +356,6 @@
 						<button class="action-btn" onclick={copyThread} title={tips.COPY_THREAD_TOOLTIP} aria-label="Copy thread">
 							{copiedThread ? '✓' : '📋'}
 						</button>
-						{#if !$readOnly}
-						<button
-							class="action-btn"
-							class:active-toggle={$pinnedThreadIds.has(selectedThread.threadId)}
-							onclick={togglePin}
-							title={tips.pinTooltip($pinnedThreadIds.has(selectedThread.threadId))}
-							aria-label={$pinnedThreadIds.has(selectedThread.threadId) ? 'Unpin thread' : 'Pin thread'}
-						>
-							{$pinnedThreadIds.has(selectedThread.threadId) ? '📌' : '📍'}
-						</button>
-						{#if threadIsOpen(selectedThread, $unsentMessages)}
-							{#if isThreadPaused(selectedThread)}
-								<button class="action-btn" onclick={resumeThread} disabled={sending} title={tips.RESUME_TOOLTIP} aria-label="Resume discussion">
-									▶️
-								</button>
-							{:else}
-								<button class="action-btn" onclick={pauseThread} disabled={sending} title={tips.PAUSE_TOOLTIP} aria-label="Pause discussion">
-									⏸️
-								</button>
-							{/if}
-							<button class="action-btn" onclick={stopThread} disabled={sending} title={tips.STOP_TOOLTIP} aria-label="Stop discussion">
-								⏹️
-							</button>
-						{/if}
-						{#if !threadIsOpen(selectedThread, $unsentMessages)}
-							<button class="action-btn" onclick={replayThread} disabled={sending} title={tips.REPLAY_TOOLTIP} aria-label="Replay discussion">
-								🔁
-							</button>
-						{/if}
-						<DeleteDiscussion bind:confirming={deleteConfirm} onconfirm={deleteThread} />
-						{/if}
 					</div>
 				</div>
 				<div class="thread-query-full" title={selectedThread.threadId}>
@@ -757,7 +418,6 @@
 									<span class="message-time" title={formatTimestamp(msg.timestamp)}>{formatElapsed(stats.elapsedMs)}</span>
 								{/if}
 							</div>
-							<NotSent messageId={msg.messageId} publish={publishDiscussionMessage} />
 							{#if (msg.messageType === 'advisory' || msg.messageType === 'advisory_ready') && msg.metadata?.technologies && msg.metadata.technologies.length > 0}
 								<div class="tech-badges">
 									{#each msg.metadata.technologies as tech}
@@ -807,21 +467,12 @@
 					{/if}
 				</div>
 
-				{#if !$readOnly}
 				<div class="reply-bar">
-					<input
-						type="text"
-						bind:value={replyText}
-						placeholder="Add to this discussion..."
-						class="reply-input"
-						onkeydown={handleReplyKeydown}
-						disabled={sending}
+					<CommandHint
+						label="Ask a follow-up from a terminal (find the conversation id with {listConversationsCommand(selectedThread.crew ?? 'CREW', selectedThread.namespace)}):"
+						command={askCommand(selectedThread.crew ?? 'CREW', selectedThread.namespace, 'CONVERSATION_ID')}
 					/>
-					<button class="send-btn" onclick={sendReply} disabled={sending || !replyText.trim()}>
-						Send
-					</button>
 				</div>
-				{/if}
 			{:else}
 				<div class="no-selection">
 					Select a discussion thread to view its timeline
@@ -860,24 +511,6 @@
 		gap: 1rem;
 	}
 
-	.new-btn {
-		padding: 0.375rem 0.75rem;
-		border-radius: 0.375rem;
-		border: 1px solid var(--color-primary);
-		background: transparent;
-		color: var(--color-primary);
-		font-size: 0.8rem;
-		font-weight: 500;
-		cursor: pointer;
-		font-family: inherit;
-		transition: all 0.15s;
-	}
-
-	.new-btn:hover {
-		background: var(--color-primary);
-		color: white;
-	}
-
 	.connection-status {
 		display: flex;
 		align-items: center;
@@ -895,70 +528,6 @@
 
 	.connection-status.connected .status-dot {
 		background-color: #10b981;
-	}
-
-	.scope-hint {
-		align-self: center;
-		font-size: 0.8rem;
-		color: var(--text-muted, #9ca3af);
-	}
-
-	.new-discussion-form {
-		display: flex;
-		gap: 0.5rem;
-		padding: 0.75rem;
-		background: var(--color-bg-secondary);
-		border: 1px solid var(--color-border);
-		border-radius: 0.5rem;
-		flex-shrink: 0;
-	}
-
-	.channel-select {
-		padding: 0.5rem;
-		border-radius: 0.375rem;
-		border: 1px solid var(--color-border);
-		background: var(--color-bg);
-		color: var(--color-text);
-		font-size: 0.8rem;
-		font-family: inherit;
-	}
-
-	.new-query-input {
-		flex: 1;
-		padding: 0.5rem 0.75rem;
-		border-radius: 0.375rem;
-		border: 1px solid var(--color-border);
-		background: var(--color-bg);
-		color: var(--color-text);
-		font-size: 0.8rem;
-		font-family: inherit;
-	}
-
-	.new-query-input:focus, .reply-input:focus {
-		outline: none;
-		border-color: var(--color-primary);
-	}
-
-	.send-btn {
-		padding: 0.5rem 1rem;
-		border-radius: 0.375rem;
-		border: none;
-		background: var(--color-primary);
-		color: white;
-		font-size: 0.8rem;
-		font-weight: 500;
-		cursor: pointer;
-		font-family: inherit;
-		transition: opacity 0.15s;
-	}
-
-	.send-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.send-btn:hover:not(:disabled) {
-		opacity: 0.9;
 	}
 
 	.discussions-layout {
@@ -1005,28 +574,6 @@
 	.thread-card.selected {
 		border-color: var(--color-primary);
 		background: rgba(59, 130, 246, 0.1);
-	}
-
-	/* Wrapper holds the clickable card + a hover-revealed remove button (buttons
-	   can't nest, so the ✕ is a sibling positioned over the card's corner). */
-	.thread-row {
-		position: relative;
-	}
-	/* Bottom-right corner, beside the timestamp row's end, clear of the status text
-	   in the header. The meta row reserves its width so nothing sits under it. */
-	.del-thread {
-		position: absolute;
-		bottom: 0.35rem;
-		right: 0.4rem;
-		opacity: 0;
-		transition: opacity 0.12s;
-	}
-	.thread-row:hover .del-thread,
-	.del-thread:focus-within {
-		opacity: 1;
-	}
-	.thread-row :global(.thread-meta) {
-		padding-right: 1.75rem;
 	}
 
 	.thread-header {
@@ -1340,45 +887,6 @@
 		background-color: var(--color-bg-secondary);
 	}
 
-	.action-btn.danger:hover {
-		background-color: rgba(239, 68, 68, 0.1);
-	}
-
-	.delete-prompt {
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: #f87171;
-	}
-
-	.action-btn-text {
-		background: none;
-		border: 1px solid;
-		padding: 0.125rem 0.5rem;
-		border-radius: 0.25rem;
-		font-size: 0.7rem;
-		font-weight: 600;
-		cursor: pointer;
-		font-family: inherit;
-	}
-
-	.action-btn-text.yes {
-		color: #10b981;
-		border-color: #10b981;
-	}
-
-	.action-btn-text.yes:hover {
-		background-color: rgba(16, 185, 129, 0.15);
-	}
-
-	.action-btn-text.no {
-		color: #f87171;
-		border-color: #f87171;
-	}
-
-	.action-btn-text.no:hover {
-		background-color: rgba(239, 68, 68, 0.1);
-	}
-
 	.thread-query-full {
 		display: flex;
 		align-items: flex-start;
@@ -1539,17 +1047,6 @@
 		padding-top: 0.75rem;
 		border-top: 1px solid var(--color-border);
 		flex-shrink: 0;
-	}
-
-	.reply-input {
-		flex: 1;
-		padding: 0.5rem 0.75rem;
-		border-radius: 0.375rem;
-		border: 1px solid var(--color-border);
-		background: var(--color-bg);
-		color: var(--color-text);
-		font-size: 0.8rem;
-		font-family: inherit;
 	}
 
 	.no-selection {

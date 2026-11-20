@@ -251,7 +251,7 @@ Status is stored in etcd with the rest of the object, so both lists are capped a
 
 ## Pause, resume and stop
 
-Two spec fields control a running suite. Edit them with `kubectl patch`, or use the Pause, Resume, and Stop buttons on the dashboard Fitness page.
+Two spec fields control a running suite. Edit them with `kubectl patch`; the dashboard Fitness page shows the command for each action, and CrewForge has the same controls.
 
 **Pause** sets `spec.suspend: true`. The iteration in flight finishes and its result is kept; no new iteration starts. The phase stays `Running` until that iteration finishes, then becomes `Paused`. A `Paused` suite puts no load on the crew, which makes it safe to change the crew or the cluster between iterations.
 

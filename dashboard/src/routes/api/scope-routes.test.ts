@@ -44,11 +44,8 @@ import { GET as artifactGET } from './kubemoot/discussions/workspace/+server';
 import { GET as oldArtifactGET } from './kubemoot/discussions/artifact/+server';
 import { GET as kvGET } from './nats/kv/+server';
 import { GET as watchGET } from './kubemoot/watch/[plural]/+server';
-import { POST as publishPOST } from './nats/publish/+server';
-import { POST as purgePOST } from './nats/purge/+server';
 import { GET as subscribeGET } from './nats/subscribe/+server';
 import { GET as historyGET } from './nats/history/+server';
-import { GET as pinGET, POST as pinPOST } from './discussions/pin/+server';
 import { GET as namespacesGET } from './namespaces/+server';
 import { GET as scoresGET } from './kubemoot/crewfitnesssuites/[namespace]/[name]/scores/+server';
 import { GET as transcriptGET } from './kubemoot/crewfitnesssuites/[namespace]/[name]/transcript/+server';
@@ -182,12 +179,6 @@ describe('scoped dashboard', () => {
 		});
 	});
 
-	it('serves no pins and accepts none, because pins carry no namespace', async () => {
-		expect(await (await call(pinGET, {})).json()).toEqual({ pinned: {} });
-		expect((await call(pinPOST, { request: new Request(`${BASE}/x`, { method: 'POST', body: '{}' }) })).status).toBe(403);
-		expect(mocks.getNatsConnection).not.toHaveBeenCalled();
-	});
-
 	describe('NATS', () => {
 		it('refuses a key-value bucket outside the allowlist', async () => {
 			const res = await call(kvGET, { url: urlOf('/api/nats/kv?bucket=kubemoot_crew_memory') });
@@ -254,31 +245,6 @@ describe('scoped dashboard', () => {
 			expect(res.status).toBe(403);
 			expect(mocks.getNatsConnection).not.toHaveBeenCalled();
 		});
-
-		it('publish and purge accept only a literal in-scope namespace', async () => {
-			const publish = vi.fn();
-			const purge = vi.fn(async () => ({ purged: 3 }));
-			mocks.getNatsConnection.mockResolvedValue({
-				publish,
-				flush: async () => {},
-				jetstreamManager: async () => ({ streams: { purge } })
-			});
-			const post = (handler: unknown, body: unknown) =>
-				call(handler, { request: new Request(`${BASE}/x`, { method: 'POST', body: JSON.stringify(body) }) });
-
-			expect((await post(publishPOST, { subject: 'kubemoot.chat.kubemoot.admin', data: 'hi' })).status).toBe(403);
-			expect((await post(publishPOST, { subject: 'kubemoot.chat.team-a.admin', data: 'hi' })).status).toBe(200);
-			expect(publish).toHaveBeenCalledOnce();
-
-			const wildcard = await post(purgePOST, { stream: 'KUBEMOOT_DISCUSS', filter: 'kubemoot.discuss.*.*.*.t1' });
-			expect(wildcard.status).toBe(403);
-			const other = await post(purgePOST, { stream: 'OTHER', filter: 'kubemoot.discuss.team-a.>' });
-			expect(other.status).toBe(403);
-			expect(purge).not.toHaveBeenCalled();
-			const ok = await post(purgePOST, { stream: 'KUBEMOOT_DISCUSS', filter: 'kubemoot.discuss.team-a.crew.*.t1' });
-			expect(ok.status).toBe(200);
-			expect(purge).toHaveBeenCalledOnce();
-		});
 	});
 });
 
@@ -291,8 +257,12 @@ describe('unscoped dashboard', () => {
 		expect(mocks.listNamespace).not.toHaveBeenCalled();
 	});
 
-	it('serves any key-value bucket and any subscription', async () => {
-		const res = await call(kvGET, { url: urlOf('/api/nats/kv?bucket=anything') });
+	it('serves the agent-state bucket and any subscription, but no other key-value bucket', async () => {
+		expect((await call(kvGET, { url: urlOf('/api/nats/kv?bucket=anything') })).status).toBe(403);
+		mocks.getNatsConnection.mockResolvedValue({
+			jetstream: () => ({ views: { kv: async () => ({ watch: async () => ({ stop: vi.fn(), async *[Symbol.asyncIterator]() {} }) }) } })
+		});
+		const res = await call(kvGET, { url: urlOf('/api/nats/kv') });
 		expect(res.status).toBe(200);
 		mocks.getNatsConnection.mockResolvedValue({ subscribe: () => ({ unsubscribe: vi.fn(), async *[Symbol.asyncIterator]() {} }) });
 		const sub = await call(subscribeGET, { url: urlOf('/api/nats/subscribe') });

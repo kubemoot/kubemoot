@@ -1,10 +1,10 @@
-// Route coverage for the two deployment switches, so a route added later cannot
-// slip past either one:
-//   - every exported non-GET handler under src/routes/api is refused by the hook
-//     in read-only mode;
+// Route coverage, so a route added later cannot slip past either rule:
+//   - the dashboard is read-only: no route under src/routes/api exports a handler that
+//     changes state, every former write route is gone, and the server hook refuses any
+//     non-GET method with 405;
 //   - every route file either uses the shared scope helper (#lib/server/scope) or
 //     is listed below as cluster-scoped on purpose, with the reason.
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { handle } from '../../hooks.server';
 
 const modules = import.meta.glob<Record<string, unknown>>('./**/+server.ts', { eager: true });
@@ -14,7 +14,6 @@ const sources = import.meta.glob<string>('./**/+server.ts', {
 	import: 'default'
 });
 
-const METHODS = ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 const WRITE_EXPORTS = ['POST', 'PUT', 'PATCH', 'DELETE', 'fallback'];
 
 /** Routes that do not use the scope helper, and why that is correct. */
@@ -29,20 +28,21 @@ const CLUSTER_SCOPED: Record<string, string> = {
 	'./kubemoot/discussions/artifact/+server.ts': 'redirects to the workspace route, which applies the scope',
 };
 
-const WRITE_ROUTES = [
-	['POST', './nats/publish/+server.ts'],
-	['POST', './nats/purge/+server.ts'],
-	['POST', './kubemoot/crew-memory/+server.ts'],
-	['DELETE', './kubemoot/crew-memory/+server.ts'],
-	['POST', './discussions/pin/+server.ts'],
-	['DELETE', './discussions/pin/+server.ts'],
-	['POST', './kubemoot/modelservers/[name]/load/+server.ts'],
-	['POST', './kubemoot/modelservers/[name]/unload/+server.ts'],
-	['POST', './kubemoot/modelservers/[name]/delete/+server.ts'],
-	['PATCH', './kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts'],
-	['DELETE', './kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts'],
-	['DELETE', './kubemoot/crews/[name]/+server.ts'],
-	['PATCH', './kubemoot/mcpserverreports/[name]/+server.ts']
+/** Every write route the dashboard once had: the file and the method it served. */
+const FORMER_WRITE_ROUTES = [
+	['POST', './nats/publish/+server.ts', '/nats/publish'],
+	['POST', './nats/purge/+server.ts', '/nats/purge'],
+	['POST', './kubemoot/crew-memory/+server.ts', '/kubemoot/crew-memory'],
+	['DELETE', './kubemoot/crew-memory/+server.ts', '/kubemoot/crew-memory'],
+	['POST', './discussions/pin/+server.ts', '/discussions/pin'],
+	['DELETE', './discussions/pin/+server.ts', '/discussions/pin'],
+	['POST', './kubemoot/modelservers/[name]/load/+server.ts', '/kubemoot/modelservers/x/load'],
+	['POST', './kubemoot/modelservers/[name]/unload/+server.ts', '/kubemoot/modelservers/x/unload'],
+	['POST', './kubemoot/modelservers/[name]/delete/+server.ts', '/kubemoot/modelservers/x/delete'],
+	['PATCH', './kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts', '/kubemoot/crewfitnesssuites/ns/x'],
+	['DELETE', './kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts', '/kubemoot/crewfitnesssuites/ns/x'],
+	['DELETE', './kubemoot/crews/[name]/+server.ts', '/kubemoot/crews/x'],
+	['PATCH', './kubemoot/mcpserverreports/[name]/+server.ts', '/kubemoot/mcpserverreports/x']
 ] as const;
 
 function writeHandlers(): { file: string; method: string }[] {
@@ -61,73 +61,41 @@ async function run(method: string, path?: string) {
 	return { response, resolve };
 }
 
-afterEach(() => {
-	vi.unstubAllEnvs();
-});
-
 describe('route enumeration', () => {
-	it('finds the route files and the known write handlers', () => {
-		expect(Object.keys(modules).length).toBeGreaterThan(40);
-		const found = new Set(writeHandlers().map((h) => `${h.method} ${h.file}`));
-		for (const [method, file] of WRITE_ROUTES) {
-			expect(found, `${method} ${file}`).toContain(`${method} ${file}`);
-		}
+	it('finds the route files', () => {
+		expect(Object.keys(modules).length).toBeGreaterThan(30);
 	});
 
-	it('finds no write handler beyond the known ones', () => {
-		const known = new Set(WRITE_ROUTES.map(([m, f]) => `${m} ${f}`));
-		const unknown = writeHandlers()
-			.map((h) => `${h.method} ${h.file}`)
-			.filter((h) => !known.has(h));
-		expect(unknown, 'a new write route: add it to WRITE_ROUTES and check its UI control').toEqual([]);
+	it('finds no route that exports a write handler', () => {
+		expect(writeHandlers().map((h) => `${h.method} ${h.file}`)).toEqual([]);
 	});
 });
 
-describe('read-only mode', () => {
-	it.each(writeHandlers())('refuses $method on $file', async ({ file, method }) => {
-		vi.stubEnv('KUBEMOOT_DASHBOARD_READ_ONLY', 'true');
-		const { response, resolve } = await run(method, file.replace('./', '/dashboard/api/'));
-		expect(response.status).toBe(403);
+describe('former write routes', () => {
+	it.each(FORMER_WRITE_ROUTES)('%s %s no longer exists as a handler', (method, file) => {
+		expect(modules[file] === undefined || !(method in modules[file])).toBe(true);
+	});
+
+	it.each(FORMER_WRITE_ROUTES)('%s %s is refused with 405 before any route runs', async (method, _file, path) => {
+		const { response, resolve } = await run(method, `/dashboard/api${path}`);
+		expect(response.status).toBe(405);
 		expect(response.headers.get('Allow')).toBe('GET, HEAD, OPTIONS');
-		expect(response.headers.get('Content-Type')).toBe('application/json');
 		expect(await response.json()).toMatchObject({ readOnly: true, error: expect.stringContaining('read-only') });
 		expect(resolve).not.toHaveBeenCalled();
 	});
+});
 
+describe('read-only hook', () => {
 	it.each(['POST', 'PUT', 'PATCH', 'DELETE', 'CUSTOM'])('refuses %s on any path', async (method) => {
-		vi.stubEnv('KUBEMOOT_DASHBOARD_READ_ONLY', '1');
 		const { response, resolve } = await run(method, '/dashboard/discussions');
-		expect(response.status).toBe(403);
+		expect(response.status).toBe(405);
 		expect(resolve).not.toHaveBeenCalled();
 	});
 
 	it.each(['GET', 'HEAD', 'OPTIONS'])('lets %s through to the route', async (method) => {
-		vi.stubEnv('KUBEMOOT_DASHBOARD_READ_ONLY', 'true');
 		const { response, resolve } = await run(method);
 		expect(response.status).toBe(200);
 		expect(resolve).toHaveBeenCalledOnce();
-	});
-
-	it.each(['true', 'TRUE', ' yes ', '1', 'on'])('turns on for %j', async (value) => {
-		vi.stubEnv('KUBEMOOT_DASHBOARD_READ_ONLY', value);
-		expect((await run('POST')).response.status).toBe(403);
-	});
-});
-
-describe('read-only mode off', () => {
-	it.each(['', 'false', '0', 'no', 'off', 'maybe'])('changes nothing for %j', async (value) => {
-		vi.stubEnv('KUBEMOOT_DASHBOARD_READ_ONLY', value);
-		for (const method of METHODS) {
-			const { response, resolve } = await run(method);
-			expect(await response.text(), method).toBe('route ran');
-			expect(resolve).toHaveBeenCalledOnce();
-		}
-	});
-
-	it('changes nothing when the variable is unset', async () => {
-		vi.stubEnv('KUBEMOOT_DASHBOARD_READ_ONLY', undefined);
-		const { response } = await run('DELETE');
-		expect(await response.text()).toBe('route ran');
 	});
 });
 
