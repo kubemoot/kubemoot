@@ -41,7 +41,7 @@ func agentReconcileScheme(t *testing.T) *runtime.Scheme {
 // candidateFeasible, and markUnschedulable.
 func TestAgentReconcile_UnschedulableWhenNoReadyModel(t *testing.T) {
 	ctx := context.Background()
-	scheme := agentReconcileScheme(t)
+	scheme := gatewayScheme(t)
 	agent := &kubemootv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: "a1", Namespace: testNS1},
 		Spec:       kubemootv1alpha1.AgentSpec{Capabilities: []string{testReasoning}},
@@ -52,7 +52,7 @@ func TestAgentReconcile_UnschedulableWhenNoReadyModel(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(agent, notReady).WithStatusSubresource(agent).Build()
-	r := &AgentReconciler{Client: cli, Scheme: scheme}
+	r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache()}
 
 	res, err := r.Reconcile(ctx, ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "a1", Namespace: testNS1},

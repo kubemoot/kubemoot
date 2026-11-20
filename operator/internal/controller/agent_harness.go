@@ -159,7 +159,7 @@ func (r *AgentReconciler) buildContract(ctx context.Context, agent *kubemootv1al
 			Concurrency: concurrency, DeadlineSeconds: turnDeadlineSeconds,
 		},
 		Models: meshcontract.Models{Aliases: map[string]meshcontract.Alias{
-			meshcontract.DefaultAlias: aliasFor(mulling), "triage": aliasFor(triage),
+			meshcontract.DefaultAlias: aliasFor(mulling), meshcontract.TriageAlias: aliasFor(triage),
 		}},
 		Placement: meshcontract.Placement{
 			Policy: r.placementPolicyEnvVar(ctx, agent).Value, ServiceURL: r.placementServiceURL(),

@@ -277,6 +277,8 @@ The goose harness runs `goose run` for each request, so its default is larger th
 | `ragSourceStatus[]` | RAGSourceRefStatus | Declared, not populated by the controller today |
 | `mcpServerStatus[]` | MCPServerRefStatus | Declared, not populated by the controller today |
 
+An `Unschedulable` Agent still follows its spec. Models are chosen per call, so the operator keeps reconciling the Deployment, the policy ConfigMap, the Service and the network policies with everything that does not depend on the model: the image, the environment, the prompts, the tools, the runtime class, the resources and the workspace access. A changed spec reaches the pods while accelerators are away. The model values (the model and endpoint variables, the candidate lists and the server labels) keep what the pods last ran with, and an Agent that has never had a model starts without them; they are filled in when a feasible model appears. The status stays `Unschedulable` with the same message. A sidecar-mode Agent (`spec.harness.mode: sidecar`) has a contract that must name a model, so it waits for its first one before its Deployment is created; once it has run, its contract keeps the last models and the rest follows the spec.
+
 An `Unschedulable` Agent carries no `Ready` condition, so a Helm or Flux wait, which reads conditions through kstatus and never `status.phase`, does not block on it. The Crew reports the missing capacity as `CapacityAvailable=False`; see [Crew status and conditions](../crew/#status-and-conditions).
 
 ---

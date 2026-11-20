@@ -343,9 +343,11 @@ that state looks like saves you from wondering whether the install is broken:
   phase=mulling` (or a more specific scheduling reason) when the model catalog holds no
   model that satisfies its declared capabilities; an empty catalog says that no server
   reports a model. An
-  unschedulable agent gets **no Deployment at all** - there is no crash-looping pod to
-  find, because none was created. The operator keeps retrying on a backoff until a
-  server appears.
+  unschedulable agent still gets its Deployment, Service and ConfigMaps, so its pods are
+  ready when capacity returns; a legacy-runtime agent that has never had a model starts
+  without model values and fails visibly at inference until one is chosen (a sidecar-mode
+  agent has no Deployment until its first model). The operator keeps retrying on a
+  backoff until a server appears.
 - **`Crew`** follows its agents. It reports `status.phase: Pending` (and `Ready` `False`)
   until its coordinator `Agent` is `Running`, and stays there while the coordinator is in
   `Error`. When the coordinator is `Unschedulable`, or

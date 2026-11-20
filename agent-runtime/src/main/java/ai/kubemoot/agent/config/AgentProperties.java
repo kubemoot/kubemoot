@@ -361,9 +361,9 @@ public interface AgentProperties {
         @WithDefault("ollama")
         String server();
 
-        // The operator always injects the real model via KUBEMOOT_MODEL_MODEL
-        // (agent_controller.go), so this default is never used in a deployed
-        // agent. The sentinel is deliberately NOT a real model name: baking one
+        // The operator injects the real model via KUBEMOOT_MODEL_MODEL
+        // (agent_controller.go) once a model is feasible; an agent created while
+        // none is starts without it and uses this default. The sentinel is deliberately NOT a real model name: baking one
         // couples the runtime to a specific model the cluster may not run, and a
         // stale value silently masks a missing config. "unset" resolves for local
         // dev yet fails loudly at inference if a deployment ever forgets to set it.
