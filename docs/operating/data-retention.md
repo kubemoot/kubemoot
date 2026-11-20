@@ -4,7 +4,7 @@ description: "What Kubemoot keeps in NATS, how long, who decides, and the limit 
 weight: 4
 ---
 
-Kubemoot keeps no one's data longer than its crews' retention policies say, and every store the install creates has a declared limit. This page lists what is kept where, who decides how long, and how to change it. The server itself (NATS) is the installer's: its disks, encryption and backups are outside this page.
+Kubemoot keeps no one's data longer than its crews' retention policies say, and every store the install creates has a declared limit. This page lists what is kept where, who decides how long, and how to change it. The server itself (NATS) is the installer's: its disks, encryption and backups are covered in [Data ownership](../data-ownership/).
 
 ## Who decides
 

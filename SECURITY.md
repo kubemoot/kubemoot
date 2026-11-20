@@ -37,7 +37,8 @@ request, artifact, and memory subjects and keys carry the namespace and crew nam
 fixed prefix; some operator subjects carry no namespace at all), but a client that can
 reach NATS can read and write any of them. Namespaces are naming separation, not a security boundary today.
 Per-crew NATS accounts and a NetworkPolicy that limits ingress to NATS are directions,
-not shipped features.
+not shipped features. What NATS keeps, for how long, and how to encrypt it is in
+[Data ownership](https://github.com/kubemoot/kubemoot/blob/main/docs/operating/data-ownership.md).
 
 ### Creating Kubemoot resources is equivalent to creating pods
 

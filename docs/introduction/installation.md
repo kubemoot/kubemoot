@@ -48,7 +48,8 @@ its own page:
 - **NATS JetStream** - the message bus crews deliberate over. It can run in-cluster;
   the operator publishes discussion and event traffic to it. Install it with the
   official [NATS Helm chart](https://docs.nats.io/running-a-nats-service/nats-kubernetes)
-  with JetStream enabled.
+  with JetStream enabled. NATS is where Kubemoot's data lives, so its storage, encryption
+  and backups are your decisions: see [Data ownership](../../operating/data-ownership/).
 - **A vector store (pgvector)** - only if a crew uses RAG knowledge sources. Not
   required for a discussion-only crew. See [pgvector](https://github.com/pgvector/pgvector)
   for PostgreSQL with vector search.
