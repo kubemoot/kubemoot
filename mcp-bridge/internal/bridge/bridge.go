@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	headerCORS        = "Access-Control-Allow-Origin"
 	headerContentType = "Content-Type"
 )
 
@@ -320,7 +319,6 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set(headerCORS, "*")
 
 	// Send endpoint event with session ID so MCP clients know where to POST messages
 	sessionID := generateSessionID()
@@ -354,14 +352,6 @@ func (b *Bridge) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 // handleMessage accepts JSON-RPC requests and writes them to the MCP server's stdin pipe.
 func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		w.Header().Set(headerCORS, "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", headerContentType)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -411,7 +401,6 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set(headerCORS, "*")
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -420,7 +409,6 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 // connected. Does NOT track initialize-handshake completion (use /readyz
 // for that). Intended target for Kubernetes livenessProbe.
 func (b *Bridge) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(headerCORS, "*")
 	w.Header().Set(headerContentType, "application/json")
 	if b.connected.Load() {
 		w.WriteHeader(http.StatusOK)
@@ -441,7 +429,6 @@ func (b *Bridge) handleHealth(w http.ResponseWriter, r *http.Request) {
 // Service routing, the latter gives generous time for the initial
 // handshake without tripping liveness.
 func (b *Bridge) handleReady(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(headerCORS, "*")
 	w.Header().Set(headerContentType, "application/json")
 	if b.connected.Load() && b.initialized.Load() {
 		w.WriteHeader(http.StatusOK)

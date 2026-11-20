@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -207,5 +208,45 @@ func TestAFailedHandshakeAnnouncesNothing(t *testing.T) {
 	case msg := <-ch:
 		t.Fatalf("unexpected message to SSE client: %s", msg)
 	default:
+	}
+}
+
+// The bridge is called server to server by the discussion gateway and the MCP gateway, never by a
+// browser, so no response may carry a CORS header.
+func TestNoResponseCarriesACORSHeader(t *testing.T) {
+	assertNoCORS := func(name string, rec *httptest.ResponseRecorder) {
+		t.Helper()
+		for header := range rec.Header() {
+			if strings.HasPrefix(strings.ToLower(header), "access-control-") {
+				t.Errorf("%s sent %s", name, header)
+			}
+		}
+	}
+	b := New("/tmp", 8080, "/healthz")
+
+	rec := httptest.NewRecorder()
+	b.handleHealth(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	assertNoCORS("healthz", rec)
+
+	rec = httptest.NewRecorder()
+	b.handleReady(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	assertNoCORS("readyz", rec)
+
+	rec = httptest.NewRecorder()
+	preflight := httptest.NewRequest(http.MethodOptions, "/message", nil)
+	preflight.Header.Set("Origin", "https://evil.example")
+	b.handleMessage(rec, preflight)
+	assertNoCORS("message preflight", rec)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("preflight status = %d, want 405", rec.Code)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec = httptest.NewRecorder()
+	b.handleSSE(rec, httptest.NewRequest(http.MethodGet, "/sse", nil).WithContext(ctx))
+	assertNoCORS("sse", rec)
+	if got := rec.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Errorf("sse content type = %q", got)
 	}
 }
