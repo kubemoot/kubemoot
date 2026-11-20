@@ -187,23 +187,17 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// Resolve the workspace access once; the env, the contract and the status all read this answer.
 	ctx = r.withWorkspace(ctx, agent)
 
-	if err := r.syncRuntimeClassCondition(ctx, agent); err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.syncReplicasLimitedCondition(ctx, agent); err != nil {
-		return ctrl.Result{}, err
-	}
-	if err := r.syncWorkspaceAccess(ctx, agent); err != nil {
+	if err := r.syncAgentConditions(ctx, agent); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	mullingPick, triagePick, mullingErr := r.pickPhaseModels(ctx, agent)
-	if mullingPick == nil {
-		return r.markUnschedulable(ctx, agent, mullingErr)
+	picks := r.resolvePicks(ctx, agent)
+	if picks.cannotBuild(agent) {
+		return r.markUnschedulable(ctx, agent, picks.waitErr)
 	}
 
 	policyCMName := agent.Name + "-policy"
-	if stop, err := r.ensureAgentConfig(ctx, agent, mullingPick, triagePick, policyCMName); stop {
+	if stop, err := r.ensureAgentConfig(ctx, agent, picks.mulling, picks.triage, policyCMName); stop {
 		return ctrl.Result{}, err
 	}
 
@@ -212,25 +206,67 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// keyword self-selection if resumes/search are unavailable. See resume_sync.go.
 	r.syncCrewResumes(ctx, agent)
 
-	if err := r.ensureDeployment(ctx, agent, mullingPick, triagePick, policyCMName); err != nil {
+	if err := r.ensureDeployment(ctx, agent, picks.mulling, picks.triage, policyCMName); err != nil {
 		log.Error(err, "Failed to ensure Deployment")
 		return ctrl.Result{}, err
 	}
-	return r.finishReconcile(ctx, agent, mullingPick, triagePick)
+	return r.finishReconcile(ctx, agent, picks)
 }
 
-// finishReconcile applies the Service and the network policies, then records the Agent's status.
-func (r *AgentReconciler) finishReconcile(ctx context.Context, agent *kubemootv1alpha1.Agent, mulling, triage *modelPick) (ctrl.Result, error) {
+// syncAgentConditions records the conditions that do not depend on a model choice.
+func (r *AgentReconciler) syncAgentConditions(ctx context.Context, agent *kubemootv1alpha1.Agent) error {
+	if err := r.syncRuntimeClassCondition(ctx, agent); err != nil {
+		return err
+	}
+	if err := r.syncReplicasLimitedCondition(ctx, agent); err != nil {
+		return err
+	}
+	return r.syncWorkspaceAccess(ctx, agent)
+}
+
+// phasePicks is the model choice a reconcile builds with. While no model is feasible the
+// picks are the last ones the live workload ran with (nil when it never ran with one), so
+// the rest of the Agent still rolls out and only the model values wait.
+type phasePicks struct {
+	mulling, triage *modelPick
+	// waiting is true when no model is feasible now; waitErr says why.
+	waiting bool
+	waitErr error
+}
+
+// resolvePicks picks the models, or holds the last ones when none is feasible.
+func (r *AgentReconciler) resolvePicks(ctx context.Context, agent *kubemootv1alpha1.Agent) phasePicks {
+	mulling, triage, err := r.pickPhaseModels(ctx, agent)
+	if mulling != nil {
+		return phasePicks{mulling: mulling, triage: triage}
+	}
+	held, heldTriage := r.heldPicks(ctx, agent)
+	return phasePicks{mulling: held, triage: heldTriage, waiting: true, waitErr: err}
+}
+
+// cannotBuild reports whether the Agent's workload cannot be built yet. A sidecar-mode
+// Agent's contract must name at least one model, so it waits for its first; a legacy
+// runtime starts without model values.
+func (p phasePicks) cannotBuild(agent *kubemootv1alpha1.Agent) bool {
+	return p.mulling == nil && usesSidecar(agent)
+}
+
+// finishReconcile applies the Service and the network policies, then records the Agent's
+// status: Running, or Unschedulable while no model is feasible.
+func (r *AgentReconciler) finishReconcile(ctx context.Context, agent *kubemootv1alpha1.Agent, picks phasePicks) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	if err := r.ensureService(ctx, agent); err != nil {
 		log.Error(err, "Failed to ensure Service")
 		return ctrl.Result{}, err
 	}
-	if err := r.reconcileNetworkPolicies(ctx, agent, mulling, triage); err != nil {
+	if err := r.reconcileNetworkPolicies(ctx, agent, picks.mulling, picks.triage); err != nil {
 		log.Error(err, "Failed to reconcile network policies")
 		return ctrl.Result{}, err
 	}
-	if err := r.refreshStatus(ctx, agent, mulling, triage); err != nil && !apierrors.IsNotFound(err) {
+	if picks.waiting {
+		return r.markUnschedulable(ctx, agent, picks.waitErr)
+	}
+	if err := r.refreshStatus(ctx, agent, picks.mulling, picks.triage); err != nil && !apierrors.IsNotFound(err) {
 		log.Error(err, "Failed to refresh Agent status")
 	}
 	return ctrl.Result{}, nil
@@ -948,14 +984,15 @@ func baseAgentEnvVars(agent *kubemootv1alpha1.Agent, crew string, mulling, triag
 		{Name: "KUBEMOOT_CREW", Value: crew},
 		namespaceEnvVar(),
 		{Name: "KUBEMOOT_SYSTEM_PROMPT_FILE", Value: "/etc/kubemoot/policy/system.txt"},
-		{Name: "KUBEMOOT_MODEL_MODEL", Value: mulling.ModelID},
-		{Name: "KUBEMOOT_MODEL_ENDPOINT", Value: mulling.Endpoint},
-		{Name: "KUBEMOOT_TRIAGE_MODEL_MODEL_ID", Value: triage.ModelID},
-		{Name: "KUBEMOOT_TRIAGE_MODEL_ENDPOINT", Value: triage.Endpoint},
-		{Name: "QUARKUS_HTTP_PORT", Value: fmt.Sprintf("%d", port)},
-		{Name: "QUARKUS_LANGCHAIN4J_OLLAMA_BASE_URL", Value: mulling.Endpoint},
-		{Name: "KUBEMOOT_NATS_URL", Value: agentNATSURL()},
 	}
+	// The model values follow the picks; with none (no model feasible yet) the runtime starts
+	// without them and takes its defaults.
+	env = append(env, modelBindingEnvVars(mulling, triage)...)
+	env = append(env, corev1.EnvVar{Name: "QUARKUS_HTTP_PORT", Value: fmt.Sprintf("%d", port)})
+	if mulling != nil {
+		env = append(env, corev1.EnvVar{Name: envOllamaBaseURL, Value: mulling.Endpoint})
+	}
+	env = append(env, corev1.EnvVar{Name: "KUBEMOOT_NATS_URL", Value: agentNATSURL()})
 	// Crew chart version (provenance): the crew Helm chart stamps
 	// kubemoot.ai/crew-version on every CR via its labels helper. Surface it to the
 	// runtime so the coordinator can record which crew VERSION produced a thread.
