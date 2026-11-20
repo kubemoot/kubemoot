@@ -8,11 +8,24 @@
 package liaison
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 )
+
+// ticketIDBytes is the entropy of a ticket id: 128 random bits. The id is the only
+// proof a caller created or was handed a ticket, so it must not be guessable.
+const ticketIDBytes = 16
+
+// newTicketID returns a fresh unguessable id (32 hex characters from crypto/rand).
+func newTicketID() string {
+	b := make([]byte, ticketIDBytes)
+	if _, err := rand.Read(b); err != nil {
+		panic("liaison: no system randomness for a ticket id: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
 
 // State is a ticket's lifecycle position.
 type State string
@@ -126,7 +139,7 @@ func NewStore(ttl time.Duration) *Store {
 func (s *Store) Create(crew, namespace, conversation, question string) *Ticket {
 	now := s.now()
 	t := &Ticket{
-		ID:           uuid.NewString(),
+		ID:           newTicketID(),
 		Crew:         crew,
 		Namespace:    namespace,
 		Conversation: conversation,
@@ -142,21 +155,22 @@ func (s *Store) Create(crew, namespace, conversation, question string) *Ticket {
 	return t
 }
 
-// FindPending returns a still-pending ticket for the same question to the same crew,
-// so a client that retries after a timeout rejoins its discussion instead of starting
-// another.
-func (s *Store) FindPending(crew, namespace, question string) (*Ticket, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, t := range s.tickets {
-		if t.Crew == crew && t.Namespace == namespace && t.question == question && t.Snapshot().State == StatePending {
-			return t, true
-		}
+// Rejoin returns the still-pending ticket the caller names by id, when it is for the same
+// question to the same crew, so a client that retries after a timeout rejoins its own
+// discussion instead of starting another. The id is the proof the caller holds the
+// ticket; a question's text alone never matches, so one client cannot join another's
+// discussion by asking the same thing. An unknown, settled or mismatched id returns false
+// and says nothing about why.
+func (s *Store) Rejoin(id, crew, namespace, question string) (*Ticket, bool) {
+	t, ok := s.Get(id)
+	if !ok || t.Crew != crew || t.Namespace != namespace || t.question != question ||
+		t.Snapshot().State != StatePending {
+		return nil, false
 	}
-	return nil, false
+	return t, true
 }
 
-// Get returns the ticket with the given id.
+// Get returns the ticket with the given id. Holding the id is the only credential.
 func (s *Store) Get(id string) (*Ticket, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -1,6 +1,7 @@
 package liaison
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -75,20 +76,44 @@ func TestStoreGetUnknown(t *testing.T) {
 	}
 }
 
-func TestStoreFindPending(t *testing.T) {
+func TestStoreRejoinNeedsTheTicketID(t *testing.T) {
 	s := NewStore(time.Hour)
 	a := s.Create(testCrew, testCrew, "c1", "what?")
-	if got, ok := s.FindPending(testCrew, testCrew, "what?"); !ok || got != a {
-		t.Fatal("pending ticket for the same question not found")
+	if got, ok := s.Rejoin(a.ID, testCrew, testCrew, "what?"); !ok || got != a {
+		t.Fatal("the creator's ticket id did not rejoin")
 	}
-	if _, ok := s.FindPending(testCrew, testCrew, "other?"); ok {
-		t.Fatal("different question matched")
+	if _, ok := s.Rejoin("", testCrew, testCrew, "what?"); ok {
+		t.Fatal("the same question without an id matched")
 	}
-	if _, ok := s.FindPending(testCrew, "elsewhere", "what?"); ok {
-		t.Fatal("different namespace matched")
+	if _, ok := s.Rejoin("not-the-id", testCrew, testCrew, "what?"); ok {
+		t.Fatal("an unknown id matched")
+	}
+	if _, ok := s.Rejoin(a.ID, testCrew, testCrew, "other?"); ok {
+		t.Fatal("a different question matched")
+	}
+	if _, ok := s.Rejoin(a.ID, testCrew, "elsewhere", "what?"); ok {
+		t.Fatal("a different namespace matched")
+	}
+	if _, ok := s.Rejoin(a.ID, "other-crew", testCrew, "what?"); ok {
+		t.Fatal("a different crew matched")
 	}
 	a.Answer("x", time.Now())
-	if _, ok := s.FindPending(testCrew, testCrew, "what?"); ok {
+	if _, ok := s.Rejoin(a.ID, testCrew, testCrew, "what?"); ok {
 		t.Fatal("settled ticket returned as pending")
+	}
+}
+
+func TestTicketIDsAre128BitsAndDistinct(t *testing.T) {
+	s := NewStore(time.Hour)
+	seen := map[string]bool{}
+	for i := 0; i < 200; i++ {
+		id := s.Create(testCrew, testCrew, "c", "q").ID
+		if len(id) != 2*ticketIDBytes || strings.Trim(id, "0123456789abcdef") != "" {
+			t.Fatalf("id %q is not 128 bits of hex", id)
+		}
+		if seen[id] {
+			t.Fatalf("id %q repeated", id)
+		}
+		seen[id] = true
 	}
 }

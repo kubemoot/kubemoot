@@ -19,9 +19,10 @@ A crew discussion takes one to several minutes, longer than most MCP clients all
 a tool call (Claude Code's default is sixty seconds). So no call blocks longer than
 45 seconds: `ask` returns the ticket inside that window and `get_answer` long-polls
 until the crew settles. The client calls it until the status is `answered`: the YDY
-pattern ("Ya Done Yet?"). Asking the same crew the same question while the first
-discussion runs rejoins that ticket instead of starting another, so a client that
-timed out and retried costs nothing extra. Claude Code moves a tool call that runs
+pattern ("Ya Done Yet?"). Asking the same crew the same question again with the
+`ticket` from the first `ask` while that discussion runs rejoins it instead of starting
+another, so a client that timed out and retried costs nothing extra. Without the ticket a
+question always starts its own discussion. Claude Code moves a tool call that runs
 past two minutes into a background task, so the chain of polls runs unattended.
 
 ## Endpoints

@@ -113,5 +113,6 @@ timeout in `.mcp.json`:
 }
 ```
 
-A retry of the same question rejoins the running discussion rather than starting a
-second one, so a timed-out call costs nothing but the wait.
+A retry of the same question that passes the ticket from the first `ask` rejoins the
+running discussion rather than starting a second one, so a timed-out call costs nothing
+but the wait. Without the ticket the question starts its own discussion.
