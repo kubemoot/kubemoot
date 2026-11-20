@@ -45,6 +45,12 @@ the chart renders, so the quickstart and the chart on `main` cannot drift apart.
 images you built yourself, load them into the cluster under the chart's registry prefix and
 run with `KUBEMOOT_CHART=operator/chart/kubemoot-operator KUBEMOOT_IMAGE_TAG=<your tag>`.
 
+Publish Release also runs `test-scaffolded-crew.sh` on the same cluster, after the quickstart and
+only for the release candidate. It scaffolds the crew `kmctl create` writes (with the kmctl release
+candidate, built from its newest rc tag by `kmctl-ref.sh`), installs it, waits for phase Ready and
+CapacityAvailable True, asks which pods run in its namespace, and checks that the answer names every
+workload `kubectl get pods` lists there. To run it by hand after the quickstart, with a `kmctl` on your path: `./quickstart/test-scaffolded-crew.sh`.
+
 ## Then
 
 ```bash

@@ -28,7 +28,11 @@
 #               candidate's commit. Publish Release copies those very images by digest and
 #               packages the chart from that commit, so the bytes tested are the bytes
 #               published, and a failure stops the release before any image or chart is
-#               public. Only Publish Release calls it (candidate_tag).
+#               public. Only Publish Release calls it (candidate_tag). After the quickstart
+#               it builds the kmctl release candidate, installs the crew `kmctl create`
+#               scaffolds on the same cluster, asks it which pods run in its namespace and
+#               checks the answer against `kubectl get pods`, so the first crew a user
+#               makes is tested before every release (quickstart/test-scaffolded-crew.sh).
 name: Quickstart
 
 on:
@@ -99,9 +103,12 @@ jobs:
 
       - name: Lint and test the quickstart scripts
         run: |
-          shellcheck -x quickstart/quickstart.sh quickstart/chart-version.sh quickstart/chart-version.test.sh quickstart/quickstart-guard.test.sh
+          shellcheck -x quickstart/quickstart.sh quickstart/chart-version.sh quickstart/chart-version.test.sh quickstart/quickstart-guard.test.sh \
+            quickstart/kmctl-ref.sh quickstart/kmctl-ref.test.sh quickstart/test-scaffolded-crew.sh quickstart/test-scaffolded-crew.test.sh
           bash quickstart/chart-version.test.sh
           bash quickstart/quickstart-guard.test.sh
+          bash quickstart/kmctl-ref.test.sh
+          bash quickstart/test-scaffolded-crew.test.sh
 
       - name: Build the chart's dashboard subchart
         run: helm dependency build operator/chart/kubemoot-operator
@@ -139,7 +146,7 @@ jobs:
   quickstart:
     if: github.event_name != 'pull_request' && github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     permissions:
       contents: read
     steps:
@@ -247,6 +254,25 @@ jobs:
           KUBEMOOT_CHART_VERSION: ${{ steps.chart.outputs.version }}
         run: quickstart/quickstart.sh | tee quickstart.log
 
+      - name: Build the kmctl release candidate
+        # The scaffolded-crew check runs the kmctl candidate beside the Kubemoot candidate:
+        # the newest rc tag of kubemoot/kmctl, built from source (kmctl's candidate build
+        # publishes no binary). See quickstart/kmctl-ref.sh.
+        if: inputs.candidate_tag != ''
+        shell: bash
+        run: quickstart/kmctl-ref.sh candidate "${RUNNER_TEMP}/kmctl-bin"
+
+      - name: Scaffolded crew answers
+        # The crew `kmctl create` scaffolds, installed on the quickstart's cluster; it waits
+        # for phase Ready and CapacityAvailable True, asks one question about its own
+        # namespace and checks the answer against its pods. Needs the quickstart's operator
+        # and catalog model, so it runs after the quickstart.
+        if: inputs.candidate_tag != ''
+        shell: bash
+        env:
+          KMCTL: ${{ runner.temp }}/kmctl-bin/kmctl
+        run: quickstart/test-scaffolded-crew.sh | tee scaffold.log
+
       - name: Answer to the job summary
         if: success()
         run: |
@@ -257,6 +283,14 @@ jobs:
             cat images.txt
             echo '```'
             sed -n '/^--- answer ---$/,/^--------------$/p' quickstart.log | sed '1d;$d'
+            if [ -f scaffold.log ]; then
+              echo
+              echo '### Scaffolded crew answer'
+              echo
+              sed -n '/^--- answer ---$/,/^--------------$/p' scaffold.log | sed '1d;$d'
+              echo
+              grep -E '^(the namespace runs|named )' scaffold.log || true
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Collect diagnostics
@@ -270,6 +304,8 @@ jobs:
           kubectl logs -n kubemoot deployment/kubemoot-operator --tail=-1 > diag/operator.log 2>&1 || true
           kubectl logs -n hello -l kubemoot.ai/crew=hello --all-containers --tail=-1 --prefix > diag/crew.log 2>&1 || true
           kubectl logs -n hello deployment/hello-discussion --tail=-1 > diag/discussion-gateway.log 2>&1 || true
+          kubectl logs -n crew-starter-guide --all-containers --tail=-1 --prefix -l kubemoot.ai/crew=starter-guide > diag/scaffolded-crew.log 2>&1 || true
+          kubectl get crew,agents,mcpservers,mcpgateways -n crew-starter-guide -o yaml > diag/scaffolded-crew-crs.yaml 2>&1 || true
           kubectl logs -n ollama deployment/ollama --tail=-1 > diag/ollama.log 2>&1 || true
           kubectl logs -n kubemoot job/kubemoot-operator-nats-bootstrap > diag/nats-bootstrap.log 2>&1 || true
           kubectl describe pods -A > diag/describe-pods.txt 2>&1 || true
@@ -282,4 +318,5 @@ jobs:
           path: |
             diag/
             quickstart.log
+            scaffold.log
           if-no-files-found: ignore

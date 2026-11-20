@@ -10,8 +10,10 @@
 # Tested by test-quickstart-images.sh.
 set -euo pipefail
 
-# The component images the quickstart can run; the first three are always pinned.
-QUICKSTART_COMPONENTS="kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison|dashboard"
+# The component images the quickstart can run; the first three are always pinned. The MCP
+# gateway and bridge run the tool server of the crew `kmctl create` scaffolds (the
+# scaffolded-crew check), which the hello crew does not use.
+QUICKSTART_COMPONENTS="kubemoot-operator|agent-runtime|discussion-gateway|crew-liaison|dashboard|mcp-gateway|mcp-bridge"
 QUICKSTART_CORE_COMPONENTS="kubemoot-operator agent-runtime discussion-gateway"
 
 # quickstart_images: component image references in the manifests on stdin, distinct and sorted.
