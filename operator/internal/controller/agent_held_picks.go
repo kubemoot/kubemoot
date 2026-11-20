@@ -112,7 +112,7 @@ func heldPick(modelID, endpoint, server, candidatesJSON, preferFaster string) *m
 	if candidatesJSON != "" && json.Unmarshal([]byte(candidatesJSON), &pick.Candidates) != nil {
 		return nil // unreadable: hold nothing rather than rebuild a different template
 	}
-	if n, err := strconv.Atoi(preferFaster); err == nil && n > 0 {
+	if n, err := strconv.ParseInt(preferFaster, 10, 32); err == nil && n > 0 {
 		pick.PreferFaster = int32(n)
 	}
 	return pick
