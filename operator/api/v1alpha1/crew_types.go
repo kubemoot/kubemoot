@@ -107,11 +107,21 @@ type CrewMemoryConfig struct {
 
 // CrewStatus defines the observed state of Crew
 type CrewStatus struct {
-	// Phase is the crew infrastructure lifecycle (Pending, Deploying, Ready, Error)
+	// Phase is the crew lifecycle: Pending while the coordinator is not yet running,
+	// Ready when the crew is reconciled and a model can run its agents, WaitingForCapacity
+	// when the crew is reconciled but no model in the cluster catalog can run its
+	// coordinator (or any specialist) now, and Error when a reconcile step failed.
 	Phase string `json:"phase,omitempty"`
 
-	// Ready indicates if the crew is operational and can accept questions
+	// Ready mirrors the Ready condition: the crew is reconciled as declared (its agents,
+	// gateways and policies exist as specified). It stays true while the crew waits for
+	// capacity; the CapacityAvailable condition and the WaitingForCapacity phase say that
+	// the crew cannot answer yet.
 	Ready bool `json:"ready,omitempty"`
+
+	// ObservedGeneration is the Crew generation the status describes.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// DiscussionEndpoint is the HTTP endpoint for the discussion gateway
 	// Clients POST here to start discussions and GET SSE streams
@@ -128,7 +138,9 @@ type CrewStatus struct {
 	// Message provides additional status information
 	Message string `json:"message,omitempty"`
 
-	// Conditions represent the latest available observations
+	// Conditions represent the latest available observations: Ready (reconciled as
+	// declared) and CapacityAvailable (a model in the cluster catalog can run the
+	// crew's agents now).
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
@@ -178,6 +190,7 @@ type CrewRevision struct {
 // +kubebuilder:resource:shortName=crew
 // +kubebuilder:printcolumn:name="Ready",type=boolean,JSONPath=`.status.ready`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Capacity",type=string,JSONPath=`.status.conditions[?(@.type=="CapacityAvailable")].status`
 // +kubebuilder:printcolumn:name="Coordinator",type=string,JSONPath=`.status.coordinatorRef`
 // +kubebuilder:printcolumn:name="Agents",type=integer,JSONPath=`.status.agentCount`
 // +kubebuilder:printcolumn:name="Discussion",type=string,JSONPath=`.status.discussionEndpoint`

@@ -64,8 +64,8 @@ echo "scaffold crew Ready; deleting it (lifecycle proven)"
 kmctl delete crew "$SCAFFOLD_NAME" -n "$SCAFFOLD_NS"
 
 # ---- Part B: inference against an existing crew ------------------------------
-echo "== B1 confirm the existing crew $E2E_CREW is Ready =="
-[ "$(kubectl get crew "$E2E_CREW" -n "$E2E_CREW_NS" -o jsonpath='{.status.ready}' 2>/dev/null)" = "true" ] \
+echo "== B1 confirm the existing crew $E2E_CREW is Ready and has a model (phase Ready, not WaitingForCapacity) =="
+[ "$(kubectl get crew "$E2E_CREW" -n "$E2E_CREW_NS" -o jsonpath='{.status.phase}' 2>/dev/null)" = "Ready" ] \
   || { echo "dogfood: existing crew $E2E_CREW (-n $E2E_CREW_NS) not Ready; set E2E_CREW/E2E_CREW_NS" >&2; exit 1; }
 
 echo "== B2 ask it a question (kmctl conversation ask) =="

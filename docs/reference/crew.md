@@ -114,6 +114,30 @@ Facts are kept alive by use and aged out when abandoned:
 | `injectLimit` | int32 | `8` | Max facts injected into context per query (small - context budget, not storage) |
 | `verifyOnAdd` | bool | `true` | Vet new facts for duplicates/conflicts on write |
 
+## Status and conditions
+
+A Crew reports two separate things: whether it is reconciled as declared, and whether a model can run its agents now.
+
+| Condition | `True` | `False` |
+|-----------|--------|---------|
+| `Ready` | The crew is reconciled as declared: its coordinator `Agent` runs, and its agents, gateways and policies exist as specified. Reason `Reconciled`. | A real failure or an unfinished start: a reconcile step failed (reason `Error`, for example an invalid spec or a failed apply), or the crew has no coordinator or its coordinator is not running yet (reason `Pending`). |
+| `CapacityAvailable` | A model in the cluster catalog can run the coordinator (reason `ModelAvailable`). The message names any specialist that has no model. | No model in the catalog can run the coordinator, or none can run any specialist (reason `NoModelAvailable`). The message carries the scheduler's reason, for example `coordinator homelab-coordinator is unschedulable: no model in the cluster catalog (2 available) satisfies the require of phase=mulling (capability/tool-calling=true)`. `Unknown` (reason `CoordinatorNotRunning`) while the crew has no running coordinator, so there is nothing to assess. |
+
+`status.phase` is what `kubectl get crews` shows next to `Capacity`:
+
+| Phase | Meaning |
+|-------|---------|
+| `Pending` | The coordinator is missing, in `Error`, or not running yet. `Ready` is `False`. |
+| `Ready` | Reconciled, and a model can run the crew's agents. |
+| `WaitingForCapacity` | Reconciled, but no model in the catalog can run the coordinator or any specialist now, so the crew cannot answer. `Ready` stays `True` and `CapacityAvailable` is `False`. |
+| `Error` | A reconcile step failed. `Ready` is `False`. |
+
+`status.ready` mirrors the `Ready` condition, so it is `true` in `WaitingForCapacity`. To ask whether a crew can answer now, read the phase or `CapacityAvailable`, not `status.ready` alone. `status.observedGeneration` is the Crew generation the status describes.
+
+**Why capacity is not part of `Ready`.** Models are picked from the cluster catalog, and capacity comes and goes: leased accelerators stop, a GPU node goes down, the GPUs are lent to another workload. A crew declared correctly is still declared correctly while that happens, as a Deployment's spec is applied while its pods are Pending. Helm's wait and Flux's health checks judge a custom resource with kstatus, which reads `metadata.generation` against `status.observedGeneration` and the `Reconciling`, `Stalled` and `Ready` conditions, and never `status.phase`. A `Ready` condition of `False` is `InProgress` to kstatus and a `True` one is `Current`, so a GitOps upgrade of a crew succeeds while accelerators are away, and the crew answers once a model returns: the operator keeps retrying, and no one re-applies anything. An `Agent` that no model can run carries no `Ready` condition (its `phase` is `Unschedulable`), so kstatus reads it as current and a wait on it does not block either.
+
+Genuine failures still hold a wait: a reconcile error or an invalid spec leaves the crew not `Ready`, and an image that cannot be pulled keeps the agent's Deployment unavailable, which the wait on that Deployment catches. The crew's `Ready` does not read pod readiness.
+
 ## Namespace lifecycle
 
 Deleting a Crew leaves its namespace alone by default. A Crew that carries the annotation

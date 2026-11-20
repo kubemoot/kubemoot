@@ -277,6 +277,8 @@ The goose harness runs `goose run` for each request, so its default is larger th
 | `ragSourceStatus[]` | RAGSourceRefStatus | Declared, not populated by the controller today |
 | `mcpServerStatus[]` | MCPServerRefStatus | Declared, not populated by the controller today |
 
+An `Unschedulable` Agent carries no `Ready` condition, so a Helm or Flux wait, which reads conditions through kstatus and never `status.phase`, does not block on it. The Crew reports the missing capacity as `CapacityAvailable=False`; see [Crew status and conditions](../crew/#status-and-conditions).
+
 ---
 
 ## Examples

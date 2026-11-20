@@ -105,15 +105,18 @@ const (
 	phaseFailed = "Failed"
 	// conditionTypeReady is the type of the Ready status condition.
 	conditionTypeReady = "Ready"
-	phaseDeploying     = "Deploying"
-	phaseIndexing      = "Indexing"
-	phaseQueued        = "Queued"
-	statePending       = "Pending"
-	stateAvailable     = "Available"
-	statePulling       = "Pulling"
-	stateLoaded        = "Loaded"
-	stateError         = "Error"
-	stateDisabled      = "Disabled"
+	// conditionTypeCapacityAvailable is the Crew condition that says whether a model in the
+	// cluster catalog can run the crew's agents now. It is independent of Ready.
+	conditionTypeCapacityAvailable = "CapacityAvailable"
+	phaseDeploying                 = "Deploying"
+	phaseIndexing                  = "Indexing"
+	phaseQueued                    = "Queued"
+	statePending                   = "Pending"
+	stateAvailable                 = "Available"
+	statePulling                   = "Pulling"
+	stateLoaded                    = "Loaded"
+	stateError                     = "Error"
+	stateDisabled                  = "Disabled"
 )
 
 // Workload wiring shared by the Deployments and Services the operator builds.

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { chartVersion } from '#lib/crew-chart.js';
 	import { crewDisplayName, crewTechnicalHint } from '#lib/crew-display-name.js';
+	import { WAITING_FOR_CAPACITY, capacityCondition, crewCanAnswer, crewPhaseLabel } from '#lib/crew-phase.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { namespace } from '#lib/stores/index.js';
@@ -35,7 +36,7 @@
 	<div class="crew-grid">
 		{#each live.items as crew (crew.metadata.namespace + '/' + crew.metadata.name)}
 			{@const status = crew.status}
-			{@const ready = status?.ready ?? false}
+			{@const ready = crewCanAnswer(status?.phase, status?.ready)}
 			{@const phase = status?.phase ?? 'Unknown'}
 			{@const discussing = !!status?.discussionEndpoint}
 			{@const version = chartVersion(crew.metadata.labels)}
@@ -53,8 +54,8 @@
 						{#if version}
 							<span class="chart-badge" title="Helm chart version">v{version}</span>
 						{/if}
-						<span class="phase-badge" class:phase-ready={phase === 'Ready'} class:phase-error={phase === 'Error'} class:phase-deploying={phase === 'Deploying'} class:phase-pending={phase === 'Pending'}>
-							{phase}
+						<span class="phase-badge" class:phase-ready={phase === 'Ready'} class:phase-error={phase === 'Error'} class:phase-deploying={phase === 'Deploying'} class:phase-pending={phase === 'Pending'} class:phase-waiting={phase === WAITING_FOR_CAPACITY} title={capacityCondition(status?.conditions)?.message}>
+							{crewPhaseLabel(phase)}
 						</span>
 					</div>
 				</div>
@@ -152,6 +153,7 @@
 	.phase-error { background: rgba(239, 68, 68, 0.15); color: var(--color-error); }
 	.phase-deploying { background: rgba(59, 130, 246, 0.15); color: var(--color-primary); }
 	.phase-pending { background: var(--color-bg-tertiary); color: var(--color-text-muted); }
+	.phase-waiting { background: rgba(234, 179, 8, 0.15); color: var(--color-warning, #eab308); }
 
 	.crew-desc { font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.4; }
 
