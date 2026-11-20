@@ -241,6 +241,25 @@ One caution on models with a toggleable thinking mode: a tooler with reasoning d
 can regress badly, because it stops planning which tool to call. Verify the mode your
 runtime actually sends, rather than assuming the default.
 
+## Sampling comes from the model
+
+A model's authors publish the sampling settings it was trained and evaluated with, and a
+model swap should bring those settings along. Kubemoot therefore sends no sampling
+parameter unless an Agent sets one. `Agent.spec.temperature` is optional and unset by
+default: the request leaves the temperature out, and the server fills it in. vLLM reads
+the model's Hugging Face `generation_config.json` (its `--generation-config` default is
+`auto`) and applies each value the request leaves unset. Ollama applies the Modelfile.
+The parameters are filled one at a time, so an Agent that sets only a temperature still
+gets the model's own top-p and top-k.
+
+Set a temperature on an Agent only when it has a reason, and check what the model
+publishes first. Several families publish settings that differ by mode, and a value tuned
+on one model can run another outside its intended range. For example, Qwen publishes one
+set for thinking mode and another for non-thinking mode, and warns against low
+temperatures and greedy decoding in thinking mode because they cause repetition loops.
+`generation_config.json` holds one set only, so an agent that turns thinking off
+(`Agent.spec.think: false`) and wants the non-thinking recommendation sets its own value.
+
 ## Prefer permissive licenses
 
 Favor Apache-2.0, MIT, and comparable permissive terms. Avoid models whose licenses

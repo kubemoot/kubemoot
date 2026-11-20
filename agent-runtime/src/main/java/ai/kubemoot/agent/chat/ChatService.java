@@ -149,9 +149,17 @@ public class ChatService {
 
     /** How long a simple (advisory or synthesis) call may take. */
     private static final Duration SIMPLE_CALL_TIMEOUT = Duration.ofMinutes(5);
-    /** The triage call's sampling settings: classification, so low temperature and a bounded reply. */
-    private static final double TRIAGE_TEMPERATURE = 0.3;
     private static final int TRIAGE_MAX_TOKENS = 2048;
+
+    /** The agent's temperature, or null when unset so the request sends none and the model's own setting applies. */
+    private Double agentTemperature() {
+        return properties.model().temperature().orElse(null);
+    }
+
+    /** The triage call's temperature, or null when unset: the model's own setting applies. */
+    private Double triageTemperature() {
+        return properties.triageModel().temperature().orElse(null);
+    }
 
     @Inject
     @SuppressWarnings("java:S107") // CDI constructor: one parameter per collaborator
@@ -1871,7 +1879,7 @@ public class ChatService {
             ServerState ps = lastKnown.get();
             log.warn("{}; placing {} on the last-known server {}", why, model, ps.name());
             ChatModel built = chatModelPool.forEndpoint(ps.chatEngine(), ps.endpointFor(model), model,
-                    properties.model().temperature(), properties.model().maxTokens(),
+                    agentTemperature(), properties.model().maxTokens(),
                     java.time.Duration.ofMinutes(5), properties.model().think().orElse(null));
             return new MullingPick(built, ps.name(), java.util.Optional.empty(),
                     why + "; used the last-known server " + ps.name(), model, ps.endpointFor(model), 0L);
@@ -2218,7 +2226,7 @@ public class ChatService {
                 ai.kubemoot.agent.modelserver.ChatEngines.OLLAMA,
                 fittingEndpoint,
                 modelName,
-                properties.model().temperature(),
+                agentTemperature(),
                 properties.model().maxTokens(),
                 java.time.Duration.ofMinutes(5),
                 properties.model().think().orElse(null));
@@ -2242,7 +2250,7 @@ public class ChatService {
                 ps.chatEngine(),
                 ps.endpointFor(modelName),
                 modelName,
-                properties.model().temperature(),
+                agentTemperature(),
                 properties.model().maxTokens(),
                 // Generous: a tool loop chains several calls on one model, and
                 // individual tool failures are bounded by ToolCallFailure
@@ -2423,7 +2431,7 @@ public class ChatService {
         int maxTokens = maxOutputTokens > 0 ? Math.min(maxOutputTokens, properties.model().maxTokens())
                 : properties.model().maxTokens();
         var model = chatModelPool.streamingForEndpoint(engineFor(pick.serverName()), pick.endpoint(),
-                pick.modelName(), properties.model().temperature(), maxTokens,
+                pick.modelName(), agentTemperature(), maxTokens,
                 SIMPLE_CALL_TIMEOUT, properties.model().think().orElse(null));
         var context = callContext(pick.serverName(), pick.modelName(),
                 CallObservation.KIND_SIMPLE, pick.coldLoad(), pick.call());
@@ -2585,7 +2593,7 @@ public class ChatService {
 
         Duration timeout = Duration.ofSeconds(properties.triageModel().timeoutSeconds());
         var model = chatModelPool.streamingForEndpoint(engineFor(placement.pickedServer()), endpoint, placement.model(),
-                TRIAGE_TEMPERATURE, TRIAGE_MAX_TOKENS, timeout, null);
+                triageTemperature(), TRIAGE_MAX_TOKENS, timeout, null);
         var messages = new ArrayList<ChatMessage>();
         if (systemPrompt != null && !systemPrompt.isEmpty()) {
             messages.add(SystemMessage.from(systemPrompt));

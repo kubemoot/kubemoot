@@ -970,7 +970,7 @@ func baseAgentEnvVars(agent *kubemootv1alpha1.Agent, crew string, mulling, triag
 // (temperature, max tokens, think, enabled/disabled tools).
 func agentModelEnvVars(agent *kubemootv1alpha1.Agent, tools workspaceTools) []corev1.EnvVar {
 	var env []corev1.EnvVar
-	if temp := stringOrDefault(agent.Spec.Temperature, "0.3"); temp != "" {
+	if temp := agent.Spec.Temperature; temp != "" {
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_MODEL_TEMPERATURE", Value: temp})
 	}
 	if agent.Spec.MaxTokens > 0 {

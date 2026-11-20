@@ -373,8 +373,12 @@ public interface AgentProperties {
         @WithDefault("http://localhost:11434")
         String endpoint();
 
-        @WithDefault("0.3")
-        double temperature();
+        /**
+         * Sampling temperature. Empty (the default) sends none, so the model
+         * server applies the model's own published setting; set via
+         * KUBEMOOT_MODEL_TEMPERATURE only when the agent overrides it.
+         */
+        Optional<Double> temperature();
 
         @WithDefault("4096")
         int maxTokens();
@@ -404,8 +408,8 @@ public interface AgentProperties {
 
         Optional<String> endpoint();
 
-        @WithDefault("0.3")
-        double temperature();
+        /** Triage sampling temperature; empty sends none and the model's own setting applies. */
+        Optional<Double> temperature();
 
         @WithDefault("2048")
         int maxTokens();

@@ -374,8 +374,13 @@ type AgentSpec struct {
 	// +optional
 	TriageSummary string `json:"triageSummary,omitempty"`
 
-	// Temperature for LLM inference. Defaults to 0.3 (good for tool
-	// calling). Set as KUBEMOOT_MODEL_TEMPERATURE env var.
+	// Temperature for LLM inference, from 0 to 2. Unset by default: the
+	// request carries no temperature and the model server applies the
+	// model's own published setting (vLLM reads the model's
+	// generation_config.json, Ollama its Modelfile). Set a value only when
+	// the agent has a reason to override the model. Set as
+	// KUBEMOOT_MODEL_TEMPERATURE env var.
+	// +kubebuilder:validation:Pattern=`^((0|1)(\.[0-9]+)?|2(\.0+)?)?$`
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
 

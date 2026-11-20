@@ -115,9 +115,9 @@ class ChatServiceReadinessTest {
     private void poolServes(String text) {
         ChatModel blocking = answering(text);
         StreamingChatModel streaming = streamingAnswering(text);
-        when(pool.forEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+        when(pool.forEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any()))
                 .thenReturn(blocking);
-        when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+        when(pool.streamingForEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any()))
                 .thenReturn(streaming);
     }
 
@@ -125,7 +125,7 @@ class ChatServiceReadinessTest {
         InOrder order = inOrder(driver, pool);
         order.verify(driver).ensureReady(asleep, MODEL, CLAIMED_TICKET);
         order.verify(pool, atLeastOnce()).streamingForEndpoint(any(), eq("http://vllm-rig1:8000"), eq(MODEL),
-                anyDouble(), anyInt(), any(), any());
+                any(), anyInt(), any(), any());
     }
 
     @Test
@@ -151,7 +151,7 @@ class ChatServiceReadinessTest {
 
         InOrder order = inOrder(driver, pool);
         order.verify(driver).ensureReady(asleep, MODEL, CLAIMED_TICKET);
-        order.verify(pool).forEndpoint(any(), eq("http://vllm-rig1:8000"), eq(MODEL), anyDouble(), anyInt(), any(),
+        order.verify(pool).forEndpoint(any(), eq("http://vllm-rig1:8000"), eq(MODEL), any(), anyInt(), any(),
                 any());
     }
 
@@ -181,7 +181,7 @@ class ChatServiceReadinessTest {
         assertTrue(e.getMessage().contains("the server has no sleep mode"), e.getMessage());
         verify(tickets).release(pick.ticket());
         verify(selector).recordFailure("vllm-rig1");
-        verify(pool, never()).streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any());
+        verify(pool, never()).streamingForEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any());
     }
 
     /**

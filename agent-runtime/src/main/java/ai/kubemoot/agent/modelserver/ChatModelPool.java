@@ -39,7 +39,7 @@ public class ChatModelPool {
      * Get or build a ChatModel for {@code engine}'s OpenAI-compatible API on the
      * server at {@code endpoint}. Idempotent and thread-safe.
      */
-    public ChatModel forEndpoint(ChatEngine engine, String endpoint, String modelName, double temperature,
+    public ChatModel forEndpoint(ChatEngine engine, String endpoint, String modelName, Double temperature,
                                  int maxTokens, Duration timeout, Boolean think) {
         return cache.computeIfAbsent(key(engine, endpoint, modelName, temperature, maxTokens, timeout, think), k -> {
             log.info("Building ChatModel for engine={} endpoint={} model={} think={} (first use)",
@@ -68,7 +68,7 @@ public class ChatModelPool {
      * and settings, for calls timed by their first token ({@link StreamedChat}).
      */
     public StreamingChatModel streamingForEndpoint(ChatEngine engine, String endpoint, String modelName,
-                                                   double temperature, int maxTokens, Duration timeout,
+                                                   Double temperature, int maxTokens, Duration timeout,
                                                    Boolean think) {
         String key = key(engine, endpoint, modelName, temperature, maxTokens, timeout, think);
         return streamingCache.computeIfAbsent(key, k -> OpenAiStreamingChatModel.builder()
@@ -102,7 +102,7 @@ public class ChatModelPool {
     }
 
     /** Every setting that changes the request; {@code think} is null when the agent leaves the default. */
-    private static String key(ChatEngine engine, String endpoint, String modelName, double temperature,
+    private static String key(ChatEngine engine, String endpoint, String modelName, Double temperature,
                               int maxTokens, Duration timeout, Boolean think) {
         return engine.type() + "|" + endpoint + "|" + modelName + "|" + temperature + "|" + maxTokens
                 + "|" + timeout.toMillis() + "|" + think;

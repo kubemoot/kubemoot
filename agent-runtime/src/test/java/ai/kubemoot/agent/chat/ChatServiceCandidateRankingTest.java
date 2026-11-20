@@ -116,8 +116,8 @@ class ChatServiceCandidateRankingTest {
             handler.onCompleteResponse(streamed);
             return null;
         }).when(streaming).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
-        when(pool.forEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any())).thenReturn(blocking);
-        when(pool.streamingForEndpoint(any(), anyString(), anyString(), anyDouble(), anyInt(), any(), any()))
+        when(pool.forEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any())).thenReturn(blocking);
+        when(pool.streamingForEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any()))
                 .thenReturn(streaming);
     }
 
@@ -129,8 +129,8 @@ class ChatServiceCandidateRankingTest {
 
         var result = service(null, candidates(70, 60), 0, 50).triageChatWithTokens("system", "conversation");
 
-        verify(pool).streamingForEndpoint(any(), eq(EP), eq(FAST), anyDouble(), anyInt(), any(), any());
-        verify(pool, never()).streamingForEndpoint(any(), anyString(), eq(BOUND), anyDouble(), anyInt(), any(), any());
+        verify(pool).streamingForEndpoint(any(), eq(EP), eq(FAST), any(), anyInt(), any(), any());
+        verify(pool, never()).streamingForEndpoint(any(), anyString(), eq(BOUND), any(), anyInt(), any(), any());
         assertEquals(FAST, result.modelUse().model());
         verify(tickets).recordResidency(eq("ollama-a"), eq(FAST), anyLong());
         verify(tickets).release(fastPick.ticket());
@@ -144,7 +144,7 @@ class ChatServiceCandidateRankingTest {
 
         service(null, candidates(70, 65), 0, 0).triageChatWithTokens("system", "conversation");
 
-        verify(pool).streamingForEndpoint(any(), eq(EP), eq(FAST), anyDouble(), anyInt(), any(), any());
+        verify(pool).streamingForEndpoint(any(), eq(EP), eq(FAST), any(), anyInt(), any(), any());
     }
 
     @Test
@@ -158,7 +158,7 @@ class ChatServiceCandidateRankingTest {
         service(null, candidates(70, 65), 0, 50).triageChatWithTokens("system", "conversation");
 
         verify(selector, never()).claimWithEvictions(anyString(), anyLong(), anyLong(), any(), any());
-        verify(pool).streamingForEndpoint(any(), eq("http://localhost:11434"), eq(BOUND), anyDouble(), anyInt(), any(), any());
+        verify(pool).streamingForEndpoint(any(), eq("http://localhost:11434"), eq(BOUND), any(), anyInt(), any(), any());
     }
 
     @Test
