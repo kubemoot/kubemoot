@@ -466,27 +466,21 @@
 		return !!t && !('error' in t);
 	}
 
+	const PHASE_CLASSES: Record<string, string> = {
+		Completed: 'phase-pass',
+		Passed: 'phase-pass',
+		Failed: 'phase-fail',
+		Error: 'phase-fail',
+		ToolSmokeFailed: 'phase-fail',
+		Running: 'phase-running',
+		Paused: 'phase-paused',
+		Pausing: 'phase-paused',
+		Stopping: 'phase-paused',
+		Cancelled: 'phase-cancelled'
+	};
+
 	function phaseClass(phase?: string): string {
-		switch (phase) {
-			case 'Completed':
-			case 'Passed':
-				return 'phase-pass';
-			case 'Failed':
-			case 'Error':
-				return 'phase-fail';
-			case 'Running':
-				return 'phase-running';
-			case 'Paused':
-			case 'Pausing':
-			case 'Stopping':
-				return 'phase-paused';
-			case 'Cancelled':
-				return 'phase-cancelled';
-			case 'ToolSmokeFailed':
-				return 'phase-fail';
-			default:
-				return 'phase-pending';
-		}
+		return PHASE_CLASSES[phase ?? ''] ?? 'phase-pending';
 	}
 
 	// Copy a suite's run context to the clipboard as markdown, so it can be pasted
