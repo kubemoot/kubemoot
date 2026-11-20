@@ -99,8 +99,9 @@ in front of the discussion so the question is read in context.
 
 The history is bounded and durable. It keeps the most recent turns (ten by default),
 expires after a period of inactivity (a day by default), and is stored in the NATS KV
-bucket `kubemoot_conversations` under the key `conv.<conversationId>`, so a session
-survives a coordinator restart. Supplying the same `conversationId` continues a
+bucket `kubemoot_conversations` under the key `conv.<namespace>.<crew>.<conversationId>`,
+so a session survives a coordinator restart and two crews that receive the same
+`conversationId` never share history. Supplying the same `conversationId` continues a
 conversation; omitting it starts a new one. Old turns drop off the end. Kubemoot does
 not compact or summarize them. See
 [Conversations, Turns & Threads](../conversations-turns-and-threads/).

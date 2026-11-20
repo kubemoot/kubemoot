@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ConversationHistory",
-  "description": "The turns of a conversation, in the kubemoot_conversations bucket, key conv.<conversationId>. The coordinator gives earlier turns to the agents as context.",
+  "description": "The turns of a conversation, in the kubemoot_conversations bucket, key conv.<namespace>.<crew>.<conversationId>. The coordinator gives earlier turns to the agents as context.",
   "type": "object",
   "required": ["lastAccessed", "turns"],
   "properties": {

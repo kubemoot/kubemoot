@@ -26,7 +26,8 @@ import java.util.Optional;
  *   <li>lifecycle {@code kubemoot.lifecycle.<ns>.<crew>.<signal>.<agent>}</li>
  *   <li>artifacts {@code kubemoot.artifacts.<ns>.<crew>.<thread>}, objects {@code <ns>/<crew>/<thread>/...}</li>
  *   <li>chat {@code kubemoot.chat.<ns>.<agent>}</li>
- *   <li>KV: resumes {@code <ns>.<crew>}, memory {@code <ns>.<crew>.<topic>.<key>},
+ *   <li>KV: resumes {@code <ns>.<crew>}, conversations {@code conv.<ns>.<crew>.<conversationId>},
+ *       memory {@code <ns>.<crew>.<topic>.<key>},
  *       agent state {@code <ns>.<agent>}, latency {@code latency.<ns>.<agent>.<server>}</li>
  * </ul>
  */
@@ -262,9 +263,27 @@ public record CrewScope(String namespace, String crew) {
         return namespace + DOT + requireCrew();
     }
 
+    /** Key in {@code kubemoot_conversations}: {@code conv.<ns>.<crew>.<conversationId>}. */
+    public String conversationKey(String conversationId) {
+        return "conv." + kvScope() + DOT + conversationId;
+    }
+
+    /**
+     * The unscoped key {@code conv.<conversationId>}, shared by every crew in the cluster. It
+     * is a read-only fallback and is never written.
+     */
+    public static String legacyConversationKey(String conversationId) {
+        return "conv." + conversationId;
+    }
+
     /** Prefix of every crew-memory key in this scope: {@code <ns>.<crew>.}. */
     public String memoryPrefix() {
-        return kvToken(namespace) + DOT + kvToken(hasCrew() ? crew : MEMORY_NO_CREW) + DOT;
+        return kvScope() + DOT;
+    }
+
+    /** The {@code <ns>.<crew>} part of a KV key; a crewless scope uses the placeholder crew. */
+    private String kvScope() {
+        return kvToken(namespace) + DOT + kvToken(hasCrew() ? crew : MEMORY_NO_CREW);
     }
 
     /** Key in {@code kubemoot_crew_memory}: {@code <ns>.<crew>.<topic>.<key>}. */

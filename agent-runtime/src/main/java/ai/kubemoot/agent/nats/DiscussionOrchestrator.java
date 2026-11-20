@@ -12,6 +12,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
+import io.nats.client.JetStreamApiException;
+import io.nats.client.KeyValue;
+import io.nats.client.api.KeyValueEntry;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -4927,7 +4930,7 @@ public class DiscussionOrchestrator {
      * ({@code once}) may already have its turn from before the restart, so the turn is added
      * only when none of the conversation's turns came from this thread.
      */
-    private void recordConversationTurn(String conversationId, String query, String response, String threadId,
+    void recordConversationTurn(String conversationId, String query, String response, String threadId,
                                         boolean once) {
         var history = loadConversationHistory(conversationId);
         if (once && history.turns.stream().anyMatch(turn -> threadId.equals(turn.threadId()))) {
@@ -4943,7 +4946,7 @@ public class DiscussionOrchestrator {
      * Build conversation context as a list of Q&A maps for serialization into NATS messages.
      * Returns empty list if no prior turns exist.
      */
-    private List<Map<String, String>> buildConversationContext(String conversationId) {
+    List<Map<String, String>> buildConversationContext(String conversationId) {
         if (conversationId == null) return List.of();
         var history = loadConversationHistory(conversationId);
         if (history.turns.isEmpty()) return List.of();
@@ -4976,7 +4979,7 @@ public class DiscussionOrchestrator {
             var conn = natsProvider.getConnection();
             if (conn != null) {
                 var kv = conn.keyValue(conversationKvBucket);
-                var entry = kv.get("conv." + conversationId);
+                var entry = readConversationEntry(kv, conversationId);
                 if (entry != null && entry.getValue() != null) {
                     var history = deserializeHistory(entry.getValue());
                     history.lastAccessed = Instant.now();
@@ -4997,6 +5000,16 @@ public class DiscussionOrchestrator {
     }
 
     /**
+     * The conversation's entry under this crew's key, else under the key conversations had
+     * before they were scoped (entries there expire with the bucket's time to live).
+     */
+    KeyValueEntry readConversationEntry(KeyValue kv, String conversationId)
+            throws IOException, JetStreamApiException {
+        var entry = kv.get(natsProvider.scope().conversationKey(conversationId));
+        return entry != null ? entry : kv.get(CrewScope.legacyConversationKey(conversationId));
+    }
+
+    /**
      * Persist conversation history to NATS KV. Degrades gracefully — logs warning on failure.
      */
     private void persistConversationHistory(String conversationId, ConversationHistory history) {
@@ -5007,7 +5020,7 @@ public class DiscussionOrchestrator {
                 return;
             }
             var kv = conn.keyValue(conversationKvBucket);
-            kv.put("conv." + conversationId, serializeHistory(history));
+            kv.put(natsProvider.scope().conversationKey(conversationId), serializeHistory(history));
         } catch (Exception e) {
             log.warn("Failed to persist conversation {} to KV: {}", truncate(conversationId, LOG_ID_PREVIEW_CHARS), e.getMessage());
         }

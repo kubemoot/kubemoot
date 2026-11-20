@@ -68,7 +68,7 @@ The firing behavior depends on `kind` (reminder vs followup) and whether the rec
 |---|---|---|
 | `reminder` | yes | `messageType=reminder, agentName=scheduler` on the existing thread's subject. The user sees the reminder line inline. Does **not** reopen the thread (agentName=scheduler, not human). |
 | `reminder` | no | New thread: `thread_start` (content=message) → `synthesis` (content=message) → `thread_close`, all on a fresh threadId. Self-contained reminder, no agent activity. |
-| `followup` | yes | `messageType=reply, agentName=human, content=query` on the existing thread's subject. The agent-runtime's `handleThreadReopen` triggers: thread CLOSED → EVALUATING. The crew re-discusses with prior conversation context (loaded from NATS KV `conv.<conversationId>`). |
+| `followup` | yes | `messageType=reply, agentName=human, content=query` on the existing thread's subject. The agent-runtime's `handleThreadReopen` triggers: thread CLOSED → EVALUATING. The crew re-discusses with prior conversation context (loaded from NATS KV `conv.<namespace>.<crew>.<conversationId>`). |
 | `followup` | no | Fresh `thread_start` on a new threadId. Normal Kubemoot discussion flow runs against the query. |
 
 The `sourceThreadId` is **never typed by the user**. The scheduler-advisor pulls it from its system prompt - the agent-runtime injects a "Discussion context: threadId=&lt;X&gt;" line when chatting inside a discussion, and the PromptModule instructs the LLM to use that.

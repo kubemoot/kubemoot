@@ -190,7 +190,7 @@ export interface ChatEvent {
 	timestamp: string;
 }
 /**
- * The turns of a conversation, in the kubemoot_conversations bucket, key conv.<conversationId>. The coordinator gives earlier turns to the agents as context.
+ * The turns of a conversation, in the kubemoot_conversations bucket, key conv.<namespace>.<crew>.<conversationId>. The coordinator gives earlier turns to the agents as context.
  *
  * This interface was referenced by `KubemootBus`'s JSON-Schema
  * via the `definition` "conversation-history".
