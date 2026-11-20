@@ -604,7 +604,7 @@ check "the release status job reports and never fails the release" "1|1|1" \
   "$(job_block release-status | grep -cE '^    needs: \[publish, dispatch\]$')|$(job_block release-status | grep -c 'Release status check failed')|$(job_block release-status | grep -c 'Unpublished breaking changes')"
 check "the exported candidate is kept one day and overwritten" "1|1" \
   "$(job_block candidate | grep -c 'retention-days: 1$')|$(job_block candidate | grep -c 'overwrite: true')"
-check "quickstart.yaml: two steps only for a candidate, two only for a published chart" "2|2" \
+check "quickstart.yaml: four steps only for a candidate (load, quickstart, build kmctl, scaffolded crew), two only for a published chart" "4|2" \
   "$(grep -c "if: inputs.candidate_tag != ''" .github/workflows/quickstart.yaml)|$(grep -c "if: inputs.candidate_tag == ''" .github/workflows/quickstart.yaml)"
 check "no workflow passes every secret to a called workflow" "" "$(grep -n 'secrets: inherit' .github/workflows/publish-release.yaml .github/workflows/quickstart.yaml || true)"
 check "the release workflows use one pin for the artifact actions and the release helpers" "1|1|1" \
