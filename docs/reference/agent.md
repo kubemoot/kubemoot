@@ -106,7 +106,7 @@ To get reference text on demand instead, leave the source out of `ragSources` an
 | `priority` | int32 | Higher = retrieved first. Default: 0 |
 
 ### `spec.temperature`
-String representation of a float from 0 to 2 (`"0.7"`). Optional, with no default. Unset, the request carries no temperature and the model server applies the model's own published setting: vLLM reads the model's Hugging Face `generation_config.json`, Ollama reads the Modelfile. Set a value only when the agent has a reason to override the model; it is then sent on every call the agent makes. The CRD refuses a value outside 0 to 2. The operator passes it to the runtime as `KUBEMOOT_MODEL_TEMPERATURE`. The agent's triage call sends no temperature either. See [Choosing a model](../../concepts/choosing-a-model/#sampling-comes-from-the-model).
+String representation of a float from 0 to 2. Optional, with no default. Unset, the request carries no temperature and the model server applies the model's own published setting: vLLM reads the model's Hugging Face `generation_config.json`, Ollama reads the Modelfile. The field is optional; for example `temperature: "0.7"` overrides the model for that agent, and it is then sent on every call the agent makes. The CRD refuses a value outside 0 to 2. The operator passes it to the runtime as `KUBEMOOT_MODEL_TEMPERATURE`. The agent's triage call sends no temperature either. See [Choosing a model](../../concepts/choosing-a-model/#sampling-comes-from-the-model).
 
 ### `spec.maxTokens`
 Max generation length. Default: 4096. Coordinator typically uses 8192 to fit synthesis output.
@@ -308,7 +308,6 @@ spec:
     - advisory-prompt
     - coordinator-decision-logic
     - synthesis-prompt
-  temperature: "0.1"
   maxTokens: 4096
   deployment:
     replicas: 1
@@ -367,7 +366,6 @@ spec:
     - name: kubernetes-concepts
       topK: 3
       priority: 1
-  temperature: "0.3"
   maxTokens: 4096
 ```
 
@@ -401,7 +399,6 @@ spec:
   enabledTools:
     - web_search
     - fetch_url
-  temperature: "0.3"
 ```
 
 ---

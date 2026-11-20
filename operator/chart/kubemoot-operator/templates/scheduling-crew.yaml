@@ -83,7 +83,6 @@ spec:
   capabilities: [tool-calling, reasoning]
   discussChannels: [general]
   promptRefs: [scheduling-advisory, scheduling-decision-logic, scheduling-synthesis]
-  temperature: "0.1"
   maxTokens: 4096
   deployment:
     replicas: 1
@@ -112,7 +111,6 @@ spec:
   discussKeywords: [calibration, drift, drifted, recalibrate, modelserver]
   promptRefs: [scheduling-protocol, scheduling-response-style, model-server-calibrator-system]
   enabledTools: [list_servers, server_state, observed_performance, calibrate_server]
-  temperature: "0.1"
   maxTokens: 4096
   deployment:
     replicas: 1
