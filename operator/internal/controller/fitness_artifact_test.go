@@ -72,8 +72,9 @@ func TestBuildFitnessSuiteXLSXProducesValidWorkbook(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-suite", Namespace: testCrewTest},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			CrewRef:    testCrewName,
-			Iterations: 2,
+			SkipToolSmoke: true,
+			CrewRef:       testCrewName,
+			Iterations:    2,
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{
 			RunID:               "abc12345",
@@ -131,7 +132,7 @@ func TestBuildFitnessSuiteXLSXProducesValidWorkbook(t *testing.T) {
 func TestRunsSheetSurfacesFactualityAndFabrication(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-suite", Namespace: testCrewTest},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName, Iterations: 1},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: testCrewName, Iterations: 1},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "fab00001", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	results := []IterationResult{
@@ -171,7 +172,7 @@ func TestRunsSheetSurfacesFactualityAndFabrication(t *testing.T) {
 func TestRunsSheetFactualityBlankWhenNoFacts(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: testCrewTest},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName, Iterations: 1},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: testCrewName, Iterations: 1},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "nofacts1", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	results := []IterationResult{
@@ -333,7 +334,7 @@ func itoa(n int) string { return fmt.Sprintf("%d", n) }
 func TestBuildFitnessSuiteXLSXEmbedsChartsAndPassRate(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "chart-suite", Namespace: testCrewTest},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName, Iterations: 2},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: testCrewName, Iterations: 2},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testDeadbeef, Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	// gpu-utilization: 1 passed of 2 → pass_rate 0.5.
@@ -436,7 +437,7 @@ func TestOverviewIncludesCrewVersion(t *testing.T) {
 			Name: "ver-suite", Namespace: testCrewTest,
 			Labels: map[string]string{crewVersionLabel: testVersion142},
 		},
-		Spec:   kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName, Iterations: 1},
+		Spec:   kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: testCrewName, Iterations: 1},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "r1", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	results := []IterationResult{

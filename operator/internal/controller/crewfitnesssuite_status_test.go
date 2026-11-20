@@ -122,7 +122,8 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		suite := &kubemootv1alpha1.CrewFitnessSuite{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-				CrewRef: csStatusCrew, Iterations: 1,
+				SkipToolSmoke: true,
+				CrewRef:       csStatusCrew, Iterations: 1,
 				Scripts: []kubemootv1alpha1.SuiteScript{
 					{TestRef: "gated", TestContent: probeScript},
 					{TestRef: csResumed, TestContent: probeScript},
@@ -215,7 +216,8 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		suite := &kubemootv1alpha1.CrewFitnessSuite{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-				CrewRef: csStatusCrew, Iterations: 2,
+				SkipToolSmoke: true,
+				CrewRef:       csStatusCrew, Iterations: 2,
 				Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: csProbe, TestContent: probeScript}},
 			},
 		}
@@ -274,7 +276,8 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		suite := &kubemootv1alpha1.CrewFitnessSuite{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-				CrewRef: csStatusCrew, Iterations: 1,
+				SkipToolSmoke: true,
+				CrewRef:       csStatusCrew, Iterations: 1,
 				Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: csProbe, TestContent: probeScript}},
 			},
 		}

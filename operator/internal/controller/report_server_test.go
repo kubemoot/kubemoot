@@ -22,6 +22,7 @@ import (
 func TestIterationFromTranscript(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
+			SkipToolSmoke: true,
 			Scripts: []kubemootv1alpha1.SuiteScript{
 				{TestRef: testGPUUtilization}, // idx 0
 				{TestRef: testK8sPodStatus},   // idx 1
@@ -100,7 +101,8 @@ func assertIterationFields(t *testing.T, ir IterationResult, scenario string, it
 func TestIterationConsensusGate(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: testK8sPodStatus}},
+			SkipToolSmoke: true,
+			Scripts:       []kubemootv1alpha1.SuiteScript{{TestRef: testK8sPodStatus}},
 		},
 	}
 	// Participation is now the TRUE agree count from the event stream (not a mirror

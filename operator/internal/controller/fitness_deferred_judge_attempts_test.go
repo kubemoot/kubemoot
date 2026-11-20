@@ -113,7 +113,8 @@ func TestFailuresUpToTheLimitThenUnjudged(t *testing.T) {
 // checkpoint already settled, without any transcript or crew.
 func (p *judgePass) processScenarioSettled(scenario string) scenarioOutcome {
 	p.suite = &kubemootv1alpha1.CrewFitnessSuite{Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-		Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: scenario}},
+		SkipToolSmoke: true,
+		Scripts:       []kubemootv1alpha1.SuiteScript{{TestRef: scenario}},
 	}}
 	return p.processScenario(context.Background(), 0)
 }

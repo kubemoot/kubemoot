@@ -227,7 +227,7 @@ func TestSemanticConsistency(t *testing.T) {
 func TestConsistencyOverrideUsedInBuild(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "ov-suite", Namespace: testCrewTest},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: testCrewName},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testRunID, Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	// Two answers with NO lexical overlap (lexical would score ~0), but we inject
@@ -348,7 +348,8 @@ func TestGradeFactualityAndFabrication(t *testing.T) {
 func TestIterationFromTranscriptComputesMeasures(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: testGPUUtilization}},
+			SkipToolSmoke: true,
+			Scripts:       []kubemootv1alpha1.SuiteScript{{TestRef: testGPUUtilization}},
 		},
 	}
 	data := []byte(`{
@@ -389,7 +390,7 @@ func TestIterationFromTranscriptComputesMeasures(t *testing.T) {
 func TestBuildXLSXEmitsGradeColumns(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "grade-suite", Namespace: testCrewTest},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: testCrewName},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "feedface", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
 	}
 	// A perfect mechanical run: 5/5 assertions, fast, clean protocol, both passed.

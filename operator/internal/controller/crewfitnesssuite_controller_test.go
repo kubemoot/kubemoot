@@ -78,7 +78,8 @@ func TestFindNextIterationOrdersScriptsThenIterations(t *testing.T) {
 	r := &CrewFitnessSuiteReconciler{}
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			Iterations: 3,
+			SkipToolSmoke: true,
+			Iterations:    3,
 			Scripts: []kubemootv1alpha1.SuiteScript{
 				{TestRef: "a", TestContent: testScriptContent},
 				{TestRef: "b", TestContent: testScriptContent},
@@ -127,7 +128,7 @@ func expectNextIteration(t *testing.T, r *CrewFitnessSuiteReconciler, suite *kub
 func TestIterationCRHasNoTTL(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: testCrewTest},
-		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{CrewRef: testCrewName},
+		Spec:       kubemootv1alpha1.CrewFitnessSuiteSpec{SkipToolSmoke: true, CrewRef: testCrewName},
 		Status:     kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: testDeadbeef},
 	}
 	next := &nextIteration{
@@ -160,8 +161,9 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "missing crewRef",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					Iterations: 1,
-					Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: "a"}},
+					SkipToolSmoke: true,
+					Iterations:    1,
+					Scripts:       []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: "a"}},
 				},
 			},
 			wantErr: "crewRef",
@@ -170,7 +172,8 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "zero iterations",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					CrewRef: testCrewName, Iterations: 0,
+					SkipToolSmoke: true,
+					CrewRef:       testCrewName, Iterations: 0,
 					Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: "a"}},
 				},
 			},
@@ -180,7 +183,8 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "empty scripts",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					CrewRef: testCrewName, Iterations: 1, Scripts: []kubemootv1alpha1.SuiteScript{},
+					SkipToolSmoke: true,
+					CrewRef:       testCrewName, Iterations: 1, Scripts: []kubemootv1alpha1.SuiteScript{},
 				},
 			},
 			wantErr: "scripts",
@@ -189,7 +193,8 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "script missing both sources",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					CrewRef: testCrewName, Iterations: 1,
+					SkipToolSmoke: true,
+					CrewRef:       testCrewName, Iterations: 1,
 					Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "x"}},
 				},
 			},
@@ -199,7 +204,8 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "script with both sources",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					CrewRef: testCrewName, Iterations: 1,
+					SkipToolSmoke: true,
+					CrewRef:       testCrewName, Iterations: 1,
 					Scripts: []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: "a", ConfigMapRef: "b"}},
 				},
 			},
@@ -209,7 +215,8 @@ func TestValidateSuiteSpec(t *testing.T) {
 			name: "valid spec",
 			suite: &kubemootv1alpha1.CrewFitnessSuite{
 				Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-					CrewRef: testCrewName, Iterations: 3,
+					SkipToolSmoke: true,
+					CrewRef:       testCrewName, Iterations: 3,
 					Scripts: []kubemootv1alpha1.SuiteScript{
 						{TestRef: "a", TestContent: testScriptContent},
 						{TestRef: "b", ConfigMapRef: "scripts-cm"},
@@ -257,9 +264,10 @@ func TestAdvanceRunningCompletesDespiteIterationFailures(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: testBaseline, Namespace: testCrewTest},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			CrewRef:    testCrewName,
-			Iterations: 2,
-			Scripts:    []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: testScriptContent}},
+			SkipToolSmoke: true,
+			CrewRef:       testCrewName,
+			Iterations:    2,
+			Scripts:       []kubemootv1alpha1.SuiteScript{{TestRef: "x", TestContent: testScriptContent}},
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{
 			Phase:           kubemootv1alpha1.CrewFitnessSuitePhaseRunning,

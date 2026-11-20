@@ -108,7 +108,8 @@ func TestSuiteConsistency(t *testing.T) {
 
 func TestSetScenarioRollupSetsBoth(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-		Scripts: scripts("a"), Purpose: kubemootv1alpha1.FitnessSuitePurposeRegression,
+		SkipToolSmoke: true,
+		Scripts:       scripts("a"), Purpose: kubemootv1alpha1.FitnessSuitePurposeRegression,
 	}}
 	setScenarioRollup(suite, scenarioResults(suite.Spec.Scripts,
 		iterResults("a", kubemootv1alpha1.CrewFitnessPhasePassed, kubemootv1alpha1.CrewFitnessPhaseFailed)))
@@ -121,7 +122,8 @@ func TestOverviewAndScenariosReportConsistency(t *testing.T) {
 	suite := &kubemootv1alpha1.CrewFitnessSuite{
 		ObjectMeta: metav1.ObjectMeta{Name: "c", Namespace: testCrewTest},
 		Spec: kubemootv1alpha1.CrewFitnessSuiteSpec{
-			CrewRef: testCrewName, Iterations: 3, Purpose: kubemootv1alpha1.FitnessSuitePurposeCapability,
+			SkipToolSmoke: true,
+			CrewRef:       testCrewName, Iterations: 3, Purpose: kubemootv1alpha1.FitnessSuitePurposeCapability,
 			Scripts: scripts("never"),
 		},
 		Status: kubemootv1alpha1.CrewFitnessSuiteStatus{RunID: "r1", Phase: kubemootv1alpha1.CrewFitnessSuitePhaseCompleted},
