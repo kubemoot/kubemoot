@@ -180,7 +180,7 @@ func TestRunToolSmokeToolErrorFails(t *testing.T) {
 }
 
 func TestRunToolSmokeUnlistedDeclaredToolFails(t *testing.T) {
-	gw := &fakeToolGateway{tools: []gatewayTool{{Name: "real", ServerName: "s"}}}
+	gw := &fakeToolGateway{tools: []gatewayTool{{Name: "listed-tool", ServerName: "s"}}}
 	ts := httptest.NewServer(gw)
 	defer ts.Close()
 	rows := runToolSmoke(context.Background(), ts.Client(), ts.URL,
