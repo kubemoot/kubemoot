@@ -2,5 +2,3 @@ export { default as DiscussionSpanGraph } from './DiscussionSpanGraph.svelte';
 export { default as MessageStatsLine } from './MessageStatsLine.svelte';
 export { default as ThreadSummaryPanel } from './ThreadSummaryPanel.svelte';
 export { default as PlacementPanel } from './PlacementPanel.svelte';
-export { default as DeleteDiscussion } from './DeleteDiscussion.svelte';
-export { default as NotSent } from './NotSent.svelte';

@@ -4,7 +4,6 @@ import { resolve } from '$app/paths';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import {
 	DISCUSS_ALL,
-	discussThreadFilter,
 	parseDiscussSubject,
 	tryCrewScope,
 	type CrewScope,
@@ -45,8 +44,6 @@ let eventSource: EventSource | undefined;
 let initialized = false;
 // Track last sequence for reconnection
 let lastSeq = 0;
-// Track deleted threads so messages don't resurrect them
-const deletedThreadIds = new Set<string>();
 
 const reopen = (t: Thread) => {
 	t.status = 'open';
@@ -185,11 +182,10 @@ function applyUnknownThreadMessage(
 
 /**
  * Folds one discussion message into the thread map. `subject` is the NATS subject
- * the message arrived on (or was published to); its namespace and crew scope the
+ * the message arrived on; its namespace and crew scope the
  * thread.
  */
 export function handleMessage(msg: DiscussionMessage, subject?: string) {
-	if (deletedThreadIds.has(msg.threadId)) return;
 	const parsed = parseDiscussSubject(subject);
 
 	threadsMap.update((threads) => {
@@ -315,31 +311,6 @@ export function initDiscussions() {
 		.catch((err) => console.error('discussions: initial load/stream failed', err));
 }
 
-export async function removeThread(threadId: string) {
-	deletedThreadIds.add(threadId);
-	let scope: CrewScope | null = null;
-	threadsMap.update((threads) => {
-		const existing = threads.get(threadId);
-		if (existing) scope = threadScope(existing);
-		threads.delete(threadId);
-		return new Map(threads);
-	});
-
-	// Purge messages from NATS JetStream so they don't come back on reload
-	try {
-		await fetch(resolve('/api/nats/purge'), {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				stream: 'KUBEMOOT_DISCUSS',
-				filter: discussThreadFilter(threadId, scope)
-			})
-		});
-	} catch (e) {
-		console.error('Failed to purge thread from NATS:', e);
-	}
-}
-
 export const threads = {
 	subscribe: threadsMap.subscribe
 };
@@ -349,47 +320,3 @@ export const sortedThreads = derived(threadsMap, ($threads) =>
 		(a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
 	)
 );
-
-// Pinned threads - persisted in NATS KV bucket kubemoot_pinned_threads
-export const pinnedThreadIds = writable<Set<string>>(new Set());
-
-export async function loadPinnedThreads() {
-	try {
-		const res = await fetch(resolve('/api/discussions/pin'));
-		if (!res.ok) return;
-		const { pinned } = await res.json();
-		pinnedThreadIds.set(new Set(Object.keys(pinned ?? {})));
-	} catch (e) {
-		console.error('Failed to load pinned threads:', e);
-	}
-}
-
-export async function pinThread(threadId: string) {
-	try {
-		await fetch(resolve('/api/discussions/pin'), {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ threadId })
-		});
-		pinnedThreadIds.update((s) => new Set([...s, threadId]));
-	} catch (e) {
-		console.error('Failed to pin thread:', e);
-	}
-}
-
-export async function unpinThread(threadId: string) {
-	try {
-		await fetch(resolve('/api/discussions/pin'), {
-			method: 'DELETE',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ threadId })
-		});
-		pinnedThreadIds.update((s) => {
-			const next = new Set(s);
-			next.delete(threadId);
-			return next;
-		});
-	} catch (e) {
-		console.error('Failed to unpin thread:', e);
-	}
-}

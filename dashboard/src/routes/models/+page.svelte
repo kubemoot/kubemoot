@@ -65,7 +65,7 @@
 			</div>
 		{/if}
 		{#each visibleModels as model (model.metadata.namespace + '/' + model.metadata.name)}
-			<ModelCard {model} showNamespace={$namespace === ''} onAction={() => live.refresh()} />
+			<ModelCard {model} showNamespace={$namespace === ''} />
 		{/each}
 		{#each visibleCatalog as entry (entry.namespace + '/' + entry.server + '/' + entry.model.name)}
 			<CatalogModelCard {entry} showNamespace={$namespace === ''} />

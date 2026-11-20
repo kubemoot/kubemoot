@@ -1,91 +1,23 @@
 <script lang="ts">
 	import { formatBytes, formatMiB } from '#lib/format.js';
-	import { PENDING_TTL_MS, unsettledActions, type PendingAction } from '#lib/pending-actions.js';
 	import { readinessStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
 	import type { ModelServer, ModelServerLoadedModel } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
-	import { readOnly } from '#lib/stores/mode.js';
 
 	interface Props {
 		server: ModelServer;
 		showNamespace?: boolean;
-		onAction?: () => void;
 	}
 
-	let { server, showNamespace = false, onAction }: Props = $props();
+	let { server, showNamespace = false }: Props = $props();
 
-	let actionError = $state<string | null>(null);
 	let now = $state(Date.now());
-
-	// Pending actions are state-driven and persisted in localStorage so a
-	// spinner that's mid-flight survives a page refresh. The truth source
-	// is `ModelServer.status.capacity.loadedModels`; a pending action
-	// expires either when the CR catches up (loaded/unloaded as intended)
-	// or after PENDING_TTL_MS (give-up timeout - operator probe never
-	// confirmed, treat as failed).
-
-	let pendingActions = $state<Record<string, PendingAction>>({});
-
-	const storageKey = $derived(
-		`kubemoot-pending-actions:${server.metadata.namespace ?? 'kubemoot'}/${server.metadata.name}`
-	);
-
-	// Hydrate from localStorage on first run (and prune stale entries).
-	$effect(() => {
-		if (typeof localStorage === 'undefined') return;
-		try {
-			const raw = localStorage.getItem(storageKey);
-			if (!raw) return;
-			const parsed = JSON.parse(raw) as Record<string, PendingAction>;
-			const cutoff = Date.now() - PENDING_TTL_MS;
-			const pruned: Record<string, PendingAction> = {};
-			for (const [k, v] of Object.entries(parsed)) {
-				if (v && v.startedAt > cutoff) pruned[k] = v;
-			}
-			pendingActions = pruned;
-		} catch {
-			// ignore malformed entries
-		}
-	});
-
-	// Persist pendingActions to localStorage on every change.
-	$effect(() => {
-		if (typeof localStorage === 'undefined') return;
-		try {
-			if (Object.keys(pendingActions).length === 0) {
-				localStorage.removeItem(storageKey);
-			} else {
-				localStorage.setItem(storageKey, JSON.stringify(pendingActions));
-			}
-		} catch {
-			// ignore quota / privacy errors
-		}
-	});
 
 	$effect(() => {
 		const tick = setInterval(() => (now = Date.now()), 1000);
 		return () => clearInterval(tick);
 	});
-
-	// Reconcile pendingActions with the CR's actual state.
-	// - load completes: actuallyLoaded.has(model) → drop pending
-	// - unload completes: !actuallyLoaded.has(model) → drop pending
-	// - TTL expires: drop pending (give up on the spinner)
-	$effect(() => {
-		const actuallyLoaded = new Set(
-			(server.status?.capacity?.loadedModels ?? []).map((m) => m.name)
-		);
-		const next = unsettledActions(pendingActions, actuallyLoaded, Date.now() - PENDING_TTL_MS);
-		if (next) pendingActions = next;
-	});
-
-	function isPending(modelName: string, action?: 'load' | 'unload'): boolean {
-		const p = pendingActions[modelName];
-		if (!p) return false;
-		if (action && p.action !== action) return false;
-		return true;
-	}
 
 	const status = $derived(readinessStatus(server.status, 'Failed'));
 
@@ -93,10 +25,7 @@
 	const capacity = $derived(server.status?.capacity);
 	const weight = $derived(server.spec.scheduling?.weight);
 
-	// CR truth: what's actually loaded right now per the operator's latest
-	// capacity probe. This is the only source of state for which button
-	// is enabled. The pendingActions set drives which buttons show the
-	// spinner - independent of state.
+	// What is loaded right now, per the operator's latest capacity probe.
 	const baseLoadedModels = $derived<ModelServerLoadedModel[]>(capacity?.loadedModels ?? []);
 	const baseLoadedByName = $derived(
 		new Map(baseLoadedModels.map((m) => [m.name, m] as const))
@@ -109,7 +38,7 @@
 
 	// Unified, deduped, alphabetically-sorted list of every model this server
 	// knows about (loaded + cached). Each entry carries its current load state
-	// so the row can render the right indicator + button enable.
+	// so the row can render the right indicator.
 	interface ModelEntry {
 		name: string;
 		loadedInfo: ModelServerLoadedModel | undefined; // undefined → cached only
@@ -131,65 +60,13 @@
 	const vramTotal = $derived(capacity?.vramTotalMiB ?? 0);
 	const vramPct = $derived(vramTotal > 0 ? Math.min(100, Math.round((vramUsed * 100) / vramTotal)) : 0);
 
-	const apiBase = $derived(
-		`${resolve('/api/kubemoot/modelservers/[name]', { name: server.metadata.name })}?namespace=${encodeURIComponent(server.metadata.namespace ?? 'kubemoot')}`
-	);
-	const loadUrl = $derived(apiBase.replace('?', '/load?'));
-	const unloadUrl = $derived(apiBase.replace('?', '/unload?'));
-
-	function actionUrl(action: 'load' | 'unload'): string {
-		return action === 'load' ? loadUrl : unloadUrl;
-	}
-
 	function modelDetailsHref(modelName: string): string {
 		const ns = encodeURIComponent(server.metadata.namespace ?? 'kubemoot');
 		return `${resolve('/models')}?model=${encodeURIComponent(modelName)}&server=${encodeURIComponent(server.metadata.name)}&namespace=${ns}`;
 	}
 
-	async function runAction(model: string, action: 'load' | 'unload') {
-		if (isPending(model)) return;
-		actionError = null;
-		// Record the pending action BEFORE the HTTP call - that way a refresh
-		// mid-flight still shows the spinner because localStorage is updated
-		// the moment the user clicks.
-		pendingActions = { ...pendingActions, [model]: { action, startedAt: Date.now() } };
-		try {
-			const res = await fetch(actionUrl(action), {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ model })
-			});
-			if (!res.ok) {
-				const body = await res.text();
-				throw new Error(body || `${action} failed (HTTP ${res.status})`);
-			}
-			// HTTP returned success. Don't clear the pending action here -
-			// the reconcile $effect drops it once the CR confirms the new
-			// state (or after TTL). Schedule refetches so the CR catches up
-			// faster than the operator's natural probe interval.
-			onAction?.();
-			scheduleRefetches();
-		} catch (e) {
-			actionError = e instanceof Error ? e.message : `${action} failed`;
-			// Drop the pending action on failure - spinner shouldn't spin
-			// forever on a server error. (TTL would also catch this but we
-			// can clear immediately on a known failure.)
-			const next = { ...pendingActions };
-			delete next[model];
-			pendingActions = next;
-		}
-	}
-
 	function stopProp(e: Event) {
 		e.stopPropagation();
-	}
-
-	function scheduleRefetches() {
-		// Operator capacity probe runs on an interval. Poll at growing
-		// offsets to catch the moment the CR catches up with reality.
-		for (const ms of [3000, 8000, 18000, 35000]) {
-			setTimeout(() => onAction?.(), ms);
-		}
 	}
 
 	function formatRemaining(expiresAt: string | undefined, nowMs: number): string {
@@ -266,14 +143,7 @@
 						</div>
 						{#each modelEntries as entry (entry.name)}
 							{@const loaded = isLoaded(entry.name)}
-							{@const loadingPending = isPending(entry.name, 'load')}
-							{@const unloadingPending = isPending(entry.name, 'unload')}
-							{@const pending = loadingPending || unloadingPending}
-							<!-- Hover-reveal action: the row is quiet at rest. Only one action
-							     exists per row -- Unload for loaded, Load for cached. When a
-							     pending action is in flight we force the spinner visible
-							     (not hover-gated) so the user sees what's happening. -->
-							<div class="model-row" class:row-loaded={loaded} class:row-pending={pending}>
+							<div class="model-row" class:row-loaded={loaded}>
 								<div class="model-info">
 									<span
 										class="model-state"
@@ -294,59 +164,10 @@
 										<span class="model-meta ttl">TTL {formatRemaining(entry.loadedInfo.expiresAt, now)}</span>
 									{/if}
 								</div>
-								{#if !$readOnly}
-								<div class="action-group" class:show={pending}>
-									{#if loaded}
-										<button
-											class="action-btn unload"
-											class:busy={unloadingPending}
-											title={unloadingPending
-												? 'Unloading… waiting for capacity probe to confirm'
-												: 'Evict from VRAM (model stays on disk)'}
-											disabled={pending}
-											onclick={(e) => {
-												e.preventDefault();
-												runAction(entry.name, 'unload');
-											}}
-										>
-											{#if unloadingPending}
-												<span class="spinner" aria-hidden="true"></span>
-												<span>Unloading…</span>
-											{:else}
-												Unload
-											{/if}
-										</button>
-									{:else}
-										<button
-											class="action-btn load"
-											class:busy={loadingPending}
-											title={loadingPending
-												? 'Loading… waiting for capacity probe to confirm'
-												: 'Load into VRAM'}
-											disabled={pending}
-											onclick={(e) => {
-												e.preventDefault();
-												runAction(entry.name, 'load');
-											}}
-										>
-											{#if loadingPending}
-												<span class="spinner" aria-hidden="true"></span>
-												<span>Loading…</span>
-											{:else}
-												Load
-											{/if}
-										</button>
-									{/if}
-								</div>
-								{/if}
 							</div>
 						{/each}
 					</div>
 				</div>
-			{/if}
-
-			{#if actionError}
-				<div class="error-row" role="alert">{actionError}</div>
 			{/if}
 		</div>
 	{/snippet}
@@ -357,24 +178,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
-	}
-
-	.action-group {
-		display: flex;
-		gap: 0.25rem;
-		flex-shrink: 0;
-		/* Hover-reveal: invisible at rest, fades in on row hover or when
-		   a pending action is in flight (.show is set programmatically). */
-		opacity: 0;
-		transition: opacity 0.12s ease;
-		pointer-events: none;
-	}
-
-	.model-row:hover .action-group,
-	.model-row:focus-within .action-group,
-	.action-group.show {
-		opacity: 1;
-		pointer-events: auto;
 	}
 
 	.row {
@@ -476,13 +279,6 @@
 		background-color: rgba(16, 185, 129, 0.08);
 	}
 
-	.model-row.row-pending {
-		/* When a pending action is in flight, the row itself shows a subtle
-		   busy indicator background so the user can scan a long list and
-		   spot which row is currently changing state. */
-		background-color: rgba(59, 130, 246, 0.07);
-	}
-
 	.model-info {
 		display: flex;
 		align-items: center;
@@ -532,76 +328,5 @@
 
 	.model-meta.ttl {
 		font-variant-numeric: tabular-nums;
-	}
-
-	.action-btn {
-		font-size: 0.7rem;
-		padding: 0.15rem 0.5rem;
-		border-radius: 0.25rem;
-		border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
-		background-color: var(--color-bg-tertiary);
-		color: var(--color-text);
-		cursor: pointer;
-		min-width: 56px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.35rem;
-		transition: background-color 0.15s ease, border-color 0.15s ease;
-	}
-
-	.action-btn.busy {
-		opacity: 0.85;
-		cursor: progress;
-	}
-
-	.spinner {
-		display: inline-block;
-		width: 0.7rem;
-		height: 0.7rem;
-		border: 1.5px solid currentColor;
-		border-right-color: transparent;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	.action-btn:hover:not(:disabled) {
-		background-color: var(--color-bg-secondary, rgba(255, 255, 255, 0.08));
-	}
-
-	.action-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.action-btn.unload {
-		border-color: rgba(239, 68, 68, 0.3);
-		color: #fca5a5;
-	}
-
-	.action-btn.unload:hover:not(:disabled) {
-		background-color: rgba(239, 68, 68, 0.1);
-	}
-
-	.action-btn.load {
-		border-color: rgba(16, 185, 129, 0.3);
-		color: #6ee7b7;
-	}
-
-	.action-btn.load:hover:not(:disabled) {
-		background-color: rgba(16, 185, 129, 0.1);
-	}
-
-	.error-row {
-		font-size: 0.7rem;
-		color: var(--color-error, #ef4444);
-		padding: 0.25rem 0.5rem;
-		background-color: rgba(239, 68, 68, 0.1);
-		border-radius: 0.25rem;
-		word-break: break-word;
 	}
 </style>

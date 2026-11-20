@@ -13,7 +13,7 @@
 
 	interface Props {
 		children: import('svelte').Snippet;
-		data: { readOnly: boolean; scoped: boolean };
+		data: { scoped: boolean };
 	}
 
 	let { children, data }: Props = $props();
@@ -21,7 +21,7 @@
 	// The mode is fixed per deployment, so setting the store while the component
 	// initialises gives the server render and the hydrated page the same controls.
 	// svelte-ignore state_referenced_locally
-	dashboardMode.set({ readOnly: data.readOnly, scoped: data.scoped });
+	dashboardMode.set({ scoped: data.scoped });
 
 	let namespacesLoading = $state(true);
 	let version = $state('...');

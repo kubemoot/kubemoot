@@ -140,18 +140,6 @@ export function crewThreads(threads: Thread[], scope: CrewScope | null): Thread[
 	);
 }
 
-/** Sending needs one selected crew, text, and no send in flight. */
-export function canSend(opts: {
-	scope: CrewScope | null;
-	text: string;
-	sending: boolean;
-	readOnly: boolean;
-	/** The open conversation's first message was not sent; nothing can be added until it is. */
-	blocked?: boolean;
-}): boolean {
-	return !!opts.scope && !opts.readOnly && !opts.sending && !opts.blocked && opts.text.trim().length > 0;
-}
-
 /** The chat as plain text for the clipboard. */
 export function chatAsText(turns: ChatTurn[], showDetails: boolean): string {
 	return turns

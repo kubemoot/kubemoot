@@ -235,7 +235,7 @@ The gateway reads the crew's messages from the discussion stream and keeps the
 `thread_start` ones (the message type is not in the subject), so the list covers what the
 stream still holds (about a day, at most 5,000 messages across all crews, which bounds the
 read). Only a coordinator's `thread_start` (always with a conversation) and a person's
-(the dashboard's, which has none) start conversations; agents never publish one. `question` is the first
+(which has no conversation yet) start conversations; agents never publish one. `question` is the first
 question the stream holds for the conversation, and `turns` counts its threads; a
 question the coordinator started again counts twice. A thread a person starts with no
 conversation (the dashboard does) lists as a one-turn conversation whose ID is the thread's

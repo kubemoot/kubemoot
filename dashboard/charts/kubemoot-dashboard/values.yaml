@@ -27,7 +27,8 @@ serviceAccount:
 # RBAC configuration
 rbac:
   create: true
-  # ClusterRole for reading Kubemoot CRDs and K8s resources
+  # ClusterRole for reading Kubemoot CRDs and K8s resources. The dashboard is read-only, so
+  # every rule holds get, list and watch only: a test in the operator chart fails on any other verb.
   clusterRole:
     name: kubemoot-dashboard-reader
     rules:
@@ -54,18 +55,6 @@ rbac:
       - apiGroups: ["kubemoot.ai"]
         resources: ["*"]
         verbs: ["get", "list", "watch"]
-      # Delete fitness suite runs from the Fitness page "remove run" action, and
-      # patch spec.suspend / spec.cancel for its Pause, Resume and Stop actions.
-      # Scoped to crewfitnesssuites only; owned children (CrewFitness CRs)
-      # cascade via owner refs, so no separate delete grant is needed for them.
-      - apiGroups: ["kubemoot.ai"]
-        resources: ["crewfitnesssuites"]
-        verbs: ["delete", "patch"]
-      # Remove a crew from the Crews page. Deletes the Crew object only; the
-      # operator's finalizer and owner refs remove its Agents and discussions.
-      - apiGroups: ["kubemoot.ai"]
-        resources: ["crews"]
-        verbs: ["delete"]
 
 # Service configuration
 service:
@@ -144,7 +133,7 @@ verify:
 # Workshop instance: a second Deployment and Service of this same image and tag (never a
 # separate tag), read-only and limited to the namespaces matching one label selector, with
 # its own ServiceAccount that can only read. Meant for a kubectl port-forward by workshop
-# attendees; the main dashboard stays as it is. Off by default.
+# attendees; the main dashboard shows every namespace. Both are read-only. Off by default.
 workshop:
   enabled: false
   # Only namespaces matching this label selector are shown. Resolved against the live

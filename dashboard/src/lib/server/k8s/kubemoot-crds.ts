@@ -1,5 +1,4 @@
 import { getCustomObjectsApi } from './client.js';
-import { setHeaderOptions } from '@kubernetes/client-node/dist/middleware.js';
 import type {
 	ModelServer,
 	Model,
@@ -271,19 +270,6 @@ export async function getMCPServerReport(namespace: string, name: string): Promi
 	return getNamespacedCRD<MCPServerReport>('mcpserverreports', namespace, name);
 }
 
-export async function patchMCPServerReport(namespace: string, name: string, patch: Record<string, unknown>): Promise<unknown> {
-	const api = getCustomObjectsApi();
-	const result = await api.patchNamespacedCustomObject({
-		group: GROUP,
-		version: VERSION,
-		namespace,
-		plural: 'mcpserverreports',
-		name,
-		body: patch
-	}, setHeaderOptions('Content-Type', 'application/merge-patch+json'));
-	return result;
-}
-
 // Crew functions
 export async function listCrews(namespace: string): Promise<KubemootList<Crew>> {
 	if (namespace === '') {
@@ -294,19 +280,6 @@ export async function listCrews(namespace: string): Promise<KubemootList<Crew>> 
 
 export async function getCrew(namespace: string, name: string): Promise<Crew> {
 	return getNamespacedCRD<Crew>('crews', namespace, name);
-}
-
-// deleteCrew removes the Crew object only. The operator's finalizer and owner
-// refs remove its Agents and open discussions.
-export async function deleteCrew(namespace: string, name: string): Promise<unknown> {
-	const api = getCustomObjectsApi();
-	return api.deleteNamespacedCustomObject({
-		group: GROUP,
-		version: VERSION,
-		namespace,
-		plural: 'crews',
-		name
-	});
 }
 
 // CrewFitness functions
@@ -332,39 +305,6 @@ export async function listCrewFitnessSuites(namespace: string): Promise<Kubemoot
 
 export async function getCrewFitnessSuite(namespace: string, name: string): Promise<CrewFitnessSuite> {
 	return getNamespacedCRD<CrewFitnessSuite>('crewfitnesssuites', namespace, name);
-}
-
-// deleteCrewFitnessSuite removes a suite run. Owned children (CrewFitness CRs) are
-// garbage-collected via owner refs; the operator's finalizer purges the run's NATS
-// artifacts (transcripts + score sidecars).
-export async function deleteCrewFitnessSuite(namespace: string, name: string): Promise<unknown> {
-	const api = getCustomObjectsApi();
-	return api.deleteNamespacedCustomObject({
-		group: GROUP,
-		version: VERSION,
-		namespace,
-		plural: 'crewfitnesssuites',
-		name
-	});
-}
-
-// patchCrewFitnessSuiteSpec merge-patches the suite's control fields
-// (spec.suspend pauses between iterations, spec.cancel stops the suite). The
-// operator acts on them; the dashboard only flips the fields.
-export async function patchCrewFitnessSuiteSpec(
-	namespace: string,
-	name: string,
-	patch: { spec: { suspend?: boolean; cancel?: boolean } }
-): Promise<unknown> {
-	const api = getCustomObjectsApi();
-	return api.patchNamespacedCustomObject({
-		group: GROUP,
-		version: VERSION,
-		namespace,
-		plural: 'crewfitnesssuites',
-		name,
-		body: patch
-	}, setHeaderOptions('Content-Type', 'application/merge-patch+json'));
 }
 
 // KubemootConfig functions (cluster-scoped)

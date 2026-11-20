@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
 	availableSuiteActions,
-	suiteActionPatch,
 	suiteDisplayPhase,
 	suiteIsJudged
 } from './fitness-suite-controls';
@@ -15,21 +14,6 @@ function suite(phase: string | undefined, spec: { suspend?: boolean; cancel?: bo
 		status: phase ? { phase: phase as NonNullable<CrewFitnessSuite['status']>['phase'] } : undefined
 	};
 }
-
-describe('suiteActionPatch', () => {
-	it('maps each action to its spec field', () => {
-		expect(suiteActionPatch('pause')).toEqual({ spec: { suspend: true } });
-		expect(suiteActionPatch('resume')).toEqual({ spec: { suspend: false } });
-		expect(suiteActionPatch('stop')).toEqual({ spec: { cancel: true } });
-	});
-
-	it('rejects unknown or malformed actions', () => {
-		expect(suiteActionPatch('delete')).toBeNull();
-		expect(suiteActionPatch('')).toBeNull();
-		expect(suiteActionPatch(undefined)).toBeNull();
-		expect(suiteActionPatch({ action: 'pause' })).toBeNull();
-	});
-});
 
 describe('availableSuiteActions', () => {
 	it('offers pause and stop while running', () => {

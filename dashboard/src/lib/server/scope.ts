@@ -10,7 +10,7 @@
 // helpers throw (routes answer 503) instead of showing everything.
 
 import { getCoreApi } from './k8s/client.js';
-import { infraNamespace, isReadOnly, isScoped, namespaceSelector } from './mode.js';
+import { infraNamespace, isScoped, namespaceSelector } from './mode.js';
 import type { KubemootList } from '#lib/types/kubemoot.js';
 import { parseChatSubject, parseDiscussSubject } from '#lib/crewScope.js';
 
@@ -212,7 +212,7 @@ export async function scopeItems<T>(
 /** The only JetStream stream the dashboard reads; other names are refused when restricted. */
 export const DISCUSSION_STREAM = 'KUBEMOOT_DISCUSS';
 
-/** The only key-value bucket /api/nats/kv serves when restricted (agent heartbeats). */
+/** The only key-value bucket /api/nats/kv serves (agent heartbeats). */
 export const KV_BUCKETS_ALLOWED: ReadonlySet<string> = new Set(['kubemoot_agent_state']);
 
 /** Whether the dashboard may read this JetStream stream. Scoped mode serves only the discussion stream. */
@@ -220,12 +220,9 @@ export function streamAllowed(name: string): boolean {
 	return !isScoped() || name === DISCUSSION_STREAM;
 }
 
-/**
- * Whether /api/nats/kv may open this bucket. Opening a bucket that does not exist
- * creates it, so read-only and scoped modes serve a fixed list instead of any name.
- */
+/** Whether /api/nats/kv may open this bucket: a fixed list, never an arbitrary name. */
 export function kvBucketAllowed(name: string): boolean {
-	return !(isScoped() || isReadOnly()) || KV_BUCKETS_ALLOWED.has(name);
+	return KV_BUCKETS_ALLOWED.has(name);
 }
 
 /** The namespace token of a `kubemoot.discuss.<ns>...` or `kubemoot.chat.<ns>...` subject. */
@@ -239,24 +236,11 @@ export function subjectNamespace(subject: string): string | null {
 const WILDCARDS = new Set(['*', '>']);
 
 /**
- * Whether a subject FILTER (a subscribe, stream or purge pattern) may be opened.
+ * Whether a subject FILTER (a subscribe or stream pattern) may be opened.
  * Only discussion and chat subjects carry a namespace. A literal namespace must be
  * allowed; a wildcard namespace passes and its messages are filtered one by one.
  */
 export async function subjectFilterAllowed(subject: string): Promise<boolean> {
-	return subjectAllowed(subject, true);
-}
-
-/**
- * Whether a write may target this subject: like subjectFilterAllowed, but the
- * namespace must be a literal allowed name, because a wildcard would reach
- * namespaces outside the scope.
- */
-export async function subjectTargetAllowed(subject: string): Promise<boolean> {
-	return subjectAllowed(subject, false);
-}
-
-async function subjectAllowed(subject: string, wildcardNamespace: boolean): Promise<boolean> {
 	let names: Set<string> | null;
 	try {
 		names = await scopedNamespaces();
@@ -266,7 +250,7 @@ async function subjectAllowed(subject: string, wildcardNamespace: boolean): Prom
 	if (names === null) return true;
 	const ns = subjectNamespace(subject);
 	if (ns === null) return false;
-	return names.has(ns) || (wildcardNamespace && WILDCARDS.has(ns));
+	return names.has(ns) || WILDCARDS.has(ns);
 }
 
 /** Whether one concrete message subject belongs to an allowed namespace. */

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import type { Thread } from '#lib/stores/discussions.js';
-import { canSend, chatAsText, chatMessages, chatTurns, crewThreads, detailsLine } from './chat-view';
+import { chatAsText, chatMessages, chatTurns, crewThreads, detailsLine } from './chat-view';
 
 let n = 0;
 function msg(agentName: string, messageType: string, at: string, extra: Partial<DiscussionMessage> = {}): DiscussionMessage {
@@ -124,27 +124,6 @@ describe('details toggle in the copied chat', () => {
 		const text = chatAsText(turns, true);
 		expect(text).toContain('Crew: the answer\n(10.0s to answer - 200 tokens (150 in, 50 out))');
 		expect(text).toContain('You: and then?');
-	});
-});
-
-describe('canSend', () => {
-	const scope = { namespace: 'kubemoot', crew: 'pilot' };
-	const ok = { scope, text: 'hi', sending: false, readOnly: false };
-
-	it('allows a send with a crew selected', () => {
-		expect(canSend(ok)).toBe(true);
-	});
-	it('is disabled until one crew is selected', () => {
-		expect(canSend({ ...ok, scope: null })).toBe(false);
-	});
-	it('is disabled for blank text, a send in flight, or read-only mode', () => {
-		expect(canSend({ ...ok, text: '   ' })).toBe(false);
-		expect(canSend({ ...ok, sending: true })).toBe(false);
-		expect(canSend({ ...ok, readOnly: true })).toBe(false);
-	});
-	it('is disabled while the first message of the conversation is unsent', () => {
-		expect(canSend({ ...ok, blocked: true })).toBe(false);
-		expect(canSend({ ...ok, blocked: false })).toBe(true);
 	});
 });
 

@@ -72,7 +72,7 @@ checker. They fire when the current signal state satisfies the advance condition
 | synthesis complete | `SYNTHESIZING` | `CLOSED` |
 | `thread_pause` | any state except `SYNTHESIZING` or `CLOSED` | `PAUSED` |
 | `thread_resume` | `PAUSED` | the saved prior state (settle timers resume) |
-| `stop_requested` | any state except `SYNTHESIZING` or `CLOSED` | `SYNTHESIZING` (the dashboard Stop button: forces synthesis on whatever signals exist) |
+| `stop_requested` | any state except `SYNTHESIZING` or `CLOSED` | `SYNTHESIZING` (a person's stop request: forces synthesis on whatever signals exist) |
 | human reply on a closed thread | `CLOSED` | `EVALUATING` (the thread is reopened for another round) |
 
 ### Key principles

@@ -22,6 +22,30 @@ for kind in Deployment Service ServiceAccount ClusterRole ClusterRoleBinding; do
 done
 grep -q 'kind: HTTPRoute' <<<"$out" && fail "route must stay off by default"
 
+# The dashboard is read-only: every ClusterRole and Role it renders, in the operator chart and
+# in the standalone chart, holds get, list and watch and nothing else, and none grants a
+# wildcard verb. A create, update, patch, delete or "*" fails here.
+only_read_verbs() {
+  local label="$1" manifests="$2" verbs
+  verbs="$(yq -N 'select(.kind == "ClusterRole" or .kind == "Role") | .rules[].verbs[]' <<<"$manifests" | sort -u | tr '\n' ' ')"
+  [ -n "$verbs" ] || fail "$label renders no RBAC rules to check"
+  for verb in $verbs; do
+    case "$verb" in get|list|watch) ;; *) fail "$label RBAC grants '$verb'; the dashboard is read-only (get, list, watch)" ;; esac
+  done
+}
+dash_only() { yq -N 'select((.kind == "ClusterRole" or .kind == "Role") and .metadata.name == "*dashboard*")' <<<"$1"; }
+only_read_verbs "operator chart dashboard" "$(dash_only "$out")"
+only_read_verbs "standalone dashboard chart" "$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard")"
+only_read_verbs "workshop dashboard" "$(dash_only "$(render kubemoot-operator --set dashboard.enabled=true --set dashboard.workshop.enabled=true)")"
+# The check itself must be able to fail: a write rule added through values is caught.
+if (only_read_verbs "injected" "$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard" \
+  --set 'rbac.clusterRole.rules[0].apiGroups[0]=kubemoot.ai' --set 'rbac.clusterRole.rules[0].resources[0]=crews' \
+  --set 'rbac.clusterRole.rules[0].verbs[0]=delete')") >/dev/null 2>&1; then
+  fail "the read-only RBAC check accepted a delete verb"
+fi
+# The dashboard Deployments carry no variable that turns writes back on.
+if grep -q 'KUBEMOOT_DASHBOARD_READ_ONLY' <<<"$out"; then fail "a dashboard Deployment still sets the removed read-only switch"; fi
+
 # Names are unique across kinds and unique between two releases (cluster-scoped names).
 dups="$(yq -N '.kind + "/" + .metadata.name' <<<"$out" | sort | uniq -d)"
 [ -z "$dups" ] || fail "duplicate objects: $dups"
@@ -41,7 +65,7 @@ out="$(render kubemoot-operator --set dashboard.enabled=true)"
 grep -q 'dashboard-workshop' <<<"$out" && fail "workshop objects rendered without dashboard.workshop.enabled"
 
 # Workshop on: its own Deployment, Service, ServiceAccount, ClusterRole and binding, the
-# same image as the main dashboard, read-only and scoped by environment, read verbs only.
+# same image as the main dashboard, scoped by environment, read verbs only.
 out="$(render kubemoot-operator --set dashboard.enabled=true --set dashboard.workshop.enabled=true \
   --set dashboard.workshop.namespaceSelector=team=on --set dashboard.workshop.infraNamespace=moot)"
 for kind in Deployment Service ServiceAccount ClusterRole ClusterRoleBinding; do
@@ -54,7 +78,6 @@ main_image="$(yq -N 'select(.kind == "Deployment" and .metadata.name == "kubemoo
 ws_image="$(yq -N 'select(.kind == "Deployment" and .metadata.name == "kubemoot-operator-dashboard-workshop") | .spec.template.spec.containers[0].image' <<<"$out")"
 [ -n "$main_image" ] && [ "$main_image" = "$ws_image" ] || fail "workshop image '$ws_image' differs from the dashboard image '$main_image'"
 ws_env() { yq -N "select(.kind == \"Deployment\" and .metadata.name == \"kubemoot-operator-dashboard-workshop\") | .spec.template.spec.containers[0].env[] | select(.name == \"$1\") | .value" <<<"$out"; }
-[ "$(ws_env KUBEMOOT_DASHBOARD_READ_ONLY)" = "true" ] || fail "workshop is not read-only"
 [ "$(ws_env KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR)" = "team=on" ] || fail "workshop selector not set"
 [ "$(ws_env KUBEMOOT_DASHBOARD_INFRA_NAMESPACE)" = "moot" ] || fail "workshop infra namespace not set"
 main_sel="$(yq -N 'select(.kind == "Service" and .metadata.name == "kubemoot-operator-dashboard") | .spec.selector["app.kubernetes.io/name"]' <<<"$out")"

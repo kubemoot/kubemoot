@@ -23,7 +23,6 @@ import {
 	streamAllowed,
 	subjectFilterAllowed,
 	subjectNamespace,
-	subjectTargetAllowed
 } from './scope';
 
 const SELECTOR = 'kubemoot.ai/workshop-team=true';
@@ -68,11 +67,10 @@ describe('not scoped (selector empty)', () => {
 		expect(await scopeList('', async () => all)).toBe(all);
 		expect(await scopeItems([1, 2], () => 'x')).toEqual([1, 2]);
 		expect(await subjectFilterAllowed('kubemoot.>')).toBe(true);
-		expect(await subjectTargetAllowed('anything')).toBe(true);
 		expect(messageSubjectAllowed('kubemoot.other.thing')).toBe(true);
 		expect(keyNamespaceAllowed('x.y')).toBe(true);
 		expect(streamAllowed('ANY')).toBe(true);
-		expect(kvBucketAllowed('any_bucket')).toBe(true);
+		expect(kvBucketAllowed('kubemoot_agent_state')).toBe(true);
 		expect(objectAccepter()({ metadata: { namespace: 'x' } })).toBe(true);
 		expect(listNamespace).not.toHaveBeenCalled();
 	});
@@ -263,17 +261,6 @@ describe('scoped', () => {
 			expect(await subjectFilterAllowed(subject)).toBe(allowed);
 		});
 
-		it.each([
-			['kubemoot.chat.team-a.admin', true],
-			['kubemoot.discuss.team-a.crew.general.t1', true],
-			['kubemoot.discuss.*.*.*.t1', false],
-			['kubemoot.discuss.>', false],
-			['kubemoot.chat.other.admin', false],
-			['kubemoot.operator.x', false]
-		])('write target %s -> %s', async (subject, allowed) => {
-			expect(await subjectTargetAllowed(subject)).toBe(allowed);
-		});
-
 		it('filters concrete messages by the namespace in their subject', async () => {
 			await scopedNamespaces();
 			expect(messageSubjectAllowed('kubemoot.discuss.team-a.crew.general.t1')).toBe(true);
@@ -301,11 +288,10 @@ describe('scoped', () => {
 	});
 });
 
-describe('read-only without a selector', () => {
-	it('serves only the allowlisted KV bucket, because opening an unknown bucket creates it', () => {
-		vi.stubEnv('KUBEMOOT_DASHBOARD_READ_ONLY', 'true');
+describe('key-value buckets', () => {
+	it('serves only the allowlisted bucket, never an arbitrary name', () => {
 		expect(kvBucketAllowed('kubemoot_agent_state')).toBe(true);
+		expect(kvBucketAllowed('kubemoot_crew_memory')).toBe(false);
 		expect(kvBucketAllowed('made_up_bucket')).toBe(false);
-		expect(streamAllowed('ANY')).toBe(true);
 	});
 });

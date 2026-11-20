@@ -4,17 +4,13 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// SvelteKit refuses a POST, PUT, PATCH or DELETE that has no Content-Type header
-// unless its Origin matches the origin the server derives for itself. Behind
-// `kubectl port-forward` the browser's Origin is http:// while the server assumes
-// https://, so a browser write without a Content-Type would be refused there.
-// Every write the browser code sends therefore names its Content-Type.
+// The dashboard is read-only, so no browser code may send a request that changes state.
+// A fetch with a POST, PUT, PATCH or DELETE method, or a method held in a variable that
+// cannot be judged here, fails this test; a write belongs in kmctl, CrewForge or kubectl.
 
 const SRC = fileURLToPath(new URL('.', import.meta.url));
 const WRITE_METHOD = /method:\s*['"`](POST|PUT|PATCH|DELETE)['"`]/i;
-// A method held in a variable cannot be judged here, so it counts as a write.
 const COMPUTED_METHOD = /method:\s*[^'"`\s]/;
-const CONTENT_TYPE = /['"`]Content-Type['"`]\s*:/i;
 
 function browserSources(dir: string): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -42,10 +38,8 @@ function fetchCalls(text: string): string[] {
 	return calls;
 }
 
-function writesWithoutContentType(text: string): string[] {
-	return fetchCalls(text).filter(
-		(call) => (WRITE_METHOD.test(call) || COMPUTED_METHOD.test(call)) && !CONTENT_TYPE.test(call)
-	);
+function writeCalls(text: string): string[] {
+	return fetchCalls(text).filter((call) => WRITE_METHOD.test(call) || COMPUTED_METHOD.test(call));
 }
 
 describe('fetchCalls', () => {
@@ -53,38 +47,32 @@ describe('fetchCalls', () => {
 		const text = "fetch(`${resolve('/a')}?x`, { method: 'DELETE' }); fetch('/b')";
 		expect(fetchCalls(text)).toEqual(["fetch(`${resolve('/a')}?x`, { method: 'DELETE' })", "fetch('/b')"]);
 	});
+});
 
-	it('flags a write with no Content-Type and passes one that has it', () => {
-		expect(writesWithoutContentType("fetch('/a', { method: 'DELETE' })")).toHaveLength(1);
-		expect(
-			writesWithoutContentType("fetch('/a', { method: 'DELETE', headers: { 'Content-Type': 'application/json' } })")
-		).toEqual([]);
-		expect(writesWithoutContentType("fetch('/a')")).toEqual([]);
-		expect(writesWithoutContentType("fetch('/a', { method: 'GET' })")).toEqual([]);
+describe('writeCalls', () => {
+	it('flags every write method, in any quoting, and a method held in a variable', () => {
+		expect(writeCalls("fetch('/a', { method: 'DELETE' })")).toHaveLength(1);
+		expect(writeCalls('fetch("/a", { method: "POST" })')).toHaveLength(1);
+		expect(writeCalls('fetch("/a", { method: `patch` })')).toHaveLength(1);
+		expect(writeCalls("fetch('/a', { method: verb })")).toHaveLength(1);
 	});
 
-	it('flags double-quoted, template and computed write methods without a Content-Type', () => {
-		expect(writesWithoutContentType('fetch("/a", { method: "POST" })')).toHaveLength(1);
-		expect(writesWithoutContentType('fetch("/a", { method: `patch` })')).toHaveLength(1);
-		expect(writesWithoutContentType("fetch('/a', { method: verb })")).toHaveLength(1);
-		expect(
-			writesWithoutContentType('fetch("/a", { method: "PUT", headers: { "content-type": "application/json" } })')
-		).toEqual([]);
+	it('passes a read', () => {
+		expect(writeCalls("fetch('/a')")).toEqual([]);
+		expect(writeCalls("fetch('/a', { method: 'GET' })")).toEqual([]);
 	});
 });
 
-describe('browser write requests', () => {
-	it('all send a Content-Type header', () => {
+describe('browser code', () => {
+	it('sends no request that changes state', () => {
 		const offenders = browserSources(SRC).flatMap((file) =>
-			writesWithoutContentType(readFileSync(file, 'utf8')).map((call) => `${relative(SRC, file)}: ${call.slice(0, 80)}`)
+			writeCalls(readFileSync(file, 'utf8')).map((call) => `${relative(SRC, file)}: ${call.slice(0, 80)}`)
 		);
 		expect(offenders).toEqual([]);
 	});
 
-	it('finds the write requests it checks', () => {
-		const writes = browserSources(SRC).flatMap((file) =>
-			fetchCalls(readFileSync(file, 'utf8')).filter((call) => WRITE_METHOD.test(call))
-		);
-		expect(writes.length).toBeGreaterThan(10);
+	it('finds the browser sources it checks', () => {
+		const calls = browserSources(SRC).flatMap((file) => fetchCalls(readFileSync(file, 'utf8')));
+		expect(calls.length).toBeGreaterThan(10);
 	});
 });

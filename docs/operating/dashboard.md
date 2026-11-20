@@ -1,18 +1,20 @@
 ---
 title: "Kubemoot Dashboard"
-description: "The Kubemoot Dashboard is a web UI that lists resources across namespaces, shows GPU and model state, and streams live agent discussions and NATS messages."
+description: "The Kubemoot Dashboard is a read-only web UI that lists resources across namespaces, shows GPU and model state, and streams live agent discussions and NATS messages."
 weight: 2
 ---
 
 ## Overview
 
-The Kubemoot Dashboard is a web UI for looking at a running Kubemoot installation. It lists Kubemoot resources across namespaces, shows GPU node and model state, and streams agent discussions and NATS messages as they happen. It is a SvelteKit application that reads the Kubernetes API and the NATS bus from the server side; the browser never connects to either directly.
+The Kubemoot Dashboard is a read-only web UI for looking at a running Kubemoot installation. It lists Kubemoot resources across namespaces, shows GPU node and model state, and streams agent discussions and NATS messages as they happen. It is a SvelteKit application that reads the Kubernetes API and the NATS bus from the server side; the browser never connects to either directly.
+
+The dashboard never changes anything. It cannot ask a crew a question, delete a discussion, edit memory, load or unload a model, or control a fitness suite. A dashboard that acted for whoever reached it would let that person do anything its own ServiceAccount and NATS connection can, so every change is made with your own credentials instead: with `kmctl`, with CrewForge, or with `kubectl`. Where a control used to be, the page shows the command to run, with a **Copy** button. See [Where changes are made](#where-changes-are-made).
 
 Metrics, logs, and traces are not part of the dashboard. For those, see [Observability](../observability/).
 
 ## Install
 
-The dashboard is an optional part of the `kubemoot-operator` chart, off by default because it has no login and can purge NATS streams and delete models (see [SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md)). Turn it on with one flag when you install the operator:
+The dashboard is an optional part of the `kubemoot-operator` chart, off by default because it has no login, so whoever reaches it can read discussions and crew memory (see [SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md)). Turn it on with one flag when you install the operator:
 
 ```bash
 helm upgrade --install kubemoot-operator \
@@ -68,7 +70,7 @@ The info icon next to the version opens the Kubemoot components panel. Its first
 | Section | Pages | Shows |
 |---------|-------|-------|
 | Top | Overview, Nodes | Ready-of-total counts for nodes, GPUs, crews, and every other resource type (a tile shows a small spinner until its first count arrives, never a zero); Kubernetes nodes with GPU detection and model-loading state. The Overview has the same **Crew** selector as the other pages: it narrows the counts to one crew, while nodes, model servers, models, and embedding models are shared by every crew and always counted in full |
-| Messaging | Discussions, Messages | Multi-agent discussion threads with a timeline view; your chat with a crew |
+| Messaging | Discussions, Messages | Multi-agent discussion threads with a timeline view; the conversations people have had with a crew |
 | Crews | Crews, Agents, Prompts, Memory, Fitness | Crew and agent configuration, PromptModule contents, crew memory, and fitness suite runs |
 | Models | Models, Model servers, Embeddings | ModelServer backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed; an embedding model shows as skipped and a model that could not be measured as failed, each with its reason and no speeds), Model state, and EmbeddingModel configuration. Model servers belong to the cluster, so the Model servers page lists them all whatever crew is selected. The Models page also lists each ModelServer's catalog (the models a crew selects by label), because crews ship no Model resources |
 | Tools | MCP servers, MCP gateways, Catalogs, Quality policies, Reports | MCPServer instances and tools, gateway routing, quality policies, catalog discovery, and quality verdicts |
@@ -121,47 +123,56 @@ When the coordinator closes a thread, a **Placement** panel follows the summary.
 
 Select **alternatives considered** on a row to see the other placements the scheduler weighed, each with its predicted total split into waiting, loading, reading the prompt and generating, and whether it was warm and could start at once. A thread whose receipt carries no placement calls shows no panel.
 
-The thread toolbar and the thread list share their actions, and every action's tooltip says what it is for:
-
-- **Delete** is one trash-can icon in both places. It asks Yes or No in the page, then removes the discussion from the timeline and purges its messages; this cannot be undone. In the list the icon sits in the bottom-right corner of a tile on hover, clear of the status text.
-- **Pin** marks a discussion you want to find again. The pin is stored in the `kubemoot_pinned_threads` bucket, so it stays after a reload and shows in other browsers. A pin does not stop a delete.
-- **New discussion** is enabled only when one crew is selected in the top bar, because a discussion is asked of a single crew. With All crews selected the button is disabled and its tooltip says to pick a crew.
+The thread toolbar copies the discussion as Markdown, copies its thread ID, and shows or hides the span graph and the debug layer. It cannot start, answer, pause, stop, replay, pin or delete a discussion. Below the timeline the page shows the `kmctl conversation ask` command that asks a follow-up in the same conversation (find the conversation ID with `kmctl conversation list CREW`), and an empty list shows the command that starts one.
 
 The span graph draws one bar per agent from its first to its last message. Each bar names the ModelServer that ran the agent's latest call, taken from the placement the messages carry. A server the scheduler weighed but did not choose is not named, and the label of an agent's static endpoint, which a message sent without a placed call carries, is not shown as a server. A thread started straight on the bus, such as a smoke test, may carry messages with no timestamp. The graph draws the agents whose start and end are known and labels each of the others "no timing recorded" instead of drawing a bar.
 
 ### Memory
 
-Shows the working memory of the crew selected in the top bar, the same crew picker the Discussions page uses. Working memory is what a crew has learned about the cluster and keeps between discussions, stored as facts with a topic, a key and a value; the least recently used are dropped over time. With All crews selected the page asks you to pick a crew. A crew with no facts shows an empty state that explains this. **Add or update a fact** enables Save once a crew is selected and the topic, key and value are filled in; until then the line under the form says what is missing. Saving an existing topic and key updates that fact.
+Shows the working memory of the crew selected in the top bar, the same crew picker the Discussions page uses. Working memory is what a crew has learned about the cluster and keeps between discussions, stored as facts with a topic, a key and a value; the least recently used are dropped over time. With All crews selected the page asks you to pick a crew. A crew with no facts shows an empty state that explains this. The page only reads: facts are written by the crew's agents, and the page shows the `kmctl memory export` command that takes a copy.
 
-**Export** (shown whenever a crew is selected, also on a read-only dashboard) opens a panel that downloads the crew's memory as a zip in the OMPI (Open Memory Protocol Initiative) interchange format, working spec v0.6: a manifest and one memory object per fact. The operator builds the file with the same code as `ompi-export`; the dashboard only relays it and never maps facts to the format itself. The export is always screened: a fact whose topic, key or value holds a credential is left out. Before you download, the panel shows what the export holds and a table of what it left out, each entry named by its key (an opaque id such as `<namespace>.<crew>.#1a2b3c4d` when the key itself held the credential) and the reason, for example the shape of the credential. It never shows a fact's text. The dashboard has no unscreened export: it calls the operator with its own service account, not your identity, so it cannot decide what you may see beyond the namespace scope. To export facts that hold a credential, use `kmctl memory export --allow-unscreened`, which runs with your own credentials. The same namespace scope as the rest of the page applies; a crew outside it answers 404. The dashboard sends its service account token to the operator, which checks it with a TokenReview and allows the export only when that identity may `get` the Crew (a SubjectAccessReview); the dashboard's ClusterRole already grants read on every Kubemoot kind. A caller without a valid token is refused (401) and one without that access is refused (403), so a pod that can reach the operator's report port cannot read a crew's memory. Every other report endpoint is checked the same way; see [The operator report service](#the-operator-report-service).
+**Export** (shown whenever a crew is selected) opens a panel that downloads the crew's memory as a zip in the OMPI (Open Memory Protocol Initiative) interchange format, working spec v0.6: a manifest and one memory object per fact. The operator builds the file with the same code as `ompi-export`; the dashboard only relays it and never maps facts to the format itself. The export is always screened: a fact whose topic, key or value holds a credential is left out. Before you download, the panel shows what the export holds and a table of what it left out, each entry named by its key (an opaque id such as `<namespace>.<crew>.#1a2b3c4d` when the key itself held the credential) and the reason, for example the shape of the credential. It never shows a fact's text. The dashboard has no unscreened export: it calls the operator with its own service account, not your identity, so it cannot decide what you may see beyond the namespace scope. To export facts that hold a credential, use `kmctl memory export --allow-unscreened`, which runs with your own credentials. The same namespace scope as the rest of the page applies; a crew outside it answers 404. The dashboard sends its service account token to the operator, which checks it with a TokenReview and allows the export only when that identity may `get` the Crew (a SubjectAccessReview); the dashboard's ClusterRole already grants read on every Kubemoot kind. A caller without a valid token is refused (401) and one without that access is refused (403), so a pod that can reach the operator's report port cannot read a crew's memory. Every other report endpoint is checked the same way; see [The operator report service](#the-operator-report-service).
 
 ### Messages
 
-Your chat with a crew. The crew picker is the same **Crew** selector in the top bar that Discussions uses; sending stays disabled until one crew is selected. The left panel lists your conversations with that crew, and the right panel shows them as a chat: your messages and the crew's answers (the synthesis on each thread). A follow-up goes into the same conversation as a reply on the same thread. Nothing of the agents' internal discussion appears here; the **Discussion** link beside an answer opens its thread in Discussions, which shows the consensus messages and statistics.
+The conversations people have had with a crew. The crew picker is the same **Crew** selector in the top bar that Discussions uses. The left panel lists the crew's conversations, and the right panel shows one as a chat: the questions and the crew's answers (the synthesis on each thread). Nothing of the agents' internal discussion appears here; the **Discussion** link beside an answer opens its thread in Discussions, which shows the consensus messages and statistics. The page cannot send a message: it shows the `kmctl conversation ask` command that asks the crew a question, with `--conversation-id` for a follow-up in the same conversation.
 
-A new conversation sends a `thread_start` on the crew's discuss subject, the same message **New discussion** sends.
-
-Discussions and Messages show a message as soon as you send it. If the dashboard server did not accept it, the message stays on screen marked **Not sent** with the reason and a **Retry** button, so a question that never reached the crew does not look sent. The reasons are: your session has ended (sign in again in this tab or another, then press Retry), the dashboard server could not be reached, or the server refused the message. Retry sends the same message again. Unsent messages are kept in the page only, so reloading it drops them. A pause, resume or reply that was not sent does not change what the page shows about the discussion, and a Messages conversation whose first message was not sent takes no reply until that message is sent. The dashboard server answers success once the NATS server has the message (it publishes, then flushes); it does not wait for the discussion stream to store it. When the dashboard cannot read its own version, the sidebar and an exported discussion say "version unknown".
-
-The **Details** toggle is off by default and the dashboard remembers the choice per viewer. When it is on, each answer shows the time from your question to the answer and the tokens used: the agents' tokens plus the coordinator's. A figure the thread did not record is left out.
-
-The toolbar copies the conversation to the clipboard and deletes it (removing its thread and purging its messages) after an in-page confirmation. A read-only dashboard hides sending and deleting. To watch raw NATS subjects, use `kmctl` or the NATS tooling directly.
+The **Details** toggle is off by default and the dashboard remembers the choice per viewer. When it is on, each answer shows the time from the question to the answer and the tokens used: the agents' tokens plus the coordinator's. A figure the thread did not record is left out. The toolbar copies the conversation to the clipboard. To watch raw NATS subjects, use `kmctl` or the NATS tooling directly. When the dashboard cannot read its own version, the sidebar and an exported discussion say "version unknown".
 
 ### Crews
 
-One card per crew, linking to the crew's detail page. The trash icon on a card removes the crew after an in-page confirmation that names the crew and says what goes with it: its Agents and its open discussions, which the operator removes through its finalizer and owner references. The dashboard deletes the Crew object only (`DELETE /api/kubemoot/crews/<name>?namespace=`). The dashboard does not add crews; create them with CrewForge or `kmctl`.
+One card per crew, linking to the crew's detail page. The dashboard does not add or remove crews: create them with CrewForge or `kmctl`, and remove one with `kmctl delete crew NAME -n NAMESPACE` (the operator's finalizer and owner references remove its Agents and open discussions). The page shows that command.
 
 ### Reports
 
-MCPServerReport quality verdicts (`use`, `caution`, `avoid`) with the evaluation history. An administrator can pin a verdict to override the automated result; this needs `patch` on `mcpserverreports`, which the chart's `ClusterRole` does not grant by default.
+MCPServerReport quality verdicts (`use`, `caution`, `avoid`) with the evaluation history, and any verdict an administrator pinned. The page shows the `kubectl patch mcpserverreport` command that pins one; it runs with your credentials, so it needs `patch` on `mcpserverreports`.
 
 ### Fitness
 
-CrewFitnessSuite runs and their scores. A running suite has Pause and Stop buttons, and a paused one has Resume and Stop; they set `spec.suspend` and `spec.cancel` (see the [CrewFitnessSuite reference](../../reference/crewfitnesssuite/)). The status badge reads `Pausing` while a paused suite's last iteration finishes and `Stopping` until the operator applies a stop. The Fitness page can also delete a suite run; the owned CrewFitness resources are removed with it.
+CrewFitnessSuite runs and their scores. Opening a run shows the commands that control it: `kubectl patch` to set `spec.suspend` (pause and resume) or `spec.cancel` (stop; see the [CrewFitnessSuite reference](../../reference/crewfitnesssuite/)), and `kmctl delete crewfitnesssuite` to remove the run with its owned CrewFitness resources. The status badge reads `Pausing` while a paused suite's last iteration finishes and `Stopping` until the operator applies a stop.
+
+### Models
+
+The Models and Model servers pages show state only. Loading, unloading and deleting a model on a model server are not available from the dashboard.
+
+## Where changes are made
+
+| What the dashboard once did | Where to do it now |
+|-----------------------------|--------------------|
+| Ask a crew a question, or answer in a discussion | `kmctl conversation ask CREW "question" [--conversation-id ID]`, or **Ask** in CrewForge |
+| Delete a discussion, pause, stop or replay one, pin one | Removed from the dashboard; no kmctl or CrewForge command yet |
+| Add, edit, delete or clear a crew memory fact | Removed from the dashboard; no kmctl or CrewForge command yet. Read memory with `kmctl memory export CREW` |
+| Remove a crew | `kmctl delete crew NAME -n NAMESPACE` |
+| Pause, resume or stop a fitness suite | `kubectl patch crewfitnesssuite NAME --type=merge -p '{"spec":{"suspend":true}}'` (`"cancel":true` to stop), or the fitness controls in CrewForge |
+| Delete a fitness suite run | `kmctl delete crewfitnesssuite NAME -n NAMESPACE` |
+| Pin an MCP server report verdict | `kubectl patch mcpserverreport NAME --type=merge -p '{"spec":{"adminVerdict":"use","adminNotes":"why","adminAuthor":"you"}}'` |
+| Load, unload or delete a model on a model server | Removed from the dashboard; no kmctl or CrewForge command yet |
+
+A later release signs in the person and makes every dashboard call with their own token, which would let the dashboard offer these again under the caller's rights.
 
 ## Access the dashboard needs
 
-The chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grants:
+The chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grants, all read-only:
 
 | Resources | Verbs | Why |
 |-----------|-------|-----|
@@ -170,10 +181,8 @@ The chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grant
 | `configmaps` | get, list | Agent prompt bundles for the Agent detail page |
 | `deployments` (apps) | get, list, watch | Operator version in the Kubemoot components panel |
 | All `kubemoot.ai` resources | get, list, watch | Every Kubemoot page |
-| `crews` | delete | The Crews page "remove crew" action |
-| `crewfitnesssuites` | delete, patch | The Fitness page "remove run" action, and its Pause, Resume, and Stop actions |
 
-The dashboard never reads or displays Secret values. The container runs as a non-root user with a read-only root filesystem.
+Every grant is read-only: a test fails if the chart's `ClusterRole` or `Role` holds any verb but `get`, `list` and `watch`. The server also makes no write to the Kubernetes API or NATS, apart from the short-lived read consumers it opens on the discussion stream. The dashboard never reads or displays Secret values. The container runs as a non-root user with a read-only root filesystem.
 
 ### The operator report service
 
@@ -189,27 +198,23 @@ The component status reports the operator, NATS, and how many ModelServers are r
 
 ## HTTP API
 
-The SvelteKit server exposes the JSON and event-stream endpoints the pages use. They carry no authentication, so the same rule applies as for the UI: reach them only through an authenticating proxy. List endpoints accept a `namespace` query parameter; an empty value lists across all namespaces.
+The SvelteKit server exposes the JSON and event-stream endpoints the pages use. Every one is a GET; any other method answers 405 with `Allow: GET, HEAD, OPTIONS`. They carry no authentication, so the same rule applies as for the UI: reach them only through an authenticating proxy. List endpoints accept a `namespace` query parameter; an empty value lists across all namespaces.
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/api/health`, `/api/version` | GET | Health check; dashboard version |
 | `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with GPU information |
 | `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelservers`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `crewfitnesses` |
-| `/api/kubemoot/crews/<name>?namespace=` | DELETE | Remove a crew (the Crew object only) |
 | `/api/kubemoot/config`, `/api/kubemoot/system-info`, `/api/kubemoot/topology` | GET | Configuration, system information, agent topology graph |
-| `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; sub-paths under `<namespace>/<name>/` serve `scores`, `iterations`, `transcript`, and `artifact`; DELETE on `<namespace>/<name>` removes a run; PATCH on `<namespace>/<name>` with `{"action": "pause" \| "resume" \| "stop"}` controls it |
-| `/api/kubemoot/mcpserverreports/<name>` | PATCH | Pin a verdict |
-| `/api/kubemoot/modelservers/<name>/load`, `/unload`, `/delete` | POST | Model server actions |
-| `/api/kubemoot/crew-memory` | GET, POST, DELETE | Crew memory facts |
+| `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; sub-paths under `<namespace>/<name>/` serve `scores`, `iterations`, `transcript`, and `artifact` |
+| `/api/kubemoot/crew-memory?crew=&namespace=` | GET | Crew memory facts |
 | `/api/kubemoot/crew-memory/export?namespace=&crew=` | GET | The crew's memory as an OMPI v0.6 zip, always screened (an `allowUnscreened` parameter is refused); `report=true` returns the selection report as JSON (left-out entries by key or opaque id and reason, never text) |
 | `/api/kubemoot/watch/<plural>` | GET | Kubernetes resource updates as server-sent events |
 | `/api/nats/subscribe?subject=` | GET | Server-sent events for a NATS subject |
 | `/api/nats/history?stream=&subject=&limit=` | GET | JetStream history replay as a JSON array |
-| `/api/nats/publish` | POST | Publish `{ "subject", "data" }` to NATS |
-| `/api/nats/config`, `/api/nats/kv`, `/api/nats/stream`, `/api/nats/purge` | GET, POST | NATS connection status, KV, stream, and purge helpers |
+| `/api/nats/config`, `/api/nats/kv`, `/api/nats/stream` | GET | NATS connection status, the agent-state key-value bucket, and stream replay |
 
-The browser talks to the SvelteKit server with server-sent events. Only the server holds a NATS connection (the `nats` client over TCP), so the browser never connects to NATS directly.
+The browser talks to the SvelteKit server with server-sent events. Only the server holds a NATS connection (the `nats` client over TCP), so the browser never connects to NATS directly, and the server only reads from it.
 
 ## Related
 

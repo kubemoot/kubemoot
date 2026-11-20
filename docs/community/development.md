@@ -152,7 +152,7 @@ it as the optional `smoke_crew` input). With no such crew and no `SMOKE_CREW` th
 skips with "no Ready crew holds discussions". The test publishes one short question on the
 crew's bus subject and one on its request queue, and waits for the coordinator's `synthesis`
 on each thread. A crew that stays silent fails the test with the thread id and the last
-message seen, and the test then sends the Stop message the dashboard sends so the thread
+message seen, and the test then sends a stop message so the thread
 does not stay active. The wait ends when the answer arrives; `ASK_TIMEOUT` (480 seconds by
 default) is a safety net. The post-deploy Integration Test runs this after every operator
 chart release, so a Ready crew that never answers can not pass.

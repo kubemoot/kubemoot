@@ -197,8 +197,8 @@ applies `nats.streams.discuss.*` on every install and upgrade, to an existing st
 ### Optional: the dashboard
 
 The operator chart carries the [dashboard](../../operating/dashboard/) as an optional
-subchart. It is off by default because the dashboard has no login and can purge NATS
-streams and delete models. To install it with the operator:
+subchart. It is off by default because the dashboard has no login, so whoever reaches it can read
+discussions and crew memory. The dashboard is read-only. To install it with the operator:
 
 ```bash
 helm upgrade --install kubemoot-operator \
