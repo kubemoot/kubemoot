@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.chat.CallArtifactStore;
 import ai.kubemoot.agent.chat.CallHeaders;
 import ai.kubemoot.agent.chat.HeaderValue;
@@ -95,7 +96,7 @@ public class NatsCallArtifactStore implements CallArtifactStore {
             return highest;
         } catch (Exception e) {
             log.warn("Could not list stored calls under {} ({}): {} - this call is not stored",
-                    agentPrefix, e.getClass().getSimpleName(), e.getMessage());
+                    agentPrefix, e.getClass().getSimpleName(), LogContent.reason(e));
             return -1;
         }
     }
@@ -134,7 +135,7 @@ public class NatsCallArtifactStore implements CallArtifactStore {
             return true;
         } catch (Exception e) {
             log.warn("Workspace artifact write failed for {} ({}): {} - the contribution carries the output",
-                    key, e.getClass().getSimpleName(), e.getMessage());
+                    key, e.getClass().getSimpleName(), LogContent.reason(e));
             return false;
         }
     }

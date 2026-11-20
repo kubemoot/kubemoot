@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,7 +52,7 @@ public class ChatEventPublisher {
 
             conn.publish(subject, mapper.writeValueAsBytes(event));
         } catch (Exception e) {
-            log.warn("Failed to publish chat event: {}", e.getMessage());
+            log.warn("Failed to publish chat event: {}", LogContent.reason(e));
         }
     }
 

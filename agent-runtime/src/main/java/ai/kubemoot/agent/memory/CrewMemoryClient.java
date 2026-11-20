@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.memory;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.nats.NatsConnectionProvider;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -261,7 +262,7 @@ public class CrewMemoryClient {
             kv.put(nk, objectMapper.writeValueAsBytes(v));
             enforceCap(kv);
         } catch (Exception e) {
-            log.debug("Failed to remember {}/{}: {}", topic, key, e.getMessage());
+            log.debug("Failed to remember {}/{}: {}", topic, key, LogContent.reason(e));
         }
     }
 
@@ -283,7 +284,7 @@ public class CrewMemoryClient {
             v.put(F_USED_AT, Instant.now().toString());
             kv.put(f.natsKey, objectMapper.writeValueAsBytes(v));
         } catch (Exception e) {
-            log.debug("Failed to touch crew-memory key {}: {}", f.natsKey, e.getMessage());
+            log.debug("Failed to touch crew-memory key {}: {}", f.natsKey, LogContent.reason(e));
         }
     }
 
@@ -302,7 +303,7 @@ public class CrewMemoryClient {
                 kv.delete(facts.get(i).natsKey);
                 log.info("Evicted LRU crew-memory fact {} (over cap by {})", facts.get(i).natsKey, over);
             } catch (Exception e) {
-                log.debug("Failed to evict {}: {}", facts.get(i).natsKey, e.getMessage());
+                log.debug("Failed to evict {}: {}", facts.get(i).natsKey, LogContent.reason(e));
             }
         }
     }
@@ -354,7 +355,7 @@ public class CrewMemoryClient {
             return new Fact(k, topic, key, n.path(F_VALUE).asText(""),
                     n.path(F_LEARNED_BY).asText(""), learnedAt, usedMillis);
         } catch (Exception e) {
-            log.debug("Skipping unreadable crew-memory key {}: {}", k, e.getMessage());
+            log.debug("Skipping unreadable crew-memory key {}: {}", k, LogContent.reason(e));
             return null;
         }
     }
@@ -383,7 +384,7 @@ public class CrewMemoryClient {
         try {
             return conn.keyValue(MEMORY_BUCKET);
         } catch (Exception e) {
-            log.debug("Crew-memory bucket {} unavailable: {}", MEMORY_BUCKET, e.getMessage());
+            log.debug("Crew-memory bucket {} unavailable: {}", MEMORY_BUCKET, LogContent.reason(e));
             return null;
         }
     }

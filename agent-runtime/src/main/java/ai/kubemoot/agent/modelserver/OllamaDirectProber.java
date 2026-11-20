@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
+import ai.kubemoot.agent.logging.LogContent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -304,7 +305,7 @@ public class OllamaDirectProber {
             }
             return Map.copyOf(result);
         } catch (Exception e) {
-            log.debug("fetchPs failed for {}: {}", endpoint, e.getMessage());
+            log.debug("fetchPs failed for {}: {}", endpoint, LogContent.reason(e));
             return Map.of();
         }
     }
@@ -335,7 +336,7 @@ public class OllamaDirectProber {
             }
             return Map.copyOf(result);
         } catch (Exception e) {
-            log.debug("fetchTags failed for {}: {}", endpoint, e.getMessage());
+            log.debug("fetchTags failed for {}: {}", endpoint, LogContent.reason(e));
             return Map.of();
         }
     }
@@ -362,7 +363,7 @@ public class OllamaDirectProber {
             Thread.currentThread().interrupt();
             return null;
         } catch (Exception e) {
-            log.debug("GET {} failed: {}", url, e.getMessage());
+            log.debug("GET {} failed: {}", url, LogContent.reason(e));
             return null;
         }
     }

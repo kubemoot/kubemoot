@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.nats.CoordinatorEventLog.AppendResult;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator.ThreadState;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -394,7 +395,8 @@ final class CoordinatorEventRecorder {
                 return s.trace.unlogged() || body.getAsBoolean();
             }
         } catch (RuntimeException e) {
-            log.debug("A coordinator event for thread {} could not be built", s.threadId, e);
+            log.debug("A coordinator event for thread {} could not be built ({}: {})", s.threadId,
+                    e.getClass().getSimpleName(), LogContent.reason(e));
             markUnlogged(s, "an event that could not be built (" + e + ")");
             return true;
         }

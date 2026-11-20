@@ -1,5 +1,6 @@
 package kubemoot.ai.mcpgateway.controller;
 
+import kubemoot.ai.mcpgateway.logging.LogContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -133,7 +134,8 @@ public class AdminController {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                 "Tool search not configured. Enable mcp.gateway.tool-index.enabled and set query-service-url");
         }
-        log.info("Searching tools with query: '{}', topK: {}", query, topK);
+        log.info("Searching tools (query {}, topK: {})", LogContent.size(query), topK);
+        LogContent.debug(log, "Tool search query: {}", query);
         return toolSearchService.searchTools(query, topK);
     }
 }

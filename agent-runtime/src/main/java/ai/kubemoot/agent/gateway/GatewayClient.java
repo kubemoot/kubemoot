@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.gateway;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -151,7 +152,8 @@ public class GatewayClient {
      * to the tool's server; an empty map sends none.
      */
     public ToolCallResult callTool(String toolName, Map<String, Object> arguments, Map<String, Object> meta) {
-        log.debug("Calling tool {} via gateway with arguments: {}", toolName, arguments);
+        log.debug("Calling tool {} via gateway ({} arguments)", toolName, arguments == null ? 0 : arguments.size());
+        LogContent.debug(log, "Tool {} arguments: {}", toolName, arguments);
 
         try {
             var body = mapper.writeValueAsString(callBody(arguments, meta));
@@ -165,7 +167,9 @@ public class GatewayClient {
             var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 var msg = "Gateway returned HTTP " + response.statusCode() + ": " + response.body();
-                log.error("Tool call {} failed: {}", toolName, msg);
+                log.error("Tool call {} failed: gateway returned HTTP {} ({})", toolName, response.statusCode(),
+                        LogContent.size(response.body()));
+                LogContent.debug(log, "Tool call {} failure body: {}", toolName, response.body());
                 return new ToolCallResult(toolName, false, null, msg);
             }
             var root = mapper.readTree(response.body());
@@ -180,10 +184,11 @@ public class GatewayClient {
             );
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("Tool call {} failed", toolName, e);
+            log.error("Tool call {} was interrupted", toolName);
             return new ToolCallResult(toolName, false, null, "Gateway error: " + e.getClass().getSimpleName());
         } catch (Exception e) {
-            log.error("Tool call {} failed", toolName, e);
+            log.error("Tool call {} failed: {}: {}", toolName, e.getClass().getSimpleName(), LogContent.reason(e));
+            LogContent.debug(log, "Tool call {} failure detail", toolName, e);
             String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             return new ToolCallResult(toolName, false, null, "Gateway error: " + detail);
         }

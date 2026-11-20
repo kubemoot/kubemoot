@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.config.AgentProperties;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
@@ -179,12 +180,12 @@ public class NatsConnectionProvider implements NatsLink {
     private boolean afterFailedAttempt(int attempt, Exception e) {
         if (attempt >= MAX_INITIAL_RETRIES) {
             log.warn("NATS connection failed after {} attempts: {} - will retry in {}s",
-                    MAX_INITIAL_RETRIES, e.getMessage(), reconnectBackoff.toSeconds());
+                    MAX_INITIAL_RETRIES, LogContent.reason(e), reconnectBackoff.toSeconds());
             lastFailedAttempt = Instant.now();
             return false;
         }
         log.warn("NATS connection attempt {}/{} failed: {} - retrying in {}s",
-                attempt, MAX_INITIAL_RETRIES, e.getMessage(), RETRY_INTERVAL.toSeconds());
+                attempt, MAX_INITIAL_RETRIES, LogContent.reason(e), RETRY_INTERVAL.toSeconds());
         try {
             Thread.sleep(retryInterval.toMillis());
             return true;

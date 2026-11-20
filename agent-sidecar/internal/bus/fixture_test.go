@@ -3,6 +3,7 @@ package bus_test
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -154,6 +155,7 @@ type options struct {
 	deadline    time.Duration
 	concurrency int
 	role        string
+	log         *slog.Logger // the runner's logger; nil is the default logger
 }
 
 // newPod starts a sidecar whose harness runs script.
@@ -199,7 +201,7 @@ func newPodWith(t *testing.T, ctx context.Context, o options,
 		DeadlineSeconds: int(o.deadline / time.Second)}, Conn: nc, JS: js, Harness: h, Registry: reg, Pub: p.pub,
 		Planner: p.planner, Tools: p.tools, Metrics: metrics, Aliases: map[string][]string{aliasDefault: {modelQwen}},
 		ModelAliases: map[string]any{aliasDefault: aliasDefault}, HeartbeatFirst: 200 * time.Millisecond,
-		HeartbeatEvery: 200 * time.Millisecond, NakDelay: 100 * time.Millisecond}
+		HeartbeatEvery: 200 * time.Millisecond, NakDelay: 100 * time.Millisecond, Log: o.log}
 	p.record(t)
 	sub, err := p.runner.Subscribe(ctx)
 	if err != nil {

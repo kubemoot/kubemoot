@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import io.nats.client.Connection;
 import io.nats.client.ObjectStore;
 import io.nats.client.JetStreamApiException;
@@ -172,7 +173,7 @@ final class DiscussionArtifacts {
             return deleted;
         } catch (Exception e) {
             log.warn("GC: artifact prefix-delete failed ({}): {} - TTL backstop will reap",
-                    e.getClass().getSimpleName(), e.getMessage());
+                    e.getClass().getSimpleName(), LogContent.reason(e));
             return 0;
         }
     }
@@ -206,7 +207,7 @@ final class DiscussionArtifacts {
             return reaped;
         } catch (Exception e) {
             log.warn("GC: orphan reap failed under {} ({}): {}",
-                    scopePrefix, e.getClass().getSimpleName(), e.getMessage());
+                    scopePrefix, e.getClass().getSimpleName(), LogContent.reason(e));
             return 0;
         }
     }
@@ -254,7 +255,7 @@ final class DiscussionArtifacts {
                 deleted++;
             } catch (Exception e) {
                 log.warn("GC: failed to delete {} ({}): {} - continuing",
-                        info.getObjectName(), e.getClass().getSimpleName(), e.getMessage());
+                        info.getObjectName(), e.getClass().getSimpleName(), LogContent.reason(e));
             }
         }
         return deleted;

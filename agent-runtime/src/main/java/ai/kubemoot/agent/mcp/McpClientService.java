@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.mcp;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.gateway.GatewayClient;
 import ai.kubemoot.agent.requester.Requester;
@@ -92,7 +93,7 @@ public class McpClientService {
                 try {
                     connectToServer(config);
                 } catch (Exception e) {
-                    log.warn("Failed to connect to MCP server {}: {}", config.name(), e.getMessage());
+                    log.warn("Failed to connect to MCP server {}: {}", config.name(), LogContent.reason(e));
                 }
             }
         }
@@ -121,7 +122,7 @@ public class McpClientService {
                 log.warn("Gateway returned null tool list");
             }
         } catch (Exception e) {
-            log.error("Failed to load tools from gateway: {}", e.getMessage(), e);
+            log.error("Failed to load tools from gateway: {}", LogContent.reason(e));
         }
     }
 
@@ -145,7 +146,7 @@ public class McpClientService {
         try {
             fresh = gatewayClient.listTools();
         } catch (RuntimeException e) {
-            log.warn("Gateway tool list refresh failed: {}", e.getMessage());
+            log.warn("Gateway tool list refresh failed: {}", LogContent.reason(e));
             return false;
         }
         gatewayToolsLoadedAt = now;
@@ -311,7 +312,7 @@ public class McpClientService {
             }
             return new ToolResult(toolName, result.success(), result.result(), result.error());
         } catch (Exception e) {
-            log.error("Gateway tool call failed: {}", e.getMessage());
+            log.error("Gateway tool call failed: {}", LogContent.reason(e));
             return new ToolResult(toolName, false, null, "Gateway error: " + e.getMessage());
         }
     }
@@ -414,7 +415,7 @@ public class McpClientService {
                 builder.parameters(buildObjectSchema(schemaNode));
             }
         } catch (Exception e) {
-            log.debug("Failed to parse input schema for tool {}: {}", name, e.getMessage());
+            log.debug("Failed to parse input schema for tool {}: {}", name, LogContent.reason(e));
         }
     }
 

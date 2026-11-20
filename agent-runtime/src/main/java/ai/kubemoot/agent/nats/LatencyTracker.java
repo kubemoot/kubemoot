@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -68,7 +69,7 @@ public class LatencyTracker {
             log.debug("Recorded latency for {}/{}: {}ms (window={}, p90={}ms)",
                     agentName, effectiveServer, durationMs, latency.sampleCount(), (long) latency.p90());
         } catch (Exception e) {
-            log.warn("Failed to record latency for {}/{}: {}", agentName, effectiveServer, e.getMessage());
+            log.warn("Failed to record latency for {}/{}: {}", agentName, effectiveServer, LogContent.reason(e));
         }
     }
 
@@ -97,7 +98,7 @@ public class LatencyTracker {
             log.debug("P90 for {}/{}: {}s (from {} samples)", agentName, effectiveServer, seconds, latency.sampleCount());
             return seconds;
         } catch (Exception e) {
-            log.warn("Failed to load latency for {}/{}: {} — using default", agentName, effectiveServer, e.getMessage());
+            log.warn("Failed to load latency for {}/{}: {} — using default", agentName, effectiveServer, LogContent.reason(e));
             return defaultSeconds;
         }
     }
@@ -120,7 +121,7 @@ public class LatencyTracker {
 
             return mapper.readValue(entry.getValue(), AgentLatency.class);
         } catch (Exception e) {
-            log.debug("No existing latency entry for key {}: {}", key, e.getMessage());
+            log.debug("No existing latency entry for key {}: {}", key, LogContent.reason(e));
             return null;
         }
     }
@@ -133,7 +134,7 @@ public class LatencyTracker {
             var kv = conn.keyValue(kvBucket);
             kv.put(key, mapper.writeValueAsBytes(latency));
         } catch (Exception e) {
-            log.warn("Failed to persist latency entry {}: {}", key, e.getMessage());
+            log.warn("Failed to persist latency entry {}: {}", key, LogContent.reason(e));
         }
     }
 

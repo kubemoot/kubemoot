@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -86,7 +87,7 @@ class SkillBodyLoader {
         try {
             return Files.readString(path);
         } catch (IOException e) {
-            log.warn("Skill file not found or unreadable, skipping: {} ({})", path, e.getMessage());
+            log.warn("Skill file not found or unreadable, skipping: {} ({})", path, LogContent.reason(e));
             return null;
         }
     }

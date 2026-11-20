@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.rag;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -70,7 +71,9 @@ public class RagClient {
 
             var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                log.warn("RAG source {} answered HTTP {}: {}", source.name(), response.statusCode(),
+                log.warn("RAG source {} answered HTTP {} ({})", source.name(), response.statusCode(),
+                        LogContent.size(response.body()));
+                LogContent.debug(log, "RAG source {} error body: {}", source.name(),
                         response.body().length() > 200 ? response.body().substring(0, 200) : response.body());
                 return List.of();
             }
@@ -84,10 +87,10 @@ public class RagClient {
                     .toList();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.warn("Failed to query RAG source {}: {}", source.name(), e.getMessage());
+            log.warn("Failed to query RAG source {}: {}", source.name(), LogContent.reason(e));
             return List.of();
         } catch (Exception e) {
-            log.warn("Failed to query RAG source {}: {}", source.name(), e.getMessage());
+            log.warn("Failed to query RAG source {}: {}", source.name(), LogContent.reason(e));
             return List.of();
         }
     }

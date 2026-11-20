@@ -1,5 +1,6 @@
 package kubemoot.ai.mcpgateway.controller;
 
+import kubemoot.ai.mcpgateway.logging.LogContent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -51,7 +52,7 @@ public class McpServerController {
                 .data(objectMapper.writeValueAsString(endpointInfo))
                 .build());
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize endpoint info", e);
+            log.error("Failed to serialize endpoint info: {}", LogContent.reason(e));
         }
 
         return sink.asFlux()
@@ -86,7 +87,7 @@ public class McpServerController {
                                 .build()
                         );
                     } catch (JsonProcessingException e) {
-                        log.error("Failed to serialize response for SSE", e);
+                        log.error("Failed to serialize response for SSE: {}", LogContent.reason(e));
                     }
                 }
             });

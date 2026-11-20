@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.rag;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -76,7 +77,8 @@ public class ResumeSearchClient {
             var escapedQuery = query.replace("\\", "\\\\").replace("\"", "\\\"");
             var body = String.format("{\"query\":\"%s\",\"top_k\":%d}", escapedQuery, topK);
             var bodyBytes = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            log.info("Resume search: POST {}/query (query={}, bodyLen={}, body={})", endpoint, truncate(query, LOG_QUERY_CHARS), bodyBytes.length, body);
+            log.info("Resume search: POST {}/query (query {}, bodyLen={})", endpoint, LogContent.size(query), bodyBytes.length);
+            LogContent.debug(log, "Resume search query: {}", truncate(query, LOG_QUERY_CHARS));
             var request = HttpRequest.newBuilder()
                     .uri(URI.create(endpoint + "/query"))
                     .timeout(QUERY_TIMEOUT)
@@ -88,8 +90,8 @@ public class ResumeSearchClient {
             var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
-                log.warn("Resume search returned status {}: {}", response.statusCode(),
-                        truncate(response.body(), LOG_ERROR_BODY_CHARS));
+                log.warn("Resume search returned status {} ({})", response.statusCode(), LogContent.size(response.body()));
+                LogContent.debug(log, "Resume search error body: {}", truncate(response.body(), LOG_ERROR_BODY_CHARS));
                 return null;
             }
 
@@ -100,7 +102,7 @@ public class ResumeSearchClient {
             var responseNode = mapper.readTree(response.body());
             var resultsNode = responseNode.get("results");
             if (resultsNode == null || !resultsNode.isArray() || resultsNode.isEmpty()) {
-                log.debug("Resume search returned no results for query: {}", truncate(query, LOG_QUERY_CHARS));
+                log.debug("Resume search returned no results");
                 return null;
             }
 
@@ -111,10 +113,14 @@ public class ResumeSearchClient {
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.warn("Resume search failed (falling back to ConfigMap): {}", e.getMessage(), e);
+            log.warn("Resume search failed (falling back to ConfigMap): {}: {}", e.getClass().getSimpleName(),
+                    LogContent.reason(e));
+            LogContent.debug(log, "Resume search failure detail", e);
             return null;
         } catch (Exception e) {
-            log.warn("Resume search failed (falling back to ConfigMap): {}", e.getMessage(), e);
+            log.warn("Resume search failed (falling back to ConfigMap): {}: {}", e.getClass().getSimpleName(),
+                    LogContent.reason(e));
+            LogContent.debug(log, "Resume search failure detail", e);
             return null;
         }
     }

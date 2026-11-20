@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.chat.ModelWarmupService;
 import ai.kubemoot.agent.config.AgentProperties;
 import io.quarkus.runtime.StartupEvent;
@@ -92,7 +93,7 @@ public class AgentHeartbeatService {
             var kv = conn.keyValue(properties.heartbeat().kvBucket());
             kv.put(natsConnectionProvider.scope().agentStateKey(agentName), json.getBytes());
         } catch (Exception e) {
-            log.warn("Failed to publish heartbeat: {}", e.getMessage());
+            log.warn("Failed to publish heartbeat: {}", LogContent.reason(e));
         }
     }
 

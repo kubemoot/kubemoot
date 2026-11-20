@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -118,7 +119,7 @@ public class RequestQueueConsumer {
             } catch (InterruptedException e) {
                 interrupted = true;
             } catch (Exception e) {
-                log.warn("Request queue error: {} - retrying in 10s", e.getMessage());
+                log.warn("Request queue error: {} - retrying in 10s", LogContent.reason(e));
                 subscription = null;
                 interrupted = !backOff();
             }
@@ -230,14 +231,14 @@ public class RequestQueueConsumer {
                     conn.jetStreamManagement().deleteConsumer(STREAM_NAME, consumerName);
                     return createSubscription(); // retry with fresh consumer
                 } catch (Exception ex) {
-                    log.warn("Failed to recreate consumer: {}", ex.getMessage());
+                    log.warn("Failed to recreate consumer: {}", LogContent.reason(ex));
                 }
             } else {
-                log.warn("Failed to create request queue subscription: {}", e.getMessage());
+                log.warn("Failed to create request queue subscription: {}", LogContent.reason(e));
             }
             return null;
         } catch (IOException e) {
-            log.warn("Failed to create request queue subscription: {}", e.getMessage());
+            log.warn("Failed to create request queue subscription: {}", LogContent.reason(e));
             return null;
         }
     }
@@ -258,10 +259,10 @@ public class RequestQueueConsumer {
                 log.debug("No pre-existing consumer to reset: {}", consumerName);
             } else {
                 log.warn("Failed to reset consumer {} (apiErrorCode={}): {}",
-                        consumerName, e.getApiErrorCode(), e.getMessage());
+                        consumerName, e.getApiErrorCode(), LogContent.reason(e));
             }
         } catch (IOException e) {
-            log.warn("Failed to reset consumer {}: {}", consumerName, e.getMessage());
+            log.warn("Failed to reset consumer {}: {}", consumerName, LogContent.reason(e));
         }
     }
 
@@ -274,7 +275,7 @@ public class RequestQueueConsumer {
             // An unparseable message will NEVER parse on redelivery. Terminate it
             // (dead-letter) so it cannot block the FIFO queue or redeliver forever.
             log.error("Discarding unparseable request (term, delivery {}): {}",
-                    deliveredCount(msg), e.getMessage());
+                    deliveredCount(msg), LogContent.reason(e));
             safeTerm(msg);
             return;
         }
@@ -301,7 +302,7 @@ public class RequestQueueConsumer {
             log.info("Completed queued request: conversationId={}", request.conversationId());
         } catch (Exception e) {
             log.error("Failed to process queued request: conversationId={}, error={}",
-                    request.conversationId(), e.getMessage());
+                    request.conversationId(), LogContent.reason(e));
             // Bounded redelivery: a request that keeps failing is dead-lettered so one
             // poison request can't wedge the crew. A normal transient first failure
             // (delivery 1..MAX_DELIVER-1) is left to redeliver via ackWait. When the
@@ -326,11 +327,11 @@ public class RequestQueueConsumer {
         try {
             msg.ackSync(ACK_CONFIRM_TIMEOUT);
         } catch (Exception e) {
-            log.warn("ackSync failed ({}) - falling back to async ack", e.getMessage());
+            log.warn("ackSync failed ({}) - falling back to async ack", LogContent.reason(e));
             try {
                 msg.ack();
             } catch (Exception ex) {
-                log.warn("async ack also failed: {}", ex.getMessage());
+                log.warn("async ack also failed: {}", LogContent.reason(ex));
             }
         }
     }
@@ -357,7 +358,7 @@ public class RequestQueueConsumer {
         try {
             msg.term();
         } catch (Exception e) {
-            log.warn("Failed to term poison message: {}", e.getMessage());
+            log.warn("Failed to term poison message: {}", LogContent.reason(e));
         }
     }
 

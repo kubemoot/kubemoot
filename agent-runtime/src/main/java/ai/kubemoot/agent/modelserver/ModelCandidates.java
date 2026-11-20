@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
+import ai.kubemoot.agent.logging.LogContent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -74,7 +75,7 @@ public final class ModelCandidates {
             }
             return new ModelCandidates(out);
         } catch (Exception e) {
-            log.warn("Ignoring unreadable model candidates: {}", e.getMessage());
+            log.warn("Ignoring unreadable model candidates: {}", LogContent.reason(e));
             return none();
         }
     }

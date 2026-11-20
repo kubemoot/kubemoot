@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -75,7 +76,7 @@ public class RtfmSubscriber {
             try {
                 handleDeploymentEvent(new String(msg.getData()));
             } catch (Exception e) {
-                log.warn("Error handling RTFM event: {}", e.getMessage());
+                log.warn("Error handling RTFM event: {}", LogContent.reason(e));
             }
         });
 
@@ -111,7 +112,7 @@ public class RtfmSubscriber {
 
             handleChatResult(result, serverName, domain);
         } catch (Exception e) {
-            log.warn("RTFM processing failed: {}", e.getMessage());
+            log.warn("RTFM processing failed: {}", LogContent.reason(e));
         }
     }
 
@@ -140,7 +141,8 @@ public class RtfmSubscriber {
     private void handleChatResult(ChatService.ChatResult result, String serverName, String domain) {
         if (result != null && result.response() != null) {
             String resultText = result.response();
-            log.info("RTFM completed for '{}': {}", serverName,
+            log.info("RTFM completed for '{}' ({})", serverName, LogContent.size(resultText));
+            LogContent.debug(log, "RTFM result for '{}': {}", serverName,
                     resultText.substring(0, Math.min(resultText.length(), 200)));
 
             // Publish completion events
@@ -202,7 +204,7 @@ public class RtfmSubscriber {
             conn.publish(NATS_ONBOARDING_PREFIX + "docs-indexed",
                     mapper.writeValueAsBytes(event));
         } catch (Exception e) {
-            log.debug("Failed to publish RTFM event: {}", e.getMessage());
+            log.debug("Failed to publish RTFM event: {}", LogContent.reason(e));
         }
     }
 
@@ -221,7 +223,7 @@ public class RtfmSubscriber {
             conn.publish(NATS_ONBOARDING_PREFIX + "progress",
                     mapper.writeValueAsBytes(event));
         } catch (Exception e) {
-            log.debug("Failed to publish progress event: {}", e.getMessage());
+            log.debug("Failed to publish progress event: {}", LogContent.reason(e));
         }
     }
 }

@@ -1,5 +1,6 @@
 package kubemoot.ai.mcpgateway.service;
 
+import kubemoot.ai.mcpgateway.logging.LogContent;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -262,7 +263,7 @@ public class McpClientManager {
             .subscribe(
                 tools -> applyRefreshedTools(serverId, tools),
                 error -> {
-                    log.warn("Re-listing tools of {} failed: {}", serverId, error.getMessage());
+                    log.warn("Re-listing tools of {} failed: {}", serverId, LogContent.reason(error));
                     if (isLatestListing(serverId, listing)) {
                         setStatus(serverId, ServerStatus.ERROR);
                     }
@@ -456,7 +457,7 @@ public class McpClientManager {
             .subscribe(
                 tools -> onConnected(serverId, server, tools),
                 error -> {
-                    log.error("Failed to connect to MCP server {}: {}", server.name(), error.getMessage());
+                    log.error("Failed to connect to MCP server {}: {}", server.name(), LogContent.reason(error));
                     setStatus(serverId, ServerStatus.ERROR);
                     recordFeedback(FeedbackEntry.failure(server.name(), serverId, "connect", error.getMessage()));
                 }
@@ -543,10 +544,11 @@ public class McpClientManager {
             .flatMap(data -> {
                 try {
                     McpMessage response = objectMapper.readValue(data, McpMessage.class);
-                    log.debug("Initialize response: {}", response);
+                    log.debug("Initialize response received for {}", serverId);
+                    LogContent.debug(log, "Initialize response: {}", response);
                     return Mono.just(response);
                 } catch (Exception e) {
-                    log.warn("Failed to parse initialize response: {}", e.getMessage());
+                    log.warn("Failed to parse initialize response: {}", LogContent.reason(e));
                     return Mono.empty();
                 }
             })
@@ -658,7 +660,7 @@ public class McpClientManager {
         try {
             return objectMapper.readValue(data, McpMessage.class);
         } catch (Exception e) {
-            log.debug("Failed to parse SSE message: {}", e.getMessage());
+            log.debug("Failed to parse SSE message: {}", LogContent.reason(e));
             return null;
         }
     }
@@ -713,7 +715,7 @@ public class McpClientManager {
                     .then()
             ))
             .onErrorResume(e -> {
-                log.warn("Initialize handshake error for {}: {}", serverId, e.getMessage());
+                log.warn("Initialize handshake error for {}: {}", serverId, LogContent.reason(e));
                 return Mono.empty();
             });
     }
@@ -843,7 +845,7 @@ public class McpClientManager {
             .bodyValue(listToolsRequest)
             .exchangeToMono(response -> handleSseDiscoverResponse(
                 response, serverId, client, server, responseSink, allowRetry, listId))
-            .doOnError(e -> log.error("Error discovering tools via SSE for {}: {}", serverId, e.getMessage()))
+            .doOnError(e -> log.error("Error discovering tools via SSE for {}: {}", serverId, LogContent.reason(e)))
             .onErrorReturn(Collections.emptyList());
     }
 
@@ -947,8 +949,11 @@ public class McpClientManager {
 
                 if (!response.statusCode().is2xxSuccessful()) {
                     return response.bodyToMono(String.class)
-                        .doOnNext(body -> log.error("Error discovering tools for {}: HTTP {} - {}",
-                            serverId, statusCode, body))
+                        .doOnNext(body -> {
+                            log.error("Error discovering tools for {}: HTTP {} ({})",
+                                serverId, statusCode, LogContent.size(body));
+                            LogContent.debug(log, "Tool discovery error body for {}: {}", serverId, body);
+                        })
                         .then(Mono.just(Collections.<ToolInfo>emptyList()));
                 }
 
@@ -971,7 +976,7 @@ public class McpClientManager {
             McpMessage mcpResponse = objectMapper.readValue(data, McpMessage.class);
             return Mono.just(parseToolList(mcpResponse.result(), serverId, server));
         } catch (Exception e) {
-            log.warn("Failed to parse tools SSE event: {}", e.getMessage());
+            log.warn("Failed to parse tools SSE event: {}", LogContent.reason(e));
             return Mono.just(Collections.<ToolInfo>emptyList());
         }
     }
@@ -1109,7 +1114,7 @@ public class McpClientManager {
      */
     private Mono<McpMessage> recoverForwardError(Throwable e, String serverId, McpMessage request,
             boolean allowRetry, boolean replayOnTimeout) {
-        log.warn("Error forwarding request to {}: {}", serverId, e.getMessage());
+        log.warn("Error forwarding request to {}: {}", serverId, LogContent.reason(e));
         if (ResponseLimit.isExceeded(e)) {
             return Mono.just(responseTooLarge(serverId, request, -1));
         }

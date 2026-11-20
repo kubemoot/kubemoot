@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;
 import io.nats.client.JetStreamApiException;
@@ -92,10 +93,10 @@ final class OutageAwarePublisher {
             publishes.publishOn(conn.jetStream(JetStreamOptions.builder().requestTimeout(ACK_TIMEOUT).build()));
             return Attempt.DELIVERED;
         } catch (JetStreamApiException e) {
-            log.debug("JetStream answered {}: {}", e.getApiErrorCode(), e.getMessage());
+            log.debug("JetStream answered {}: {}", e.getApiErrorCode(), LogContent.reason(e));
             return isOutage(e) ? Attempt.UNREACHABLE : Attempt.REFUSED;
         } catch (IOException e) {
-            log.debug("NATS is not accepting the publish yet: {}", e.getMessage());
+            log.debug("NATS is not accepting the publish yet: {}", LogContent.reason(e));
             return Attempt.UNREACHABLE;
         }
     }

@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
+import ai.kubemoot.agent.logging.LogContent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,7 +47,7 @@ public class RemoteCapacitySignal implements CapacitySignal {
                 return true;
             }
         } catch (PlacementUnavailableException e) {
-            log.debug("Capacity version unavailable: {}", e.getMessage());
+            log.debug("Capacity version unavailable: {}", LogContent.reason(e));
         }
         return false;
     }
@@ -90,7 +91,7 @@ public class RemoteCapacitySignal implements CapacitySignal {
         } catch (java.util.concurrent.CancellationException e) {
             return true; // nudged: the caller re-checks
         } catch (java.util.concurrent.ExecutionException e) {
-            log.debug("Capacity wait failed: {}", e.getCause() == null ? e.getMessage() : e.getCause().getMessage());
+            log.debug("Capacity wait failed: {}", LogContent.reason(e.getCause() == null ? e : e.getCause()));
             Thread.sleep(OUTAGE_PAUSE_MS);
             return false;
         } finally {

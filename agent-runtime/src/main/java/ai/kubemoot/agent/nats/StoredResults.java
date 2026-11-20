@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.chat.CallHeaders;
 import ai.kubemoot.agent.chat.CallManifest;
 import ai.kubemoot.agent.chat.ChatService;
@@ -126,7 +127,7 @@ final class StoredResults {
         } catch (InterruptedException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("Could not read stored result {} ({}): {}", call.key(), e.getClass().getSimpleName(), e.getMessage());
+            log.warn("Could not read stored result {} ({}): {}", call.key(), e.getClass().getSimpleName(), LogContent.reason(e));
             return null;
         }
     }
@@ -206,7 +207,7 @@ final class StoredResults {
             Thread.currentThread().interrupt();
             return null;
         } catch (RuntimeException e) {
-            log.warn("Could not read stored result {} ({}): {}", call.key(), e.getClass().getSimpleName(), e.getMessage());
+            log.warn("Could not read stored result {} ({}): {}", call.key(), e.getClass().getSimpleName(), LogContent.reason(e));
             return null;
         }
     }

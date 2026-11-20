@@ -1,5 +1,6 @@
 package kubemoot.ai.mcpgateway.service;
 
+import kubemoot.ai.mcpgateway.logging.LogContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -56,7 +57,8 @@ public class ToolSearchService {
 
         int effectiveTopK = topK > 0 ? topK : properties.getMetaTools().getMaxResultsPerSearch();
 
-        log.debug("Searching tools with query: '{}', topK: {}", query, effectiveTopK);
+        log.debug("Searching tools (query {}, topK: {})", LogContent.size(query), effectiveTopK);
+        LogContent.debug(log, "Tool search query: {}", query);
 
         try {
             QueryResponse response = webClient.post()
@@ -87,7 +89,8 @@ public class ToolSearchService {
             return results;
 
         } catch (Exception e) {
-            log.error("Failed to search tools: {}", e.getMessage(), e);
+            log.error("Failed to search tools: {}", LogContent.reason(e));
+            LogContent.debug(log, "Tool search failure detail", e);
             return Collections.emptyList();
         }
     }

@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.modelserver.PlacementWire.PlaceReply;
 import ai.kubemoot.agent.modelserver.PlacementWire.PlaceRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -203,7 +204,7 @@ public class RemoteCallPlanner implements CallPlacement {
             client.post(API + "/release", mapper.createObjectNode().put("ticket", ticket.ticketId()));
         } catch (PlacementUnavailableException e) {
             // The service drops a ticket nobody released after its TTL.
-            log.debug("Releasing ticket {} failed: {}", ticket.ticketId(), e.getMessage());
+            log.debug("Releasing ticket {} failed: {}", ticket.ticketId(), LogContent.reason(e));
         }
     }
 
@@ -270,7 +271,7 @@ public class RemoteCallPlanner implements CallPlacement {
             log.warn("Placement service did not answer {} ({}); calls fall back to the declared or last-known server",
                     op, e.getMessage());
         } else {
-            log.debug("Placement service did not answer {}: {}", op, e.getMessage());
+            log.debug("Placement service did not answer {}: {}", op, LogContent.reason(e));
         }
     }
 

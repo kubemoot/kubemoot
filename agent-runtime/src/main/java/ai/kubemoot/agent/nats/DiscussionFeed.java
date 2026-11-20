@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
 import io.nats.client.JetStreamApiException;
@@ -60,7 +61,7 @@ final class DiscussionFeed {
         try {
             handler.accept(new String(msg.getData(), StandardCharsets.UTF_8), sequenceOf(msg));
         } catch (RuntimeException e) {
-            log.debug("Error handling orchestrator message: {}", e.getMessage());
+            log.debug("Error handling orchestrator message: {}", LogContent.reason(e));
         }
     }
 

@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,6 +33,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/logcontent"
 )
 
 // MCPCatalogReconciler reconciles an MCPCatalog object
@@ -302,7 +304,7 @@ Return the discovered servers as JSON.`, catalog.Spec.URL, catalog.Spec.Queries)
 	// Parse the agent's response
 	discoveredServers, err := r.parseAgentDiscoveryResponse(response)
 	if err != nil {
-		log.Error(err, "Failed to parse agent response", "response", response)
+		logUnparsedResponse(log, "Failed to parse agent response", err, response)
 		return r.updateStatus(ctx, catalog, "Error", "Failed to parse agent discovery response", nil)
 	}
 
@@ -684,7 +686,7 @@ func (r *MCPCatalogReconciler) invokeQualityEvaluator(ctx context.Context, polic
 	// Parse the agent's response
 	decision, err := r.parseQualityEvaluatorResponse(response)
 	if err != nil {
-		log.Error(err, "Failed to parse quality evaluator response", "response", response)
+		logUnparsedResponse(log, "Failed to parse quality evaluator response", err, response)
 		return PolicyDecision{}, fmt.Errorf("failed to parse response: %w", err)
 	}
 
@@ -896,4 +898,12 @@ func matchStringMatcher(m aiv1alpha1.StringMatcher, value string) bool {
 // Delegates to the shared matchVersionConstraintShared function.
 func matchVersionConstraint(constraint, version string) bool {
 	return matchVersionConstraintShared(constraint, version)
+}
+
+// logUnparsedResponse logs that an agent's reply did not parse, with its size. The reply is
+// model text and can echo what a person asked, so it is written only when the installer turned
+// content in logs on (KUBEMOOT_LOG_CONTENT).
+func logUnparsedResponse(log logr.Logger, msg string, err error, response string) {
+	log.Error(err, msg, "response", logcontent.Size(response))
+	logcontent.Debug(log, msg+" (content)", "response", response)
 }

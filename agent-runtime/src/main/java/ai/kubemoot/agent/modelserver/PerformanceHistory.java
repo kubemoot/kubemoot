@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.nats.KvKeys;
 import ai.kubemoot.agent.nats.NatsLink;
@@ -149,7 +150,7 @@ public class PerformanceHistory {
                 }
             }
         } catch (Exception e) {
-            log.debug("Reading {} for output lengths failed: {}", BUCKET, e.getMessage());
+            log.debug("Reading {} for output lengths failed: {}", BUCKET, LogContent.reason(e));
             return;
         }
         replayInto(mine);
@@ -207,7 +208,7 @@ public class PerformanceHistory {
                 items.add(new Item(F_PREDICTIONS, mapper.valueToTree(call.snapshot(false)), MAX_PREDICTIONS));
             });
         } catch (RuntimeException e) {
-            log.debug("Scoring the prediction of a {} request on {} failed: {}", o.model(), o.server(), e.getMessage());
+            log.debug("Scoring the prediction of a {} request on {} failed: {}", o.model(), o.server(), LogContent.reason(e));
         }
         writer.execute(() -> append(o.server(), o.model(), items, !o.ok()));
     }
@@ -271,7 +272,7 @@ public class PerformanceHistory {
             entry.put("updatedAt", System.currentTimeMillis());
             put(kv, key, entry);
         } catch (RuntimeException e) {
-            log.warn("Recording performance for {} on {} failed: {}", model, server, e.getMessage());
+            log.warn("Recording performance for {} on {} failed: {}", model, server, LogContent.reason(e));
         }
     }
 
@@ -300,7 +301,7 @@ public class PerformanceHistory {
             var stored = kv.get(key);
             loaded = stored == null || stored.getValue() == null ? null : usable(mapper.readTree(stored.getValue()));
         } catch (Exception e) {
-            log.debug("Reading {} from {} failed: {}", key, BUCKET, e.getMessage());
+            log.debug("Reading {} from {} failed: {}", key, BUCKET, LogContent.reason(e));
             return null;
         }
         ObjectNode entry = loaded != null ? loaded : fresh(server, model);
@@ -346,7 +347,7 @@ public class PerformanceHistory {
                 }
             }
         } catch (Exception e) {
-            log.debug("Reading {} failed: {}", BUCKET, e.getMessage());
+            log.debug("Reading {} failed: {}", BUCKET, LogContent.reason(e));
         }
         return out;
     }
@@ -366,7 +367,7 @@ public class PerformanceHistory {
         try {
             return conn.keyValue(BUCKET);
         } catch (Exception e) {
-            log.debug("Performance bucket {} unavailable: {}", BUCKET, e.getMessage());
+            log.debug("Performance bucket {} unavailable: {}", BUCKET, LogContent.reason(e));
             return null;
         }
     }

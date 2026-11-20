@@ -1,5 +1,6 @@
 package kubemoot.ai.mcpgateway.controller;
 
+import kubemoot.ai.mcpgateway.logging.LogContent;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -121,7 +122,7 @@ public class ToolController {
             String result = metaToolsService.executeMetaTool(toolName, arguments);
             return Mono.just(new ToolCallResponse(false, result));
         } catch (Exception e) {
-            log.error("Meta-tool execution failed: {}", e.getMessage());
+            log.error("Meta-tool execution failed: {}", LogContent.reason(e));
             return Mono.just(new ToolCallResponse(true, "Meta-tool error: " + e.getMessage()));
         }
     }
@@ -137,7 +138,7 @@ public class ToolController {
         return clientManager.forwardRequest(serverId, mcpRequest)
             .map(ToolController::toToolCallResponse)
             .onErrorResume(e -> {
-                log.error("Tool call failed: {}", e.getMessage());
+                log.error("Tool call failed: {}", LogContent.reason(e));
                 return Mono.just(new ToolCallResponse(true, "Error: " + e.getMessage()));
             });
     }

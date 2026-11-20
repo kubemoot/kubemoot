@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.chat.CallHeaders;
 import ai.kubemoot.agent.chat.HeaderValue;
 import ai.kubemoot.agent.mcp.WorkspaceTools;
@@ -91,11 +92,11 @@ final class ThreadCatalog {
     /** A bucket no writer has created is not a failure; any other failure to list is. */
     private static void logListFailure(String bucket, String prefix, Exception e) {
         if (DiscussionArtifacts.isBucketMissing(e)) {
-            log.debug("catalog: bucket {} is not readable yet: {}", bucket, e.getMessage());
+            log.debug("catalog: bucket {} is not readable yet: {}", bucket, LogContent.reason(e));
             return;
         }
         log.warn("catalog: could not list the stored calls under {} ({}): {}", prefix,
-                e.getClass().getSimpleName(), e.getMessage());
+                e.getClass().getSimpleName(), LogContent.reason(e));
     }
 
     private static java.util.Optional<Entry> entryOf(ObjectInfo info) {
