@@ -29,7 +29,8 @@ different angles, which is explained below.
 ## Conversation
 
 A **conversation** is a durable session between you and a crew, identified by a
-`conversationId` (a UUID). Supply one to continue an existing conversation; omit it
+`conversationId` (a UUID by default). Supply one to continue an existing conversation (1 to
+128 letters, digits, `-` or `_`; the gateway answers 400 for any other id); omit it
 and the crew generates a fresh one and returns it. The crew keeps a bounded history
 of the conversation's recent turns as working context for follow-up questions, and
 persists it so the session survives a coordinator restart. Every answer carries the

@@ -99,4 +99,28 @@ class ConversationHistoryScopeTest {
     void noEntryUnderEitherKeyGivesNoContext() throws Exception {
         assertTrue(orchestrator("team-a", "ops").buildConversationContext("missing").isEmpty());
     }
+
+    @Test
+    void anIdSpellingAnotherCrewsKeyReadsNoHistory() throws Exception {
+        var crewB = orchestrator("ns-b", "crew-b");
+        crewB.recordConversationTurn("someId", "b question", "b answer", "t-1", false);
+        store.put("conv.ns-b.crew-b.someId", store.get("conv.ns-b.crew-b.someId"));
+
+        var crewA = orchestrator("ns-a", "crew-a");
+        assertTrue(crewA.buildConversationContext("ns-b.crew-b.someId").isEmpty());
+        crewA.recordConversationTurn("ns-b.crew-b.someId", "a question", "a answer", "t-2", false);
+        assertEquals(1, store.keySet().stream().filter(k -> k.startsWith("conv.ns-b.")).count());
+        assertFalse(store.keySet().stream().anyMatch(k -> k.startsWith("conv.ns-a.")));
+    }
+
+    @Test
+    void invalidIdsAreRefusedAndValidOnesAreNot() {
+        for (String bad : new String[] {"", "a.b", "*", "a*", ">", "a>", "a b", "a/b", "\u00e9", "x".repeat(129)}) {
+            assertFalse(CrewScope.validConversationId(bad), "should refuse: " + bad);
+        }
+        assertFalse(CrewScope.validConversationId(null));
+        for (String good : new String[] {"c-1", "A_b-9", "x".repeat(128), java.util.UUID.randomUUID().toString()}) {
+            assertTrue(CrewScope.validConversationId(good), "should accept: " + good);
+        }
+    }
 }

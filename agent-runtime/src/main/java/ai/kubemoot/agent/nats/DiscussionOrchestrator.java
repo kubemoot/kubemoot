@@ -4932,6 +4932,10 @@ public class DiscussionOrchestrator {
      */
     void recordConversationTurn(String conversationId, String query, String response, String threadId,
                                         boolean once) {
+        if (!CrewScope.validConversationId(conversationId)) {
+            log.debug("Not recording a turn: the conversation id is not a valid id");
+            return;
+        }
         var history = loadConversationHistory(conversationId);
         if (once && history.turns.stream().anyMatch(turn -> threadId.equals(turn.threadId()))) {
             return;
@@ -4948,6 +4952,10 @@ public class DiscussionOrchestrator {
      */
     List<Map<String, String>> buildConversationContext(String conversationId) {
         if (conversationId == null) return List.of();
+        if (!CrewScope.validConversationId(conversationId)) {
+            log.debug("No conversation history: the conversation id is not a valid id");
+            return List.of();
+        }
         var history = loadConversationHistory(conversationId);
         if (history.turns.isEmpty()) return List.of();
 
