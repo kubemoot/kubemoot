@@ -191,7 +191,10 @@ class RequestQueueConsumerTest {
 
         consumer.processMessage(msg);
 
-        verify(orch, times(1)).orchestrate("hi", "c1", "demo", null, 0L);
+        // the asker is always stated: no zone from the client and none from the crew means UTC
+        var arrived = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.requester.Requester.class);
+        verify(orch, times(1)).orchestrate(eq("hi"), eq("c1"), eq("demo"), arrived.capture(), eq(0L));
+        assertEquals("UTC", arrived.getValue().timeZone());
         verify(msg, times(1)).ackSync(any(Duration.class));
         verify(msg, never()).term();
     }

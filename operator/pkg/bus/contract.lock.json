@@ -932,6 +932,9 @@
     "discussion-metadata.json#/definitions/Requester/localDateTime": {
       "type": "string"
     },
+    "discussion-metadata.json#/definitions/Requester/requestDate": {
+      "type": "string"
+    },
     "discussion-metadata.json#/definitions/Requester/timeZone": {
       "type": "string"
     },

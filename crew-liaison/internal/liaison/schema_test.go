@@ -31,6 +31,7 @@ func TestToolArgumentDescriptions(t *testing.T) {
 				"it rejoins that discussion instead of starting another",
 			argWaitSeconds: "seconds to wait for the answer before returning the ticket; " +
 				"default and maximum 45, 0 returns the ticket at once",
+			argTimeZone: askTimeZoneDesc,
 		},
 		"get_answer": {
 			argWaitSeconds: "seconds to wait for the answer before reporting pending; " +

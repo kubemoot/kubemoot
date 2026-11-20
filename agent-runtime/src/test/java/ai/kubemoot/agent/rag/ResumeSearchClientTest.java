@@ -148,6 +148,7 @@ class ResumeSearchClientTest {
             @Override public Optional<String> namespace() { return Optional.of("ns-test"); }
             @Override public Optional<String> crew() { return Optional.empty(); }
             @Override public Optional<String> crewVersion() { return Optional.empty(); }
+            @Override public Optional<String> defaultTimeZone() { return Optional.empty(); }
             @Override public ResumeSearch resumeSearch() { return new ResumeSearch() {
                 @Override public Optional<String> endpoint() {
                     return resumeEndpoint == null ? Optional.empty() : Optional.of(resumeEndpoint);

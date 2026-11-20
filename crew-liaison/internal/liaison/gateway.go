@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/askerzone"
 	"github.com/kubemoot/kubemoot/operator/pkg/sse"
 )
 
@@ -53,9 +54,16 @@ func NewGatewayAt(resolve func(namespace, crew string) string) *Gateway {
 	return g
 }
 
-// Start opens a discussion and returns its conversation id.
-func (g *Gateway) Start(ctx context.Context, namespace, crew, question string) (string, error) {
-	body, err := json.Marshal(map[string]string{"message": question})
+// Start opens a discussion and returns its conversation id. timeZone is the asker's IANA zone;
+// one that is not in the database is dropped, so the gateway never sees it.
+func (g *Gateway) Start(ctx context.Context, namespace, crew, question, timeZone string) (string, error) {
+	fields := map[string]string{"message": question}
+	if zone, ok := askerzone.Valid(timeZone); ok {
+		fields["timeZone"] = zone
+	} else if timeZone != "" {
+		log.V(1).Info("Dropped a time zone that is not in the IANA database", "crew", crew)
+	}
+	body, err := json.Marshal(fields)
 	if err != nil {
 		return "", err
 	}

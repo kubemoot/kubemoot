@@ -57,10 +57,10 @@ func callTime(t *testing.T, s *mcp.ClientSession) {
 func TestTheRequestersDateAndZoneTravelInMeta(t *testing.T) {
 	g := newRecordingGateway(t)
 	reg := turn.NewRegistry()
-	reg.Open("k", turn.Info{RequestDate: "2026-10-20T21:30:00-04:00", TimeZone: "America/New_York"})
+	reg.Open("k", turn.Info{RequestDate: "2026-10-20", TimeZone: "America/New_York"})
 	callTime(t, connect(t, Config{Gateway: g.URL}, reg))
 	meta, _ := g.body["_meta"].(map[string]any)
-	if meta["requestDate"] != "2026-10-20T21:30:00-04:00" || meta["timeZone"] != "America/New_York" {
+	if meta["requestDate"] != "2026-10-20" || meta["timeZone"] != "America/New_York" {
 		t.Fatalf("_meta %v", g.body)
 	}
 }

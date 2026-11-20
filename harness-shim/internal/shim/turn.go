@@ -14,11 +14,13 @@ type Turn struct {
 	Question     string
 	Instructions string
 	Role         string
-	Thread       []ThreadEntry
-	TurnKey      string
-	TimeZone     string
-	Now          string
-	Deadline     time.Duration
+	// Context is the sidecar's turn context line: the asker's date and zone, and where the agent runs.
+	Context  string
+	Thread   []ThreadEntry
+	TurnKey  string
+	TimeZone string
+	Now      string
+	Deadline time.Duration
 }
 
 // ThreadEntry is one earlier message on the thread.
@@ -40,6 +42,7 @@ type sendRequest struct {
 
 type profile struct {
 	Role            string        `json:"role"`
+	Context         string        `json:"context"`
 	Instructions    string        `json:"instructions"`
 	Thread          []ThreadEntry `json:"thread"`
 	TurnKey         string        `json:"turnKey"`
@@ -80,8 +83,10 @@ func applyProfile(t *Turn, raw json.RawMessage) {
 		return
 	}
 	t.Role, t.Instructions, t.Thread = p.Role, p.Instructions, p.Thread
+	t.Context = p.Context
 	t.TurnKey, t.Now = p.TurnKey, p.Now
-	if _, err := time.LoadLocation(p.TimeZone); err == nil {
+	// The same rule as operator/pkg/askerzone (this module cannot import it): "Local" is not a zone.
+	if _, err := time.LoadLocation(p.TimeZone); err == nil && p.TimeZone != "Local" {
 		t.TimeZone = p.TimeZone
 	}
 	if p.DeadlineSeconds > 0 {
@@ -95,6 +100,9 @@ func (t Turn) Prompt() string {
 	var b strings.Builder
 	if t.Instructions != "" {
 		b.WriteString(t.Instructions + "\n\n")
+	}
+	if t.Context != "" {
+		b.WriteString(t.Context + "\n\n")
 	}
 	if len(t.Thread) > 0 {
 		b.WriteString("The discussion so far:\n")

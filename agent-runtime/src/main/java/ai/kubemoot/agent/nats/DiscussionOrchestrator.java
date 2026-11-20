@@ -2,6 +2,7 @@ package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Requester;
+import ai.kubemoot.agent.requester.TurnContext;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ModelUse;
 import ai.kubemoot.agent.chat.ToolListPlaceholder;
@@ -719,6 +720,7 @@ public class DiscussionOrchestrator {
         state.primaryChannel = primaryChannel;
         state.conversationId = request.conversationId();
         state.crew = request.crew();
+        state.requester = request.requester();
         // Tied to a request only when a restarted coordinator can use it to find the thread again.
         state.requestSeq = resume.enabled() ? requestSeq : 0;
         if (!leases.acquire(threadId)) {
@@ -1825,7 +1827,7 @@ public class DiscussionOrchestrator {
         List<String> similaritySelected = preFilterCandidates(state);
 
         String advisoryPrompt = buildLegacyAdvisoryPrompt(state.userQuery, state);
-        String systemPrompt = loadSystemPrompt();
+        String systemPrompt = systemPromptFor(state);
         long inferenceStart = System.currentTimeMillis();
         var advisoryResult = chatService.hasDistinctTriageModel()
                 ? chatService.triageChatWithTokens(systemPrompt, advisoryPrompt)
@@ -1986,7 +1988,7 @@ public class DiscussionOrchestrator {
     ReasoningResult runReasoningSelectBrief(ThreadState state, String resumes) {
         try {
             String prompt = buildReasoningSelectPrompt(state.userQuery, resumes, state);
-            String systemPrompt = loadSystemPrompt();
+            String systemPrompt = systemPromptFor(state);
             long inferenceStart = System.currentTimeMillis();
             // This is a reasoning call (not a fast classification) - use the main model,
             // not the triage model, so the coordinator has full reasoning capacity.
@@ -2297,6 +2299,7 @@ public class DiscussionOrchestrator {
         if (wisdom != null && !wisdom.isEmpty()) {
             metadata.put(MSG_ADVISORY, wisdom);
         }
+        putRequester(metadata, state.requester);
         // Include conversation context so toolers can resolve follow-up references
         var conversationContext = buildConversationContext(state.conversationId);
         if (!conversationContext.isEmpty()) {
@@ -2313,6 +2316,13 @@ public class DiscussionOrchestrator {
             metadata.put(FIELD_SELECTED_SKILLS, new ArrayList<>(state.selectedSkills));
         }
         return metadata;
+    }
+
+    /** The asker's date and zone, so a harness agent's turn carries the same context line. */
+    private static void putRequester(Map<String, Object> metadata, Requester requester) {
+        if (requester != null) {
+            metadata.put(Requester.METADATA_KEY, requester.toBusMetadata());
+        }
     }
 
     /** The advisory_ready content: the technologies, when any, and the start of the advisory. */
@@ -2600,7 +2610,7 @@ public class DiscussionOrchestrator {
             // the descriptions of the files they came from. A fact no agent stated is unknown.
             String threadText = ManifestText.strip(formatThread(state), false) + stored;
             String threadPrefix = signalContext + "\n\n" + SynthesisFiles.rulesFor(threadText);
-            var synthesisResult = synthesizeWithCompleteness(loadSystemPrompt(), threadPrefix + threadText,
+            var synthesisResult = synthesizeWithCompleteness(systemPromptFor(state), threadPrefix + threadText,
                     state.threadId);
             String response = synthesisResult.text();
             state.synthesisInputTokens = synthesisResult.inputTokens();
@@ -3657,6 +3667,14 @@ public class DiscussionOrchestrator {
      * Load system prompt from file (composed by operator from PromptModules).
      * Cached after first successful read.
      */
+    /**
+     * The coordinator's system prompt followed by the turn context line: the asker's date and
+     * zone as the thread fixed them, and the crew's namespace and name.
+     */
+    String systemPromptFor(ThreadState state) {
+        return TurnContext.appendTo(loadSystemPrompt(), chatService.turnContextLine(state.requester));
+    }
+
     String loadSystemPrompt() {
         return ToolListPlaceholder.render(loadRawSystemPrompt(), chatService::getToolNames);
     }
@@ -4003,7 +4021,7 @@ public class DiscussionOrchestrator {
         try {
             String triagePrompt = buildTriagePrompt(state.userQuery, technologies, wisdom,
                     resumeData.resumes, state, resumeData.semanticPreFiltered);
-            String systemPrompt = loadSystemPrompt();
+            String systemPrompt = systemPromptFor(state);
 
             long triageStart = System.currentTimeMillis();
             // Subcommittee selection is classification, not reasoning — run it on the
@@ -4814,6 +4832,8 @@ public class DiscussionOrchestrator {
         volatile String primaryChannel;
         volatile String conversationId;
         volatile String crew;
+        /** Who is asking, with the date fixed when the question arrived; null for an older request. */
+        volatile Requester requester;
         /** The stream sequence of the request that started the thread; 0 for a thread no request started. */
         volatile long requestSeq;
         /**

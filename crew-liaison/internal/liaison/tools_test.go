@@ -121,6 +121,26 @@ func TestAskAmbiguityResolvedByNamespace(t *testing.T) {
 	}
 }
 
+// The ask tool's optional timeZone argument reaches the gateway with the question.
+func TestAskForwardsTheAskersTimeZone(t *testing.T) {
+	f := newFakeGateway(synthesisEvents()...)
+	defer f.srv.Close()
+	svc := newTestService(t, f, 1)
+	for _, in := range []AskInput{
+		{Crew: testCrew, Question: "q", TimeZone: "Asia/Tokyo", WaitSeconds: sec(5)},
+		{Crew: testCrew, Question: "q2", TimeZone: "Nowhere/Land", WaitSeconds: sec(5)},
+		{Crew: testCrew, Question: "q3", WaitSeconds: sec(5)},
+	} {
+		if res, _, err := svc.Ask(context.Background(), nil, in); err != nil || res != nil {
+			t.Fatalf("ask %q: res=%v err=%v", in.Question, res, err)
+		}
+	}
+	got := f.askedZones()
+	if len(got) != 3 || got[0] != "Asia/Tokyo" || got[1] != "" || got[2] != "" {
+		t.Fatalf("zones the gateway received: %q", got)
+	}
+}
+
 func TestAskInflightLimit(t *testing.T) {
 	// A stream that never synthesizes keeps its slot until the follower's deadline.
 	f := newFakeGateway(`{"type":"connected"}`)

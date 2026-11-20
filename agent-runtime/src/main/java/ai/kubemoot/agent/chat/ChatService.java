@@ -3,6 +3,7 @@ package ai.kubemoot.agent.chat;
 import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.RequesterScope;
+import ai.kubemoot.agent.requester.TurnContext;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.mcp.WorkspaceTools;
@@ -331,7 +332,8 @@ public class ChatService {
 
         // Build message list
         List<ChatMessage> messages = new ArrayList<>();
-        String systemPromptText = buildSystemMessage(ragContext, request.discussionThreadId(), request.retrievalText());
+        String systemPromptText = buildSystemMessage(ragContext, request.discussionThreadId(), request.retrievalText(),
+                request.requester());
         if (!systemPromptText.isEmpty()) {
             messages.add(new SystemMessage(systemPromptText));
         }
@@ -2743,12 +2745,30 @@ public class ChatService {
         return properties.triageModel().endpoint().isPresent();
     }
 
-    private String buildSystemMessage(String ragContext, String discussionThreadId, String query) {
+    /**
+     * The one line every turn starts with: the asker's date and zone and where the agent runs.
+     * Fixed per question, so it is the same on every turn of a discussion.
+     */
+    public String turnContextLine(Requester requester) {
+        return TurnContext.line(requester, properties.namespace().orElse(null), properties.crew().orElse(null));
+    }
+
+    private static void appendParagraph(StringBuilder sb, String text) {
+        if (!text.isEmpty()) {
+            sb.append(text).append("\n\n");
+        }
+    }
+
+    private String buildSystemMessage(String ragContext, String discussionThreadId, String query,
+                                      Requester requester) {
         var sb = new StringBuilder();
         var systemPrompt = loadSystemPrompt();
         if (systemPrompt != null && !systemPrompt.isEmpty()) {
             sb.append(systemPrompt).append("\n\n");
         }
+        // After the prompt and before anything that changes per question, so the prefix a prompt
+        // cache holds is the same for the whole day.
+        appendParagraph(sb, turnContextLine(requester));
         if (ragContext != null && !ragContext.isEmpty()) {
             sb.append(ragContext).append("\n\n");
         }

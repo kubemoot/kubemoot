@@ -11,7 +11,8 @@
     "crew": "oguide",
     "requester": {
       "timeZone": "America/Los_Angeles",
-      "localDateTime": "2026-10-24T09:15:00"
+      "localDateTime": "2026-10-24T09:15:00",
+      "requestDate": "2026-10-24"
     }
   },
   "agentName": "oguide-coordinator",

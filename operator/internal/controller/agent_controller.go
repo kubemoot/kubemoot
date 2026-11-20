@@ -946,8 +946,42 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 	// Crew working-memory config (Crew.spec.memory) → agent env. Defaults
 	// applied when the Crew or its memory block is absent. See [[Crew Working Memory]].
 	env = append(env, r.memoryEnvVars(ctx, agent.Namespace)...)
+	env = append(env, r.defaultTimeZoneEnvVars(ctx, agent.Namespace)...)
 
 	return env
+}
+
+// crewOf is the Crew of a namespace (a crew maps to a namespace), or nil when there is none or the
+// list cannot be read.
+func (r *AgentReconciler) crewOf(ctx context.Context, namespace string) *kubemootv1alpha1.Crew {
+	list := &kubemootv1alpha1.CrewList{}
+	if err := r.List(ctx, list, client.InNamespace(namespace)); err != nil || len(list.Items) == 0 {
+		return nil
+	}
+	return &list.Items[0]
+}
+
+// envDefaultTimeZone carries Crew.spec.defaultTimeZone to the agent-runtime.
+const envDefaultTimeZone = "KUBEMOOT_DEFAULT_TIME_ZONE"
+
+// defaultTimeZoneEnvVars emits the crew's default time zone, the zone in which the crew
+// states the date for an asker whose client sent none. A crew that declares none gets no
+// variable, so the runtime falls back to UTC.
+func (r *AgentReconciler) defaultTimeZoneEnvVars(ctx context.Context, namespace string) []corev1.EnvVar {
+	crew := r.crewOf(ctx, namespace)
+	if crew == nil {
+		return nil
+	}
+	return defaultTimeZoneEnv(crew)
+}
+
+// defaultTimeZoneEnv is the env var for the crew's default zone, or nothing when it declares none.
+func defaultTimeZoneEnv(crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
+	zone := strings.TrimSpace(crew.Spec.DefaultTimeZone)
+	if zone == "" {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: envDefaultTimeZone, Value: zone}}
 }
 
 // agentNATSURL is the NATS endpoint handed to agent pods: the operator's own
@@ -1158,10 +1192,9 @@ func applyMemoryOverrides(m *kubemootv1alpha1.CrewMemoryConfig, enabled, verify 
 func (r *AgentReconciler) memoryEnvVars(ctx context.Context, namespace string) []corev1.EnvVar {
 	enabled, verify := true, true
 	maxFacts, ttlDays, injectLimit := int32(5000), int32(365), int32(8)
-	list := &kubemootv1alpha1.CrewList{}
-	if err := r.List(ctx, list, client.InNamespace(namespace)); err == nil && len(list.Items) > 0 {
-		applyMemoryOverrides(list.Items[0].Spec.Memory, &enabled, &verify, &maxFacts, &ttlDays, &injectLimit)
-		ttlDays = memoryTTLDays(&list.Items[0], ttlDays)
+	if crew := r.crewOf(ctx, namespace); crew != nil {
+		applyMemoryOverrides(crew.Spec.Memory, &enabled, &verify, &maxFacts, &ttlDays, &injectLimit)
+		ttlDays = memoryTTLDays(crew, ttlDays)
 	}
 	return []corev1.EnvVar{
 		{Name: "KUBEMOOT_MEMORY_ENABLED", Value: fmt.Sprintf("%t", enabled)},

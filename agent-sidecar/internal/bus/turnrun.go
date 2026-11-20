@@ -144,8 +144,9 @@ func (t *turnRun) acquire() bool {
 
 // info is what the doors need to know about the turn.
 func (t *turnRun) info() turn.Info {
-	date, _ := t.msg.Metadata["requestDate"].(string)
-	zone, _ := t.msg.Metadata["timeZone"].(string)
+	asker, _ := t.msg.Metadata["requester"].(map[string]any)
+	date, _ := asker["requestDate"].(string)
+	zone, _ := asker["timeZone"].(string)
 	return turn.Info{ThreadID: t.msg.ThreadID, RequestDate: date, TimeZone: zone, OnWaiting: t.waiting}
 }
 
@@ -228,6 +229,7 @@ func (t *turnRun) message() *sdk.Message {
 		Models: t.r.ModelAliases, TurnKey: t.key, DeadlineSeconds: t.r.Turn.DeadlineSeconds,
 		Now: time.Now().UTC().Format(time.RFC3339)}
 	in.RequestDate, in.TimeZone = t.meter.Info().RequestDate, t.meter.Info().TimeZone
+	in.Context = a2a.ContextLine(in.RequestDate, in.TimeZone, t.r.ID.Namespace, t.r.ID.Crew)
 	return a2a.NewTurn(t.msg.ThreadID, questionOf(t.msg), in)
 }
 

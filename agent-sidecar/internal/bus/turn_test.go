@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -284,15 +285,18 @@ func TestTheRequestersDateAndZoneReachTheHarnessAndTheDoors(t *testing.T) {
 		info = m.Info()
 		return answer("ok")(nil, nil, nil)
 	})
-	p.send(t, typeAdvisory, "coordinator", "tz", map[string]any{"requestDate": "2026-10-20T21:30:00-04:00",
-		"timeZone": "America/New_York"})
+	p.send(t, typeAdvisory, "coordinator", "tz", map[string]any{"requester": map[string]any{
+		"requestDate": "2026-10-20", "timeZone": "America/New_York"}})
 	p.nextOf(t, agree)
-	if info.RequestDate != "2026-10-20T21:30:00-04:00" || info.TimeZone != "America/New_York" {
+	if info.RequestDate != "2026-10-20" || info.TimeZone != "America/New_York" {
 		t.Errorf("the doors read the requester from the meter: %+v", info)
 	}
 	in := dataOf(t, p.h.firstMessage())
 	if in.RequestDate != info.RequestDate || in.TimeZone != info.TimeZone {
 		t.Errorf("the harness is told too: %+v", in)
+	}
+	if !strings.HasPrefix(in.Context, "Today is 2026-10-20 (America/New_York). You are in namespace ") {
+		t.Errorf("the harness gets the turn context line: %q", in.Context)
 	}
 }
 

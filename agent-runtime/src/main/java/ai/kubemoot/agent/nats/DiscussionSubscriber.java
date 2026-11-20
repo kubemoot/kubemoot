@@ -2,6 +2,7 @@ package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Requester;
+import ai.kubemoot.agent.requester.TurnContext;
 import ai.kubemoot.agent.chat.CallManifest;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ContextRejection;
@@ -726,7 +727,8 @@ public class DiscussionSubscriber {
     ChatService.SimpleLlmResult runTriage(String subject, String threadId, String conversation,
                                           String triageGpuLabel, long triageStartMs) {
         try {
-            String triagePrompt = buildTriagePrompt(threadId);
+            String triagePrompt = TurnContext.appendTo(buildTriagePrompt(threadId),
+                    chatService.turnContextLine(requesterFor(threadId)));
             return chatService.triageChatWithTokens(triagePrompt, conversation);
         } catch (ai.kubemoot.agent.modelserver.NoFitException nfe) {
             // The triage call could not be placed: the same capacity stand-aside as a

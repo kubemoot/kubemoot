@@ -101,8 +101,9 @@ When a discussion selects the agent, the sidecar sends the harness one A2A
 profile** as a data part. The profile carries the agent's name, crew and role, the
 discussion phase, the agent's assembled instructions, the earlier messages on the
 thread, the model aliases it may name, a per-turn key, the turn deadline, the
-current time, and the requester's `requestDate` and `timeZone` when the question
-carried them.
+current time, the requester's `requestDate` and `timeZone`, and a `context` line (the
+asker's date and zone, and the crew's namespace and name), when the question carried
+them.
 
 The harness answers with the standard A2A reply. A text answer counts as an
 agreement. A data part with a `signal` of `agree`, `concern`, `block`, or
@@ -143,9 +144,12 @@ If the agent declares tools the gateway does not list, the turn fails with
 `failureType` `tools_unavailable` before the harness starts. A turn that cannot use
 the tools it was promised does not run on guesses.
 
+The sidecar reads the requester from the `requester` object of the thread's messages
+(`requestDate` is `YYYY-MM-DD`, fixed by the coordinator when the question arrived).
 When the turn carries the requester's `requestDate` and `timeZone`, the sidecar
 passes them to the tools in the call's `_meta`, so a tool computes "today" for the
-person who asked.
+person who asked, and it gives the harness the same date as the `context` line of the
+turn profile. See [The turn context line](../../concepts/agent-context/#the-turn-context-line).
 
 A model sometimes sends the same call again and again in one turn. When a tool declares
 `readOnlyHint` as true in its MCP annotations, the sidecar answers an
