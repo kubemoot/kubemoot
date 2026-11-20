@@ -111,12 +111,25 @@ const (
 	localDateTimeLayout    = "2006-01-02T15:04:05"
 )
 
+// maxConversationIDLength bounds a conversation id.
+const maxConversationIDLength = 128
+
 var (
+	// conversationIDShape is the character set of a conversation id. A dot would let an id
+	// spell another crew's storage key, so ids carry no dots or wildcards.
+	conversationIDShape = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	// zoneShape is the character set of an IANA zone id; the agent checks the id against its zone database.
 	zoneShape = regexp.MustCompile(`^[A-Za-z0-9_+/-]+$`)
 	// localDateTimeShape is an ISO local date-time with a four-digit year and no offset.
 	localDateTimeShape = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?$`)
 )
+
+const errInvalidConversationID = "invalid conversationId: use 1 to 128 letters, digits, '-' or '_'"
+
+// validConversationID reports whether id is 1 to 128 letters, digits, '-' or '_'.
+func validConversationID(id string) bool {
+	return len(id) <= maxConversationIDLength && conversationIDShape.MatchString(id)
+}
 
 // validateRequester returns why the requester's zone or local date-time is unusable, or "" when each
 // is absent or well formed.
@@ -164,6 +177,11 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 
 	if msg := validateRequester(req.TimeZone, req.LocalDateTime); msg != "" {
 		httpError(w, http.StatusBadRequest, msg)
+		return
+	}
+
+	if req.ConversationID != "" && !validConversationID(req.ConversationID) {
+		httpError(w, http.StatusBadRequest, errInvalidConversationID)
 		return
 	}
 
@@ -216,6 +234,10 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 	conversationID := r.PathValue("conversationId")
 	if conversationID == "" {
 		httpError(w, http.StatusBadRequest, "conversationId is required")
+		return
+	}
+	if !validConversationID(conversationID) {
+		httpError(w, http.StatusBadRequest, errInvalidConversationID)
 		return
 	}
 	scope, ok := h.scopeFor(w, r.PathValue("crew"))

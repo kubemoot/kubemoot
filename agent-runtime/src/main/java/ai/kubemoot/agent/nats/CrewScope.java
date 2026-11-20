@@ -263,6 +263,19 @@ public record CrewScope(String namespace, String crew) {
         return namespace + DOT + requireCrew();
     }
 
+    /** Longest accepted conversation id. */
+    public static final int MAX_CONVERSATION_ID_LENGTH = 128;
+
+    /**
+     * Whether {@code id} may name a conversation: 1 to 128 characters of letters, digits, '_'
+     * and '-'. A dot would let an id spell another crew's key, and wildcards are not key
+     * characters, so neither is accepted.
+     */
+    public static boolean validConversationId(String id) {
+        return id != null && !id.isEmpty() && id.length() <= MAX_CONVERSATION_ID_LENGTH
+                && id.chars().allMatch(c -> c < 128 && (Character.isLetterOrDigit(c) || c == '_' || c == '-'));
+    }
+
     /** Key in {@code kubemoot_conversations}: {@code conv.<ns>.<crew>.<conversationId>}. */
     public String conversationKey(String conversationId) {
         return "conv." + kvScope() + DOT + conversationId;
