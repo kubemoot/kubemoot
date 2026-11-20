@@ -66,6 +66,13 @@ type CrewSpec struct {
 	// workspace.access overrides it.
 	// +optional
 	Workspace *CrewWorkspace `json:"workspace,omitempty"`
+
+	// DefaultTimeZone is the IANA time zone (such as America/New_York) in which the crew
+	// states today's date when the asker's client sent no zone. Without it the crew uses UTC.
+	// A name that is not in the IANA time zone database is ignored at runtime.
+	// +kubebuilder:validation:MaxLength=64
+	// +optional
+	DefaultTimeZone string `json:"defaultTimeZone,omitempty"`
 }
 
 // CrewMemoryConfig governs a crew's working-memory storage, injection, and GC.

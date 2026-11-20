@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
 	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/pkg/askerzone"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/kubemoot/kubemoot/operator/pkg/httporigin"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -122,7 +123,6 @@ func (h *Handler) readyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 const (
-	maxTimeZoneLength      = 64
 	maxLocalDateTimeLength = 32
 	localDateTimeLayout    = "2006-01-02T15:04:05"
 )
@@ -134,8 +134,6 @@ var (
 	// conversationIDShape is the character set of a conversation id. A dot would let an id
 	// spell another crew's storage key, so ids carry no dots or wildcards.
 	conversationIDShape = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-	// zoneShape is the character set of an IANA zone id; the agent checks the id against its zone database.
-	zoneShape = regexp.MustCompile(`^[A-Za-z0-9_+/-]+$`)
 	// localDateTimeShape is an ISO local date-time with a four-digit year and no offset.
 	localDateTimeShape = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?$`)
 )
@@ -147,12 +145,23 @@ func validConversationID(id string) bool {
 	return len(id) <= maxConversationIDLength && conversationIDShape.MatchString(id)
 }
 
-// validateRequester returns why the requester's zone or local date-time is unusable, or "" when each
-// is absent or well formed.
-func validateRequester(timeZone, localDateTime string) string {
-	if timeZone != "" && (len(timeZone) > maxTimeZoneLength || !zoneShape.MatchString(timeZone)) {
-		return "invalid timeZone"
+// askerZone returns the asker's zone when it names a zone of the IANA database. Any other value is
+// dropped, with a debug line that does not repeat it: a bad zone behaves like none, and the crew
+// falls back to its default zone.
+func askerZone(timeZone string) string {
+	if timeZone == "" {
+		return ""
 	}
+	zone, ok := askerzone.Valid(timeZone)
+	if !ok {
+		handlerLog.V(1).Info("Dropped a time zone that is not in the IANA database")
+	}
+	return zone
+}
+
+// validateLocalDateTime returns why the requester's local date-time is unusable, or "" when it is
+// absent or well formed.
+func validateLocalDateTime(localDateTime string) string {
 	if localDateTime == "" {
 		return ""
 	}
@@ -191,7 +200,7 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if msg := validateRequester(req.TimeZone, req.LocalDateTime); msg != "" {
+	if msg := validateLocalDateTime(req.LocalDateTime); msg != "" {
 		httpError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -222,7 +231,7 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),
 		UseRag:         true,
 		UseTools:       true,
-		TimeZone:       req.TimeZone,
+		TimeZone:       askerZone(req.TimeZone),
 		LocalDateTime:  req.LocalDateTime,
 	})
 

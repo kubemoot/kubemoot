@@ -140,15 +140,36 @@ func TestTheCommandGetsAPrivateHomeThatIsRemoved(t *testing.T) {
 func TestTheQuestionAndInstructionsReachTheCommand(t *testing.T) {
 	_, ts := newTestServer(t, Config{Argv: sh(`printf '%s' "$P"`), Env: []string{"P={{prompt}}"}}, testEnv)
 	_, r := post(t, ts.URL+"/message:send", body("Is it Tuesday?", map[string]any{
-		"instructions": "Be brief.", "now": "2026-10-20T10:00:00Z", "timeZone": "Mars/Base",
+		"instructions": briefInstructions, "now": "2026-10-20T10:00:00Z", "timeZone": "Mars/Base",
 		"thread": []any{map[string]any{"agent": "a", "type": "agree", "content": "yes"}}}))
-	for _, want := range []string{"Be brief.", "a (agree): yes", "2026-10-20T10:00:00Z", "Is it Tuesday?"} {
+	for _, want := range []string{briefInstructions, "a (agree): yes", "2026-10-20T10:00:00Z", "Is it Tuesday?"} {
 		if !strings.Contains(r.text(), want) {
 			t.Errorf("prompt lacks %q: %q", want, r.text())
 		}
 	}
 	if strings.Contains(r.text(), "Mars/Base") {
 		t.Error("an unknown time zone reached the command")
+	}
+}
+
+func TestLocalIsNotATimeZoneForATurn(t *testing.T) {
+	raw := `{"message":{"parts":[{"text":"q"},{"data":{"timeZone":"Local"}}]}}`
+	turn, err := ParseTurn([]byte(raw), time.Minute)
+	if err != nil || turn.TimeZone != "" {
+		t.Fatalf("zone %q err %v", turn.TimeZone, err)
+	}
+}
+
+const briefInstructions = "Be brief."
+
+func TestTheTurnContextLineIsInThePromptAfterTheInstructions(t *testing.T) {
+	_, ts := newTestServer(t, Config{Argv: sh(`printf '%s' "$P"`), Env: []string{"P={{prompt}}"}}, testEnv)
+	line := "Today is 2026-11-20 (America/New_York). You are in namespace ns, crew c."
+	_, r := post(t, ts.URL+"/message:send", body("Which day?", map[string]any{
+		"instructions": briefInstructions, "context": line}))
+	want := briefInstructions + "\n\n" + line + "\n\nWhich day?"
+	if r.text() != want {
+		t.Errorf("prompt %q, want %q", r.text(), want)
 	}
 }
 

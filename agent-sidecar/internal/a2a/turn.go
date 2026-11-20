@@ -1,6 +1,8 @@
 package a2a
 
 import (
+	"strings"
+
 	sdk "github.com/a2aproject/a2a-go/v2/a2a"
 )
 
@@ -30,9 +32,44 @@ type TurnInput struct {
 	DeadlineSeconds int    `json:"deadlineSeconds"`
 	// Now is the time the turn was handed over (RFC 3339), for a harness without a time tool.
 	Now string `json:"now,omitempty"`
-	// RequestDate and TimeZone are the requester's, when the bus message carried them.
+	// RequestDate (YYYY-MM-DD, fixed when the question arrived) and TimeZone are the requester's,
+	// when the bus message carried them.
 	RequestDate string `json:"requestDate,omitempty"`
 	TimeZone    string `json:"timeZone,omitempty"`
+	// Context is the one line every turn starts with: the asker's date and zone, and the crew's
+	// namespace and name. A harness puts it in front of the question as it is.
+	Context string `json:"context,omitempty"`
+}
+
+// ContextLine is the turn context line, for example "Today is 2026-11-20 (America/New_York).
+// You are in namespace crew-homelab-pilot, crew homelab-pilot." A part that is not known is left
+// out. It carries the date and never a clock time, so it is the same for every turn of a
+// discussion. The native agents build the same line (agent-runtime, TurnContext); change them together.
+func ContextLine(requestDate, timeZone, namespace, crew string) string {
+	var parts []string
+	if requestDate != "" {
+		today := "Today is " + requestDate
+		if timeZone != "" {
+			today += " (" + timeZone + ")"
+		}
+		parts = append(parts, today+".")
+	}
+	if place := placeOf(namespace, crew); place != "" {
+		parts = append(parts, "You are in "+place+".")
+	}
+	return strings.Join(parts, " ")
+}
+
+func placeOf(namespace, crew string) string {
+	switch {
+	case namespace != "" && crew != "":
+		return "namespace " + namespace + ", crew " + crew
+	case namespace != "":
+		return "namespace " + namespace
+	case crew != "":
+		return "crew " + crew
+	}
+	return ""
 }
 
 // ThreadEntry is one earlier message on the thread.

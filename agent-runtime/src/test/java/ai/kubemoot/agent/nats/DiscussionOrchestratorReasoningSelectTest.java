@@ -717,6 +717,17 @@ class DiscussionOrchestratorReasoningSelectTest {
     }
 
     @Test
+    void threadStartMetadata_carriesTheDateTheCoordinatorFixed() {
+        var arrived = Requester.arrived(Requester.of("America/New_York", null).orElseThrow(), null,
+                java.time.Instant.parse("2026-11-21T03:30:00Z"));
+
+        var md = orchestrator.buildThreadStartMetadata(
+                "q", "general", "conv-1", List.of(), "homelab-pilot", "thread-d", arrived);
+
+        assertEquals(Map.of("timeZone", "America/New_York", "requestDate", "2026-11-20"), md.get("requester"));
+    }
+
+    @Test
     void threadStartMetadata_omitsTheRequester_whenAbsent() {
         var md = orchestrator.buildThreadStartMetadata(
                 "q", "general", "conv-1", List.of(), "homelab-pilot", "thread-w", null);

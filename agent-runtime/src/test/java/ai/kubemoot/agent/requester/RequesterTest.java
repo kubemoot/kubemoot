@@ -84,4 +84,71 @@ class RequesterTest {
     void requestDateIsTheDatePartOfTheLocalDateTime() {
         assertEquals("0999-03-04", Requester.of(null, "0999-03-04T10:00").orElseThrow().requestDate());
     }
+
+    // --- The date and zone fixed when the question arrives ---
+
+    private static final java.time.Instant JUST_BEFORE_MIDNIGHT_NEW_YORK = java.time.Instant.parse("2026-11-21T04:59:59Z");
+    private static final java.time.Instant JUST_AFTER_MIDNIGHT_NEW_YORK = java.time.Instant.parse("2026-11-21T05:00:01Z");
+
+    @Test
+    void theClientsZoneWinsOverTheCrewsDefault() {
+        var client = Requester.of("Asia/Tokyo", null).orElseThrow();
+        var arrived = Requester.arrived(client, "America/New_York", JUST_BEFORE_MIDNIGHT_NEW_YORK);
+        assertEquals("Asia/Tokyo", arrived.timeZone());
+        assertEquals("2026-11-21", arrived.requestDate());
+    }
+
+    @Test
+    void withoutAClientZoneTheCrewsDefaultIsUsed() {
+        var arrived = Requester.arrived(null, "America/New_York", JUST_BEFORE_MIDNIGHT_NEW_YORK);
+        assertEquals("America/New_York", arrived.timeZone());
+        assertEquals("2026-11-20", arrived.requestDate());
+    }
+
+    @Test
+    void withNeitherTheZoneIsUtcAndNamedAsSuch() {
+        var arrived = Requester.arrived(null, null, JUST_BEFORE_MIDNIGHT_NEW_YORK);
+        assertEquals("UTC", arrived.timeZone());
+        assertEquals("2026-11-21", arrived.requestDate());
+    }
+
+    @Test
+    void aCrewDefaultThatIsNotAZoneFallsBackToUtc() {
+        assertEquals("UTC", Requester.arrived(null, "Mars/Base", JUST_BEFORE_MIDNIGHT_NEW_YORK).timeZone());
+        assertEquals("UTC", Requester.arrived(null, "", JUST_BEFORE_MIDNIGHT_NEW_YORK).timeZone());
+        assertEquals("UTC", Requester.arrived(null, "  ", JUST_BEFORE_MIDNIGHT_NEW_YORK).timeZone());
+    }
+
+    @Test
+    void aClientWithOnlyALocalTimeGetsTheDefaultZoneAndKeepsItsLocalTime() {
+        var client = Requester.of(null, "2026-11-20T23:00:00").orElseThrow();
+        var arrived = Requester.arrived(client, "Europe/Paris", JUST_BEFORE_MIDNIGHT_NEW_YORK);
+        assertEquals("Europe/Paris", arrived.timeZone());
+        assertEquals("2026-11-20T23:00:00", arrived.localDateTime());
+        // the client's local time never drives the date: the arrival instant in the resolved zone does
+        assertEquals("2026-11-21", arrived.requestDate());
+    }
+
+    // The date is fixed from the arrival instant: a discussion that runs past midnight keeps the date
+    // it was asked on, and a question asked after midnight gets the next one.
+    @Test
+    void theDateIsFixedAtArrivalAcrossAMidnightBoundary() {
+        var client = Requester.of("America/New_York", null).orElseThrow();
+        var before = Requester.arrived(client, null, JUST_BEFORE_MIDNIGHT_NEW_YORK);
+        var after = Requester.arrived(client, null, JUST_AFTER_MIDNIGHT_NEW_YORK);
+        assertEquals("2026-11-20", before.requestDate());
+        assertEquals("2026-11-21", after.requestDate());
+        // the requester travels on the bus as it was fixed; reading it later does not move the date
+        var carried = Requester.fromJson(MAPPER.valueToTree(before.toBusMetadata())).orElseThrow();
+        assertEquals("2026-11-20", carried.requestDate());
+        assertEquals("2026-11-20", carried.toolMeta().get("requestDate"));
+    }
+
+    @Test
+    void anInvalidRequestDateOnTheBusIsIgnored() {
+        var node = MAPPER.createObjectNode().put("timeZone", "Asia/Tokyo").put("requestDate", "tomorrow");
+        var requester = Requester.fromJson(node).orElseThrow();
+        assertEquals("Asia/Tokyo", requester.timeZone());
+        assertEquals(LocalDate.now(ZoneId.of("Asia/Tokyo")).toString(), requester.requestDate());
+    }
 }

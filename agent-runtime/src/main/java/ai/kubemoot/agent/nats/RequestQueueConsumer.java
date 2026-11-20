@@ -21,6 +21,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -63,6 +65,7 @@ public class RequestQueueConsumer {
     private final DiscussionOrchestrator orchestrator;
     private final boolean coordinator;
     private final String crew;
+    private final String defaultTimeZone;
 
     // Visible for testing.
     long pumpRetryMillis = PUMP_RETRY_MILLIS;
@@ -79,6 +82,7 @@ public class RequestQueueConsumer {
         this.orchestrator = orchestrator;
         this.coordinator = properties.discuss().coordinator();
         this.crew = properties.crew().orElse(null);
+        this.defaultTimeZone = properties.defaultTimeZone().orElse(null);
     }
 
     void onStart(@Observes StartupEvent event) {
@@ -290,7 +294,7 @@ public class RequestQueueConsumer {
             // The request's stream sequence ties it to the thread it starts, so a request handed
             // again after a restart finds that thread instead of starting another.
             var result = orchestrator.orchestrate(request.message(), request.conversationId(), request.crew(),
-                    request.requester(), streamSequence(msg));
+                    arrivedRequester(request), streamSequence(msg));
             // An interrupted orchestrate() returns null; one that finished returns a result
             // and is acked even when shutdown began meanwhile, so it is not answered twice.
             if (result == null && stopping()) {
@@ -377,6 +381,24 @@ public class RequestQueueConsumer {
             return msg.metaData().deliveredCount();
         } catch (Exception e) {
             return 0L;
+        }
+    }
+
+    /**
+     * The asker with the date fixed as of when the question arrived: the moment the gateway queued
+     * it, so a request handed again after a restart keeps its date; the clock now when the message
+     * names no readable time.
+     */
+    // Visible for testing
+    Requester arrivedRequester(RequestMessage request) {
+        return Requester.arrived(request.requester(), defaultTimeZone, arrivalOf(request.timestamp()));
+    }
+
+    private static Instant arrivalOf(String timestamp) {
+        try {
+            return Instant.parse(timestamp);
+        } catch (DateTimeParseException | NullPointerException e) {
+            return Instant.now();
         }
     }
 

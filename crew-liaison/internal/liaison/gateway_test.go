@@ -14,6 +14,7 @@ import (
 type fakeGateway struct {
 	mu        sync.Mutex
 	questions []string
+	zones     []string
 	events    []string // raw SSE lines to stream
 	startCode int
 	srv       *httptest.Server
@@ -31,11 +32,13 @@ func newFakeGateway(events ...string) *fakeGateway {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/discussions/{crew}", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Message string `json:"message"`
+			Message  string `json:"message"`
+			TimeZone string `json:"timeZone"`
 		}
 		_ = decodeJSON(r, &body)
 		f.mu.Lock()
 		f.questions = append(f.questions, body.Message)
+		f.zones = append(f.zones, body.TimeZone)
 		code := f.startCode
 		f.mu.Unlock()
 		if code != http.StatusOK {
@@ -68,6 +71,12 @@ func (f *fakeGateway) asked() []string {
 	return append([]string(nil), f.questions...)
 }
 
+func (f *fakeGateway) askedZones() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.zones...)
+}
+
 func decodeJSON(r *http.Request, v any) error {
 	return jsonDecode(r.Body, v)
 }
@@ -83,7 +92,7 @@ func TestGatewayStartAndFollow(t *testing.T) {
 	defer f.srv.Close()
 	g := NewGatewayAt(f.resolve)
 
-	conv, err := g.Start(context.Background(), testCrew, testCrew, "capital of France?")
+	conv, err := g.Start(context.Background(), testCrew, testCrew, "capital of France?", "")
 	if err != nil || conv != "conv-42" {
 		t.Fatalf("Start: %v %q", err, conv)
 	}
@@ -109,14 +118,14 @@ func TestGatewayStartRefused(t *testing.T) {
 	defer f.srv.Close()
 	f.startCode = http.StatusServiceUnavailable
 	g := NewGatewayAt(f.resolve)
-	if _, err := g.Start(context.Background(), testCrew, testCrew, "q"); err == nil || !strings.Contains(err.Error(), "refused") {
+	if _, err := g.Start(context.Background(), testCrew, testCrew, "q", ""); err == nil || !strings.Contains(err.Error(), "refused") {
 		t.Fatalf("want refused error, got %v", err)
 	}
 }
 
 func TestGatewayUnreachable(t *testing.T) {
 	g := NewGatewayAt(func(namespace, crew string) string { return "http://127.0.0.1:1/api/v1/discussions/" + crew })
-	if _, err := g.Start(context.Background(), testCrew, testCrew, "q"); err == nil || !strings.Contains(err.Error(), "unreachable") {
+	if _, err := g.Start(context.Background(), testCrew, testCrew, "q", ""); err == nil || !strings.Contains(err.Error(), "unreachable") {
 		t.Fatalf("want unreachable error, got %v", err)
 	}
 }
@@ -129,5 +138,29 @@ func TestReadEventsSkipsNoise(t *testing.T) {
 	}
 	if strings.Join(types, ",") != "finding,done" {
 		t.Fatalf("types %v", types)
+	}
+}
+
+// The asker's zone reaches the gateway when it is a zone of the database, and only then.
+func TestGatewayStartForwardsAValidTimeZoneOnly(t *testing.T) {
+	cases := map[string]string{
+		"valid":   "America/New_York",
+		"unknown": "",
+		"empty":   "",
+		"local":   "",
+	}
+	inputs := map[string]string{
+		"valid": "America/New_York", "unknown": "Mars/Base", "empty": "", "local": "Local",
+	}
+	for name, want := range cases {
+		f := newFakeGateway()
+		g := NewGatewayAt(f.resolve)
+		if _, err := g.Start(context.Background(), testCrew, testCrew, "q", inputs[name]); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := f.askedZones(); len(got) != 1 || got[0] != want {
+			t.Errorf("%s: gateway got zones %v, want [%q]", name, got, want)
+		}
+		f.srv.Close()
 	}
 }

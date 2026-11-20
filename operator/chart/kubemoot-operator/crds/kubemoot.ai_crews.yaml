@@ -67,6 +67,13 @@ spec:
           spec:
             description: CrewSpec defines the desired state of Crew
             properties:
+              defaultTimeZone:
+                description: |-
+                  DefaultTimeZone is the IANA time zone (such as America/New_York) in which the crew
+                  states today's date when the asker's client sent no zone. Without it the crew uses UTC.
+                  A name that is not in the IANA time zone database is ignored at runtime.
+                maxLength: 64
+                type: string
               description:
                 description: Description is a human-readable description of the crew's
                   purpose

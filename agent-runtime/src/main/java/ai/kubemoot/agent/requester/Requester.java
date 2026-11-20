@@ -2,6 +2,7 @@ package ai.kubemoot.agent.requester;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -14,30 +15,67 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Where and when the person asking is: their IANA time zone and their local date and time,
- * as their client reported them. Tools that care about "today" read this instead of the
- * server's clock, which may be in another time zone. Either part may be missing; a value
- * that is not a known IANA zone or not an ISO local date-time is dropped, so a bad client
- * value behaves like an absent one.
+ * Who is asking, as far as time goes: their IANA time zone, their local date and time as their
+ * client reported them, and the date the coordinator fixed when the question arrived. Tools and
+ * every agent's turn context read this instead of the server's clock, which may be in another
+ * time zone. A client value that is not a known IANA zone or not an ISO local date-time is
+ * dropped, so a bad client value behaves like an absent one.
+ *
+ * <p>{@code requestDate} is set by {@link #arrived}: the date in the zone when the question
+ * arrived, kept for the whole discussion so a thread that crosses midnight keeps one date. A
+ * requester that came from the bus without one (an older message) derives it on demand.
  */
-public record Requester(String timeZone, String localDateTime) {
+public record Requester(String timeZone, String localDateTime, String requestDate) {
+
+    /** The zone used when neither the client nor the crew names one. */
+    public static final String FALLBACK_ZONE = "UTC";
 
     /** The key under which the requester rides in a thread_start message's metadata. */
     public static final String METADATA_KEY = "requester";
     public static final String FIELD_TIME_ZONE = "timeZone";
     public static final String FIELD_LOCAL_DATE_TIME = "localDateTime";
-    /** Only in tool metadata: the requester's date, derived so a tool need not parse a date-time. */
+    /** The asker's date, YYYY-MM-DD, fixed when the question arrived; in tool metadata always when known. */
     public static final String FIELD_REQUEST_DATE = "requestDate";
 
     private static final int MIN_YEAR = 0;
     private static final int MAX_YEAR = 9999;
     private static final Set<String> ZONES = ZoneId.getAvailableZoneIds();
 
-    /** The requester for these client values, or empty when neither is usable. */
+    /** A requester without a fixed date: the client's values as they came. */
+    public Requester(String timeZone, String localDateTime) {
+        this(timeZone, localDateTime, null);
+    }
+
+    /** The requester for these client values, or empty when none is usable. */
     public static Optional<Requester> of(String timeZone, String localDateTime) {
+        return of(timeZone, localDateTime, null);
+    }
+
+    /** The requester for these values, or empty when none is usable. */
+    public static Optional<Requester> of(String timeZone, String localDateTime, String requestDate) {
         String zone = validZone(timeZone);
         String local = validLocalDateTime(localDateTime);
-        return zone == null && local == null ? Optional.empty() : Optional.of(new Requester(zone, local));
+        String date = validDate(requestDate);
+        return zone == null && local == null && date == null
+                ? Optional.empty() : Optional.of(new Requester(zone, local, date));
+    }
+
+    /**
+     * The requester of a question that arrived at {@code arrivedAt}: the client's zone when it
+     * sent a valid one, else the crew's default zone when that is valid, else UTC, with the date
+     * in that zone fixed now. The zone is always set, so the context line always names the zone
+     * the date is in. {@code client} may be null (the client sent nothing usable).
+     */
+    public static Requester arrived(Requester client, String defaultZone, Instant arrivedAt) {
+        String zone = client != null ? client.timeZone() : null;
+        if (zone == null) {
+            zone = validZone(defaultZone);
+        }
+        if (zone == null) {
+            zone = FALLBACK_ZONE;
+        }
+        String date = arrivedAt.atZone(ZoneId.of(zone)).toLocalDate().toString();
+        return new Requester(zone, client != null ? client.localDateTime() : null, date);
     }
 
     /** The requester in a JSON object with timeZone and localDateTime fields; empty for anything else. */
@@ -45,11 +83,17 @@ public record Requester(String timeZone, String localDateTime) {
         if (node == null || !node.isObject()) {
             return Optional.empty();
         }
-        return of(text(node, FIELD_TIME_ZONE), text(node, FIELD_LOCAL_DATE_TIME));
+        return of(text(node, FIELD_TIME_ZONE), text(node, FIELD_LOCAL_DATE_TIME), text(node, FIELD_REQUEST_DATE));
     }
 
-    /** The requester's date: from their local date-time, else today in their zone, else null. */
+    /**
+     * The requester's date: the one fixed when the question arrived; for a requester without
+     * one, from their local date-time, else today in their zone, else null.
+     */
     public String requestDate() {
+        if (requestDate != null) {
+            return requestDate;
+        }
         if (localDateTime != null) {
             return LocalDateTime.parse(localDateTime).toLocalDate().toString();
         }
@@ -65,10 +109,13 @@ public record Requester(String timeZone, String localDateTime) {
         if (localDateTime != null) {
             fields.put(FIELD_LOCAL_DATE_TIME, localDateTime);
         }
+        if (requestDate != null) {
+            fields.put(FIELD_REQUEST_DATE, requestDate);
+        }
         return fields;
     }
 
-    /** The fields as a tool call's MCP {@code _meta}: the bus fields plus requestDate. */
+    /** The fields as a tool call's MCP {@code _meta}: the bus fields, with requestDate always when known. */
     public Map<String, Object> toolMeta() {
         var fields = toBusMetadata();
         String date = requestDate();
@@ -89,6 +136,17 @@ public record Requester(String timeZone, String localDateTime) {
         }
         String zone = value.trim();
         return ZONES.contains(zone) ? zone : null;
+    }
+
+    private static String validDate(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value.trim()).toString();
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 
     private static String validLocalDateTime(String value) {

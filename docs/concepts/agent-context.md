@@ -363,10 +363,39 @@ writing them, and only these:
 - **The crew roster, for the coordinator.** The coordinator reasons over the crew's
   resumes, a catalog of what each agent can do, to choose which agents to convene. The
   operator compiles the resumes from the Agent specs.
-- **Where and when the requester is.** A client may send the requester's time zone and
-  local date and time with a question. The runtime passes them on the thread and hands
-  them to tools as MCP metadata, so a tool that needs "today" uses the requester's
-  date rather than the server's clock. They are not written into the prompt text.
+- **The turn context line.** Every agent's turn, and the coordinator's own calls, carry
+  one line: the asker's date and zone, and where the agent runs. See
+  [The turn context line](#the-turn-context-line).
+- **Where and when the requester is, for tools.** The same date and zone are handed to
+  tools as MCP metadata, so a tool that needs "today" uses the requester's date rather
+  than the server's clock.
+
+### The turn context line
+
+Each turn starts with one line the runtime writes, for example:
+
+```text
+Today is 2026-11-20 (America/New_York). You are in namespace crew-homelab-pilot, crew homelab-pilot.
+```
+
+- **The date is the asker's.** A client sends the asker's IANA time zone with the question
+  (a browser knows it, `kmctl` reads the local zone, the crew liaison's `ask` takes a
+  `timeZone` argument). Without one, the crew's `spec.defaultTimeZone` applies, then UTC.
+  The line always names the zone it used, so an answer never silently mixes zones. A
+  zone that is not in the IANA time zone database is dropped, not stored.
+- **The date is fixed when the question arrives.** The coordinator computes it once, from
+  the moment the question was queued, and passes it on the thread. A discussion that runs
+  past midnight keeps one date for every agent and every turn.
+- **The date, not the time.** The line holds no clock time, so it is identical for every
+  turn of a discussion and a prompt cache holds across them. A tool that needs the exact
+  time or a zone conversion is a job for a Time tool server in the crew's catalog.
+- **The namespace and crew come from the runtime.** A prompt no longer has to carry them,
+  so a crew bundle is portable between namespaces.
+
+Native agents place the line right after the system prompt. A harness agent receives the
+same line as the `context` field of the turn profile and puts it in front of the question
+(see [Moot Mesh](../../architecture/moot-mesh/)). The requester is carried with the
+question and is not stored by Kubemoot.
 
 The runtime injects no description of the agent's permissions; Kubernetes RBAC and
 network policy enforce them around the agent. Kubemoot sets no token budget on any

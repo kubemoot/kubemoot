@@ -20,6 +20,8 @@ Three tools, and nothing about the discussion's substance.
 | `ask` | Starts a discussion with a crew and returns a ticket. It waits up to 45 seconds first, so a quick crew answers in the same call. |
 | `get_answer` | Reports a ticket: `pending`, `answered` with the answer, or `failed` with the reason. It too waits up to 45 seconds, returning the moment the answer exists. |
 
+`ask` takes the crew and the question, and these optional arguments: `namespace` (when the crew name is not unique), `waitSeconds`, `ticket` (a retry rejoins its discussion), and `timeZone`, the asker's IANA time zone such as `America/New_York`. The liaison forwards the zone with the question and keeps it nowhere; the crew states the asker's date in it. A zone that is not in the IANA time zone database is dropped, and the crew uses its default zone. A client that knows where its person is (a chat client with the person's locale, a script) should send it.
+
 The question goes in and the synthesis comes out. Agent names, consensus signals,
 findings, tool output, and retrieved context stay inside the cluster. A pending
 ticket does carry one number, the count of contributions gathered so far, so a

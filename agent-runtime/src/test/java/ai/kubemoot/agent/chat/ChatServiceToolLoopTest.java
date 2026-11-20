@@ -509,6 +509,33 @@ class ChatServiceToolLoopTest {
         verify(chatModel).chat(any(ChatRequest.class));
     }
 
+    // The turn context line: the asker's date and zone and where the agent runs, in the system message.
+    @Test
+    void directChat_putsTheTurnContextLineInTheSystemMessage() {
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(new AiMessage("ok"));
+        when(response.tokenUsage()).thenReturn(new TokenUsage(20, 4));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
+        var props = spy(stubProperties(5, "tooler", false, false));
+        doReturn(Optional.of("crew-homelab-pilot")).when(props).namespace();
+        doReturn(Optional.of("homelab-pilot")).when(props).crew();
+        var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator, props,
+                heartbeatService, objectMapper, null, null, null, null, null, null, null, null, null);
+        var requester = new ai.kubemoot.agent.requester.Requester("America/New_York", null, "2026-11-20");
+
+        service.directChat(new ChatService.ChatRequest("conv-ctx", "say hello", null, "t-1", null, requester),
+                true);
+
+        var captured = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
+        verify(chatModel).chat(captured.capture());
+        var system = (dev.langchain4j.data.message.SystemMessage) captured.getValue().messages().get(0);
+        org.junit.jupiter.api.Assertions.assertTrue(system.text().contains(
+                "Today is 2026-11-20 (America/New_York). You are in namespace crew-homelab-pilot, crew homelab-pilot."),
+                system.text());
+    }
+
     @Test
     void multipleToolCalls_inSingleResponse_allExecuted() {
         // Setup: two tools
@@ -2002,6 +2029,7 @@ class ChatServiceToolLoopTest {
             @Override public Optional<String> namespace() { return Optional.of("ns-test"); }
             @Override public Optional<String> crew() { return Optional.empty(); }
             @Override public Optional<String> crewVersion() { return Optional.empty(); }
+            @Override public Optional<String> defaultTimeZone() { return Optional.empty(); }
             @Override public ResumeSearch resumeSearch() { return new ResumeSearch() {
                 @Override public Optional<String> endpoint() { return Optional.empty(); }
             }; }

@@ -301,11 +301,25 @@ func TestPostDiscussionWithoutAZoneQueuesNone(t *testing.T) {
 	}
 }
 
-// A zone or local time that is not well formed is refused, not queued.
-func TestPostDiscussionRefusesBadZoneAndLocalTime(t *testing.T) {
+// A zone that is not in the IANA database is dropped, not stored: the question is queued without it.
+func TestPostDiscussionDropsAZoneThatIsNotInTheDatabase(t *testing.T) {
 	cases := map[string]string{
-		"zone with spaces":    `{"message":"hi","timeZone":"Mars Base"}`,
-		"over-long zone":      `{"message":"hi","timeZone":"America/` + strings.Repeat("x", 80) + `"}`,
+		"zone with spaces": `{"message":"hi","timeZone":"Mars Base"}`,
+		"unknown zone":     `{"message":"hi","timeZone":"Mars/Base"}`,
+		"local":            `{"message":"hi","timeZone":"Local"}`,
+		"blank zone":       `{"message":"hi","timeZone":"  "}`,
+		"over-long zone":   `{"message":"hi","timeZone":"America/` + strings.Repeat("x", 80) + `"}`,
+	}
+	for name, body := range cases {
+		if got := queuedRequest(t, body); got.TimeZone != "" {
+			t.Errorf("%s: queued zone %q, want none", name, got.TimeZone)
+		}
+	}
+}
+
+// A local time that is not well formed is refused, not queued.
+func TestPostDiscussionRefusesBadLocalTime(t *testing.T) {
+	cases := map[string]string{
 		"not a date":          `{"message":"hi","localDateTime":"soon"}`,
 		"five-digit year":     `{"message":"hi","localDateTime":"12345-01-01T00:00:00"}`,
 		"impossible date":     `{"message":"hi","localDateTime":"2026-13-45T00:00:00"}`,

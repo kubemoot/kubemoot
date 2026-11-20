@@ -42,6 +42,13 @@ public interface AgentProperties {
      */
     Optional<String> crewVersion();
 
+    /**
+     * The IANA time zone in which the crew states today's date for an asker whose client sent
+     * none, from KUBEMOOT_DEFAULT_TIME_ZONE (the operator sets it from the Crew's
+     * spec.defaultTimeZone). Absent: UTC. A name that is not an IANA zone is ignored.
+     */
+    Optional<String> defaultTimeZone();
+
     @WithDefault("chat")
     String agentType();
 

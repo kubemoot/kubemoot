@@ -59,6 +59,7 @@ Because the domain is the crew's, a crew must be **portable** across clusters - 
 | `discussion` | object | Discussion gateway config (`enabled`, `resources`) - the HTTP entry point for external clients |
 | `memory` | object | Crew working-memory policy - see below |
 | `workspace.defaultAccess` | enum | The workspace access of every agent in the crew that declares none of its own: `none`, `read`, `write` or `readWrite`. An Agent's `spec.workspace.access` overrides it; left out, the KubemootConfig's `workspace.defaultAccess` applies, and with none declared agents behave as they always have. See [Agent](../../reference/agent/#specworkspaceaccess) |
+| `defaultTimeZone` | string | The IANA time zone (such as `America/New_York`) in which the crew states today's date when the asker's client sent no zone. Left out, or a name that is not an IANA zone, the crew uses UTC. See [the turn context line](../../concepts/agent-context/#the-turn-context-line) |
 | `network.allowedIngress` | []LabelSelector | Namespace selectors whose pods may reach the crew's discussion gateway when the operator generates network policies, for example the namespace of the web server that fronts the crew. See [Network policies](../../concepts/network-policies/) |
 
 ## Working Memory

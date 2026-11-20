@@ -75,7 +75,7 @@ sees.
 For each `SendMessage` the shim:
 
 1. reads the question, the agent's instructions, the thread so far, the turn key,
-   the deadline, the current time, and the requester's time zone;
+   the deadline, the current time, the requester's time zone, and the turn context line;
 2. starts the command in its own process group, in a private home directory, with
    `KUBEMOOT_MODEL_URL`, `KUBEMOOT_TOOLS_URL`, `KUBEMOOT_TURN_KEY`,
    `KUBEMOOT_TIME_ZONE`, `KUBEMOOT_NOW`, and `TZ` set;
@@ -107,7 +107,7 @@ The shim reads a JSON configuration file. For goose the image ships this:
   is an absolute path. A config that puts a request-derived placeholder in `argv` is
   rejected at load time.
 - `env` takes those and the request-derived ones: `{{prompt}}`, `{{question}}`,
-  `{{instructions}}`, `{{turnKey}}`, `{{timeZone}}` and `{{now}}`.
+  `{{instructions}}`, `{{turnKey}}`, `{{timeZone}}` and `{{now}}`. `{{prompt}}` holds the instructions, then the turn context line (the asker's date and zone, and the crew's namespace and name), then the thread and the question.
 - An `argv` element that starts with `[none]` or `[declared,all]` is kept only when
   `nativeTools` is one of the listed modes. This is how a harness image turns its
   built-in tools off for `nativeTools: none`.

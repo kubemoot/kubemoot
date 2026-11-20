@@ -68,6 +68,7 @@ const (
 	argNamespace   = "namespace"
 	argWaitSeconds = "waitSeconds"
 	argTicket      = "ticket"
+	argTimeZone    = "timeZone"
 )
 
 // Argument descriptions too long for a struct tag line; inputSchema sets them on
@@ -76,6 +77,8 @@ const (
 	namespaceDesc = "namespace of the crew, needed only when the name is not unique"
 	askTicketDesc = "on a retry, the ticket an earlier ask returned for this same question; " +
 		"it rejoins that discussion instead of starting another"
+	askTimeZoneDesc = "the asker's IANA time zone, such as America/New_York; the crew answers with the " +
+		"asker's date in it. Without one, or with a name that is not an IANA zone, the crew uses its default zone"
 	askWaitDesc = "seconds to wait for the answer before returning the ticket; default and maximum 45, " +
 		"0 returns the ticket at once"
 	getAnswerWaitDesc = "seconds to wait for the answer before reporting pending; default and maximum 45, " +
@@ -90,6 +93,7 @@ type AskInput struct {
 	Question    string `json:"question" jsonschema:"the question, in full; the crew has no memory of earlier questions"`
 	WaitSeconds *int   `json:"waitSeconds,omitempty"`
 	Ticket      string `json:"ticket,omitempty"`
+	TimeZone    string `json:"timeZone,omitempty"`
 }
 
 // AskOutput is a ticket, and the answer when it arrived within the wait.
@@ -108,7 +112,7 @@ type GetAnswerInput struct {
 // askInputSchema is the ask tool's input schema.
 func askInputSchema() *jsonschema.Schema {
 	return inputSchema[AskInput](map[string]string{
-		argNamespace: namespaceDesc, argWaitSeconds: askWaitDesc, argTicket: askTicketDesc,
+		argNamespace: namespaceDesc, argWaitSeconds: askWaitDesc, argTicket: askTicketDesc, argTimeZone: askTimeZoneDesc,
 	})
 }
 
@@ -169,7 +173,7 @@ func (s *Service) Ask(
 	if err != nil {
 		return toolError(err.Error()), AskOutput{}, nil
 	}
-	ticket, err := s.startOrRejoin(ctx, crew, question, in.Ticket)
+	ticket, err := s.startOrRejoin(ctx, crew, question, in.Ticket, in.TimeZone)
 	if err != nil {
 		return toolError(err.Error()), AskOutput{}, nil
 	}
@@ -192,24 +196,24 @@ func (s *Service) GetAnswer(
 
 // startOrRejoin reuses the caller's pending ticket when it presents its id with the same
 // question, else starts a discussion. A question without a ticket id always starts one.
-func (s *Service) startOrRejoin(ctx context.Context, crew Crew, question, ticketID string) (*Ticket, error) {
+func (s *Service) startOrRejoin(ctx context.Context, crew Crew, question, ticketID, timeZone string) (*Ticket, error) {
 	if ticketID != "" {
 		if ticket, ok := s.tickets.Rejoin(strings.TrimSpace(ticketID), crew.Name, crew.Namespace, question); ok {
 			return ticket, nil
 		}
 	}
-	return s.start(ctx, crew, question)
+	return s.start(ctx, crew, question, timeZone)
 }
 
 // start takes an in-flight slot, opens the discussion, and follows it in the background.
-func (s *Service) start(ctx context.Context, crew Crew, question string) (*Ticket, error) {
+func (s *Service) start(ctx context.Context, crew Crew, question, timeZone string) (*Ticket, error) {
 	select {
 	case s.inflight <- struct{}{}:
 	default:
 		return nil, fmt.Errorf(
 			"the liaison is at its limit of %d discussions in flight; try again in a minute", cap(s.inflight))
 	}
-	conversation, err := s.gateway.Start(ctx, crew.Namespace, crew.Name, question)
+	conversation, err := s.gateway.Start(ctx, crew.Namespace, crew.Name, question, timeZone)
 	if err != nil {
 		<-s.inflight
 		return nil, err

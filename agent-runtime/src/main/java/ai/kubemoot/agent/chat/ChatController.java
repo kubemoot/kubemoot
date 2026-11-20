@@ -11,6 +11,7 @@ import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -46,7 +47,8 @@ public class ChatController {
     @POST
     @Path("/chat")
     public ChatResponse chat(ChatRequest request) {
-        var requester = Requester.of(request.timeZone(), request.localDateTime()).orElse(null);
+        var client = Requester.of(request.timeZone(), request.localDateTime()).orElse(null);
+        var requester = Requester.arrived(client, properties.defaultTimeZone().orElse(null), Instant.now());
         var serviceRequest = new ChatService.ChatRequest(request.conversationId(), request.message(), request.crew(),
                 null, null, requester);
         var result = chatService.chat(serviceRequest);
