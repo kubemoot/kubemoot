@@ -836,7 +836,7 @@ export interface SuiteArtifactRef {
 }
 
 export interface CrewFitnessSuiteStatus {
-	phase?: 'Pending' | 'Running' | 'Paused' | 'Completed' | 'Failed' | 'Error' | 'Cancelled';
+	phase?: 'Pending' | 'Running' | 'Paused' | 'Completed' | 'Failed' | 'Error' | 'Cancelled' | 'ToolSmokeFailed';
 	runId?: string;
 	startedAt?: string;
 	completedAt?: string;

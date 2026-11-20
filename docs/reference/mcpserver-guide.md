@@ -181,6 +181,7 @@ spec:
 | `runtimeClassName` | string | | Kubernetes RuntimeClass for the pod, for example `gvisor`. Empty or unset, the pod sets no `runtimeClassName` and uses the node's default runtime. There is no realm default. While the class does not exist the operator holds the Deployment and reports `RuntimeClassAvailable=False`. See [Isolation](../../concepts/isolation/) and the [code sandbox](../../concepts/code-sandbox/) |
 | `registry` | RegistryConfig | | Gateway registration settings |
 | `toolOverrides` | []ToolOverride | | Corrected tool and parameter descriptions served to agents, and rules that reject arguments the server would refuse |
+| `smokeInputs` | []ToolSmokeInput | | Safe test calls (`name`, optional `arguments`, optional `timeout`) the fitness tool smoke makes through the gateway before any model runs. Read-only tools only. See [Tool smoke](crewfitnesssuite.md#tool-smoke) |
 | `egress` | EgressRules | | Where the server may connect. With `security.networkPolicies` on, a server that sets it is restricted to DNS plus this list; see ### EgressRules |
 
 ### RegistryConfig

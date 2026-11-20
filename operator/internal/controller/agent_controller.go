@@ -1226,17 +1226,24 @@ func (r *AgentReconciler) findCrewGateway(ctx context.Context, namespace string)
 			"namespace", namespace, "err", err)
 		return "", 0, false
 	}
-	var gw *kubemootv1alpha1.MCPGateway
-	for i := range list.Items {
-		cand := &list.Items[i]
-		if cand.DeletionTimestamp.IsZero() && (gw == nil || cand.Name < gw.Name) {
-			gw = cand
-		}
-	}
+	gw := selectCrewGateway(list.Items)
 	if gw == nil {
 		return "", 0, false
 	}
 	return gw.Name, gatewayToolPort(gw), true
+}
+
+// selectCrewGateway picks the crew's gateway from the MCPGateways of its
+// namespace: the first by name, skipping a terminating one. Nil when none is left.
+func selectCrewGateway(items []kubemootv1alpha1.MCPGateway) *kubemootv1alpha1.MCPGateway {
+	var gw *kubemootv1alpha1.MCPGateway
+	for i := range items {
+		cand := &items[i]
+		if cand.DeletionTimestamp.IsZero() && (gw == nil || cand.Name < gw.Name) {
+			gw = cand
+		}
+	}
+	return gw
 }
 
 // ensureService creates or updates a ClusterIP Service for the agent.
