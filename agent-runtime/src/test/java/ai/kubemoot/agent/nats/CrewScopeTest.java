@@ -205,4 +205,11 @@ class CrewScopeTest {
         when(props.crew()).thenReturn(Optional.of("homelab-pilot"));
         assertEquals(A, CrewScope.fromProperties(props));
     }
+
+    @Test
+    void conversationKeyCarriesNamespaceAndCrew() {
+        assertEquals("conv.ns1.crew-a.c-9", CrewScope.of("ns1", "crew-a").conversationKey("c-9"));
+        assertEquals("conv.ns1.default.c-9", CrewScope.of("ns1", null).conversationKey("c-9"));
+        assertEquals("conv.c-9", CrewScope.legacyConversationKey("c-9"));
+    }
 }
