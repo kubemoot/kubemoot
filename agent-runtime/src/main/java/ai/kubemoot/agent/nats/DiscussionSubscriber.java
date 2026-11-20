@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.chat.CallManifest;
 import ai.kubemoot.agent.chat.ChatService;
@@ -294,7 +295,7 @@ public class DiscussionSubscriber {
                 try {
                     handleJetStreamMessage(msg);
                 } catch (Exception e) {
-                    log.warn("Error handling JetStream message on {}: {}", msg.getSubject(), e.getMessage());
+                    log.warn("Error handling JetStream message on {}: {}", msg.getSubject(), LogContent.reason(e));
                     // Ack on error to prevent infinite redelivery of poison messages
                     msg.ack();
                 }
@@ -305,7 +306,7 @@ public class DiscussionSubscriber {
 
         } catch (Exception e) {
             log.warn("Failed to create JetStream subscription for consumer {}: {}",
-                    jetstreamConsumer, e.getMessage());
+                    jetstreamConsumer, LogContent.reason(e));
             return false;
         }
 
@@ -333,7 +334,7 @@ public class DiscussionSubscriber {
             try {
                 handleMessage(msg.getSubject(), new String(msg.getData()));
             } catch (Exception e) {
-                log.warn("Error handling broadcast message on {}: {}", msg.getSubject(), e.getMessage());
+                log.warn("Error handling broadcast message on {}: {}", msg.getSubject(), LogContent.reason(e));
             }
         });
         log.info("Subscribed to broadcast: {}", broadcastSubject);
@@ -344,7 +345,7 @@ public class DiscussionSubscriber {
                 try {
                     handleMessage(msg.getSubject(), new String(msg.getData()));
                 } catch (Exception e) {
-                    log.warn("Error handling discussion message on {}: {}", msg.getSubject(), e.getMessage());
+                    log.warn("Error handling discussion message on {}: {}", msg.getSubject(), LogContent.reason(e));
                 }
             });
             log.info("Subscribed to discussion channel: {}", subject);
@@ -388,7 +389,7 @@ public class DiscussionSubscriber {
             });
 
         } catch (Exception e) {
-            log.warn("Failed to handle JetStream discussion message: {}", e.getMessage());
+            log.warn("Failed to handle JetStream discussion message: {}", LogContent.reason(e));
             natsMsg.ack();
         }
     }
@@ -406,7 +407,7 @@ public class DiscussionSubscriber {
                     evaluation.conversation(), evaluation.selected()));
 
         } catch (Exception e) {
-            log.warn("Failed to handle discussion message: {}", e.getMessage());
+            log.warn("Failed to handle discussion message: {}", LogContent.reason(e));
         }
     }
 
@@ -668,7 +669,7 @@ public class DiscussionSubscriber {
             try {
                 chatService.commitToThread(threadId, selectedAtMs, conversation);
             } catch (Exception e) {
-                log.warn("Planning the first call for thread {} failed: {}", threadId, e.getMessage());
+                log.warn("Planning the first call for thread {} failed: {}", threadId, LogContent.reason(e));
             }
         });
     }
@@ -703,7 +704,7 @@ public class DiscussionSubscriber {
             runMullingPhase(subject, threadId, conversation, outcome.timing().inferenceMs(), triageStartMs);
 
         } catch (Exception e) {
-            log.warn("Failed to evaluate thread {}: {} — publishing stand_aside", threadId, e.getMessage());
+            log.warn("Failed to evaluate thread {}: {} — publishing stand_aside", threadId, LogContent.reason(e));
             publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", SignalTiming.NONE);
         }
     }
@@ -735,7 +736,7 @@ public class DiscussionSubscriber {
         } catch (Exception e) {
             long triageMs = System.currentTimeMillis() - triageStartMs;
             log.info("Triage failed for {} on thread {} ({}ms) - standing aside: {}",
-                    properties.agentName(), threadId, triageMs, e.getMessage());
+                    properties.agentName(), threadId, triageMs, LogContent.reason(e));
             publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "",
                     SignalTiming.of(triageMs, triageStartMs), triageGpuLabel, plannedTriageModel());
             return null;
@@ -1046,7 +1047,9 @@ public class DiscussionSubscriber {
         meta.put("exceptionClass", exceptionClass);
         meta.put("lastError", truncate(message, ERROR_DETAIL_CHARS));
         log.warn("Agent {} publishing failure signal for thread {}: {} ({})",
-                properties.agentName(), threadId, failureType, truncate(message, ERROR_LOG_PREVIEW_CHARS));
+                properties.agentName(), threadId, failureType, LogContent.size(message));
+        LogContent.debug(log, "Agent {} failure on thread {}: {}",
+                properties.agentName(), threadId, truncate(message, ERROR_LOG_PREVIEW_CHARS));
         publishSignal(subject, threadId, SIGNAL_FAILURE, "Mulling failed: " + truncate(message, FAILURE_CONTENT_CHARS),
                 SignalTiming.of(totalMs, triageStartMs), gpuLabel, meta);
     }
@@ -1091,7 +1094,7 @@ public class DiscussionSubscriber {
                 publishSignal(subject, threadId, "heartbeat", "Queued or running inference",
                         SignalTiming.NONE, NOT_PLACED);
             } catch (Exception e) {
-                log.warn("Heartbeat publish failed for {} on thread {}: {}", properties.agentName(), threadId, e.getMessage());
+                log.warn("Heartbeat publish failed for {} on thread {}: {}", properties.agentName(), threadId, LogContent.reason(e));
             }
         }, HEARTBEAT_INITIAL_DELAY_SECONDS, HEARTBEAT_PERIOD_SECONDS, TimeUnit.SECONDS));
         return heartbeatRef.get();
@@ -1383,7 +1386,7 @@ public class DiscussionSubscriber {
             log.info("Published {} signal to {} for thread {}", signal, publishSubject, threadId);
 
         } catch (Exception e) {
-            log.warn("Failed to publish {} signal: {}", signal, e.getMessage());
+            log.warn("Failed to publish {} signal: {}", signal, LogContent.reason(e));
         }
     }
 
@@ -1420,7 +1423,7 @@ public class DiscussionSubscriber {
             return true;
 
         } catch (Exception e) {
-            log.debug("Failed to check innerCircle for thread {}: {}", threadId, e.getMessage());
+            log.debug("Failed to check innerCircle for thread {}: {}", threadId, LogContent.reason(e));
             return false; // On error, don't exclude — let the agent participate.
         }
     }

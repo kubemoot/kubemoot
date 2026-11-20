@@ -46,6 +46,7 @@ import (
 	"github.com/go-logr/logr"
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/pkg/fitnessscript"
+	"github.com/kubemoot/kubemoot/operator/pkg/logcontent"
 	"github.com/kubemoot/kubemoot/operator/pkg/sse"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -921,7 +922,7 @@ func (p *judgePass) judgeAndRecord(ctx context.Context, scenario, keyword, ep, c
 		return p.failedAttempt(scenario, jErr)
 	}
 	p.recordScore(scenario, quality, reason)
-	p.log.Info(logMsgScenarioScored, "scenario", scenario, "quality", quality, "reason", reason)
+	logScenarioScored(p.log, scenario, quality, reason)
 	return scenarioHandled
 }
 
@@ -1029,3 +1030,11 @@ func readDeferredScores(store objectStore, prefix string) map[string]float64 {
 // NOTE: the DEFER engine deploys via this operator image. A prior concurrent
 // chart-bump race dropped the operator appVersion bump, so this re-release ensures
 // the engine ships. See the pipeline-robustness kanban card.
+
+// logScenarioScored logs a judged scenario with the size of the judge's reason. The reason is
+// model text about an answer and can quote it, so it is written only when the installer turned
+// content in logs on (KUBEMOOT_LOG_CONTENT).
+func logScenarioScored(log logr.Logger, scenario string, quality float64, reason string) {
+	log.Info(logMsgScenarioScored, "scenario", scenario, "quality", quality, "reason", logcontent.Size(reason))
+	logcontent.Debug(log, logMsgScenarioScored+" (content)", "scenario", scenario, "reason", reason)
+}

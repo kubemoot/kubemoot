@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.modelserver;
 
+import ai.kubemoot.agent.logging.LogContent;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.ChatRequestOptions;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -81,7 +82,7 @@ public final class ObservedChatModel implements ChatModel {
                     tokens(usage == null ? null : usage.inputTokenCount()),
                     tokens(usage == null ? null : usage.outputTokenCount())), sent.call());
         } catch (RuntimeException e) {
-            log.debug("Recording a {} request on {} failed: {}", context.model(), context.server(), e.getMessage());
+            log.debug("Recording a {} request on {} failed: {}", context.model(), context.server(), LogContent.reason(e));
         }
     }
 

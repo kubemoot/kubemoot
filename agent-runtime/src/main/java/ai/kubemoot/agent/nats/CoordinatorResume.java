@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.nats.BusReader.BusMessage;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator.Phase;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator.ThreadState;
@@ -212,7 +213,7 @@ final class CoordinatorResume {
             found.forEach(this::sort);
             log.info("Coordinator log read: {} thread(s) in flight, {} closed", candidates.size(), closed.size());
         } catch (IOException | RuntimeException e) {
-            log.warn("The coordinator log could not be read; threads left in flight are not resumed: {}", e.getMessage());
+            log.warn("The coordinator log could not be read; threads left in flight are not resumed: {}", LogContent.reason(e));
         } finally {
             ready.countDown();
         }
@@ -230,7 +231,7 @@ final class CoordinatorResume {
             try {
                 executor.execute(() -> resumeThread(candidate));
             } catch (RejectedExecutionException e) {
-                log.warn("Thread {} could not be scheduled for resume: {}", candidate.state().threadId, e.getMessage());
+                log.warn("Thread {} could not be scheduled for resume: {}", candidate.state().threadId, LogContent.reason(e));
                 finish(candidate.state(), null);
             }
         }
@@ -250,7 +251,7 @@ final class CoordinatorResume {
                     .forEach(this::sort);
             launch(executor);
         } catch (IOException | RuntimeException e) {
-            log.warn("The coordinator log could not be scanned for threads to take over: {}", e.getMessage());
+            log.warn("The coordinator log could not be scanned for threads to take over: {}", LogContent.reason(e));
         }
     }
 
@@ -456,7 +457,7 @@ final class CoordinatorResume {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            log.warn("Thread of request {} was not rebuilt in time: {}", requestSeq, e.getMessage());
+            log.warn("Thread of request {} was not rebuilt in time: {}", requestSeq, LogContent.reason(e));
         }
     }
 
@@ -529,7 +530,7 @@ final class CoordinatorResume {
             try {
                 out.add(new Streamed(message.sequence(), mapper.readTree(message.data())));
             } catch (IOException e) {
-                log.debug("Skipping an unreadable message of thread {}: {}", threadId, e.getMessage());
+                log.debug("Skipping an unreadable message of thread {}: {}", threadId, LogContent.reason(e));
             }
         }
         return out;
@@ -556,7 +557,7 @@ final class CoordinatorResume {
                 ThreadRebuilder.fillContent(state, logged, message.node());
                 orchestrator.applyMessage(message.node(), filter, state, message.sequence());
             } catch (RuntimeException e) {
-                log.debug("A message of thread {} could not be applied: {}", state.threadId, e.getMessage());
+                log.debug("A message of thread {} could not be applied: {}", state.threadId, LogContent.reason(e));
             }
         }
     }

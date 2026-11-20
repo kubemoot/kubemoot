@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -137,7 +138,7 @@ public class OnboardingSubscriber {
             try {
                 handleMessage(msg.getSubject(), new String(msg.getData()));
             } catch (Exception e) {
-                log.warn("Error handling broadcast message on {}: {}", msg.getSubject(), e.getMessage());
+                log.warn("Error handling broadcast message on {}: {}", msg.getSubject(), LogContent.reason(e));
             }
         });
     }
@@ -149,7 +150,7 @@ public class OnboardingSubscriber {
                 try {
                     handleMessage(msg.getSubject(), new String(msg.getData()));
                 } catch (Exception e) {
-                    log.warn("Error handling onboarding message on {}: {}", msg.getSubject(), e.getMessage());
+                    log.warn("Error handling onboarding message on {}: {}", msg.getSubject(), LogContent.reason(e));
                 }
             });
         }
@@ -182,7 +183,7 @@ public class OnboardingSubscriber {
                 }
             }
         } catch (Exception e) {
-            log.warn("Failed to handle onboarding message: {}", e.getMessage());
+            log.warn("Failed to handle onboarding message: {}", LogContent.reason(e));
         }
     }
 
@@ -198,8 +199,8 @@ public class OnboardingSubscriber {
 
         String reason = msg.has(FIELD_METADATA) && msg.get(FIELD_METADATA).has("reason")
                 ? msg.get(FIELD_METADATA).get("reason").asText() : "";
-        log.info("Coordinator signaled gap for thread {} (reason: {}) — triggering onboarding",
-                threadId, reason);
+        log.info("Coordinator signaled gap for thread {} — triggering onboarding", threadId);
+        LogContent.debug(log, "Thread {} gap reason: {}", threadId, reason);
         handleGap(subject, threadId, userQuery, channel, concerns);
     }
 
@@ -222,7 +223,8 @@ public class OnboardingSubscriber {
             // The coordinator clears all signals when advisory_ready is published,
             // so signals sent during the ADVISORY phase get wiped.
             pendingConsents.put(threadId, new PendingConsent(subject, userQuery));
-            log.info("Stored pending consent for thread {}: {}", threadId, userQuery);
+            log.info("Stored pending consent for thread {}", threadId);
+            LogContent.debug(log, "Thread {} pending consent for: {}", threadId, userQuery);
         }
     }
 
@@ -256,7 +258,8 @@ public class OnboardingSubscriber {
                     "'onboard <domain> https://docs.example.com https://github.com/org/repo'",
                     userQuery, channel, toolNeeds);
         } else {
-            log.info("Tooler gap detected for thread {} — no tooler could handle: {}", threadId, userQuery);
+            log.info("Tooler gap detected for thread {} — no tooler could handle the question", threadId);
+            LogContent.debug(log, "Thread {} unhandled question: {}", threadId, userQuery);
             prompt = String.format(
                     "CAPABILITY GAP DETECTED. The user asked: \"%s\" (channel: %s). " +
                     "No tooler agent could directly answer this question. " +
@@ -272,7 +275,8 @@ public class OnboardingSubscriber {
     }
 
     private void handleOnboardConsent(String subject, String threadId, String userQuery) {
-        log.info("Onboarding consent detected in thread {}: {}", threadId, userQuery);
+        log.info("Onboarding consent detected in thread {}", threadId);
+        LogContent.debug(log, "Thread {} consent text: {}", threadId, userQuery);
 
         // Parse: "onboard <domain> [url1 url2 ...]"
         String stripped = userQuery
@@ -347,7 +351,7 @@ public class OnboardingSubscriber {
         try {
             return chatService.simpleLlmCall(null, prompt);
         } catch (Exception e) {
-            log.warn("Onboarding LLM call failed for thread {}: {}", threadId, e.getMessage());
+            log.warn("Onboarding LLM call failed for thread {}: {}", threadId, LogContent.reason(e));
             return null;
         }
     }
@@ -387,7 +391,7 @@ public class OnboardingSubscriber {
             log.info("Published onboarding proposal to {} for thread {}", publishSubject, threadId);
 
         } catch (Exception e) {
-            log.warn("Failed to contribute onboarding response: {}", e.getMessage());
+            log.warn("Failed to contribute onboarding response: {}", LogContent.reason(e));
         }
     }
 
@@ -414,7 +418,7 @@ public class OnboardingSubscriber {
             conn.publish(publishSubject, mapper.writeValueAsBytes(message));
             log.info("Published onboarding agree signal to {} for thread {}", publishSubject, threadId);
         } catch (Exception e) {
-            log.warn("Failed to publish agree signal: {}", e.getMessage());
+            log.warn("Failed to publish agree signal: {}", LogContent.reason(e));
         }
     }
 
@@ -433,7 +437,7 @@ public class OnboardingSubscriber {
             conn.publish("kubemoot.operator.onboarding.progress",
                     mapper.writeValueAsBytes(event));
         } catch (Exception e) {
-            log.debug("Failed to publish progress event: {}", e.getMessage());
+            log.debug("Failed to publish progress event: {}", LogContent.reason(e));
         }
     }
 

@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ModelUse;
@@ -488,7 +489,7 @@ public class DiscussionOrchestrator {
                 try {
                     handleMessage(new String(msg.getData()));
                 } catch (Exception e) {
-                    log.debug("Error handling orchestrator message: {}", e.getMessage());
+                    log.debug("Error handling orchestrator message: {}", LogContent.reason(e));
                 }
             });
         }
@@ -501,7 +502,7 @@ public class DiscussionOrchestrator {
             try {
                 handleMessage(new String(msg.getData()));
             } catch (Exception e) {
-                log.debug("Error handling lifecycle message: {}", e.getMessage());
+                log.debug("Error handling lifecycle message: {}", LogContent.reason(e));
             }
         });
         log.info("Subscribed to lifecycle signals: {}", lifecycleSub);
@@ -581,10 +582,10 @@ public class DiscussionOrchestrator {
             return attempt(userQuery, conversationId, crew, requester, requestSeq);
         } catch (ThreadLostException lost) {
             if (requestSeq <= 0 || followed >= MAX_FOLLOWS) {
-                log.warn("Thread {} is owned by another coordinator and is not followed", lost.getMessage());
+                log.warn("Thread {} is owned by another coordinator and is not followed", LogContent.reason(lost));
                 return null;
             }
-            log.info("Thread {} is owned by another coordinator now; following it", lost.getMessage());
+            log.info("Thread {} is owned by another coordinator now; following it", LogContent.reason(lost));
             return orchestrate(userQuery, conversationId, crew, requester, requestSeq, followed + 1);
         }
     }
@@ -616,11 +617,11 @@ public class DiscussionOrchestrator {
             return new OrchestrateResult(threadId, null);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.warn("Discussion orchestration failed for thread {}: {}", threadId, e.getMessage());
+            log.warn("Discussion orchestration failed for thread {}: {}", threadId, LogContent.reason(e));
             pendingResults.remove(threadId);
             return null;
         } catch (Exception e) {
-            log.warn("Discussion orchestration failed for thread {}: {}", threadId, e.getMessage());
+            log.warn("Discussion orchestration failed for thread {}: {}", threadId, LogContent.reason(e));
             pendingResults.remove(threadId);
             return null;
         }
@@ -660,9 +661,10 @@ public class DiscussionOrchestrator {
      */
     private String runThread(Connection conn, ThreadStart request, RequestMatch match, String threadId,
                              long requestSeq) throws Exception {
-        log.info("{} discussion thread {} (crew={}, conversation={}) for: {}", match != null ? "Resuming" : "Starting",
+        log.info("{} discussion thread {} (crew={}, conversation={}, question {})", match != null ? "Resuming" : "Starting",
                 threadId, request.crew(), truncate(request.conversationId(), LOG_ID_PREVIEW_CHARS),
-                truncate(request.userQuery(), LOG_QUERY_PREVIEW_CHARS));
+                LogContent.size(request.userQuery()));
+        LogContent.debug(log, "Thread {} question: {}", threadId, truncate(request.userQuery(), LOG_QUERY_PREVIEW_CHARS));
         var state = match != null ? match.live() : initThreadState(threadId, request, CHANNEL_GENERAL, requestSeq);
         if (state.phase == Phase.SUBMITTED) {
             // Primary path: coordinator reasoning call (select+brief) in transitionToEvaluating.
@@ -827,7 +829,7 @@ public class DiscussionOrchestrator {
             if (!threadId.isEmpty() && !admits(threadId, msg)) return;
             applyMessage(msg, ReplayFilter.LIVE, null, streamSequence);
         } catch (Exception e) {
-            log.debug("Failed to parse orchestrator message: {}", e.getMessage());
+            log.debug("Failed to parse orchestrator message: {}", LogContent.reason(e));
         }
     }
 
@@ -852,7 +854,7 @@ public class DiscussionOrchestrator {
         try {
             applyMessage(mapper.readTree(data), ReplayFilter.LIVE, null, streamSequence);
         } catch (Exception e) {
-            log.debug("Failed to apply a held orchestrator message: {}", e.getMessage());
+            log.debug("Failed to apply a held orchestrator message: {}", LogContent.reason(e));
         }
     }
 
@@ -1154,8 +1156,9 @@ public class DiscussionOrchestrator {
         state.failureSignals.put(agentName, content);
         state.failedSources.addAll(failedSourceNames(msg));
         state.lastSignalReceived = Instant.now();
-        log.info("Thread {} — agent {} reported failure: {}",
-                state.threadId, agentName, truncate(content, LOG_PREVIEW_CHARS));
+        log.info("Thread {} — agent {} reported failure ({})", state.threadId, agentName, LogContent.size(content));
+        LogContent.debug(log, "Thread {} — agent {} failure: {}", state.threadId, agentName,
+                truncate(content, LOG_PREVIEW_CHARS));
     }
 
     private void handleTriagingSignal(ThreadState state, String agentName, JsonNode msg) {
@@ -1728,7 +1731,7 @@ public class DiscussionOrchestrator {
                     state.threadId, outcome.inferenceMs());
 
         } catch (Exception e) {
-            log.warn("Advisory generation failed for thread {}: {}", state.threadId, e.getMessage());
+            log.warn("Advisory generation failed for thread {}: {}", state.threadId, LogContent.reason(e));
             // Still publish advisory_ready without advisory content, and reset the clock so
             // toolers get a full evaluation window.
             if (events.advisoryFailed(state)) {
@@ -1793,7 +1796,7 @@ public class DiscussionOrchestrator {
             DerivedIds.publish(conn, broadcastSubject(state.crew, state.threadId), mapper.writeValueAsBytes(message),
                     derivedId);
         } catch (Exception e) {
-            log.warn("Failed to publish subcommittee for thread {}: {}", state.threadId, e.getMessage());
+            log.warn("Failed to publish subcommittee for thread {}: {}", state.threadId, LogContent.reason(e));
         }
     }
 
@@ -1917,7 +1920,7 @@ public class DiscussionOrchestrator {
                 wisdom = jsonNode.get(FIELD_WISDOM).asText();
             }
         } catch (Exception e) {
-            log.debug("Fallback advisory response not valid JSON, using raw text: {}", e.getMessage());
+            log.debug("Fallback advisory response not valid JSON, using raw text: {}", LogContent.reason(e));
         }
         return new LegacyAdvisory(technologies, layers, wisdom);
     }
@@ -2020,8 +2023,9 @@ public class DiscussionOrchestrator {
             // Parse "skills" - optional array of skill names selected by the coordinator
             recordSelectedSkills(state, parseAndValidateSkills(jsonNode));
 
-            log.info("Thread {} - reasoning select+brief parsed: selected={}, technologies={}, brief={}",
-                    state.threadId, validSelected, technologies, truncate(brief, LOG_PREVIEW_CHARS));
+            log.info("Thread {} - reasoning select+brief parsed: selected={}, technologies={}, brief {}",
+                    state.threadId, validSelected, technologies, LogContent.size(brief));
+            LogContent.debug(log, "Thread {} brief: {}", state.threadId, truncate(brief, LOG_PREVIEW_CHARS));
 
             var memberTasks = MemberTasks.parse(jsonNode, validSelected, brief);
             if (!memberTasks.ignored().isEmpty()) {
@@ -2031,7 +2035,7 @@ public class DiscussionOrchestrator {
                     result.inputTokens(), result.outputTokens(), memberTasks);
 
         } catch (Exception e) {
-            log.warn("Thread {} - reasoning select+brief call failed: {}", state.threadId, e.getMessage());
+            log.warn("Thread {} - reasoning select+brief call failed: {}", state.threadId, LogContent.reason(e));
             return null;
         }
     }
@@ -2093,7 +2097,7 @@ public class DiscussionOrchestrator {
             }
             log.info("Thread {} - resume pre-filter returned no matches", state.threadId);
         } catch (Exception e) {
-            log.warn("Thread {} - resume pre-filter failed: {}", state.threadId, e.getMessage());
+            log.warn("Thread {} - resume pre-filter failed: {}", state.threadId, LogContent.reason(e));
         }
         return null;
     }
@@ -2237,7 +2241,7 @@ public class DiscussionOrchestrator {
             log.info("Published advisory to {} for thread {}", subject, threadId);
 
         } catch (Exception e) {
-            log.debug("Failed to publish advisory: {}", e.getMessage());
+            log.debug("Failed to publish advisory: {}", LogContent.reason(e));
         }
     }
 
@@ -2276,7 +2280,7 @@ public class DiscussionOrchestrator {
             log.info("Published advisory_ready to {} for thread {}", subject, state.threadId);
 
         } catch (Exception e) {
-            log.warn("Failed to publish advisory_ready: {}", e.getMessage());
+            log.warn("Failed to publish advisory_ready: {}", LogContent.reason(e));
         }
     }
 
@@ -2494,7 +2498,7 @@ public class DiscussionOrchestrator {
             log.info("Published review_ready to {} for thread {}", subject, state.threadId);
 
         } catch (Exception e) {
-            log.warn("Failed to publish review_ready: {}", e.getMessage());
+            log.warn("Failed to publish review_ready: {}", LogContent.reason(e));
         }
     }
 
@@ -2621,7 +2625,7 @@ public class DiscussionOrchestrator {
             completeSynthesisPhase(state, channel, response, synthesisStart, "synthesized");
 
         } catch (Exception e) {
-            log.warn("Synthesis failed for thread {}: {}", state.threadId, e.getMessage());
+            log.warn("Synthesis failed for thread {}: {}", state.threadId, LogContent.reason(e));
             closeThread(state, resolveChannel(state), fallbackAfterSynthesisFailure(state, e), "fallback");
         }
     }
@@ -3493,7 +3497,7 @@ public class DiscussionOrchestrator {
             log.info("Published synthetic failure for timed-out agent {} on thread {}", agentName, threadId);
 
         } catch (Exception e) {
-            log.debug("Failed to publish synthetic failure for {}: {}", agentName, e.getMessage());
+            log.debug("Failed to publish synthetic failure for {}: {}", agentName, LogContent.reason(e));
         }
     }
 
@@ -3540,7 +3544,7 @@ public class DiscussionOrchestrator {
                 }
             }
         } catch (Exception e) {
-            log.debug("Failed to record latency for {}: {}", agentName, e.getMessage());
+            log.debug("Failed to record latency for {}: {}", agentName, LogContent.reason(e));
         }
     }
 
@@ -3667,7 +3671,7 @@ public class DiscussionOrchestrator {
                 log.info("Loaded system prompt from file: {} ({} chars)", promptFile, systemPromptCache.length());
                 return systemPromptCache;
             } catch (IOException e) {
-                log.warn("Failed to read system prompt file {}: {}", promptFile, e.getMessage());
+                log.warn("Failed to read system prompt file {}: {}", promptFile, LogContent.reason(e));
             }
         }
 
@@ -3798,7 +3802,7 @@ public class DiscussionOrchestrator {
             }
 
         } catch (Exception e) {
-            log.debug("Failed to publish to thread: {}", e.getMessage());
+            log.debug("Failed to publish to thread: {}", LogContent.reason(e));
         }
     }
 
@@ -3892,7 +3896,7 @@ public class DiscussionOrchestrator {
                     threadId);
 
         } catch (Exception e) {
-            log.debug("Failed to publish gap_detected: {}", e.getMessage());
+            log.debug("Failed to publish gap_detected: {}", LogContent.reason(e));
         }
     }
 
@@ -3967,7 +3971,7 @@ public class DiscussionOrchestrator {
                 }
             }, waitOf(state));
         } catch (Exception e) {
-            log.debug("Failed to publish thread close: {}", e.getMessage());
+            log.debug("Failed to publish thread close: {}", LogContent.reason(e));
         }
     }
 
@@ -4013,7 +4017,7 @@ public class DiscussionOrchestrator {
             applyTriageResult(state, triageResult, triageMs);
 
         } catch (Exception e) {
-            log.warn("Thread {} — triage failed, all agents participate: {}", state.threadId, e.getMessage());
+            log.warn("Thread {} — triage failed, all agents participate: {}", state.threadId, LogContent.reason(e));
         }
     }
 
@@ -4031,7 +4035,7 @@ public class DiscussionOrchestrator {
                 }
             } catch (Exception e) {
                 log.debug("Thread {} — semantic resume search failed, falling back to ConfigMap: {}",
-                        state.threadId, e.getMessage());
+                        state.threadId, LogContent.reason(e));
             }
         }
         return new ResumeData(loadCrewResumes(), false);
@@ -4050,8 +4054,10 @@ public class DiscussionOrchestrator {
     private void applyTriageResult(ThreadState state, ChatService.SimpleLlmResult triageResult, long triageMs) {
         var parsed = parseTriageResult(triageResult.text());
         if (parsed == null) {
-            log.warn("Thread {} — triage returned unparseable JSON, all agents participate. Response: {}",
-                    state.threadId, truncate(triageResult.text(), LOG_PREVIEW_CHARS));
+            log.warn("Thread {} — triage returned unparseable JSON, all agents participate ({})",
+                    state.threadId, LogContent.size(triageResult.text()));
+            LogContent.debug(log, "Thread {} triage response: {}", state.threadId,
+                    truncate(triageResult.text(), LOG_PREVIEW_CHARS));
             return;
         }
 
@@ -4094,7 +4100,8 @@ public class DiscussionOrchestrator {
                         names.add(node.get(FIELD_NAME).asText());
                     }
                 } catch (Exception e) {
-                    log.debug("Could not parse resume content: {}", content.substring(0, Math.min(RESUME_PARSE_LOG_CHARS, content.length())));
+                    log.debug("Could not parse resume content ({})", LogContent.size(content));
+                    LogContent.debug(log, "Resume content: {}", content.substring(0, Math.min(RESUME_PARSE_LOG_CHARS, content.length())));
                 }
             }
         }
@@ -4163,7 +4170,7 @@ public class DiscussionOrchestrator {
             }
             return new TriageResult(agents, overallConfidence);
         } catch (Exception e) {
-            log.debug("Failed to parse triage JSON: {}", e.getMessage());
+            log.debug("Failed to parse triage JSON: {}", LogContent.reason(e));
             return null;
         }
     }
@@ -4229,7 +4236,7 @@ public class DiscussionOrchestrator {
                 return Files.readString(path);
             }
         } catch (IOException | InvalidPathException e) {
-            log.warn("Failed to read crew resumes file {}: {}", crewResumesPath, e.getMessage());
+            log.warn("Failed to read crew resumes file {}: {}", crewResumesPath, LogContent.reason(e));
         }
         return null;
     }
@@ -4267,7 +4274,7 @@ public class DiscussionOrchestrator {
                     reload ? "Reloaded" : "Loaded", crew, knownAgentNames.get().size(), crewResumesRevision);
             return crewResumesCache;
         } catch (Exception e) {
-            log.warn("Failed to load crew capability catalog for '{}' from KV: {}", crew, e.getMessage());
+            log.warn("Failed to load crew capability catalog for '{}' from KV: {}", crew, LogContent.reason(e));
             return crewResumesCache;
         }
     }
@@ -4317,7 +4324,7 @@ public class DiscussionOrchestrator {
             if (agentSb.length() == 0 && skillSb.length() == 0) return null;
             return buildCatalogString(agentSb, skillSb);
         } catch (Exception e) {
-            log.warn("Failed to compact crew capability catalog: {}", e.getMessage());
+            log.warn("Failed to compact crew capability catalog: {}", LogContent.reason(e));
             return null;
         }
     }
@@ -4407,7 +4414,7 @@ public class DiscussionOrchestrator {
             log.info("Extracted {} known agent names and {} known skill names from crew capability catalog",
                     agentNames.size(), skillNames.size());
         } catch (Exception e) {
-            log.debug("Could not parse agent names from resumes: {}", e.getMessage());
+            log.debug("Could not parse agent names from resumes: {}", LogContent.reason(e));
         }
     }
 
@@ -4445,7 +4452,7 @@ public class DiscussionOrchestrator {
             if (raw == null || raw.isBlank()) return analysts;
             CrewAnalysts.analysts(mapper.readTree(raw)).forEach(node -> analysts.add(node.path(FIELD_NAME).asText("")));
         } catch (Exception e) {
-            log.debug("Could not parse analyst names from resumes: {}", e.getMessage());
+            log.debug("Could not parse analyst names from resumes: {}", LogContent.reason(e));
         }
         return analysts;
     }
@@ -4493,10 +4500,11 @@ public class DiscussionOrchestrator {
 
             String subject = broadcastSubject(state.crew, state.threadId);
             conn.publish(subject, mapper.writeValueAsBytes(message));
-            log.info("Published triage_result for thread {}: {}", state.threadId, content);
+            log.info("Published triage_result for thread {} ({})", state.threadId, LogContent.size(content));
+            LogContent.debug(log, "Thread {} triage_result: {}", state.threadId, content);
 
         } catch (Exception e) {
-            log.debug("Failed to publish triage_result: {}", e.getMessage());
+            log.debug("Failed to publish triage_result: {}", LogContent.reason(e));
         }
     }
 
@@ -4998,7 +5006,7 @@ public class DiscussionOrchestrator {
                 }
             }
         } catch (Exception e) {
-            log.debug("Could not load conversation {} from KV: {}", truncate(conversationId, LOG_ID_PREVIEW_CHARS), e.getMessage());
+            log.debug("Could not load conversation {} from KV: {}", truncate(conversationId, LOG_ID_PREVIEW_CHARS), LogContent.reason(e));
         }
 
         // Nothing found — return empty and cache it
@@ -5030,7 +5038,7 @@ public class DiscussionOrchestrator {
             var kv = conn.keyValue(conversationKvBucket);
             kv.put(natsProvider.scope().conversationKey(conversationId), serializeHistory(history));
         } catch (Exception e) {
-            log.warn("Failed to persist conversation {} to KV: {}", truncate(conversationId, LOG_ID_PREVIEW_CHARS), e.getMessage());
+            log.warn("Failed to persist conversation {} to KV: {}", truncate(conversationId, LOG_ID_PREVIEW_CHARS), LogContent.reason(e));
         }
     }
 

@@ -3,6 +3,7 @@ module github.com/kubemoot/kubemoot/crew-liaison
 go 1.27.4
 
 require (
+	github.com/go-logr/logr v1.4.4
 	github.com/google/jsonschema-go v0.4.3
 	github.com/kubemoot/kubemoot/operator v0.0.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
@@ -19,7 +20,6 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
-	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-openapi/jsonreference v1.0.0 // indirect

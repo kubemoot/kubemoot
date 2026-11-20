@@ -113,12 +113,13 @@ Grafana loads dashboards:
 The dashboards fill as the metrics are scraped; the scheduler's server panels need
 the operator's metrics, and its placement panels need the agents'.
 
-### 2. Logs: structured stdout today; aggregation is a gap
+### 2. Logs: content-free structured stdout; aggregation is yours
 
-- The coordinator, agents, and operator emit **structured JSON logs** to stdout (Quarkus JSON logging): phase transitions, signal publishes, `failure` causes, tool calls, scheduling decisions.
-- **No log-aggregation backend is deployed** (no Loki/Alloy/Promtail). Logs are reachable only per-pod via `kubectl logs` / Headlamp, no central search, retention, or correlation.
-- **What it lets you observe (today):** per-pod debugging only. The dashboard deliberately defers aggregation to a logs backend.
-- Closing this gap (Grafana Loki + a log collector, ideally with trace-correlated structured logs) is in [Future work](#future-work).
+- The coordinator, agents, gateways, sidecar and operator write **structured logs** to stdout: phase transitions, signal publishes, `failure` causes, tool call names, scheduling decisions. Kubemoot logs to stdout and leaves the backend to you (Loki, Elasticsearch, your cloud's log service); it ships none.
+- **Logs carry no content by default.** A log line names a thread, a crew, an agent or a tool and gives sizes (`84 chars`), counts, timings and outcomes. It does not carry the question a person asked, an answer or synthesis, prompt text, tool arguments, tool results, the body of a failed reply or a secret. With the switch off that holds at every log level, including debug.
+- **Turning content on, for debugging.** Set the environment variable `KUBEMOOT_LOG_CONTENT=true` on the component and raise its log level to debug. The lines that carry content are then written, at debug, and only then. With the variable unset or `false` those lines are not written at all. One variable covers the three components that honor it: the agent runtime, the MCP gateway and the operator. The discussion gateway, the crew liaison, the agent sidecar and the dashboard server never log content, and the variable does nothing for them. Set it in the component's container environment; for an agent, that is the Agent's `spec.deployment.env`. Only Kubemoot's own lines are governed: a library's own wire logging is set by its own log category, so leave HTTP client and NATS client categories off debug when the logs go to a shared backend.
+- **It is your decision.** Content in logs puts people's questions into your log backend, under that backend's access and retention. Turn it on for a bounded debugging session and turn it off after.
+- **What logs let you observe:** per-pod debugging by `kubectl logs`, and, with a collector and a backend of your choice, central search and retention. Tracing a discussion across components uses the thread id, which every discussion line carries.
 
 ### 3. Spans / traces: OTel + Tempo deployed, not yet emitted to
 
@@ -173,7 +174,7 @@ Stand up a log backend so the already-structured JSON logs are centrally searcha
 - **Decision: Grafana Loki.** Completes the existing Grafana "LGTM" stack (Loki/Grafana/Tempo/Prometheus): one pane of glass, label-based indexing, lightweight (object-storage backed), and native **trace↔log correlation** (jump from a discussion span to that agent's logs by `trace_id` once traces land).
 - *Considered and rejected:* Elasticsearch/ELK: stronger full-text search and analytics, but heavy (JVM, RAM/disk), a separate Kibana UI, and weaker trace correlation. A poor footprint trade on accelerator-saturated hardware.
 - **Collection** is backend-agnostic: the existing otel-collector can ship pod logs via its `loki` or `elasticsearch` exporter (filelog receiver), so the choice is only the store. Do **not** route logs through NATS; keep app-events and logs separate, on the standard path.
-- **Kubemoot side:** ensure structured logs carry `trace_id`/`thread_id` so logs correlate with the OTel spans below.
+- **Kubemoot side:** ensure structured logs carry `trace_id`/`thread_id` so logs correlate with the OTel spans below. Logs are content-free by default (see [Logs](#2-logs-content-free-structured-stdout-aggregation-is-yours)), so a backend that ingests them holds no question text unless you turn that on.
 
 ### Spans: OpenTelemetry agent trace export
 

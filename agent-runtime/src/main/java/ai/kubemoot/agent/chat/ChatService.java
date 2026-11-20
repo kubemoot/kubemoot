@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.chat;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.RequesterScope;
 import ai.kubemoot.agent.config.AgentProperties;
@@ -1449,8 +1450,9 @@ public class ChatService {
         var verdict = tracker.record(arguments, result, knownRepeat);
         int count = tracker.failures();
         state.totalToolFailures++;
-        log.info("Tool '{}' returned error ({} times in this loop, {} total, {}): {}",
-                toolName, count, state.totalToolFailures, verdict, truncateErrorForLog(result));
+        log.info("Tool '{}' returned error ({} times in this loop, {} total, {}, {})",
+                toolName, count, state.totalToolFailures, verdict, LogContent.size(result));
+        LogContent.debug(log, "Tool '{}' error: {}", toolName, truncateErrorForLog(result));
         if (verdict != ToolFailureTracker.Verdict.CONTINUE) {
             throw new ToolCallFailure(
                     ToolCallFailure.FailureType.SAME_TOOL_REPEATED,
@@ -2700,7 +2702,7 @@ public class ChatService {
         } catch (ai.kubemoot.agent.modelserver.NoFitException nfe) {
             log.info("triage: no server fit ({}) - static endpoint", nfe.predictorReason());
         } catch (PlacementUnavailableException e) {
-            log.warn("triage: placement service unavailable ({}) - declared endpoint", e.getMessage());
+            log.warn("triage: placement service unavailable ({}) - declared endpoint", LogContent.reason(e));
         }
         return TriagePlacement.unscheduled(triageEndpoint, triageModelId, occupancy);
     }
@@ -2774,7 +2776,7 @@ public class ChatService {
             try {
                 return renderToolList(Files.readString(Path.of(promptFile)));
             } catch (IOException e) {
-                log.warn("Failed to read system prompt file {}: {}", promptFile, e.getMessage());
+                log.warn("Failed to read system prompt file {}: {}", promptFile, LogContent.reason(e));
             }
         }
         return renderToolList(properties.systemPrompt().orElse(""));

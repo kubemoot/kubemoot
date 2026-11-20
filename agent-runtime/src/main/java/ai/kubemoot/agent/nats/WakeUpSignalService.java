@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.chat.ModelWarmupService;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -123,7 +124,7 @@ public class WakeUpSignalService {
             log.info("Published {} signal to {} for agent {}", signal, subject, agentName);
 
         } catch (Exception e) {
-            log.warn("Failed to publish {} signal: {}", signal, e.getMessage());
+            log.warn("Failed to publish {} signal: {}", signal, LogContent.reason(e));
         }
     }
 }

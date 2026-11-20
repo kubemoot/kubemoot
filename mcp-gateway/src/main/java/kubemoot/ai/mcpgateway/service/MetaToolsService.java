@@ -1,5 +1,6 @@
 package kubemoot.ai.mcpgateway.service;
 
+import kubemoot.ai.mcpgateway.logging.LogContent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -152,7 +153,7 @@ public class MetaToolsService {
             };
             return objectMapper.writeValueAsString(result);
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize meta-tool result", e);
+            log.error("Failed to serialize meta-tool result: {}", LogContent.reason(e));
             return "{\"error\": \"Failed to serialize result\"}";
         }
     }
@@ -169,14 +170,16 @@ public class MetaToolsService {
             );
         }
 
-        log.info("Meta-tool search_tools called with query: '{}', topK: {}", query, topK);
+        log.info("Meta-tool search_tools called (query {}, topK: {})", LogContent.size(query), topK);
+        LogContent.debug(log, "Meta-tool search_tools query: {}", query);
 
         int effectiveTopK = topK > 0 ? topK : properties.getMetaTools().getMaxResultsPerSearch();
         List<ToolSearchResult> results = toolSearchService.searchTools(query, effectiveTopK);
 
         // If no results and discovery is enabled, trigger the discovery agent
         if (results.isEmpty() && discoveryClient != null) {
-            log.info("No tools found for '{}', triggering discovery agent", query);
+            log.info("No tools found, triggering discovery agent");
+            LogContent.debug(log, "No tools found for '{}'", query);
             triggerDiscoveryAgent(query);
             return Map.of(
                 FIELD_STATUS, "searching",
@@ -213,8 +216,9 @@ public class MetaToolsService {
             ))
             .retrieve()
             .bodyToMono(String.class)
-            .doOnSuccess(response -> log.info("Discovery agent triggered for '{}': {}", query, response))
-            .doOnError(error -> log.error("Failed to trigger discovery agent for '{}': {}", query, error.getMessage()))
+            .doOnSuccess(response -> log.info("Discovery agent triggered ({})", LogContent.size(response)))
+            .doOnError(error -> log.error("Failed to trigger discovery agent: {}: {}", error.getClass().getSimpleName(),
+                LogContent.reason(error)))
             .subscribe();  // Fire and forget
     }
 

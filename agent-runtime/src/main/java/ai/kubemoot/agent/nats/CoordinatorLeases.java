@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.lease.KvLeaseStore;
 import ai.kubemoot.agent.lease.LeaseStore;
 import org.eclipse.microprofile.config.ConfigProvider;
@@ -151,7 +152,7 @@ final class CoordinatorLeases {
             }
             return true;
         } catch (Exception e) {
-            log.warn("Taking the lease {} failed: {}", name, e.getMessage());
+            log.warn("Taking the lease {} failed: {}", name, LogContent.reason(e));
             store = null;
             return false;
         }
@@ -178,7 +179,7 @@ final class CoordinatorLeases {
         try {
             store().release(key(name), lease.revision());
         } catch (Exception e) {
-            log.warn("Releasing the lease {} failed (it lapses by itself): {}", name, e.getMessage());
+            log.warn("Releasing the lease {} failed (it lapses by itself): {}", name, LogContent.reason(e));
             store = null;
         }
     }
@@ -233,7 +234,7 @@ final class CoordinatorLeases {
                 }
             }
         } catch (Exception e) {
-            log.warn("Renewing the lease {} failed: {}", name, e.getMessage());
+            log.warn("Renewing the lease {} failed: {}", name, LogContent.reason(e));
             store = null;
             if (sentAt - lease.renewedAtNanos() >= FENCE.toNanos()) {
                 synchronized (this) {
