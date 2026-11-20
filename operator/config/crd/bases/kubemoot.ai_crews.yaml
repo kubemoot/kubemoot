@@ -23,6 +23,9 @@ spec:
     - jsonPath: .status.phase
       name: Phase
       type: string
+    - jsonPath: .status.conditions[?(@.type=="CapacityAvailable")].status
+      name: Capacity
+      type: string
     - jsonPath: .status.coordinatorRef
       name: Coordinator
       type: string
@@ -271,7 +274,10 @@ spec:
                 format: int32
                 type: integer
               conditions:
-                description: Conditions represent the latest available observations
+                description: |-
+                  Conditions represent the latest available observations: Ready (reconciled as
+                  declared) and CapacityAvailable (a model in the cluster catalog can run the
+                  crew's agents now).
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -339,13 +345,24 @@ spec:
               message:
                 description: Message provides additional status information
                 type: string
+              observedGeneration:
+                description: ObservedGeneration is the Crew generation the status
+                  describes.
+                format: int64
+                type: integer
               phase:
-                description: Phase is the crew infrastructure lifecycle (Pending,
-                  Deploying, Ready, Error)
+                description: |-
+                  Phase is the crew lifecycle: Pending while the coordinator is not yet running,
+                  Ready when the crew is reconciled and a model can run its agents, WaitingForCapacity
+                  when the crew is reconciled but no model in the cluster catalog can run its
+                  coordinator (or any specialist) now, and Error when a reconcile step failed.
                 type: string
               ready:
-                description: Ready indicates if the crew is operational and can accept
-                  questions
+                description: |-
+                  Ready mirrors the Ready condition: the crew is reconciled as declared (its agents,
+                  gateways and policies exist as specified). It stays true while the crew waits for
+                  capacity; the CapacityAvailable condition and the WaitingForCapacity phase say that
+                  the crew cannot answer yet.
                 type: boolean
               revisions:
                 description: |-

@@ -903,7 +903,7 @@ If the phase is `Unschedulable`, the `CrewSchedulingPolicy` `require` selectors 
 kubectl get models --show-labels
 ```
 
-Either relax the `require` selectors or add a Model that matches them.
+Either relax the `require` selectors or add a Model that matches them. The agent's Crew shows the same condition as `CapacityAvailable=False` (phase `WaitingForCapacity`) and stays `Ready`, so an upgrade of the crew is not blocked while no model matches.
 
 ### Temperature and other inference settings
 

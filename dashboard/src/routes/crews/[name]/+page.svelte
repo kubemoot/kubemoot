@@ -6,6 +6,7 @@
 	import type { Crew, Agent } from '#lib/types/kubemoot.js';
 	import { chartName, chartVersion } from '#lib/crew-chart.js';
 	import { crewDisplayName, crewTechnicalHint } from '#lib/crew-display-name.js';
+	import { WAITING_FOR_CAPACITY, capacityCondition, capacityLabel, crewCanAnswer, crewPhaseLabel } from '#lib/crew-phase.js';
 	import { NO_VALUE, yesNo } from '#lib/resource-status.js';
 
 	// The per-crew resume model (embedding-based subcommittee selection): the
@@ -26,6 +27,7 @@
 	}
 
 	let crew = $state<Crew | null>(null);
+	const capacity = $derived(capacityCondition(crew?.status?.conditions));
 	let agents = $state<Agent[]>([]);
 	let resumeModel = $state<ResumeModel | null>(null);
 	let loaded = false;
@@ -122,8 +124,8 @@
 		{#if version}
 			<span class="chart-badge" title="Helm chart version (reflects the applied chart, not the desired chart in the HelmRelease)">v{version}</span>
 		{/if}
-		<span class="phase-badge" class:ready={crew.status?.phase === 'Ready'} class:err={crew.status?.phase === 'Error'}>
-			{crew.status?.phase ?? 'Unknown'}
+		<span class="phase-badge" class:ready={crew.status?.phase === 'Ready'} class:err={crew.status?.phase === 'Error'} class:waiting={crew.status?.phase === WAITING_FOR_CAPACITY}>
+			{crewPhaseLabel(crew.status?.phase)}
 		</span>
 	{/if}
 </div>
@@ -145,8 +147,12 @@
 		<div class="detail-section">
 			<h2>Status</h2>
 			<table class="detail-table"><tbody>
-				<tr><th>Phase</th><td>{crew.status?.phase ?? '-'}</td></tr>
-				<tr><th>Ready</th><td>{crew.status?.ready ? 'Yes' : 'No'}</td></tr>
+				<tr><th>Phase</th><td>{crew.status?.phase ? crewPhaseLabel(crew.status.phase) : '-'}</td></tr>
+				<tr><th>Reconciled</th><td>{crew.status?.ready ? 'Yes' : 'No'}</td></tr>
+				{#if capacity}
+					<tr><th>Capacity</th><td>{capacityLabel(capacity)}</td></tr>
+				{/if}
+				<tr><th>Can answer</th><td>{crewCanAnswer(crew.status?.phase, crew.status?.ready) ? 'Yes' : 'No'}</td></tr>
 				<tr><th>Agents</th><td>{crew.status?.agentCount ?? '-'}</td></tr>
 				<tr><th>Coordinator</th><td class="mono">{crew.status?.coordinatorRef || '-'}</td></tr>
 				<tr><th>Discussion Endpoint</th><td class="mono">{crew.status?.discussionEndpoint || '-'}</td></tr>
@@ -260,6 +266,7 @@
 	}
 	.phase-badge.ready { background: rgba(34, 197, 94, 0.15); color: var(--color-success); }
 	.phase-badge.err { background: rgba(239, 68, 68, 0.15); color: var(--color-error); }
+	.phase-badge.waiting { background: rgba(234, 179, 8, 0.15); color: var(--color-warning, #eab308); }
 
 	.chart-badge {
 		font-size: 0.75rem; font-weight: 500; padding: 0.2rem 0.6rem;

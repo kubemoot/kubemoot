@@ -345,14 +345,22 @@ that state looks like saves you from wondering whether the install is broken:
   unschedulable agent gets **no Deployment at all** - there is no crash-looping pod to
   find, because none was created. The operator keeps retrying on a backoff until a
   server appears.
-- **`Crew`** follows its agents. It reports `status.phase: Pending` until its
-  coordinator `Agent` is `Running`, and `Degraded` with `status.ready: false` when the
-  coordinator is `Unschedulable` or when every specialist is, with a message naming
-  the agents concerned (`coordinator coordinator is unschedulable: no feasible Model
-  for mulling phase`, or `no specialist can be scheduled: k8s-advisor, ...`). A crew
-  with a running coordinator and at least one schedulable specialist is `Ready`, and
-  its message lists any specialists still unschedulable. `kubectl get crews -A`
-  therefore tells you whether a crew can answer before you ask it.
+- **`Crew`** follows its agents. It reports `status.phase: Pending` (and `Ready` `False`)
+  until its coordinator `Agent` is `Running`, and stays there while the coordinator is in
+  `Error`. When the coordinator is `Unschedulable`, or
+  every specialist is, the crew is reconciled but cannot answer: it reports
+  `status.phase: WaitingForCapacity`, keeps its `Ready` condition `True`, and sets the
+  `CapacityAvailable` condition to `False` with a message naming the agents concerned
+  (`coordinator coordinator is unschedulable: no feasible Model for mulling phase`, or
+  `no specialist can be scheduled: k8s-advisor, ...`). A crew with a running coordinator
+  and at least one schedulable specialist is `Ready` with `CapacityAvailable` `True`, and
+  its message lists any specialists still unschedulable. `kubectl get crews -A` shows the
+  phase and a `Capacity` column, so it tells you whether a crew can answer before you ask
+  it. `WaitingForCapacity` is not a failure to fix in the crew: add or return a model
+  server whose models satisfy the crew's `require`, and the crew recovers by itself. A
+  Helm or Flux upgrade of a crew succeeds while accelerators are away, because the wait
+  looks at `Ready`, which means reconciled, and not at capacity (see
+  [Crew status and conditions](../../reference/crew/#status-and-conditions)).
 
 Once a `ModelServer` becomes `Ready` and the operator reconciles, agents move to
 `Running` and pick up their Deployments without you having to do anything.

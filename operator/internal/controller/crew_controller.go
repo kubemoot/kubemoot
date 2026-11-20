@@ -140,8 +140,7 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return result, err
 	}
 
-	a := assessCrew(agents.Items, coordinatorName)
-	return r.updateStatus(ctx, crew, a.phase, a.ready, a.message)
+	return r.updateAssessedStatus(ctx, crew, assessCrew(agents.Items, coordinatorName))
 }
 
 // reconcileNetworkPolicies applies the policy that admits callers from outside the
@@ -743,18 +742,19 @@ func (r *CrewReconciler) updateStatus(ctx context.Context, crew *kubemootv1alpha
 	crew.Status.Phase = phase
 	crew.Status.Ready = ready
 	crew.Status.Message = message
+	crew.Status.ObservedGeneration = crew.Generation
 
-	condition := metav1.Condition{
-		Type:               conditionTypeReady,
-		Status:             metav1.ConditionFalse,
-		Reason:             phase,
-		Message:            message,
-		LastTransitionTime: metav1.Now(),
-	}
+	// Ready says the crew is reconciled as declared. A crew that waits for capacity is
+	// reconciled, so its reason is Reconciled, not its phase.
+	reason := phase
 	if ready {
-		condition.Status = metav1.ConditionTrue
+		reason = reasonCrewReconciled
 	}
-	meta.SetStatusCondition(&crew.Status.Conditions, condition)
+	readyStatus := metav1.ConditionFalse
+	if ready {
+		readyStatus = metav1.ConditionTrue
+	}
+	setCrewCondition(crew, conditionTypeReady, readyStatus, reason, message)
 
 	if err := r.Status().Update(ctx, crew); err != nil {
 		return ctrl.Result{}, err
@@ -763,6 +763,33 @@ func (r *CrewReconciler) updateStatus(ctx context.Context, crew *kubemootv1alpha
 		return ctrl.Result{RequeueAfter: 10_000_000_000}, nil // 10s
 	}
 	return ctrl.Result{}, nil
+}
+
+// updateAssessedStatus writes the status the agents' assessment calls for: the Ready
+// condition and, once the agents are assessed, the CapacityAvailable condition.
+func (r *CrewReconciler) updateAssessedStatus(ctx context.Context, crew *kubemootv1alpha1.Crew, a crewAssessment) (ctrl.Result, error) {
+	if a.capacity != nil {
+		setCrewCapacity(crew, *a.capacity)
+	}
+	return r.updateStatus(ctx, crew, a.phase, a.ready, a.message)
+}
+
+// setCrewCapacity records the CapacityAvailable condition, which reports whether a model in
+// the cluster catalog can run the crew's agents now, apart from the Ready condition.
+func setCrewCapacity(crew *kubemootv1alpha1.Crew, c crewCapacity) {
+	setCrewCondition(crew, conditionTypeCapacityAvailable, c.status, c.reason, c.message)
+}
+
+// setCrewCondition records one status condition at the Crew's current generation.
+func setCrewCondition(crew *kubemootv1alpha1.Crew, conditionType string, status metav1.ConditionStatus, reason, message string) {
+	meta.SetStatusCondition(&crew.Status.Conditions, metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: crew.Generation,
+		LastTransitionTime: metav1.Now(),
+	})
 }
 
 // SetupWithManager sets up the controller with the Manager
