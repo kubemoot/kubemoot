@@ -24,6 +24,11 @@ image: ghcr.io/kubemoot/dashboard:0.94.1-rc.1"
 check "distinct component images, standalone images and paths left out" \
   "ghcr.io/kubemoot/agent-runtime:0.94.1-rc.3 ghcr.io/kubemoot/dashboard:0.94.1-rc.1 ghcr.io/kubemoot/discussion-gateway:0.94.1-rc.3 ghcr.io/kubemoot/kubemoot-operator:0.94.1-rc.3" \
   "$(quickstart_images <<<"$manifests" | paste -sd' ')"
+check "the MCP gateway and bridge of the scaffolded crew are found" \
+  "ghcr.io/kubemoot/mcp-bridge:1.0.0 ghcr.io/kubemoot/mcp-gateway:1.0.0" \
+  "$(quickstart_images <<<"image: ghcr.io/kubemoot/mcp-gateway:1.0.0
+image: ghcr.io/kubemoot/mcp-bridge:1.0.0
+image: ghcr.io/kubemoot/mcp-gateway-extra:1.0.0" | paste -sd' ')"
 check "a digest-pinned image is found" "reg.example/kubemoot/agent-runtime@sha256:${d}" \
   "$(quickstart_images <<<"image: reg.example/kubemoot/agent-runtime@sha256:${d}")"
 check "a tag with a digest is found whole" "reg.example/kubemoot/agent-runtime:1.0.0-rc.1@sha256:${d}" \

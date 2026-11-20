@@ -131,6 +131,15 @@ crew, asks the crew a question, and checks that an answer comes back. CI runs th
 script against every release's images, and Publish Release runs it end to end on the release
 candidate before it publishes anything: a candidate that fails the quickstart is not published.
 
+On the candidate it then checks that the first crew a user makes works. It builds the kmctl
+release candidate (the newest `vX.Y.Z-rc.N` tag of kmctl, built from source, because a kmctl
+candidate publishes no binary), installs the crew `kmctl create` scaffolds on the same
+cluster, waits until the crew's phase is Ready and its CapacityAvailable condition is True,
+asks which pods run in its namespace, and checks that the answer names every workload that
+`kubectl get pods` lists there, in any wording. It asks once and does not retry. To run it by
+hand after the quickstart, put a `kmctl` on your path and run
+`./quickstart/test-scaffolded-crew.sh`.
+
 ```bash
 kind create cluster --name kubemoot
 ./quickstart/quickstart.sh
