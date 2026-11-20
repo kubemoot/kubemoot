@@ -149,6 +149,27 @@ secretReplication:
     - shared-credentials
 ```
 
+## Browser access to a crew's streams
+
+A crew's discussion gateway streams answers as server-sent events. A web page served from
+another origin can read a stream only when that origin is listed in the operator chart's
+`discussionGateway.allowedOrigins` value. The operator passes the list to every gateway as
+the `ALLOWED_ORIGINS` environment variable (comma-separated).
+
+```yaml
+discussionGateway:
+  allowedOrigins:
+    - https://app.example.com
+```
+
+Each entry is an exact origin: scheme and host, with an optional port, and no path or
+wildcard, and no trailing slash (other entries are ignored, and the operator and each
+gateway log them). Only the event stream carries these headers. The gateway answers a listed origin with that origin
+in `Access-Control-Allow-Origin` and never sends `Access-Control-Allow-Credentials`. An
+origin that is not listed gets no CORS header. The default is an empty list, which sends no
+CORS headers at all: pages on the gateway's own origin and clients that are not browsers
+(kmctl, the dashboard's server side, curl) are not affected.
+
 ## Secret use grants
 
 The chart value `security.secretUseGrants` installs ValidatingAdmissionPolicies that reject

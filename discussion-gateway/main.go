@@ -12,6 +12,7 @@ import (
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/api"
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
 	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/pkg/httporigin"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
@@ -49,7 +50,12 @@ func main() {
 
 	// A shutdown ends open streams at once, so their clients reconnect to another
 	// gateway and resume instead of waiting out the drain; questions still queue.
-	handler := api.NewHandler(nc, namespace).EndStreamsOn(ctx)
+	// Browser pages may read a stream only from the origins listed here; empty sends no CORS headers.
+	origins, rejected := httporigin.Parse(os.Getenv("ALLOWED_ORIGINS"))
+	if len(rejected) > 0 {
+		log.Info("Ignoring ALLOWED_ORIGINS entries that are not an exact origin", "entries", rejected)
+	}
+	handler := api.NewHandler(nc, namespace).AllowOrigins(origins).EndStreamsOn(ctx)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
