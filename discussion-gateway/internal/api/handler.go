@@ -16,6 +16,7 @@ import (
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
 	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/httporigin"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -43,6 +44,8 @@ type Handler struct {
 	namespace  string
 	// streamsEnd ends every open stream when it is done, such as at shutdown.
 	streamsEnd context.Context
+	// allowedOrigins are the browser origins the stream's CORS headers admit; empty sends none.
+	allowedOrigins map[string]struct{}
 	// deprecatedRoute logs the first call of a deprecated route once.
 	deprecatedRoute sync.Once
 }
@@ -55,6 +58,19 @@ func NewHandler(natsClient *natsclient.Client, namespace string) *Handler {
 		namespace:  namespace,
 		streamsEnd: context.Background(),
 	}
+}
+
+// AllowOrigins sets the browser origins whose pages may read a stream, replacing any set
+// before. Only valid exact origins are kept (see httporigin.Valid). With none set the
+// gateway sends no CORS headers.
+func (h *Handler) AllowOrigins(origins []string) *Handler {
+	h.allowedOrigins = make(map[string]struct{}, len(origins))
+	for _, origin := range origins {
+		if httporigin.Valid(origin) {
+			h.allowedOrigins[origin] = struct{}{}
+		}
+	}
+	return h
 }
 
 // EndStreamsOn makes every open stream end when ctx is done. Other requests are not
@@ -233,7 +249,7 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	emit, ok := sseEmitter(w, r)
+	emit, ok := h.sseEmitter(w, r)
 	if !ok {
 		return
 	}
@@ -252,17 +268,13 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 
 // sseEmitter sets the SSE response headers and returns a function that writes and
 // flushes one event, or false after answering 500 when w cannot stream.
-func sseEmitter(w http.ResponseWriter, r *http.Request) (func(SSEEvent), bool) {
+func (h *Handler) sseEmitter(w http.ResponseWriter, r *http.Request) (func(SSEEvent), bool) {
 	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // nginx buffering off
 
-	// CORS for browser-based and external clients
-	if origin := r.Header.Get("Origin"); origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-	}
+	h.writeCORS(w, r)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -274,6 +286,20 @@ func sseEmitter(w http.ResponseWriter, r *http.Request) (func(SSEEvent), bool) {
 			flusher.Flush()
 		}
 	}, true
+}
+
+// writeCORS lets a browser page read the stream only when its Origin is on the allow-list,
+// answering with that exact origin. Credentials are never allowed. With an empty list no
+// CORS header is sent, so browsers keep their same-origin rule.
+func (h *Handler) writeCORS(w http.ResponseWriter, r *http.Request) {
+	if len(h.allowedOrigins) == 0 {
+		return
+	}
+	w.Header().Add("Vary", "Origin")
+	origin := r.Header.Get("Origin")
+	if _, ok := h.allowedOrigins[origin]; ok {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
 }
 
 // writeSSE writes one event, with its id field when it has one.

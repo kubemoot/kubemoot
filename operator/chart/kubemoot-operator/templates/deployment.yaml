@@ -103,6 +103,11 @@ spec:
             - name: KEDA_NATS_MONITORING_ENDPOINT
               value: {{ .Values.scaleToZero.natsMonitoringEndpoint | default "nats-headless.nats.svc.cluster.local:8222" | quote }}
             {{- end }}
+            {{- with .Values.discussionGateway.allowedOrigins }}
+            # Browser origins whose pages may read a discussion gateway's streams.
+            - name: DISCUSSION_GATEWAY_ALLOWED_ORIGINS
+              value: {{ join "," . | quote }}
+            {{- end }}
             {{- with .Values.secretReplication.allowedSourceNamespaces }}
             - name: SECRET_SOURCE_NAMESPACES
               value: {{ join "," . | quote }}

@@ -61,6 +61,13 @@ proxyInjection:
 secretReplication:
   allowedSourceNamespaces: []
 
+# Discussion gateways, the HTTP entry point of each crew.
+discussionGateway:
+  # Browser origins (https://app.example.com, exact, no wildcard) whose pages may read a
+  # gateway's event streams. Empty, the default, sends no CORS headers, so only same-origin
+  # pages and non-browser clients can. The gateway never allows credentials.
+  allowedOrigins: []
+
 # Security hardening for what crews may reference.
 security:
   # Secret use grants (off by default). When enabled, a ValidatingAdmissionPolicy rejects an

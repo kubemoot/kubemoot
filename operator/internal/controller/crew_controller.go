@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -47,6 +48,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/httporigin"
 )
 
 // crewMemoryBucket is the NATS KV bucket holding crew working memory; keys are
@@ -509,6 +511,30 @@ func (r *CrewReconciler) reconcileDeployment(ctx context.Context, crew *kubemoot
 	return deployment, nil
 }
 
+// gatewayAllowedOriginsEnv holds the browser origins whose pages may read a discussion
+// gateway's streams. The chart sets it from discussionGateway.allowedOrigins and the
+// operator passes it to every gateway as ALLOWED_ORIGINS; empty sets nothing.
+const gatewayAllowedOriginsEnv = "DISCUSSION_GATEWAY_ALLOWED_ORIGINS"
+
+// gatewayEnv is the environment of a crew's discussion gateway.
+func gatewayEnv(natsURL string) []corev1.EnvVar {
+	env := []corev1.EnvVar{
+		{Name: envPort, Value: fmt.Sprintf("%d", crewGatewayPort)},
+		{Name: "NATS_URL", Value: natsURL},
+		{Name: "COORDINATOR_CACHE_TTL", Value: "30s"},
+		namespaceEnvVar(),
+	}
+	origins, rejected := httporigin.Parse(os.Getenv(gatewayAllowedOriginsEnv))
+	if len(rejected) > 0 {
+		logf.Log.WithName("crew").Info("Ignoring discussionGateway.allowedOrigins entries that are not an exact origin",
+			"entries", rejected)
+	}
+	if len(origins) > 0 {
+		env = append(env, corev1.EnvVar{Name: "ALLOWED_ORIGINS", Value: strings.Join(origins, ",")})
+	}
+	return env
+}
+
 func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.Deployment {
 	name := r.gatewayName(crew)
 	replicas := int32(1)
@@ -563,12 +589,7 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 							Ports: []corev1.ContainerPort{
 								{Name: portNameHTTP, ContainerPort: crewGatewayPort, Protocol: corev1.ProtocolTCP},
 							},
-							Env: []corev1.EnvVar{
-								{Name: envPort, Value: fmt.Sprintf("%d", crewGatewayPort)},
-								{Name: "NATS_URL", Value: natsURL},
-								{Name: "COORDINATOR_CACHE_TTL", Value: "30s"},
-								namespaceEnvVar(),
-							},
+							Env: gatewayEnv(natsURL),
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: &noEscalation,
 								ReadOnlyRootFilesystem:   &nonRoot,
