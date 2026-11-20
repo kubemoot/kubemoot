@@ -279,6 +279,8 @@ invented name, or any assertion that fails, is a result to read, not noise to av
 
 ## Related
 
+- [Data ownership](../../operating/data-ownership/) - what NATS keeps, for how long, and how to
+  encrypt or erase it.
 - [Agent context](../agent-context/) - which sources are trusted instructions and which
   are untrusted data.
 - [Secrets and tools](../secrets-and-tools/) - how credentials reach tools and who may
