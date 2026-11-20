@@ -129,7 +129,7 @@ if helm template kubemoot-operator "$chart" --namespace kubemoot | grep -q kubem
   fail "the lease bucket should not be created while coordinator.lease is off"
 fi
 helm template kubemoot-operator "$chart" --namespace kubemoot --set coordinator.lease=true \
-  | grep -q "nats kv add kubemoot_coordinator_leases --ttl=15s" || fail "coordinator.lease=true should create the lease bucket with a 15s TTL"
+  | grep -q "kv_bucket kubemoot_coordinator_leases --ttl=15s" || fail "coordinator.lease=true should create the lease bucket with a 15s TTL"
 [ "$(yq -N "$crd_coordinator.properties.lease.type" "$crd_file")" = "boolean" ] \
   || fail "the KubemootConfig CRD has no boolean spec.coordinator.lease"
 [ "$(yq -N "$crd_coordinator.properties.lease.default" "$crd_file")" = "null" ] \

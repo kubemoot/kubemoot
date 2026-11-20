@@ -171,10 +171,9 @@ spec:
                     minimum: 1
                     type: integer
                   ttlDays:
-                    default: 365
                     description: |-
-                      TTLDays is the age backstop: a fact not used/refreshed within this window
-                      expires. Used facts are touched on recall, so they survive.
+                      TTLDays is deprecated: set retention.memory.purgeUnused instead. When set, it
+                      overrides that value: a fact not used within this many days is removed.
                     format: int32
                     minimum: 1
                     type: integer
@@ -248,6 +247,71 @@ spec:
                       x-kubernetes-map-type: atomic
                     maxItems: 16
                     type: array
+                type: object
+              retention:
+                default: {}
+                description: |-
+                  Retention declares how long the crew's data is kept in NATS: conversations, working
+                  memory and the crew's other messages. The operator removes what has expired on the
+                  declared schedule. Unset fields take the defaults on this schema.
+                properties:
+                  conversations:
+                    default: {}
+                    description: Conversations governs the earlier turns the crew
+                      keeps for follow-up questions.
+                    properties:
+                      window:
+                        default: 30d
+                        description: |-
+                          Window is how long a conversation is kept after its last turn; the oldest go first.
+                          never is not accepted: conversations are people's data and always age out.
+                        minLength: 2
+                        pattern: ^(never|([1-9][0-9]*y)?([1-9][0-9]*w)?([1-9][0-9]*d)?([1-9][0-9]*h)?([1-9][0-9]*m)?([1-9][0-9]*s)?)$
+                        type: string
+                    type: object
+                  memory:
+                    default: {}
+                    description: Memory governs the facts the crew learns.
+                    properties:
+                      purgeUnused:
+                        description: |-
+                          PurgeUnused removes a fact not written or recalled for this long. never keeps
+                          every fact until it is superseded, invalidated, evicted by the size cap, or deleted.
+                          Unset takes the crew-wide purgeUnused.
+                        minLength: 2
+                        pattern: ^(never|([1-9][0-9]*y)?([1-9][0-9]*w)?([1-9][0-9]*d)?([1-9][0-9]*h)?([1-9][0-9]*m)?([1-9][0-9]*s)?)$
+                        type: string
+                    type: object
+                  other:
+                    description: |-
+                      Other governs the crew's remaining NATS data: its discussion messages and the
+                      coordinators' logs. These streams also keep the size and age limits the install
+                      sets on them, so this can only shorten what the streams keep.
+                    properties:
+                      window:
+                        description: |-
+                          Window is how long a message of the crew is kept. Unset leaves the streams' own limits.
+                          never is not accepted.
+                        minLength: 2
+                        pattern: ^(never|([1-9][0-9]*y)?([1-9][0-9]*w)?([1-9][0-9]*d)?([1-9][0-9]*h)?([1-9][0-9]*m)?([1-9][0-9]*s)?)$
+                        type: string
+                    type: object
+                  purgeUnused:
+                    default: 90d
+                    description: |-
+                      PurgeUnused removes anything with no activity (written or recalled) for this long.
+                      It applies to conversations (their last turn is their activity) and to memory,
+                      unless memory sets its own.
+                    minLength: 2
+                    pattern: ^(never|([1-9][0-9]*y)?([1-9][0-9]*w)?([1-9][0-9]*d)?([1-9][0-9]*h)?([1-9][0-9]*m)?([1-9][0-9]*s)?)$
+                    type: string
+                  schedule:
+                    default: '@daily'
+                    description: |-
+                      Schedule is when the cleanup runs, in UTC: a cron expression of five fields, or @hourly,
+                      @daily, @weekly, @monthly, @yearly. The operator reports a duration finer than the
+                      interval between runs.
+                    type: string
                 type: object
               workspace:
                 description: |-
@@ -364,6 +428,35 @@ spec:
                   capacity; the CapacityAvailable condition and the WaitingForCapacity phase say that
                   the crew cannot answer yet.
                 type: boolean
+              retention:
+                description: Retention reports the crew's last retention cleanup.
+                properties:
+                  error:
+                    description: Error is why the last run did not finish, empty when
+                      it did.
+                    type: string
+                  lastRunTime:
+                    description: LastRunTime is when the last cleanup run finished.
+                    format: date-time
+                    type: string
+                  removed:
+                    description: Removed counts what the last run removed.
+                    properties:
+                      conversations:
+                        format: int32
+                        type: integer
+                      memory:
+                        format: int32
+                        type: integer
+                      other:
+                        format: int32
+                        type: integer
+                    required:
+                    - conversations
+                    - memory
+                    - other
+                    type: object
+                type: object
               revisions:
                 description: |-
                   Revisions records the crew's deployments, newest first, capped at 10.

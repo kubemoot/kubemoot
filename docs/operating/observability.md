@@ -20,7 +20,7 @@ How to observe what a Kubemoot crew is doing: the data it exposes, the surfaces 
 ## Surfaces
 
 - **Kubemoot Dashboard**: the primary real-time view (discussion threads & timeline, agent topology, NATS messages, fitness suites, accelerator and model activity). Updates push-style via NATS JetStream SSE and k8s watch→SSE. See [dashboard.md](dashboard.md).
-- **NATS JetStream**: the event substrate. Streams: `KUBEMOOT_CHRONICLE`, `KUBEMOOT_QUALITY`, `KUBEMOOT_CHAT`, `KUBEMOOT_OPERATOR`, `KUBEMOOT_DISCUSS`. Anything the dashboard shows is reconstructable from these.
+- **NATS JetStream**: the event substrate. Streams: `KUBEMOOT_CHRONICLE`, `KUBEMOOT_QUALITY`, `KUBEMOOT_CHAT`, `KUBEMOOT_OPERATOR`, `KUBEMOOT_DISCUSS`. Anything the dashboard shows is reconstructable from these. How long each is kept, and who decides, is in [Data retention and limits](data-retention.md).
 - **Prometheus metrics and Grafana dashboards** (optional): every Kubemoot component serves Prometheus metrics, and Kubemoot ships Grafana dashboards for them. See [Metrics: Prometheus and Grafana](#1-metrics-prometheus-and-grafana-optional).
 
 ## The three pillars of observability

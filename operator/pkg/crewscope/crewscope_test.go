@@ -140,3 +140,17 @@ func TestSplitLegacyMemoryKey(t *testing.T) {
 		}
 	}
 }
+
+func TestSubjectAndKeyHelpers(t *testing.T) {
+	s := Scope{Namespace: "ns", Crew: "crew"}
+	for got, want := range map[string]string{
+		s.ConversationPrefix(): "conv.ns.crew.",
+		s.DiscussFilter():      "kubemoot.discuss.ns.crew.>",
+		s.CoordinatorFilter():  "kubemoot.coordinator.ns.crew.>",
+		s.RequestSubject():     "kubemoot.request.ns.crew",
+	} {
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	}
+}

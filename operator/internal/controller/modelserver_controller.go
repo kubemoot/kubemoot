@@ -46,6 +46,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/internal/engine"
 	"github.com/kubemoot/kubemoot/operator/internal/engine/vllm"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/kubemoot/kubemoot/operator/pkg/perf"
 )
 
@@ -784,6 +785,15 @@ func deleteOrphanedServerState(ctx context.Context, c client.Reader, store serve
 	}
 	if err := store.DeleteKVKey(ServerStateBucket, name); err != nil {
 		logf.FromContext(ctx).V(1).Info("Failed to delete server state from NATS KV", "server", name, "error", err)
+	}
+	forgetServerPerformance(ctx, store, name)
+}
+
+// forgetServerPerformance removes what the scheduler observed about a ModelServer that is
+// gone. That history has no wall-clock expiry: it lasts as long as the server does.
+func forgetServerPerformance(ctx context.Context, store serverStateStore, server string) {
+	if _, err := store.PurgeKVPrefix(bus.PerformanceBucket, bus.PerformanceKeyPrefix(server)); err != nil {
+		logf.FromContext(ctx).V(1).Info("Failed to delete the scheduler performance history of a removed server", "server", server, "error", err)
 	}
 }
 

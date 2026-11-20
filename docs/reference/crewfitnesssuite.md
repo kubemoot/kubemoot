@@ -36,7 +36,7 @@ spec:
 | `scripts` | list | required, at least 1 | The scripts to run, in order. Each entry has a `testRef` and exactly one of `testContent` (inline script) or `configMapRef` (ConfigMap holding `<testRef>.adl`). |
 | `concurrency` | int | `1` | Maximum runs in flight at once. Keep it at 1 for baselines: parallel runs share the crew and its model servers, so they measure contention. |
 | `perIterationTimeout` | duration | `10m` | Wall-clock cap for one iteration. |
-| `artifactRetention` | duration | `168h` | Object Store TTL for the XLSX. |
+| `artifactRetention` | duration | `168h` | Object Store TTL for the XLSX, used only when the suite creates the shared bucket. The install creates it with the limit of the chart value `nats.stores.fitnessArtifacts`, and an existing bucket keeps that limit. |
 | `purgeMemory` | bool | `true` | Clear the crew's working memory before the run. Set it to `false` to leave the crew's memory alone for the whole run. |
 | `trialIsolation` | `PerTrial` or `PerSuite` | `PerTrial` | `PerTrial` clears the crew's working memory before every trial and runs the trials one at a time, so a trial cannot use what an earlier one taught the crew. `PerSuite` clears it once before the first trial: use it to measure learning. See [Independent trials](#independent-trials). |
 | `purpose` | `Capability` or `Regression` | | What the suite is for. A capability suite starts low and leaves room to improve; a regression suite sits near 100% and catches breakage. Optional. |

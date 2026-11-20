@@ -75,6 +75,29 @@ func (s Scope) MemoryPrefix() string {
 	return s.Namespace + "." + s.Crew + "."
 }
 
+// ConversationPrefix is the kubemoot_conversations key prefix conv.<ns>.<crew>. that
+// holds every conversation of the crew.
+func (s Scope) ConversationPrefix() string {
+	return "conv." + s.MemoryPrefix()
+}
+
+// DiscussFilter matches every discussion subject of the crew:
+// kubemoot.discuss.<ns>.<crew>.>.
+func (s Scope) DiscussFilter() string {
+	return subjectDiscuss + "." + s.Namespace + "." + s.Crew + ".>"
+}
+
+// CoordinatorFilter matches every coordinator log subject of the crew:
+// kubemoot.coordinator.<ns>.<crew>.>.
+func (s Scope) CoordinatorFilter() string {
+	return "kubemoot.coordinator." + s.Namespace + "." + s.Crew + ".>"
+}
+
+// RequestSubject is the crew's request queue subject: kubemoot.request.<ns>.<crew>.
+func (s Scope) RequestSubject() string {
+	return "kubemoot.request." + s.Namespace + "." + s.Crew
+}
+
 // ClusterRBACName names the crew's cluster-scoped discussion gateway RBAC
 // objects: crew-<ns>-<crew>-discussion.
 func (s Scope) ClusterRBACName() string {

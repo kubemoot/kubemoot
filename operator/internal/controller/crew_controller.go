@@ -140,6 +140,7 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return result, err
 	}
 
+	r.reconcileRetention(crew)
 	return r.updateAssessedStatus(ctx, crew, assessCrew(agents.Items, coordinatorName))
 }
 

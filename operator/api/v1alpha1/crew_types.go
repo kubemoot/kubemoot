@@ -50,6 +50,13 @@ type CrewSpec struct {
 	// +optional
 	Memory *CrewMemoryConfig `json:"memory,omitempty"`
 
+	// Retention declares how long the crew's data is kept in NATS: conversations, working
+	// memory and the crew's other messages. The operator removes what has expired on the
+	// declared schedule. Unset fields take the defaults on this schema.
+	// +kubebuilder:default={}
+	// +optional
+	Retention *CrewRetention `json:"retention,omitempty"`
+
 	// Network configures who may reach the crew's discussion gateway when the operator
 	// generates network policies.
 	// +optional
@@ -81,9 +88,8 @@ type CrewMemoryConfig struct {
 	// +optional
 	MaxFacts int32 `json:"maxFacts,omitempty"`
 
-	// TTLDays is the age backstop: a fact not used/refreshed within this window
-	// expires. Used facts are touched on recall, so they survive.
-	// +kubebuilder:default=365
+	// TTLDays is deprecated: set retention.memory.purgeUnused instead. When set, it
+	// overrides that value: a fact not used within this many days is removed.
 	// +kubebuilder:validation:Minimum=1
 	// +optional
 	TTLDays int32 `json:"ttlDays,omitempty"`
@@ -103,6 +109,96 @@ type CrewMemoryConfig struct {
 	// +kubebuilder:default=true
 	// +optional
 	VerifyOnAdd *bool `json:"verifyOnAdd,omitempty"`
+}
+
+// RetentionDuration is how long data is kept, written as in Prometheus' retention: a
+// number and a unit (s, m, h, d, w, y), several combined from the largest unit down
+// (1y6w, 90d, 36h), or never.
+// +kubebuilder:validation:Pattern=`^(never|([1-9][0-9]*y)?([1-9][0-9]*w)?([1-9][0-9]*d)?([1-9][0-9]*h)?([1-9][0-9]*m)?([1-9][0-9]*s)?)$`
+// +kubebuilder:validation:MinLength=2
+type RetentionDuration string
+
+// CrewRetention is how long a crew's NATS data is kept and when the operator removes
+// what has expired. Retention is only as fine as the schedule: a duration shorter than
+// the interval between runs is removed at the next run, not when it expires.
+type CrewRetention struct {
+	// Schedule is when the cleanup runs, in UTC: a cron expression of five fields, or @hourly,
+	// @daily, @weekly, @monthly, @yearly. The operator reports a duration finer than the
+	// interval between runs.
+	// +kubebuilder:default="@daily"
+	// +optional
+	Schedule string `json:"schedule,omitempty"`
+
+	// PurgeUnused removes anything with no activity (written or recalled) for this long.
+	// It applies to conversations (their last turn is their activity) and to memory,
+	// unless memory sets its own.
+	// +kubebuilder:default="90d"
+	// +optional
+	PurgeUnused RetentionDuration `json:"purgeUnused,omitempty"`
+
+	// Conversations governs the earlier turns the crew keeps for follow-up questions.
+	// +kubebuilder:default={}
+	// +optional
+	Conversations *ConversationRetention `json:"conversations,omitempty"`
+
+	// Memory governs the facts the crew learns.
+	// +kubebuilder:default={}
+	// +optional
+	Memory *MemoryRetention `json:"memory,omitempty"`
+
+	// Other governs the crew's remaining NATS data: its discussion messages and the
+	// coordinators' logs. These streams also keep the size and age limits the install
+	// sets on them, so this can only shorten what the streams keep.
+	// +optional
+	Other *OtherRetention `json:"other,omitempty"`
+}
+
+// ConversationRetention rotates conversations first in, first out.
+type ConversationRetention struct {
+	// Window is how long a conversation is kept after its last turn; the oldest go first.
+	// never is not accepted: conversations are people's data and always age out.
+	// +kubebuilder:default="30d"
+	// +optional
+	Window RetentionDuration `json:"window,omitempty"`
+}
+
+// MemoryRetention sets how long an unused fact is kept.
+type MemoryRetention struct {
+	// PurgeUnused removes a fact not written or recalled for this long. never keeps
+	// every fact until it is superseded, invalidated, evicted by the size cap, or deleted.
+	// Unset takes the crew-wide purgeUnused.
+	// +optional
+	PurgeUnused RetentionDuration `json:"purgeUnused,omitempty"`
+}
+
+// OtherRetention sets the window for the crew's other NATS data.
+type OtherRetention struct {
+	// Window is how long a message of the crew is kept. Unset leaves the streams' own limits.
+	// never is not accepted.
+	// +optional
+	Window RetentionDuration `json:"window,omitempty"`
+}
+
+// RetentionRemoved counts what one cleanup run removed, by kind of data.
+type RetentionRemoved struct {
+	Conversations int32 `json:"conversations"`
+	Memory        int32 `json:"memory"`
+	Other         int32 `json:"other"`
+}
+
+// RetentionStatus reports the crew's last cleanup run.
+type RetentionStatus struct {
+	// LastRunTime is when the last cleanup run finished.
+	// +optional
+	LastRunTime *metav1.Time `json:"lastRunTime,omitempty"`
+
+	// Removed counts what the last run removed.
+	// +optional
+	Removed RetentionRemoved `json:"removed,omitempty"`
+
+	// Error is why the last run did not finish, empty when it did.
+	// +optional
+	Error string `json:"error,omitempty"`
 }
 
 // CrewStatus defines the observed state of Crew
@@ -143,6 +239,10 @@ type CrewStatus struct {
 	// crew's agents now).
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// Retention reports the crew's last retention cleanup.
+	// +optional
+	Retention *RetentionStatus `json:"retention,omitempty"`
 
 	// Revisions records the crew's deployments, newest first, capped at 10.
 	// The operator appends an entry when the Crew's revision annotation,

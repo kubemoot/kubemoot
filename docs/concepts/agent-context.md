@@ -223,7 +223,7 @@ facts about users. It belongs to the **crew**, not to a single agent, and is con
   have to decide to look anything up.
 - **Caps and lifetime.** Injection is capped (`injectLimit`, eight by default) and
   storage is capped (`maxFacts`, 5000 by default, least recently used evicted). A fact
-  that is read is refreshed, and a fact unused for `ttlDays` is pruned. Deleting the
+  that is read is refreshed, and a fact unused for the crew's `retention.memory.purgeUnused` is pruned. Deleting the
   Crew removes its facts; updating it keeps them.
 
 Because agents write memory from what they read, a stored fact can carry content that

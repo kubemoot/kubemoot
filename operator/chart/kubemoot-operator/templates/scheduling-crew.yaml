@@ -32,6 +32,14 @@ spec:
   description: "Kubemoot's own scheduling crew: measures the cluster's model servers so the scheduler does not place calls blind."
   discussion:
     enabled: true
+  # What this crew learns about unchanged hardware is not forgotten because a clock ran
+  # out: its memory is kept until it is superseded, invalidated, or evicted by the size cap.
+  # Its conversations are diagnostics and rotate on their own window.
+  retention:
+    memory:
+      purgeUnused: never
+    conversations:
+      window: {{ .Values.schedulingCrew.retention.conversationWindow | quote }}
   {{- with .Values.schedulingCrew.allowedIngress }}
   network:
     allowedIngress:

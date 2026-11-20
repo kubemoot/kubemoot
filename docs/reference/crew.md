@@ -21,9 +21,13 @@ spec:
   memory:
     enabled: true
     maxFacts: 5000
-    ttlDays: 365
     injectLimit: 8
     verifyOnAdd: true
+  retention:
+    conversations:
+      window: 14d
+    memory:
+      purgeUnused: never
 ```
 
 The namespace separates names. The same crew name can run in many namespaces side by
@@ -97,12 +101,13 @@ Facts are kept alive by use and aged out when abandoned:
 | Same-key overwrite | re-`REMEMBER` of an existing `topic`/`key` | replaces (dedup/supersede) |
 | LRU cap | crew exceeds `maxFacts` on write | evict least-recently-used |
 | Touch-on-read | a recalled fact's `usedAt` older than 6h | refresh `usedAt` (keep-alive) |
-| TTL | fact unused/unrefreshed past `ttlDays` | pruned on read (per-crew) |
+| Retention | fact unused past `retention.memory.purgeUnused` (or the crew-wide `retention.purgeUnused`) | pruned on read, and removed by the operator's [cleanup](#retention) |
 
 ### Lifecycle
 
 - **Crew update** keeps memory.
-- **Crew delete** purges that crew's facts (operator finalizer removes `<crew>.*` keys).
+- **Crew delete** purges that crew's facts (operator finalizer removes the crew's `<namespace>.<crew>.*` keys).
+- **How long a fact is kept** is the crew's [retention](#retention), not a bucket expiry: the memory bucket has no expiry of its own, so a crew that keeps its memory longer, or forever, is not cut short.
 
 ### `spec.memory` fields
 
@@ -110,9 +115,38 @@ Facts are kept alive by use and aged out when abandoned:
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Turn working memory on/off (recall + persist) |
 | `maxFacts` | int32 | `5000` | Per-crew storage cap; LRU-evicted above this |
-| `ttlDays` | int32 | `365` | Age backstop; used facts are touched and survive |
+| `ttlDays` | int32 | none | Deprecated: use `retention.memory.purgeUnused`. When set, it overrides that value |
 | `injectLimit` | int32 | `8` | Max facts injected into context per query (small - context budget, not storage) |
 | `verifyOnAdd` | bool | `true` | Vet new facts for duplicates/conflicts on write |
+
+## Retention
+
+`spec.retention` says how long the crew's data is kept in NATS and when the operator removes what has expired. Kubemoot keeps no one's data by default beyond what a crew needs to answer, so a crew that declares nothing still has a policy: the API server fills the defaults from the Crew schema, which is the one place they are written (`kubectl explain crew.spec.retention`).
+
+| Field | Governs |
+|-------|---------|
+| `retention.schedule` | When the cleanup runs, in UTC: a five-field cron expression, or `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly` |
+| `retention.purgeUnused` | Anything with no activity (written or recalled) for this long is removed. Applies to conversations and memory |
+| `retention.conversations.window` | Conversations rotate first in, first out: one is kept this long after its last turn, and the oldest go first |
+| `retention.memory.purgeUnused` | How long an unused fact is kept; unset takes `retention.purgeUnused`. `never` keeps every fact until it is superseded, invalidated, evicted by `memory.maxFacts`, or deleted |
+| `retention.other.window` | The crew's discussion messages and coordinator logs. Unset leaves them to the age and size limits of their streams; set, it can only shorten what those streams keep |
+
+**Durations** use the form Prometheus uses for its retention: a number and a unit (`s`, `m`, `h`, `d`, `w`, `y`), several combined from the largest unit down with each unit at most once (`36h`, `90d`, `1y6w`), or `never`. The API server refuses anything else: a missing unit, zero, a fraction, a unit written twice or out of order (`1d1y`), spaces, capitals. `never` is accepted for memory and for `purgeUnused`; conversations and other data always age out, with a longest window the shared stores can hold.
+
+**The cleanup** runs in the operator, per crew, on `retention.schedule`. It removes only what carries the crew's own key prefix (`<namespace>.<crew>`) from the shared buckets and streams, so a crew's policy never touches another crew's data. Retention is only as fine as the schedule: with a daily schedule, a 12-hour window removes data within a day of its expiry, not at 12 hours. The Crew reports a duration finer than its schedule (see below). A crew whose policy has an invalid value has nothing removed until it is fixed.
+
+The scheduling crew declares its memory `never`: what it learned about unchanged hardware is not forgotten because a clock ran out.
+
+Conversation history has no wall-clock expiry in its bucket beyond a backstop as long as the longest window a crew may declare, so the crew's window decides. Scheduler performance history is not a crew's data and follows its ModelServer: it is removed when the server is deleted.
+
+### What the Crew reports
+
+| Where | What |
+|-------|------|
+| `status.retention.lastRunTime` | When the last cleanup finished |
+| `status.retention.removed` | Counts of what it removed: `conversations`, `memory`, `other` |
+| `status.retention.error` | Why the last run did not finish; empty when it did. The next scheduled run tries again |
+| condition `RetentionValid` | `True` when the policy was read, with reason `FinerThanSchedule` when a duration is finer than the schedule (the message names it); `False` with reason `Invalid` and the field and reason when a value could not be read. A warning event is sent when the reason changes |
 
 ## Status and conditions
 
