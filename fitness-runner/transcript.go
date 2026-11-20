@@ -19,12 +19,12 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// transcriptDefaultTTL is the bucket max-age used only when this runner is the
-// first writer to create the bucket. In practice the operator's XLSX path
-// usually creates kubemoot_fitness_artifacts first; EnsureObjectStore then
-// returns the existing bucket and this TTL is ignored (Object Store TTL is
-// bucket-level, shared by transcripts and XLSX artifacts alike).
-const transcriptDefaultTTL = 720 * time.Hour
+// transcriptDefaultTTL is the bucket max-age used only when this runner creates a
+// missing kubemoot_fitness_artifacts bucket. The install creates the bucket with its
+// own limit (chart value nats.stores.fitnessArtifacts), and the operator's XLSX path
+// creates a missing one with the same default, so the retention is one value whichever
+// writer is first. An existing bucket keeps its limit.
+const transcriptDefaultTTL = 168 * time.Hour
 
 // maybeWriteTranscript writes the per-iteration transcript JSON to NATS Object
 // Store when the operator wired the suite-iteration env (TRANSCRIPT_KEY +

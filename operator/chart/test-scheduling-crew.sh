@@ -146,4 +146,11 @@ vllm="$(render --set 'modelServers[0].name=vllm-gpu' --set 'modelServers[0].type
 [ "$(get "$vllm" Crew kubemoot-scheduling .metadata.namespace)" = "$ns" ] || fail "the crew does not render on a vLLM server"
 [ "$(count "$vllm" '.kind == "Model"')" = 0 ] || fail "a Model renders for the vLLM server"
 
+# Its memory is kept until superseded, invalidated, or evicted (never), and its conversations
+# rotate on the chart's window.
+[ "$(get "$out" Crew kubemoot-scheduling .spec.retention.memory.purgeUnused)" = "never" ] || fail "the crew's memory is not permanent"
+[ "$(get "$out" Crew kubemoot-scheduling .spec.retention.conversations.window)" = "7d" ] || fail "the crew's conversation window is not the chart default"
+window="$(render "${servers[@]}" --set schedulingCrew.retention.conversationWindow=36h)"
+[ "$(get "$window" Crew kubemoot-scheduling .spec.retention.conversations.window)" = "36h" ] || fail "schedulingCrew.retention.conversationWindow does not reach the crew"
+
 echo "PASS: scheduling crew render tests"

@@ -51,6 +51,7 @@ import (
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 	"github.com/kubemoot/kubemoot/operator/internal/notifications"
+	"github.com/kubemoot/kubemoot/operator/internal/retention"
 	kubemootscheduler "github.com/kubemoot/kubemoot/operator/internal/scheduler"
 	kubemootwebhook "github.com/kubemoot/kubemoot/operator/internal/webhook"
 	// +kubebuilder:scaffold:imports
@@ -106,6 +107,13 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 		// One-time crew-memory key migration: <crew>.<topic>.<key> becomes
 		// <ns>.<crew>.<topic>.<key> when exactly one namespace has a Crew of that name.
 		{"crew memory migration", &crewmemory.Migrator{Reader: mgr.GetAPIReader(), KV: natsPublisher}},
+		// Removes each crew's expired conversations, facts and messages on the crew's
+		// retention schedule and records what it removed in the Crew status.
+		{"crew retention cleanup", &retention.Runner{
+			Client:  mgr.GetClient(),
+			Cleaner: &retention.Cleaner{Store: natsPublisher, Now: time.Now},
+			Active:  natsPublisher.Configured,
+		}},
 		// NotificationSink dispatcher. Subscribes to kubemoot.discuss.> and
 		// fires per-crew webhooks on concern signals. Leader-elected so only
 		// one operator pod dispatches at a time.

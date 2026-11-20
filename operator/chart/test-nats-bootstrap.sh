@@ -19,14 +19,23 @@ helm template t "$chart" --show-only templates/nats-streams-job.yaml \
   | yq 'select(.kind == "Job") | .spec.template.spec.containers[0].args[0]' >"$work/bootstrap.sh"
 [ -s "$work/bootstrap.sh" ] || fail "no bootstrap script rendered"
 
-# A fake nats: kv add creates a bucket, kv info succeeds only for one that exists,
-# kv del removes it; every other command succeeds and does nothing.
+# A fake nats: kv add creates a bucket and fails for one that exists (as the real one
+# leaves it alone), kv edit rewrites an existing bucket's settings and fails for a missing
+# one, kv info succeeds only for one that exists, kv del removes it; every other command
+# succeeds and does nothing. A bucket's file holds the flags it was last given.
 cat >"$work/bin/nats" <<'EOF'
 #!/bin/sh
 echo "$*" >>"$FAKE_LOG"
+if [ "$1" = "stream" ]; then
+  case "$2" in
+    add) [ -z "${FAKE_STREAMS_EXIST:-}" ] || exit 1 ;;
+    update) [ -z "${FAKE_FAIL_UPDATE:-}" ] || exit 1 ;;
+  esac
+fi
 if [ "$1" = "kv" ]; then
   case "$2" in
-    add) : >"$FAKE_KV/$3" ;;
+    add) [ ! -e "$FAKE_KV/$3" ] || exit 1; echo "$*" >"$FAKE_KV/$3" ;;
+    edit) [ -e "$FAKE_KV/$3" ] || exit 1; echo "$*" >"$FAKE_KV/$3" ;;
     info) [ -e "$FAKE_KV/$3" ] || exit 1 ;;
     del) case "$*" in *--force*) ;; *) exit 1 ;; esac; [ -e "$FAKE_KV/$3" ] || exit 1; rm -f "$FAKE_KV/$3" ;;
   esac
@@ -71,11 +80,11 @@ grep -q -- '--max-msgs-per-subject=512' "$work/log" || fail "the coordinator log
 # The coordinator log is on by default, so the stream is created by default; it is created
 # with the log off as well (an empty stream costs nothing, and turning the log on later needs it).
 off_count="$(helm template t "$chart" --show-only templates/nats-streams-job.yaml \
-  --set coordinator.eventLog=false --set coordinator.resume=false | grep -c 'nats stream add KUBEMOOT_COORDINATOR')"
+  --set coordinator.eventLog=false --set coordinator.resume=false | grep -c 'stream_limits KUBEMOOT_COORDINATOR')"
 [ "$off_count" = "1" ] || fail "the coordinator log stream should be created whatever coordinator.eventLog is"
 # The lease bucket follows coordinator.lease and is refused with the log off.
 helm template t "$chart" --show-only templates/nats-streams-job.yaml --set coordinator.lease=true \
-  | grep -q 'nats kv add kubemoot_coordinator_leases' || fail "coordinator.lease=true should create the lease bucket"
+  | grep -q 'kv_bucket kubemoot_coordinator_leases' || fail "coordinator.lease=true should create the lease bucket"
 if helm template t "$chart" --show-only templates/nats-streams-job.yaml --set coordinator.lease=true --set coordinator.eventLog=false >/dev/null 2>&1; then
   fail "coordinator.lease=true with the log off should be refused"
 fi
@@ -84,10 +93,10 @@ fi
 # has always had; a set value reaches both the create and the update command; a value the
 # shell would misread is refused at render time.
 discuss_line() { grep '^stream add KUBEMOOT_DISCUSS ' "$work/log"; }
-[ "$(discuss_line | grep -c -- '--max-age=24h --max-msgs=5000 --max-bytes=-1')" = "1" ] \
+[ "$(discuss_line | grep -c -- '--max-age=24h --max-msgs=5000 --max-bytes=1GiB')" = "1" ] \
   || fail "the discussion stream defaults changed: $(discuss_line)"
-[ "$(grep -c -- '--max-age=24h --max-msgs=5000 --max-bytes=-1' "$work/bootstrap.sh")" = "2" ] \
-  || fail "the discussion stream update command does not carry the defaults"
+[ "$(grep -c -- 'stream_limits KUBEMOOT_DISCUSS .*--max-age=24h --max-msgs=5000 --max-bytes=1GiB' "$work/bootstrap.sh")" = "1" ] \
+  || fail "the discussion stream does not carry the defaults"
 render_bootstrap() { helm template t "$chart" --show-only templates/nats-streams-job.yaml "$@" \
   | yq 'select(.kind == "Job") | .spec.template.spec.containers[0].args[0]'; }
 render_bootstrap --set nats.streams.discuss.maxMessages=20000 --set nats.streams.discuss.maxAge=48h \
@@ -95,8 +104,8 @@ render_bootstrap --set nats.streams.discuss.maxMessages=20000 --set nats.streams
 run_bootstrap
 [ "$(discuss_line | grep -c -- '--max-age=48h --max-msgs=20000 --max-bytes=256MiB')" = "1" ] \
   || fail "the discussion stream limits do not follow the chart values: $(discuss_line)"
-[ "$(grep -c -- '--max-age=48h --max-msgs=20000 --max-bytes=256MiB' "$work/bootstrap.sh")" = "2" ] \
-  || fail "the discussion stream update command does not follow the chart values"
+[ "$(grep -c -- 'stream_limits KUBEMOOT_DISCUSS .*--max-age=48h --max-msgs=20000 --max-bytes=256MiB' "$work/bootstrap.sh")" = "1" ] \
+  || fail "the discussion stream does not follow the chart values"
 grep -q '^stream add KUBEMOOT_COORDINATOR .*--max-msgs=100000 ' "$work/log" \
   || fail "the discussion stream values changed the coordinator log stream"
 for bad in 'maxMessages=lots' 'maxMessages=0' 'maxAge=a day' 'maxAge=0h' 'maxAge=24h; rm -rf /' 'maxBytes=1 GB' 'maxBytes=0'; do
@@ -105,6 +114,62 @@ for bad in 'maxMessages=lots' 'maxMessages=0' 'maxAge=a day' 'maxAge=0h' 'maxAge
   fi
 done
 render_bootstrap >"$work/bootstrap.sh"
+
+# Every KV bucket the job adds has a size cap and states its expiry; every stream has a size cap.
+for bucket in $(grep '^kv add ' "$work/log" | awk '{print $3}' | sort -u); do
+  line="$(grep "^kv add $bucket " "$work/log" | head -1)"
+  case "$line" in *--max-bucket-size=*) ;; *) fail "KV bucket $bucket has no size cap: $line" ;; esac
+  case "$line" in *--ttl=*) ;; *) fail "KV bucket $bucket states no expiry: $line" ;; esac
+done
+for stream in $(grep '^stream add ' "$work/log" | awk '{print $3}' | sort -u); do
+  grep "^stream add $stream " "$work/log" | grep -q -- '--max-bytes=' || fail "stream $stream has no size cap"
+done
+
+# A bucket that already exists is edited to the new limits, not left as it was: nats kv add
+# does not change an existing bucket. These start with the limits earlier releases set.
+echo "kv add kubemoot_crew_memory --ttl=720h --history=5 --max-bucket-size=10485760" >"$work/kv/kubemoot_crew_memory"
+echo "kv add kubemoot_conversations --ttl=24h" >"$work/kv/kubemoot_conversations"
+echo "kv add kubemoot_scheduler_performance --ttl=720h" >"$work/kv/kubemoot_scheduler_performance"
+run_bootstrap
+grep -q -- '--ttl=0 --history=5 --max-value-size=64KiB --max-bucket-size=64MiB' "$work/kv/kubemoot_crew_memory" \
+  || fail "the memory bucket kept its 30-day expiry: $(cat "$work/kv/kubemoot_crew_memory")"
+grep -q -- '^kv edit kubemoot_conversations --ttl=5y ' "$work/kv/kubemoot_conversations" \
+  || fail "the conversation bucket kept its 24-hour expiry: $(cat "$work/kv/kubemoot_conversations")"
+grep -q -- '^kv edit kubemoot_scheduler_performance --ttl=0 ' "$work/kv/kubemoot_scheduler_performance" \
+  || fail "the scheduler performance bucket kept its expiry: $(cat "$work/kv/kubemoot_scheduler_performance")"
+if grep -q "could not apply the limits" "$work/out"; then fail "an edit failed against the fake"; fi
+
+# The object stores are created with their limits and edited when they exist.
+grep -q '^object add kubemoot_workspace --ttl=48h --max-bucket-size=2GiB --storage=file' "$work/log" || fail "the workspace store has no limits"
+grep -q '^object add kubemoot_fitness_artifacts --ttl=168h --max-bucket-size=1GiB' "$work/log" || fail "the fitness artifact store has no single retention"
+grep -q '^stream edit OBJ_kubemoot_workspace --max-age=48h --max-bytes=2GiB' "$work/log" || fail "an existing workspace store is not edited"
+render_bootstrap --set nats.stores.fitnessArtifacts.maxAge=3d --set nats.stores.workspace.maxBytes=512MiB >"$work/bootstrap.sh"
+run_bootstrap
+grep -q '^object add kubemoot_fitness_artifacts --ttl=3d ' "$work/log" || fail "nats.stores.fitnessArtifacts.maxAge does not reach the store"
+grep -q '^object add kubemoot_workspace --ttl=48h --max-bucket-size=512MiB' "$work/log" || fail "nats.stores.workspace.maxBytes does not reach the store"
+for bad in 'workspace.maxBytes=0' 'workspace.maxBytes=lots' 'fitnessArtifacts.maxBytes=1 GB' 'fitnessArtifacts.maxAge=0h' 'fitnessArtifacts.maxAge=a week' 'fitnessArtifacts.maxAge=1d; rm -rf /'; do
+  if helm template t "$chart" --show-only templates/nats-streams-job.yaml --set "nats.stores.$bad" >/dev/null 2>&1; then
+    fail "nats.stores.$bad should fail the render"
+  fi
+done
+render_bootstrap >"$work/bootstrap.sh"
+
+# The retired buckets include the pinned-thread notes people typed; the unused config bucket is not created.
+: >"$work/kv/kubemoot_pinned_threads"
+run_bootstrap
+[ ! -e "$work/kv/kubemoot_pinned_threads" ] || fail "the retired pinned-thread bucket was not removed"
+if grep -q '^kv add kubemoot_config' "$work/log"; then fail "the unused kubemoot_config bucket is still created"; fi
+rm -f "$work/kv/kubemoot_server_tickets"
+
+# An existing stream is updated to its limits; an update that fails fails the job.
+: >"$work/log"
+FAKE_STREAMS_EXIST=1 FAKE_LOG="$work/log" FAKE_KV="$work/kv" PATH="$work/bin:$PATH" sh "$work/bootstrap.sh" >"$work/out" 2>&1 \
+  || fail "updating existing streams failed the job"
+grep -q '^stream update KUBEMOOT_DISCUSS --subjects=kubemoot.discuss.> --max-age=24h --max-msgs=5000 --max-bytes=1GiB' "$work/log" \
+  || fail "an existing discussion stream is not updated to its limits: $(grep '^stream update KUBEMOOT_DISCUSS' "$work/log")"
+if FAKE_STREAMS_EXIST=1 FAKE_FAIL_UPDATE=1 FAKE_LOG="$work/log" FAKE_KV="$work/kv" PATH="$work/bin:$PATH" sh "$work/bootstrap.sh" >"$work/out" 2>&1; then
+  fail "a failed stream update did not fail the job"
+fi
 
 # Run again: the retired buckets are absent, which is not an error, and nothing else is deleted.
 run_bootstrap

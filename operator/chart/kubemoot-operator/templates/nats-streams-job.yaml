@@ -14,6 +14,15 @@
 {{- if not (regexMatch "^(-1|[1-9][0-9]*([KMGT]i?B)?)$" (toString $discuss.maxBytes)) }}
 {{- fail (printf "nats.streams.discuss.maxBytes must be -1, a number of bytes, or a size such as 256MiB, got %v" $discuss.maxBytes) }}
 {{- end }}
+{{- $stores := .Values.nats.stores }}
+{{- range $name, $maxBytes := dict "workspace" $stores.workspace.maxBytes "fitnessArtifacts" $stores.fitnessArtifacts.maxBytes }}
+{{- if not (regexMatch "^[1-9][0-9]*([KMGT]i?B)?$" (toString $maxBytes)) }}
+{{- fail (printf "nats.stores.%s.maxBytes must be a number of bytes or a size such as 2GiB, got %v" $name $maxBytes) }}
+{{- end }}
+{{- end }}
+{{- if not (regexMatch "^[1-9][0-9]*[smhdwy]$" (toString $stores.fitnessArtifacts.maxAge)) }}
+{{- fail (printf "nats.stores.fitnessArtifacts.maxAge must be a number and one of s, m, h, d, w, y (for example 168h), got %v" $stores.fitnessArtifacts.maxAge) }}
+{{- end }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -39,7 +48,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: nats-bootstrap
-          image: natsio/nats-box:0.14.5
+          image: natsio/nats-box:0.20.2
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -56,147 +65,130 @@ spec:
               # Create JetStream streams
               echo "Creating JetStream streams..."
 
-              nats stream add KUBEMOOT_CHRONICLE \
-                --subjects="kubemoot.chronicle.>" \
-                --retention=limits --max-age=720h --max-msgs=10000 \
-                --storage=file --replicas=1 --discard=old \
-                --defaults -s "$NATS_URL" 2>/dev/null || \
-              nats stream update KUBEMOOT_CHRONICLE \
-                --subjects="kubemoot.chronicle.>" \
-                --max-age=720h --max-msgs=10000 \
-                --force -s "$NATS_URL" 2>/dev/null || true
+              # A stream is added with its limits, and an existing one is updated to them. A
+              # failed update fails the job: a stream must not keep limits other than declared.
+              stream_limits() {
+                name="$1"; subject="$2"; retention="$3"; shift 3
+                nats stream add "$name" --subjects="$subject" --retention="$retention" "$@" \
+                  --storage=file --replicas=1 --discard=old --defaults -s "$NATS_URL" >/dev/null 2>&1 \
+                  || nats stream update "$name" --subjects="$subject" "$@" --force -s "$NATS_URL" >/dev/null
+              }
 
-              nats stream add KUBEMOOT_QUALITY \
-                --subjects="kubemoot.quality.>" \
-                --retention=limits --max-age=720h --max-msgs=10000 \
-                --storage=file --replicas=1 --discard=old \
-                --defaults -s "$NATS_URL" 2>/dev/null || \
-              nats stream update KUBEMOOT_QUALITY \
-                --subjects="kubemoot.quality.>" \
-                --max-age=720h --max-msgs=10000 \
-                --force -s "$NATS_URL" 2>/dev/null || true
-
-              nats stream add KUBEMOOT_CHAT \
-                --subjects="kubemoot.chat.>" \
-                --retention=limits --max-age=168h --max-msgs=5000 \
-                --storage=file --replicas=1 --discard=old \
-                --defaults -s "$NATS_URL" 2>/dev/null || \
-              nats stream update KUBEMOOT_CHAT \
-                --subjects="kubemoot.chat.>" \
-                --max-age=168h --max-msgs=5000 \
-                --force -s "$NATS_URL" 2>/dev/null || true
-
-              nats stream add KUBEMOOT_OPERATOR \
-                --subjects="kubemoot.operator.>" \
-                --retention=limits --max-age=168h --max-msgs=10000 \
-                --storage=file --replicas=1 --discard=old \
-                --defaults -s "$NATS_URL" 2>/dev/null || \
-              nats stream update KUBEMOOT_OPERATOR \
-                --subjects="kubemoot.operator.>" \
-                --max-age=168h --max-msgs=10000 \
-                --force -s "$NATS_URL" 2>/dev/null || true
+              stream_limits KUBEMOOT_CHRONICLE "kubemoot.chronicle.>" limits --max-age=720h --max-msgs=10000 --max-bytes=128MiB
+              stream_limits KUBEMOOT_QUALITY "kubemoot.quality.>" limits --max-age=720h --max-msgs=10000 --max-bytes=16MiB
+              stream_limits KUBEMOOT_CHAT "kubemoot.chat.>" limits --max-age=168h --max-msgs=5000 --max-bytes=64MiB
+              stream_limits KUBEMOOT_OPERATOR "kubemoot.operator.>" limits --max-age=168h --max-msgs=10000 --max-bytes=64MiB
 
               # The limits are the chart values nats.streams.discuss.*.
-              nats stream add KUBEMOOT_DISCUSS \
-                --subjects="kubemoot.discuss.>" \
-                --retention=limits --max-age={{ $discuss.maxAge }} --max-msgs={{ int64 $max }} --max-bytes={{ $discuss.maxBytes }} \
-                --storage=file --replicas=1 --discard=old \
-                --defaults -s "$NATS_URL" 2>/dev/null || \
-              nats stream update KUBEMOOT_DISCUSS \
-                --subjects="kubemoot.discuss.>" \
-                --max-age={{ $discuss.maxAge }} --max-msgs={{ int64 $max }} --max-bytes={{ $discuss.maxBytes }} \
-                --force -s "$NATS_URL" 2>/dev/null || true
+              stream_limits KUBEMOOT_DISCUSS "kubemoot.discuss.>" limits --max-age={{ $discuss.maxAge }} --max-msgs={{ int64 $max }} --max-bytes={{ $discuss.maxBytes }}
 
               # The coordinators' decision logs, one subject per thread. A coordinator
               # writes here unless coordinator.eventLog is false; the stream is
               # always created, and stays empty when the log is off. A day is far
               # past a thread's life (the hard ceiling is minutes); 512 per subject
               # bounds one runaway thread.
-              nats stream add KUBEMOOT_COORDINATOR \
-                --subjects="kubemoot.coordinator.>" \
-                --retention=limits --max-age=24h --max-msgs=100000 --max-msgs-per-subject=512 --max-bytes=256MiB \
-                --storage=file --replicas=1 --discard=old \
-                --defaults -s "$NATS_URL" 2>/dev/null || \
-              nats stream update KUBEMOOT_COORDINATOR \
-                --subjects="kubemoot.coordinator.>" \
-                --max-age=24h --max-msgs=100000 --max-msgs-per-subject=512 --max-bytes=256MiB \
-                --force -s "$NATS_URL" 2>/dev/null || true
+              stream_limits KUBEMOOT_COORDINATOR "kubemoot.coordinator.>" limits --max-age=24h --max-msgs=100000 --max-msgs-per-subject=512 --max-bytes=256MiB
 
-              nats stream add KUBEMOOT_REQUEST \
-                --subjects="kubemoot.request.>" \
-                --retention=work --max-age=24h --max-msgs=1000 \
-                --storage=file --replicas=1 --discard=old \
-                --defaults -s "$NATS_URL" 2>/dev/null || \
-              nats stream update KUBEMOOT_REQUEST \
-                --subjects="kubemoot.request.>" \
-                --max-age=24h --max-msgs=1000 \
-                --force -s "$NATS_URL" 2>/dev/null || true
+              stream_limits KUBEMOOT_REQUEST "kubemoot.request.>" work --max-age=24h --max-msgs=1000 --max-bytes=64MiB
 
-              # Create KV buckets
+              # Create KV buckets and bring existing ones to these limits. nats kv add leaves
+              # an existing bucket as it is, so each bucket is added and then edited to the
+              # same limits. Every bucket has a size
+              # cap; a bucket that is full refuses new writes until entries expire or are
+              # removed. The flags are the kv add flags: --ttl (0 for none), --history,
+              # --max-value-size, --max-bucket-size.
+              kv_bucket() {
+                name="$1"; shift
+                nats kv add "$name" "$@" -s "$NATS_URL" >/dev/null 2>&1 || true
+                nats kv edit "$name" "$@" -s "$NATS_URL" >/dev/null 2>&1 \
+                  || echo "WARNING: could not apply the limits of KV bucket $name" >&2
+              }
+
+              # The same for an object store, whose data lives in the stream OBJ_<bucket>.
+              object_store() {
+                name="$1"; maxage="$2"; maxbytes="$3"
+                nats object add "$name" --ttl="$maxage" --max-bucket-size="$maxbytes" --storage=file -s "$NATS_URL" >/dev/null 2>&1 || true
+                nats stream edit "OBJ_$name" --max-age="$maxage" --max-bytes="$maxbytes" --force -s "$NATS_URL" >/dev/null 2>&1 \
+                  || echo "WARNING: could not apply the limits of object store $name" >&2
+              }
+
               echo "Creating KV buckets..."
-              nats kv add kubemoot_agent_state --ttl=300s -s "$NATS_URL" 2>/dev/null || true
-              nats kv add kubemoot_latency --history=1 --max-bucket-size=1048576 -s "$NATS_URL" 2>/dev/null || true
-              nats kv add kubemoot_config -s "$NATS_URL" 2>/dev/null || true
-              nats kv add kubemoot_conversations --ttl=24h --history=1 --max-value-size=65536 -s "$NATS_URL" 2>/dev/null || true
+              kv_bucket kubemoot_agent_state --ttl=300s --history=1 --max-bucket-size=8MiB
+              kv_bucket kubemoot_latency --ttl=0 --history=1 --max-bucket-size=1MiB
+              # Conversations: earlier turns of each conversation, key conv.<ns>.<crew>.<id>.
+              # How long one is kept is each Crew's retention.conversations.window, enforced by
+              # the operator's cleanup. The bucket's own expiry is only a backstop, as long as the
+              # longest window a Crew may declare (5y), so it never cuts a Crew's window short.
+              kv_bucket kubemoot_conversations --ttl=5y --history=1 --max-value-size=64KiB --max-bucket-size=256MiB
 {{- if eq (include "kubemoot-operator.coordinatorLease" .) "true" }}
               # The coordinators' thread leases (coordinator.lease): one key per thread a
               # replica owns plus one per crew for the request pump. The TTL is the lease: an owner
               # renews every 5s, and a key not renewed within 15s is dropped so another replica
               # takes the thread. It must equal CoordinatorLeases.LEASE in agent-runtime.
-              nats kv add kubemoot_coordinator_leases --ttl=15s --history=1 -s "$NATS_URL" 2>/dev/null || true
+              kv_bucket kubemoot_coordinator_leases --ttl=15s --history=1 --max-bucket-size=1MiB
 {{- end }}
-              # Crew working memory: per-cluster facts the crew learns at runtime
-              # (e.g. discovered label/topology mappings). Keys crew-scoped
-              # (<crew>.<topic>.<key>). GC is layered: (1) the agent-runtime
-              # CrewMemoryClient enforces a per-crew LRU cap on every write
-              # (primary, works on any bucket); (2) touch-on-read refreshes
-              # usedAt so abandoned facts age out; (3) this 30-day bucket TTL is
-              # a backstop — a fact not used/refreshed in 30d expires (used
-              # facts get touched, so they survive). NOTE: TTL applies only on
-              # bucket CREATION; an existing bucket keeps its original setting
-              # (the LRU cap still bounds it). See [[Crew Working Memory]].
-              nats kv add kubemoot_crew_memory --ttl=720h --history=5 --max-bucket-size=10485760 --max-value-size=65536 -s "$NATS_URL" 2>/dev/null || true
+              # Crew working memory: the facts a crew learns, key <ns>.<crew>.<topic>.<key>. How
+              # long a fact is kept is each Crew's retention.memory.purgeUnused, enforced by the
+              # agents (a fact unused past it is pruned on read) and by the operator's cleanup, so
+              # this bucket has no expiry of its own (--ttl=0): one would override a Crew that keeps
+              # its memory longer, or forever. The agents also keep at most memory.maxFacts per crew.
+              # See [[Crew Working Memory]].
+              kv_bucket kubemoot_crew_memory --ttl=0 --history=5 --max-value-size=64KiB --max-bucket-size=64MiB
 
-              # kubemoot_server_tickets — per-call VRAM-footprint reservations
-              # for the v2 JIT-scheduling model. Each in-flight inference holds
-              # one ticket here; agents subtract these from preTicketHeadroom
-              # when computing per-call budget. See kubemoot/docs/scheduler.md
-              # "JIT GPU Scheduling → Update (2026-05-28): VRAM-headroom tickets".
-              #
-              # TTL = 10 minutes: the safety-net release if the ticket holder
-              # crashes/disappears (callTimeout is 5m for mulling; doubling that
-              # is the unconditional reclaim ceiling). The fast path is still
-              # the agent's try/finally delete; TTL is layer two.
-              # history=1: each ticket is a single immutable record between
-              # create and delete; no need to retain old values.
-              # max-value-size kept small — a Ticket JSON is well under 256 bytes.
-              nats kv add kubemoot_server_tickets --ttl=10m --history=1 --max-value-size=4096 -s "$NATS_URL" 2>/dev/null || true
+              # kubemoot_server_tickets - per-call VRAM-footprint reservations for the v2
+              # JIT-scheduling model. Each in-flight inference holds one ticket here; agents
+              # subtract these from preTicketHeadroom when computing per-call budget.
+              # TTL = 10 minutes: the safety-net release if the ticket holder crashes (callTimeout
+              # is 5m for mulling; doubling that is the unconditional reclaim ceiling). The fast
+              # path is the agent's try/finally delete; TTL is layer two. A Ticket JSON is well
+              # under 256 bytes.
+              kv_bucket kubemoot_server_tickets --ttl=10m --history=1 --max-value-size=4096 --max-bucket-size=4MiB
 
-              # kubemoot_model_demand - the shared view of what every crew's agents
-              # are waiting for, about to request (intents at selection), and have
-              # used recently, keyed per model and agent. The scheduler reads it to
-              # choose which idle models to unload. Entries carry their own
-              # expiresAt (intents 3m, waits 10m); the bucket TTL removes anything
-              # not refreshed within 6h (recent-use and selection history).
-              nats kv add kubemoot_model_demand --ttl=6h --history=1 --max-value-size=4096 -s "$NATS_URL" 2>/dev/null || true
+              # kubemoot_model_demand - the shared view of what every crew's agents are waiting
+              # for, about to request (intents at selection), and have used recently, keyed per
+              # model and agent. The scheduler reads it to choose which idle models to unload.
+              # Entries carry their own expiresAt (intents 3m, waits 10m); the bucket TTL removes
+              # anything not refreshed within 6h (recent-use and selection history).
+              kv_bucket kubemoot_model_demand --ttl=6h --history=1 --max-value-size=4096 --max-bucket-size=8MiB
 
-              # kubemoot_scheduler_performance - what the scheduler observed: each
-              # agent's recent model requests (tokens, times, outcome, cold start)
-              # and capacity waits per server and model, key
-              # <server>.<model>.<agent>. Each entry keeps the last 32 requests
-              # and 16 waits (about 10 KiB); the TTL drops entries for servers,
-              # models, or agents not seen for 30 days.
-              nats kv add kubemoot_scheduler_performance --ttl=720h --history=1 --max-value-size=32768 -s "$NATS_URL" 2>/dev/null || true
+              # kubemoot_scheduler_performance - what the scheduler observed: each agent's recent
+              # model requests (tokens, times, outcome, cold start) and capacity waits per server
+              # and model, key <server>.<model>.<agent>. Each entry keeps the last 32 requests and
+              # 16 waits (about 10 KiB). It is learning about the hardware, not a crew's data, so
+              # it has no wall-clock expiry (--ttl=0): the operator removes a server's entries when
+              # the ModelServer is deleted, and a calibration reset forgets them.
+              kv_bucket kubemoot_scheduler_performance --ttl=0 --history=1 --max-value-size=32KiB --max-bucket-size=64MiB
 
-              # kubemoot_placement_leader - the placement service's leader lease. The
-              # leader renews its key within the TTL; if it stops, the key expires and
-              # a standby takes over. history=1, small values (the holder identity). The TTL is
-              # placementService.leaseSeconds; nats kv add leaves an existing bucket as it is.
-              nats kv add kubemoot_placement_leader --ttl={{ int (.Values.placementService.leaseSeconds | default 15) }}s --history=1 --max-value-size=1024 -s "$NATS_URL" 2>/dev/null || true
+              # kubemoot_placement_leader - the placement service's leader lease. The leader renews
+              # its key within the TTL; if it stops, the key expires and a standby takes over.
+              # Small values (the holder identity). The TTL is placementService.leaseSeconds.
+              kv_bucket kubemoot_placement_leader --ttl={{ int (.Values.placementService.leaseSeconds | default 15) }}s --history=1 --max-value-size=1024 --max-bucket-size=1MiB
+
+              # kubemoot_scheduled - reminders and follow-ups agents schedule, key <scheduleId>;
+              # the operator deletes a record when it fires. Text people asked for, so it is
+              # bounded: no record outlives 5y, one is at most 64KiB, the bucket at most 16MiB.
+              kv_bucket kubemoot_scheduled --ttl=5y --history=1 --max-value-size=64KiB --max-bucket-size=16MiB
+
+              # kubemoot_crew_resumes (what each crew's agents and skills offer, key <ns>.<crew>)
+              # and kubemoot_server_state (a ModelServer's probed capacity, key <server>): the
+              # operator writes both and deletes an entry with its Crew or ModelServer.
+              kv_bucket kubemoot_crew_resumes --ttl=0 --history=1 --max-bucket-size=64MiB
+              kv_bucket kubemoot_server_state --ttl=0 --history=1 --max-bucket-size=4MiB
+
+              # Object stores. The workspace holds tool results agents spill during a thread: the
+              # agents delete them when the thread closes and this age is the backstop. The fitness
+              # artifacts (XLSX and transcripts) are written by the operator and the fitness runner,
+              # which each create the store only if it is missing; creating it here gives it one
+              # limit whichever writes first. Both are chart values (nats.stores).
+              echo "Creating object stores..."
+              object_store kubemoot_workspace 48h {{ $stores.workspace.maxBytes }}
+              object_store kubemoot_fitness_artifacts {{ $stores.fitnessArtifacts.maxAge }} {{ $stores.fitnessArtifacts.maxBytes }}
 
               # Retired buckets. Nothing reads them. Remove each when it exists
-              # (absent is fine), and only these two by name.
-              for old in kubemoot_provider_state kubemoot_provider_tickets; do
+              # (absent is fine), and only these by name. kubemoot_pinned_threads held notes
+              # people typed to pin dashboard threads; nothing writes it now, so the legacy
+              # bucket is removed. kubemoot_config is unused.
+              for old in kubemoot_provider_state kubemoot_provider_tickets kubemoot_pinned_threads kubemoot_config; do
                 if nats kv info "$old" -s "$NATS_URL" >/dev/null 2>&1; then
                   echo "Removing retired KV bucket $old"
                   nats kv del "$old" --force -s "$NATS_URL" || echo "Could not remove $old; continuing" >&2

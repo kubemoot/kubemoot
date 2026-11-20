@@ -1124,6 +1124,7 @@ func (r *AgentReconciler) memoryEnvVars(ctx context.Context, namespace string) [
 	list := &kubemootv1alpha1.CrewList{}
 	if err := r.List(ctx, list, client.InNamespace(namespace)); err == nil && len(list.Items) > 0 {
 		applyMemoryOverrides(list.Items[0].Spec.Memory, &enabled, &verify, &maxFacts, &ttlDays, &injectLimit)
+		ttlDays = memoryTTLDays(&list.Items[0], ttlDays)
 	}
 	return []corev1.EnvVar{
 		{Name: "KUBEMOOT_MEMORY_ENABLED", Value: fmt.Sprintf("%t", enabled)},

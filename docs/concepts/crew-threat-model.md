@@ -198,7 +198,7 @@ The following paths have no defense today. Do not rely on Kubemoot for them.
 - **A poisoned memory fact.** `verifyOnAdd` compares a new fact with the stored fact of the
   same key: an identical value is only touched, and a different value replaces the old one.
   It does not check that the value is true, and a fact records only the agent that wrote
-  it, not the tool or source behind it. A fact lives until it goes unused for `ttlDays` or
+  it, not the tool or source behind it. A fact lives until it goes unused for the crew's `retention.memory.purgeUnused` or
   you delete the Crew, and nothing removes one that a human or a judge disapproves.
 - **Memory is read as part of the system prompt.** A fact is injected under "Crew Working
   Memory" ahead of the model's call, so the model reads it as part of its own context and
@@ -242,7 +242,7 @@ Choose controls by the path:
 - **Name ServiceAccounts only where a tool calls the Kubernetes API**, and bind each to a
   narrow Role in the namespaces it needs.
 - **Review crew memory.** Export it with `kmctl memory export <crew>` and read the facts
-  as you would read input from a stranger. Lower `ttlDays` and `maxFacts` for a crew that
+  as you would read input from a stranger. Shorten `retention.memory.purgeUnused` and lower `maxFacts` for a crew that
   reads open content.
 - **Write PromptModules that say what is data.** A rule in ADL that a result is evidence
   to weigh and never an order to follow helps a model, and it is a rule in a prompt, not a

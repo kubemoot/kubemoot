@@ -30,6 +30,7 @@ import (
 type serverStateStore interface {
 	ListKVKeys(bucket string) ([]string, error)
 	DeleteKVKey(bucket, key string) error
+	PurgeKVPrefix(bucket, prefix string) (int, error)
 }
 
 // ServerStateSweeper runs once at operator start and deletes entries in the

@@ -85,9 +85,12 @@ spec:
                 default: 168h
                 description: |-
                   ArtifactRetention is the NATS Object Store TTL for the produced
-                  XLSX. After this duration the artifact is auto-deleted from the
-                  bucket. The CrewFitnessSuite CR's status.artifactRef will still
-                  reference the (now-missing) object; downloads will 404 cleanly.
+                  XLSX, used only when the suite's write creates the shared bucket. The
+                  bucket is shared by every suite and the install creates it with the
+                  chart's limit (nats.stores.fitnessArtifacts), so an existing bucket
+                  keeps that limit whatever this says. After the bucket's age the
+                  artifact is auto-deleted; the CrewFitnessSuite CR's status.artifactRef
+                  will still reference the (now-missing) object; downloads will 404 cleanly.
                   Default 168h (7 days).
                 type: string
               cancel:

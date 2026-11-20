@@ -323,7 +323,18 @@ nats:
     discuss:
       maxMessages: 5000   # messages kept; the oldest go first. -1 for no limit
       maxAge: 24h         # how long a message is kept: a number and s, m, h, d, w or y. -1 for no limit
-      maxBytes: -1        # bytes kept, for example 256MiB. -1 for no limit
+      maxBytes: 1GiB      # bytes kept, for example 256MiB. -1 for no limit
+  # Size limits of the object stores the install creates. The workspace holds the tool
+  # results agents spill during a thread (an agent deletes them when the thread closes; it
+  # keeps them at most 48h). The fitness artifacts are the XLSX and transcripts of fitness
+  # suites; maxAge is how long one is kept, whichever component first writes. An existing
+  # store is brought to these limits on upgrade.
+  stores:
+    workspace:
+      maxBytes: 2GiB
+    fitnessArtifacts:
+      maxAge: 168h
+      maxBytes: 1GiB
 
 # The crew coordinators. eventLog makes each coordinator write every decision it makes about
 # a thread (who it convened, the signals it applied, the answer) to the KUBEMOOT_COORDINATOR
@@ -408,6 +419,12 @@ schedulingCrew:
   #     - matchLabels: {kubernetes.io/metadata.name: homelab-pilot}
   # Empty adds no network key to the Crew.
   allowedIngress: []
+  # The crew's retention (the Crew's spec.retention). Its memory is always never: what it
+  # learned about unchanged hardware leaves only by being superseded, invalidated, or
+  # evicted by the size cap. conversationWindow is how long its conversations are kept after
+  # the last turn, in the duration form of a Crew's retention (7d, 36h, 1w).
+  retention:
+    conversationWindow: 7d
   gateway:
     resources:
       requests:

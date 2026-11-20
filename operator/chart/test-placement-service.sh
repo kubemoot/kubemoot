@@ -68,7 +68,7 @@ out="$(render --set placementService.enabled=true --set placementService.agentsU
 
 # The leader bucket's TTL follows placementService.leaseSeconds.
 out="$(helm template t "$chart" --show-only templates/nats-streams-job.yaml --set placementService.leaseSeconds=30)"
-grep -q 'kv add kubemoot_placement_leader --ttl=30s ' <<<"$out" || fail "leader bucket TTL ignores leaseSeconds"
+grep -q 'kv_bucket kubemoot_placement_leader --ttl=30s ' <<<"$out" || fail "leader bucket TTL ignores leaseSeconds"
 
 # A private mirror prefixes the image like every other Kubemoot image.
 out="$(render --set placementService.enabled=true --set global.imageRegistry=harbor.example/kubemoot)"

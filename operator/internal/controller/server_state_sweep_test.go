@@ -24,6 +24,8 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 const (
@@ -32,12 +34,17 @@ const (
 )
 
 type fakeStateStore struct {
+	purged  []string
 	keys    []string
 	listErr error
 	deleted []string
 }
 
 func (f *fakeStateStore) ListKVKeys(string) ([]string, error) { return f.keys, f.listErr }
+func (f *fakeStateStore) PurgeKVPrefix(bucket, prefix string) (int, error) {
+	f.purged = append(f.purged, bucket+"/"+prefix)
+	return 1, nil
+}
 func (f *fakeStateStore) DeleteKVKey(_, key string) error {
 	f.deleted = append(f.deleted, key)
 	return nil
@@ -104,5 +111,18 @@ func TestModelServerReconcile_NotFoundWithoutNATS(t *testing.T) {
 	req.Name, req.Namespace = "gone", "kubemoot-system"
 	if _, err := r.Reconcile(context.Background(), req); err != nil {
 		t.Errorf("a missing server is not an error: %v", err)
+	}
+}
+
+func TestDeleteOrphanedServerStateForgetsItsPerformanceHistory(t *testing.T) {
+	cl := fake.NewClientBuilder().WithScheme(modelTestScheme(t)).WithObjects(deletionServer("http://x")).Build()
+	store := &fakeStateStore{}
+	deleteOrphanedServerState(context.Background(), cl, store, delTestServer)
+	if len(store.purged) != 0 {
+		t.Errorf("a server that still exists keeps its history; purged %v", store.purged)
+	}
+	deleteOrphanedServerState(context.Background(), cl, store, "gone")
+	if want := bus.PerformanceBucket + "/gone."; len(store.purged) != 1 || store.purged[0] != want {
+		t.Errorf("purged = %v; want [%s]", store.purged, want)
 	}
 }
