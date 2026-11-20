@@ -28,7 +28,7 @@ describe('availableSuiteActions', () => {
 	});
 
 	it('offers nothing once terminal or stopping', () => {
-		for (const phase of ['Completed', 'Failed', 'Error', 'Cancelled']) {
+		for (const phase of ['Completed', 'Failed', 'Error', 'Cancelled', 'ToolSmokeFailed']) {
 			expect(availableSuiteActions(suite(phase))).toEqual([]);
 		}
 		expect(availableSuiteActions(suite('Running', { cancel: true }))).toEqual([]);
@@ -60,6 +60,7 @@ describe('suiteIsJudged', () => {
 		expect(suiteIsJudged('Failed')).toBe(true);
 		expect(suiteIsJudged('Error')).toBe(true);
 		expect(suiteIsJudged('Cancelled')).toBe(false);
+		expect(suiteIsJudged('ToolSmokeFailed')).toBe(false);
 		expect(suiteIsJudged('Paused')).toBe(false);
 		expect(suiteIsJudged('Running')).toBe(false);
 		expect(suiteIsJudged()).toBe(false);

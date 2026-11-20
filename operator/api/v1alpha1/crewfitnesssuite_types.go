@@ -122,6 +122,15 @@ type CrewFitnessSuiteSpec struct {
 	// +kubebuilder:default=false
 	Cancel bool `json:"cancel,omitempty"`
 
+	// SkipToolSmoke skips the MCP tool smoke that runs first in every suite. By
+	// default the operator lists the tools of each MCPServer in the suite's
+	// namespace through the crew's MCP gateway and calls each tool that declares
+	// spec.smokeInputs; when any tool fails, the suite ends in phase
+	// ToolSmokeFailed before any model runs. Default false.
+	// +optional
+	// +kubebuilder:default=false
+	SkipToolSmoke bool `json:"skipToolSmoke,omitempty"`
+
 	// Rejudge makes this suite a judge-only pass over an earlier run. When set,
 	// the suite runs no iterations and asks the crew nothing: it copies the
 	// source run's per-scenario transcripts, re-evaluates their assertions
@@ -226,6 +235,11 @@ const (
 	// every iteration ran. Terminal; the XLSX holds the completed iterations
 	// and is marked partial.
 	CrewFitnessSuitePhaseCancelled CrewFitnessSuitePhase = "Cancelled"
+	// CrewFitnessSuitePhaseToolSmokeFailed: the tool smoke found a failing MCP
+	// tool, so the suite stopped before any model ran. Terminal and final:
+	// status.toolSmoke names each failure; fix the tool and create a new suite.
+	// No artifact is written.
+	CrewFitnessSuitePhaseToolSmokeFailed CrewFitnessSuitePhase = "ToolSmokeFailed"
 )
 
 // SuiteArtifactRef points to the XLSX object the reconciler wrote to the
@@ -448,6 +462,63 @@ type SuiteConsistency struct {
 	Regressions *int32 `json:"regressions,omitempty"`
 }
 
+// ConditionToolSmoke reports the tool smoke that runs first in a suite. True with
+// reason ToolSmokePassed, ToolSmokeSkipped or ToolSmokeNoServers lets the suite
+// go on; False with reason ToolSmokeFailed ends it.
+const ConditionToolSmoke = "ToolSmoke"
+
+// Reasons of the ToolSmoke condition.
+const (
+	ToolSmokeReasonPassed    = "ToolSmokePassed"
+	ToolSmokeReasonFailed    = "ToolSmokeFailed"
+	ToolSmokeReasonSkipped   = "ToolSmokeSkipped"
+	ToolSmokeReasonNoServers = "ToolSmokeNoServers"
+)
+
+// MaxToolSmokeResults caps status.toolSmoke.results; failures are kept first.
+const MaxToolSmokeResults = 200
+
+// ToolSmokeResult is the outcome for one tool of one MCPServer.
+type ToolSmokeResult struct {
+	// Server is the MCPServer the tool belongs to.
+	Server string `json:"server"`
+
+	// Tool is the tool name; "tools/list" for a failure that is the server's
+	// (or the gateway's) rather than one tool's.
+	Tool string `json:"tool"`
+
+	// Invoked is true when the smoke called the tool; false when it only checked
+	// that the tool is listed.
+	Invoked bool `json:"invoked"`
+
+	// Passed is true when the tool is listed and, if invoked, returned a non-error
+	// response in time.
+	Passed bool `json:"passed"`
+
+	// Error says why the tool failed. Empty when it passed.
+	// +optional
+	// +kubebuilder:validation:MaxLength=400
+	Error string `json:"error,omitempty"`
+
+	// DurationMs is how long the call took; 0 for a tool that was not invoked.
+	DurationMs int64 `json:"durationMs"`
+}
+
+// ToolSmokeStatus is the table the tool smoke produced.
+type ToolSmokeStatus struct {
+	// Passed is true when no tool failed.
+	Passed bool `json:"passed"`
+
+	// Failures counts the failed tools, including any cut from results.
+	Failures int32 `json:"failures"`
+
+	// Results has one row per tool, failures first, capped at 200 rows.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=200
+	Results []ToolSmokeResult `json:"results,omitempty"`
+}
+
 // ConditionTrialsIndependent reports whether the trials of a suite ran without
 // sharing crew memory. Its reason says why when they did not.
 const ConditionTrialsIndependent = "TrialsIndependent"
@@ -517,6 +588,11 @@ type CrewFitnessSuiteStatus struct {
 	// start and at the end. Compare it before comparing two runs.
 	// +optional
 	Realm *FitnessRealm `json:"realm,omitempty"`
+
+	// ToolSmoke is the result of the MCP tool smoke that runs before any
+	// scenario. Absent when spec.skipToolSmoke is true.
+	// +optional
+	ToolSmoke *ToolSmokeStatus `json:"toolSmoke,omitempty"`
 
 	// Judge reports the deferred judge pass over this run. Absent when no
 	// artifact store is configured.

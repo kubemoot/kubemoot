@@ -10,7 +10,7 @@ export type SuiteAction = 'pause' | 'resume' | 'stop';
 const SUITE_JUDGED_PHASES: ReadonlySet<string> = new Set(['Completed', 'Failed', 'Error']);
 
 /** Suite phases after which the operator schedules nothing more. */
-export const SUITE_TERMINAL_PHASES: ReadonlySet<string> = new Set([...SUITE_JUDGED_PHASES, 'Cancelled']);
+export const SUITE_TERMINAL_PHASES: ReadonlySet<string> = new Set([...SUITE_JUDGED_PHASES, 'Cancelled', 'ToolSmokeFailed']);
 
 /** The actions that apply to a suite in its current state, in button order. */
 export function availableSuiteActions(suite: Pick<CrewFitnessSuite, 'spec' | 'status'>): SuiteAction[] {

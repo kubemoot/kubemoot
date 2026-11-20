@@ -224,6 +224,15 @@ spec:
                   type: object
                 minItems: 1
                 type: array
+              skipToolSmoke:
+                default: false
+                description: |-
+                  SkipToolSmoke skips the MCP tool smoke that runs first in every suite. By
+                  default the operator lists the tools of each MCPServer in the suite's
+                  namespace through the crew's MCP gateway and calls each tool that declares
+                  spec.smokeInputs; when any tool fails, the suite ends in phase
+                  ToolSmokeFailed before any model runs. Default false.
+                type: boolean
               suspend:
                 default: false
                 description: |-
@@ -1078,6 +1087,68 @@ spec:
                   scheduling.
                 format: date-time
                 type: string
+              toolSmoke:
+                description: |-
+                  ToolSmoke is the result of the MCP tool smoke that runs before any
+                  scenario. Absent when spec.skipToolSmoke is true.
+                properties:
+                  failures:
+                    description: Failures counts the failed tools, including any cut
+                      from results.
+                    format: int32
+                    type: integer
+                  passed:
+                    description: Passed is true when no tool failed.
+                    type: boolean
+                  results:
+                    description: Results has one row per tool, failures first, capped
+                      at 200 rows.
+                    items:
+                      description: ToolSmokeResult is the outcome for one tool of
+                        one MCPServer.
+                      properties:
+                        durationMs:
+                          description: DurationMs is how long the call took; 0 for
+                            a tool that was not invoked.
+                          format: int64
+                          type: integer
+                        error:
+                          description: Error says why the tool failed. Empty when
+                            it passed.
+                          maxLength: 400
+                          type: string
+                        invoked:
+                          description: |-
+                            Invoked is true when the smoke called the tool; false when it only checked
+                            that the tool is listed.
+                          type: boolean
+                        passed:
+                          description: |-
+                            Passed is true when the tool is listed and, if invoked, returned a non-error
+                            response in time.
+                          type: boolean
+                        server:
+                          description: Server is the MCPServer the tool belongs to.
+                          type: string
+                        tool:
+                          description: |-
+                            Tool is the tool name; "tools/list" for a failure that is the server's
+                            (or the gateway's) rather than one tool's.
+                          type: string
+                      required:
+                      - durationMs
+                      - invoked
+                      - passed
+                      - server
+                      - tool
+                      type: object
+                    maxItems: 200
+                    type: array
+                    x-kubernetes-list-type: atomic
+                required:
+                - failures
+                - passed
+                type: object
             type: object
         type: object
     served: true

@@ -2376,6 +2376,47 @@ spec:
                   - name
                   type: object
                 type: array
+              smokeInputs:
+                description: |-
+                  SmokeInputs declares safe test calls for the fitness tool smoke: each lists a
+                  read-only tool and the arguments to call it with. The smoke runs first in every
+                  CrewFitnessSuite and stops the suite when a call fails. Tools with no entry are
+                  only checked for being listed. Never declare a tool that changes anything.
+                items:
+                  description: |-
+                    ToolSmokeInput is a safe test call for one tool of the server. The fitness tool
+                    smoke (CrewFitnessSuite) makes this call through the crew's MCP gateway before any
+                    model runs and passes the tool when the call returns without an error. Declare an
+                    input only for a read-only tool: a tool with no input is checked for being listed
+                    and never called.
+                  properties:
+                    arguments:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        Arguments are the tool arguments of the call, by name, as text: the same
+                        form an agent's call takes. Unset sends no arguments.
+                      maxProperties: 32
+                      type: object
+                    name:
+                      description: Name is the tool to call. A name the server does
+                        not list fails the smoke.
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                    timeout:
+                      description: |-
+                        Timeout is how long the call may take before the smoke fails the tool.
+                        Defaults to 5s; the smoke caps it at 60s.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               toolOverrides:
                 description: |-
                   ToolOverrides replaces tool and parameter descriptions in the tool list the

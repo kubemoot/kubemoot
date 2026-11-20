@@ -33,7 +33,7 @@
 	function phaseClass(phase?: string): string {
 		switch (phase) {
 			case 'Completed': return 'phase-pass';
-			case 'Failed': case 'Error': return 'phase-fail';
+			case 'Failed': case 'Error': case 'ToolSmokeFailed': return 'phase-fail';
 			case 'Running': return 'phase-running';
 			case 'Paused': case 'Pausing': case 'Stopping': return 'phase-paused';
 			case 'Cancelled': return 'phase-cancelled';

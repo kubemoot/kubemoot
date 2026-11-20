@@ -482,6 +482,8 @@
 				return 'phase-paused';
 			case 'Cancelled':
 				return 'phase-cancelled';
+			case 'ToolSmokeFailed':
+				return 'phase-fail';
 			default:
 				return 'phase-pending';
 		}

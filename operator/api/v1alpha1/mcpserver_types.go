@@ -190,6 +190,29 @@ type ToolOverride struct {
 	Parameters map[string]ToolParameterOverride `json:"parameters,omitempty"`
 }
 
+// ToolSmokeInput is a safe test call for one tool of the server. The fitness tool
+// smoke (CrewFitnessSuite) makes this call through the crew's MCP gateway before any
+// model runs and passes the tool when the call returns without an error. Declare an
+// input only for a read-only tool: a tool with no input is checked for being listed
+// and never called.
+type ToolSmokeInput struct {
+	// Name is the tool to call. A name the server does not list fails the smoke.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	Name string `json:"name"`
+
+	// Arguments are the tool arguments of the call, by name, as text: the same
+	// form an agent's call takes. Unset sends no arguments.
+	// +kubebuilder:validation:MaxProperties=32
+	// +optional
+	Arguments map[string]string `json:"arguments,omitempty"`
+
+	// Timeout is how long the call may take before the smoke fails the tool.
+	// Defaults to 5s; the smoke caps it at 60s.
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+}
+
 // KubemootImage names an image the operator takes from KubemootConfig
 // spec.images, so an MCPServer can run a Kubemoot-built server without naming
 // a version. Each value is the name of the KubemootConfig field it selects.
@@ -356,6 +379,16 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	ToolOverrides []ToolOverride `json:"toolOverrides,omitempty"`
+
+	// SmokeInputs declares safe test calls for the fitness tool smoke: each lists a
+	// read-only tool and the arguments to call it with. The smoke runs first in every
+	// CrewFitnessSuite and stops the suite when a call fails. Tools with no entry are
+	// only checked for being listed. Never declare a tool that changes anything.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	SmokeInputs []ToolSmokeInput `json:"smokeInputs,omitempty"`
 
 	// Egress declares where this server may connect (hosts, address ranges, the API
 	// server). When the operator generates network policies, a server that sets it is

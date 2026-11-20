@@ -42,13 +42,14 @@ spec:
 | `purpose` | `Capability` or `Regression` | | What the suite is for. A capability suite starts low and leaves room to improve; a regression suite sits near 100% and catches breakage. Optional. |
 | `suspend` | bool | `false` | Pause between iterations. See [Pause, resume and stop](#pause-resume-and-stop). |
 | `cancel` | bool | `false` | Stop the suite. See [Pause, resume and stop](#pause-resume-and-stop). |
+| `skipToolSmoke` | bool | `false` | Skip the MCP tool smoke that runs first. See [Tool smoke](#tool-smoke). |
 | `rejudge` | object | | Set at creation, immutable. Judge an earlier run's saved answers against this suite's scripts instead of running iterations. `suite` names the source `CrewFitnessSuite` in the same namespace and `runId` its run. See [Re-judge an earlier run](#re-judge-an-earlier-run). |
 
 ## Status
 
 | Field | Description |
 |-------|-------------|
-| `phase` | `Pending`, `Running`, `Paused`, `Completed`, `Cancelled`, `Failed`, or `Error`. |
+| `phase` | `Pending`, `Running`, `Paused`, `Completed`, `Cancelled`, `ToolSmokeFailed`, `Failed`, or `Error`. |
 | `runId` | Identifies this execution. Used in iteration names and in the artifact key. |
 | `startedAt` | When scheduling began. |
 | `completedAt` | When the last iteration finished, or when the suite was cancelled. |
@@ -57,12 +58,13 @@ spec:
 | `passed`, `failed`, `errored` | `iterationsCompleted` broken down by outcome. |
 | `artifactRef` | Bucket, object key (`<namespace>/<suite>/<runId>.xlsx`), and size of the XLSX, set once it is written. |
 | `error` | Why the suite itself failed to execute (phase `Error`). |
+| `toolSmoke` | The table the tool smoke produced: `passed`, `failures`, and one row per tool (`server`, `tool`, `invoked`, `passed`, `error`, `durationMs`), failures first. See [Tool smoke](#tool-smoke). |
 | `rejudge` | On a re-judge suite: the `source` run, how many `transcripts` were copied, and `notInSource`, the scenarios of this suite the source run has no answer for. |
 | `scenarios` | Per-scenario rollup of the finished iterations, in spec order. See [Results in status](#results-in-status). |
 | `consistency` | How reliably the scenarios pass: the mean pass^k, the scenarios to check, and for a regression suite the scenarios below 100%. See [Consistency](#consistency-pass-and-pass-k). |
 | `realm` | What the run ran on: model servers and models, accelerator capability, versions, agent pod resources, and concurrent activity, at the start and the end. See [Realm](#realm-what-a-run-ran-on). |
 | `judge` | Progress and scores of the deferred judge pass. See [Results in status](#results-in-status). |
-| `conditions` | On a re-judge suite, `RejudgeSourceReady` reports whether the source could be used. See [Re-judge an earlier run](#re-judge-an-earlier-run). |
+| `conditions` | `ToolSmoke` says how the tool smoke ended. On a re-judge suite, `RejudgeSourceReady` reports whether the source could be used. See [Re-judge an earlier run](#re-judge-an-earlier-run). |
 
 ### Phases
 
@@ -73,7 +75,67 @@ spec:
 | `Paused` | no | `spec.suspend` is true and no iteration is in flight. Nothing runs against the crew. |
 | `Completed` | yes | Every iteration reached a terminal phase. Failed or errored iterations are outcomes in the counts, not a suite failure. |
 | `Cancelled` | yes | `spec.cancel` stopped the suite. Completed iterations are kept and the XLSX is marked partial. |
+| `ToolSmokeFailed` | yes | The tool smoke found a failing MCP tool, so the suite stopped before any model ran. No iteration was created and no artifact is written. See [Tool smoke](#tool-smoke). |
 | `Failed`, `Error` | yes | The suite itself could not execute, such as an invalid spec. |
+
+## Tool smoke
+
+A broken tool server makes agents stand aside or invent answers, and those look like agent
+failures. The first step of every suite, the Smoke tier included, therefore checks the tools
+before any model runs. It never calls a model.
+
+1. The operator finds the crew's MCP gateway (the namespace's `MCPGateway`) and lists its tools
+   with `GET /tools`, the listing agents use.
+2. For each `MCPServer` in the suite's namespace it takes the tools that server lists. A server
+   that lists none fails, and its status phase and message are in the error.
+3. A tool with a declared test input (`spec.smokeInputs` on the `MCPServer`) is called with
+   `POST /tools/{tool}/call` and those arguments. It passes when the gateway answers with no
+   error inside the call's timeout (5s unless the input sets `timeout`). A declared tool the
+   gateway does not list fails without a call.
+4. A listed tool with no declared input is only checked for being listed. It is never called.
+
+Calls run a few at a time. The whole smoke is bounded to three minutes. A namespace with no `MCPServer` passes with the `ToolSmokeNoServers`
+reason.
+
+When every tool passes, the suite goes on as before. When any tool fails, the suite ends at
+once in the terminal phase `ToolSmokeFailed`: no memory is cleared, no iteration is created, no
+artifact is written, and the `ToolSmoke` condition is `False` with reason `ToolSmokeFailed`
+naming the first failures. `status.toolSmoke.results` has the whole table:
+
+```yaml
+status:
+  phase: ToolSmokeFailed
+  toolSmoke:
+    passed: false
+    failures: 1
+    results:
+      - {server: proxmox-mcp, tool: list_nodes, invoked: true, passed: false,
+         error: "tool returned an error: proxmox-secret not found", durationMs: 212}
+      - {server: proxmox-mcp, tool: list_vms, invoked: true, passed: true, durationMs: 180}
+```
+
+The phase is final, and so is a gateway the operator cannot reach (the smoke reports it as a failure of every server). Fix the tool, then create a new suite. Set `spec.skipToolSmoke: true` to skip
+the step (the `ToolSmoke` condition then reads `True` with reason `ToolSmokeSkipped`).
+
+### Declaring test inputs
+
+Test inputs belong to the `MCPServer` that owns the tool, so they version with the server's
+configuration and need no extra resource:
+
+```yaml
+kind: MCPServer
+spec:
+  smokeInputs:
+    - name: list_nodes        # a tool the server lists
+      arguments:              # optional, text values by argument name,
+        node: pve             # as an agent's call sends them
+      timeout: 5s             # optional, default 5s, at most 60s
+```
+
+Declare only read-only tools with read-only arguments: the smoke calls them on every suite. A
+tool that changes anything, runs a model backend, or needs a scope the call does not carry should
+stay without an input, and is then only checked for being listed. A crew chart keeps its inputs
+beside the chart in `mcp-smoke/<server>.yaml` and renders them into the `MCPServer`.
 
 ## Results in status
 

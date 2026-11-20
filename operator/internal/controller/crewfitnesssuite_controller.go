@@ -70,6 +70,9 @@ type CrewFitnessSuiteReconciler struct {
 	// judgeClient replaces the default judge dispatch client in tests, so a
 	// pass never depends on the host's network or DNS.
 	judgeClient *http.Client
+	// smokeClient replaces the default client the tool smoke calls the crew
+	// gateway with, so a test never depends on cluster DNS.
+	smokeClient *http.Client
 	// memory replaces NATSPublisher as the crew-memory purger in tests.
 	memory memoryPurger
 	// OperatorVersion is the operator's build version, recorded in a run's realm.
@@ -166,7 +169,8 @@ func isSuiteTerminal(phase kubemootv1alpha1.CrewFitnessSuitePhase) bool {
 	case kubemootv1alpha1.CrewFitnessSuitePhaseCompleted,
 		kubemootv1alpha1.CrewFitnessSuitePhaseFailed,
 		kubemootv1alpha1.CrewFitnessSuitePhaseError,
-		kubemootv1alpha1.CrewFitnessSuitePhaseCancelled:
+		kubemootv1alpha1.CrewFitnessSuitePhaseCancelled,
+		kubemootv1alpha1.CrewFitnessSuitePhaseToolSmokeFailed:
 		return true
 	}
 	return false
@@ -181,6 +185,10 @@ func isSuitePending(phase kubemootv1alpha1.CrewFitnessSuitePhase) bool {
 // upkeep. spec.cancel on any non-terminal suite (Pending, Running, Paused) wins
 // over everything else, including spec.suspend.
 func (r *CrewFitnessSuiteReconciler) dispatchPhase(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (ctrl.Result, error) {
+	if suite.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhaseToolSmokeFailed {
+		// Ended by the tool smoke before any model ran: no artifact, no children.
+		return ctrl.Result{}, nil
+	}
 	if isSuiteTerminal(suite.Status.Phase) {
 		// Terminal: guarantee the XLSX artifact is written, then reap the
 		// per-iteration children. Idempotent and retry-safe; converges to
@@ -259,6 +267,11 @@ func (r *CrewFitnessSuiteReconciler) finalizeSuite(ctx context.Context, suite *k
 func (r *CrewFitnessSuiteReconciler) startSuite(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (ctrl.Result, error) {
 	if err := validateSuiteSpec(suite); err != nil {
 		return r.setSuiteError(ctx, suite, err.Error())
+	}
+
+	// Layer 1: every MCP tool of the crew answers before any model is asked.
+	if res, stop, err := r.toolSmokeGate(ctx, suite); stop || err != nil {
+		return res, err
 	}
 
 	// Bring the crew to a clean, cold state once before any iteration runs
@@ -735,10 +748,11 @@ func (r *CrewFitnessSuiteReconciler) deferredJudgeState(suite *kubemootv1alpha1.
 }
 
 // judgeSkipped reports whether the deferred judge pass is skipped for this
-// suite: a cancelled suite is not judged, and its partial XLSX keeps quality
+// suite: a cancelled suite, or one the tool smoke ended, is not judged, and its partial XLSX keeps quality
 // unjudged.
 func judgeSkipped(suite *kubemootv1alpha1.CrewFitnessSuite) bool {
-	return suite.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhaseCancelled
+	return suite.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhaseCancelled ||
+		suite.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhaseToolSmokeFailed
 }
 
 // reapChildren deletes all per-iteration CrewFitness children owned by the
