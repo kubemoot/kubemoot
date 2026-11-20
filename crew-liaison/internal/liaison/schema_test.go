@@ -27,6 +27,8 @@ func TestToolArgumentDescriptions(t *testing.T) {
 	want := map[string]map[string]string{
 		"ask": {
 			argNamespace: "namespace of the crew, needed only when the name is not unique",
+			argTicket: "on a retry, the ticket an earlier ask returned for this same question; " +
+				"it rejoins that discussion instead of starting another",
 			argWaitSeconds: "seconds to wait for the answer before returning the ticket; " +
 				"default and maximum 45, 0 returns the ticket at once",
 		},

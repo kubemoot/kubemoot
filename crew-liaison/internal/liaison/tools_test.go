@@ -173,6 +173,8 @@ func TestListCrewsError(t *testing.T) {
 	}
 }
 
+const sameQuestion = "same?"
+
 func sec(n int) *int { return &n }
 
 func TestWaitForBounds(t *testing.T) {
@@ -181,21 +183,34 @@ func TestWaitForBounds(t *testing.T) {
 	}
 }
 
-func TestAskRejoinsPendingQuestion(t *testing.T) {
+func TestAskRejoinsOnlyWithTheTicket(t *testing.T) {
 	f := newFakeGateway(`{"type":"connected"}`) // never settles within the test
 	defer f.srv.Close()
 	svc := newTestService(t, f, 4)
-	_, first, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: "same?", WaitSeconds: sec(0)})
-	_, again, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: "  same?  ", WaitSeconds: sec(0)})
-	if first.ID == "" || again.ID != first.ID {
-		t.Fatalf("retry started a new discussion: %s vs %s", first.ID, again.ID)
+	ask := func(in AskInput) AskOutput {
+		in.Crew, in.WaitSeconds = testCrew, sec(0)
+		_, out, _ := svc.Ask(context.Background(), nil, in)
+		return out
 	}
-	_, other, _ := svc.Ask(context.Background(), nil, AskInput{Crew: testCrew, Question: "different?", WaitSeconds: sec(0)})
+	first := ask(AskInput{Question: sameQuestion})
+	retry := ask(AskInput{Question: "  same?  ", Ticket: first.ID})
+	if first.ID == "" || retry.ID != first.ID {
+		t.Fatalf("a retry with the ticket started a new discussion: %s vs %s", first.ID, retry.ID)
+	}
+	stranger := ask(AskInput{Question: sameQuestion})
+	if stranger.ID == first.ID {
+		t.Fatal("the same question without the ticket joined another client's discussion")
+	}
+	wrong := ask(AskInput{Question: sameQuestion, Ticket: "0123456789abcdef0123456789abcdef"})
+	if wrong.ID == first.ID || wrong.ID == stranger.ID {
+		t.Fatal("a guessed ticket id joined a discussion")
+	}
+	other := ask(AskInput{Question: "different?", Ticket: first.ID})
 	if other.ID == first.ID {
 		t.Fatal("a different question reused the ticket")
 	}
-	if got := f.asked(); len(got) != 2 {
-		t.Fatalf("gateway asked %d times, want 2", len(got))
+	if got := f.asked(); len(got) != 4 {
+		t.Fatalf("gateway asked %d times, want 4", len(got))
 	}
 }
 

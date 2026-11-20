@@ -41,9 +41,14 @@ patience.
 
 Two details make it forgiving:
 
-- **A retry rejoins.** If a client asks the same crew the same question while the
-  first discussion is still running, it gets the same ticket back. A timed-out
-  client that asks again does not start a second moot.
+- **A retry rejoins, with its ticket.** If a client asks the same crew the same
+  question again, passing the `ticket` it got from the first `ask`, while that
+  discussion is still running, it gets the same ticket back. A timed-out client that
+  asks again does not start a second moot. The ticket id is a 128-bit random value
+  and the only proof a client holds a ticket: the same question without it always
+  starts its own discussion, so one client cannot join another's by asking the same
+  thing, and `get_answer` answers only for a ticket id it is given. A ticket that has
+  already settled is read with `get_answer`; passing it to `ask` starts a new discussion.
 - **The hint tells the model what to do.** Every pending result says, in plain words,
   to call `get_answer` with the ticket and not to ask again. An LLM client reads it
   and behaves.
@@ -67,7 +72,7 @@ A clean run, as timed against a Homelab Pilot crew of small models on two GPU no
 | Time | Client call | Result |
 |---|---|---|
 | 0s | `ask` | returns at 44s with a `pending` ticket |
-| 44s | `ask` again, same question | the same ticket: a retry rejoins |
+| 44s | `ask` again, same question and the ticket | the same ticket: a retry rejoins |
 | 45s, 101s, 145s | `get_answer` | `pending`, contributions 2 |
 | 178s | `get_answer` | `answered`: the two GPU nodes and their models |
 

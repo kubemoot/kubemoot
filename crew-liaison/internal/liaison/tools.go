@@ -28,7 +28,7 @@ const hintPending = "The crew is still deliberating; discussions take one to sev
 	"Call get_answer with this ticket; each call waits up to 45 seconds " +
 	"and returns the answer as soon as it exists. " +
 	"Keep calling until status is \"answered\" or \"failed\". " +
-	"Do not ask again: a repeated question rejoins this same ticket."
+	"Do not ask again; if you must, pass this ticket in ask's ticket argument to rejoin it."
 
 // Service implements the liaison's tools over a crew lister, a gateway client, and a
 // ticket store. It fronts every crew the lister returns.
@@ -67,25 +67,29 @@ type ListCrewsOutput struct {
 const (
 	argNamespace   = "namespace"
 	argWaitSeconds = "waitSeconds"
+	argTicket      = "ticket"
 )
 
 // Argument descriptions too long for a struct tag line; inputSchema sets them on
 // the emitted schema.
 const (
 	namespaceDesc = "namespace of the crew, needed only when the name is not unique"
-	askWaitDesc   = "seconds to wait for the answer before returning the ticket; default and maximum 45, " +
+	askTicketDesc = "on a retry, the ticket an earlier ask returned for this same question; " +
+		"it rejoins that discussion instead of starting another"
+	askWaitDesc = "seconds to wait for the answer before returning the ticket; default and maximum 45, " +
 		"0 returns the ticket at once"
 	getAnswerWaitDesc = "seconds to wait for the answer before reporting pending; default and maximum 45, " +
 		"0 reports the current state at once"
 )
 
-// AskInput is a question for one crew. Namespace and WaitSeconds take their
+// AskInput is a question for one crew. Namespace, WaitSeconds and Ticket take their
 // descriptions from askInputSchema.
 type AskInput struct {
 	Crew        string `json:"crew" jsonschema:"name of the crew to ask; see list_crews"`
 	Namespace   string `json:"namespace,omitempty"`
 	Question    string `json:"question" jsonschema:"the question, in full; the crew has no memory of earlier questions"`
 	WaitSeconds *int   `json:"waitSeconds,omitempty"`
+	Ticket      string `json:"ticket,omitempty"`
 }
 
 // AskOutput is a ticket, and the answer when it arrived within the wait.
@@ -103,7 +107,9 @@ type GetAnswerInput struct {
 
 // askInputSchema is the ask tool's input schema.
 func askInputSchema() *jsonschema.Schema {
-	return inputSchema[AskInput](map[string]string{argNamespace: namespaceDesc, argWaitSeconds: askWaitDesc})
+	return inputSchema[AskInput](map[string]string{
+		argNamespace: namespaceDesc, argWaitSeconds: askWaitDesc, argTicket: askTicketDesc,
+	})
 }
 
 // getAnswerInputSchema is the get_answer tool's input schema.
@@ -146,7 +152,7 @@ func (s *Service) ListCrews(
 	return nil, ListCrewsOutput{Crews: crews}, nil
 }
 
-// Ask starts a discussion (or rejoins a pending one for the same question) and waits
+// Ask starts a discussion (or rejoins the caller's own pending one, named by ticket) and waits
 // up to the requested time for the answer before returning the ticket.
 func (s *Service) Ask(
 	ctx context.Context, _ *mcp.CallToolRequest, in AskInput,
@@ -163,7 +169,7 @@ func (s *Service) Ask(
 	if err != nil {
 		return toolError(err.Error()), AskOutput{}, nil
 	}
-	ticket, err := s.startOrRejoin(ctx, crew, question)
+	ticket, err := s.startOrRejoin(ctx, crew, question, in.Ticket)
 	if err != nil {
 		return toolError(err.Error()), AskOutput{}, nil
 	}
@@ -184,10 +190,13 @@ func (s *Service) GetAnswer(
 	return nil, GetAnswerOutput{TicketView: ticket.Snapshot(), Hint: hintFor(ticket)}, nil
 }
 
-// startOrRejoin reuses a pending ticket for the same question, else starts a discussion.
-func (s *Service) startOrRejoin(ctx context.Context, crew Crew, question string) (*Ticket, error) {
-	if ticket, ok := s.tickets.FindPending(crew.Name, crew.Namespace, question); ok {
-		return ticket, nil
+// startOrRejoin reuses the caller's pending ticket when it presents its id with the same
+// question, else starts a discussion. A question without a ticket id always starts one.
+func (s *Service) startOrRejoin(ctx context.Context, crew Crew, question, ticketID string) (*Ticket, error) {
+	if ticketID != "" {
+		if ticket, ok := s.tickets.Rejoin(strings.TrimSpace(ticketID), crew.Name, crew.Namespace, question); ok {
+			return ticket, nil
+		}
 	}
 	return s.start(ctx, crew, question)
 }
