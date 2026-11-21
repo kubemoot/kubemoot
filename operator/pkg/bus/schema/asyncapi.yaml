@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: Kubemoot bus contract
-  version: 2.6.0
+  version: 2.7.0
   description: |
     The messages agents and Kubemoot exchange over NATS, the key-value entries they
     share, and the event stream the discussion gateway serves. Payloads are JSON
@@ -420,7 +420,38 @@ channels:
       streamEvent:
         $ref: '#/components/messages/StreamEvent'
 
+  conversationEvents:
+    address: /api/v1/discussions/{crew}/events
+    title: Conversation events
+    description: |
+      Server-sent events that say which of the caller's conversations has something
+      new: a late answer, a scheduled reminder that fired, a scheduled follow-up. A
+      client subscribes once and fetches the conversation named by each event. Each
+      event's data is a ConversationEvent. A caller receives events only for
+      conversations they own; an operator who may list crews/conversations receives
+      every conversation's with all=true and a Kubemoot-Access-Reason header. Query
+      parameter lastEventId, the same as the Last-Event-ID header, resumes after a
+      dropped connection.
+    servers:
+      - $ref: '#/servers/gateway'
+    parameters:
+      crew:
+        $ref: '#/components/parameters/crew'
+    messages:
+      conversationEvent:
+        $ref: '#/components/messages/ConversationEvent'
+
 operations:
+  followConversations:
+    action: receive
+    title: Follow a caller's conversations
+    channel:
+      $ref: '#/channels/conversationEvents'
+    messages:
+      - $ref: '#/channels/conversationEvents/messages/conversationEvent'
+    bindings:
+      http:
+        method: GET
   followDiscussion:
     action: receive
     title: Follow a discussion
@@ -440,6 +471,8 @@ components:
       $ref: './post-discussion-response.json'
     ConversationList:
       $ref: './conversation-list.json'
+    ConversationEvent:
+      $ref: './conversation-event.json'
     ErrorResponse:
       $ref: './error-response.json'
 
@@ -541,6 +574,11 @@ components:
       title: Conversation history
       payload:
         $ref: './conversation-history.json'
+    ConversationEvent:
+      name: ConversationEvent
+      title: Conversation event
+      payload:
+        $ref: './conversation-event.json'
     ConversationOwner:
       name: ConversationOwner
       title: Conversation owner

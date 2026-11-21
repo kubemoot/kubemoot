@@ -435,6 +435,15 @@ func (tf *threadFinder) follow(m discussMsg, emit func(SSEEvent)) {
 // subjects that our wildcard consumer both matches.
 type messageDeduper struct {
 	seen map[string]struct{}
+	// limit, when positive, bounds how many ids are remembered; the set is cleared at it.
+	limit int
+}
+
+// bounded limits how many ids the deduper remembers, for a stream that lives long, and
+// returns it.
+func (d *messageDeduper) bounded(limit int) *messageDeduper {
+	d.limit = limit
+	return d
 }
 
 func newMessageDeduper() *messageDeduper {
@@ -450,6 +459,9 @@ func (d *messageDeduper) firstSight(id string) bool {
 	}
 	if _, dup := d.seen[id]; dup {
 		return false
+	}
+	if d.limit > 0 && len(d.seen) >= d.limit {
+		clear(d.seen)
 	}
 	d.seen[id] = struct{}{}
 	return true
