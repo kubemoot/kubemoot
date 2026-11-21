@@ -225,6 +225,8 @@ Your kubeconfig identity needs `get` on services, `list` on pods, and `create` o
 and `--conversation-id <id>` (the ID the first `ask` prints) to continue the same
 conversation.
 
+Your kubeconfig's bearer token goes with each request, so a crew that verifies who is asking keeps your conversations for you. If your kubeconfig signs in with a client certificate, name a ServiceAccount with `--token-service-account NAMESPACE/NAME`; see [who kmctl is at the gateway](../../reference/kmctl/#who-kmctl-is-at-the-gateway).
+
 `ask` also sends this machine's time zone and local date and time with the question, so the crew's tools use your date and not the date where the cluster runs. kmctl reads the zone from `TZ`, then `/etc/localtime`, then `/etc/timezone`; when none names a known zone it sends the local date and time alone.
 
 ### 7. Run the fitness suite

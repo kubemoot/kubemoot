@@ -750,7 +750,7 @@ Alias: `conv`
 ```
 kmctl conversation ask <crew> "<message>" [-n <namespace>] [-o full|plain|json|quiet] [-q] [--conversation-id <id>]
 kmctl conversation watch <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
-kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml]
+kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml] [--all --reason <text>]
 kmctl conversation replay <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
 kmctl conversation placements <crew> <conversation-id> [-n <namespace>] [-o table|yaml|json|kyaml] [--timeout <duration>]
 kmctl conversation workspace <crew> <key> [-n <namespace>] [-f <file>]
@@ -766,6 +766,30 @@ with no cluster-specific policy.
 Permissions, in the namespace of the Service: `get` on `services`, `list` on `pods`, and
 `create` on `pods/portforward`. A missing permission is reported with the verb and
 resource that were refused.
+
+### Who kmctl is at the gateway
+
+Your kubeconfig's bearer token goes with every request to the gateway, so a crew that
+sets `spec.discussion.access` knows who is asking and keeps each conversation for the
+caller that started it. A crew that sets nothing stays open and ignores the token.
+`kmctl` never prints it. See [Who is asking](../../concepts/who-is-asking/).
+
+A kubeconfig that signs in with a client certificate has no bearer token. These flags
+apply to every `kmctl conversation` command:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--token-service-account NAMESPACE/NAME` | | A ServiceAccount to mint a ten-minute token for. It wins over the kubeconfig's token. You need `create` on `serviceaccounts/token`; the Kubernetes audit log records who asked |
+| `--token-audience AUDIENCE` | | Audience of the minted token (repeatable, or comma-separated). Use it when the crew declares `spec.discussion.access.tokenAudiences`. A kubeconfig token cannot carry an audience |
+| `--reason TEXT` | | Why you read another caller's conversation, sent as the `Kubemoot-Access-Reason` header and audited by the gateway; 1 to 200 characters |
+
+```bash
+kmctl conversation ask homelab-pilot "Describe the proxmox nodes." -n crew-homelab-pilot \
+  --token-service-account crew-homelab-pilot/asker --token-audience homelab-pilot
+```
+
+The account also needs `get` on the Crew. A refused request prints the permission or
+setting to check.
 
 ### kmctl conversation ask
 
@@ -888,11 +912,18 @@ kmctl conversation watch homelab-pilot 6733c -n crew-homelab-pilot
 ### kmctl conversation list
 
 ```
-kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml]
+kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml] [--all --reason <text>]
 ```
 
 List the crew's recent conversations, newest first, with each one's first question.
-The gateway reads them from the discussion stream, which keeps about a day.
+The gateway reads them from the discussion stream, which keeps about a day. Any unique
+prefix of a listed ID works wherever `kmctl` takes a conversation ID. Alias: `ls`.
+
+On a crew that verifies who is asking you see the conversations you started. `--all`
+lists every caller's conversations and adds each owner's id to the table. It needs the
+`list` permission on `crews/conversations` (the `kubemoot-conversation-reader`
+ClusterRole) and a `--reason`, which the gateway audits; `--all` without `--reason` is
+refused before anything is sent.
 
 ```bash
 kmctl conversation list homelab-pilot -n crew-homelab-pilot

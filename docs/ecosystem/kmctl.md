@@ -86,7 +86,10 @@ prefix of one, `kmctl conversation list` lists a crew's recent conversations, an
 reaches the crew's discussion gateway through a port-forward to a ready pod behind its
 Service, through the kubelet as `kubectl port-forward` does, using your kubeconfig
 credentials. It needs no extra networking setup and works under a default-deny network
-policy.
+policy. It sends your kubeconfig's bearer token, or one minted with
+`--token-service-account`, so a crew that verifies who is asking knows the caller;
+`kmctl conversation list --all --reason` lets an operator list every caller's
+conversations.
 
 **Fitness suite execution.** `kmctl fitness run <suite>` (`fitness` has the alias `fit`) polls an
 existing `CrewFitnessSuite` until every iteration has run, printing progress as it
