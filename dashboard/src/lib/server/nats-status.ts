@@ -42,31 +42,40 @@ function positive(n: number | undefined): number | null {
 	return n !== undefined && n > 0 ? n : null;
 }
 
+/** The stream's discard policy; null when the server reports none. */
+function discardOf(policy: string | undefined): 'old' | 'new' | null {
+	return policy === 'old' || policy === 'new' ? policy : null;
+}
+
+function limitsOf(si: StreamInfo, kind: StoreStatus['kind']): StoreStatus['limits'] {
+	const maxAge = positive(si.config.max_age);
+	return {
+		maxAgeSeconds: maxAge === null ? null : Math.round(maxAge / NS_PER_SECOND),
+		maxBytes: positive(si.config.max_bytes),
+		maxMessages: positive(si.config.max_msgs),
+		history: kind === 'kv' ? positive(si.config.max_msgs_per_subject) : null,
+		discard: discardOf(si.config.discard)
+	};
+}
+
+function usageOf(si: StreamInfo): StoreStatus['usage'] {
+	return {
+		messages: si.state.messages,
+		bytes: si.state.bytes,
+		firstSeq: si.state.first_seq,
+		lastSeq: si.state.last_seq,
+		consumers: si.state.consumer_count,
+		keys: si.state.num_subjects ?? null,
+		firstTs: si.state.first_ts ?? null
+	};
+}
+
 /** One stream's info as a store row. */
 export function storeStatusOf(si: StreamInfo): StoreStatus {
 	const definition = storeForStream(si.config.name) ?? null;
 	const kind = definition?.kind ?? kindOfName(si.config.name);
 	const name = definition?.name ?? si.config.name.replace(/^(KV|OBJ)_/, '');
-	const maxAge = positive(si.config.max_age);
-	return {
-		definition,
-		name,
-		kind,
-		limits: {
-			maxAgeSeconds: maxAge === null ? null : Math.round(maxAge / NS_PER_SECOND),
-			maxBytes: positive(si.config.max_bytes),
-			maxMessages: positive(si.config.max_msgs),
-			history: kind === 'kv' ? positive(si.config.max_msgs_per_subject) : null
-		},
-		usage: {
-			messages: si.state.messages,
-			bytes: si.state.bytes,
-			firstSeq: si.state.first_seq,
-			lastSeq: si.state.last_seq,
-			consumers: si.state.consumer_count,
-			keys: si.state.num_subjects ?? null
-		}
-	};
+	return { definition, name, kind, limits: limitsOf(si, kind), usage: usageOf(si) };
 }
 
 function kindOfName(streamName: string): 'stream' | 'kv' | 'object' {

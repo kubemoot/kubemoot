@@ -8,6 +8,8 @@ export interface StoreLimits {
 	maxMessages: number | null;
 	/** KV only: revisions kept per key. */
 	history: number | null;
+	/** What the stream does at a limit: 'old' drops the oldest messages, 'new' refuses writes. */
+	discard?: 'old' | 'new' | null;
 }
 
 export interface StoreUsage {
@@ -18,6 +20,8 @@ export interface StoreUsage {
 	consumers: number;
 	/** Distinct subjects (KV keys) the stream holds, when the server says. */
 	keys: number | null;
+	/** When the oldest message the stream holds was stored (ISO time); null when empty or unknown. */
+	firstTs?: string | null;
 }
 
 export interface StoreStatus {
@@ -72,6 +76,8 @@ export interface HistoryReadSummary {
 
 /** A use at or above this share of a limit raises the warning band. */
 export const WARN_FRACTION = 0.8;
+/** At or above this share a cap counts as reached, so a discard-old stream is dropping messages. */
+export const FULL_FRACTION = 0.99;
 /** At or above this share, writes are about to be refused or the oldest data dropped. */
 export const CRITICAL_FRACTION = 0.95;
 
@@ -95,10 +101,15 @@ function levelOf(f: number): 'warning' | 'critical' | null {
 	return f >= WARN_FRACTION ? 'warning' : null;
 }
 
-/** The limits of one store that are at or above the warning share: bytes and messages. */
+/**
+ * The limits of one store that are at or above the warning share: bytes and messages.
+ * A store that drops its oldest messages at a limit is meant to sit at it, so it raises
+ * no warning here; historyNotice says how much history it keeps instead.
+ */
 export function storeWarnings(store: StoreStatus): LimitWarning[] {
 	// A namespace's share says nothing about how full the whole store is.
 	if (store.share === 'namespaces') return [];
+	if (store.limits.discard === 'old') return [];
 	const checks: [LimitKind, number | null][] = [
 		['bytes', fraction(store.usage.bytes, store.limits.maxBytes)],
 		['messages', fraction(store.usage.messages, store.limits.maxMessages)]
@@ -127,6 +138,75 @@ export function allWarnings(stores: StoreStatus[]): LimitWarning[] {
 	return stores
 		.flatMap(storeWarnings)
 		.sort((a, b) => b.fraction - a.fraction);
+}
+
+/** A store that drops its oldest messages at a size cap and so keeps less history than its max age. */
+export interface HistoryNotice {
+	store: string;
+	/** The cap that is full. */
+	cap: 'bytes' | 'messages';
+	keptSeconds: number;
+	intendedSeconds: number;
+}
+
+const MS_PER_SECOND = 1000;
+
+/** The cap of a discard-old store that is reached, the fuller one first. */
+function fullCap(store: StoreStatus): 'bytes' | 'messages' | null {
+	const bytes = fraction(store.usage.bytes, store.limits.maxBytes);
+	const messages = fraction(store.usage.messages, store.limits.maxMessages);
+	const full = (f: number | null) => f !== null && f >= FULL_FRACTION;
+	if (full(bytes) && (!full(messages) || bytes! >= messages!)) return 'bytes';
+	return full(messages) ? 'messages' : null;
+}
+
+/** Seconds from the oldest message to now; null when the store is empty or the time is unreadable. */
+function oldestAgeSeconds(store: StoreStatus, now: Date): number | null {
+	const first = store.usage.firstTs ? Date.parse(store.usage.firstTs) : NaN;
+	// An empty stream reports the zero time (year 1).
+	if (Number.isNaN(first) || store.usage.messages <= 0 || first < MS_PER_SECOND) return null;
+	return Math.max(0, Math.round((now.getTime() - first) / MS_PER_SECOND));
+}
+
+/**
+ * For a stream that drops its oldest messages at a size cap: how much history it keeps
+ * against the max age it is meant to keep. Null when the store is not in that state: the
+ * cap is not reached, there is no max age, or the oldest message already spans the max age.
+ */
+export function historyNotice(store: StoreStatus, now: Date): HistoryNotice | null {
+	const { discard, maxAgeSeconds } = store.limits;
+	if (store.share === 'namespaces' || discard !== 'old' || !maxAgeSeconds) return null;
+	const cap = fullCap(store);
+	const kept = oldestAgeSeconds(store, now);
+	if (cap === null || kept === null || kept >= maxAgeSeconds) return null;
+	return { store: store.name, cap, keptSeconds: kept, intendedSeconds: maxAgeSeconds };
+}
+
+/** The history notices across the stores, the shortest history relative to its intent first. */
+export function allHistoryNotices(stores: StoreStatus[], checkedAt: string | undefined): HistoryNotice[] {
+	const now = new Date(checkedAt ?? '');
+	if (Number.isNaN(now.getTime())) return [];
+	return stores
+		.map((s) => historyNotice(s, now))
+		.filter((n): n is HistoryNotice => n !== null)
+		.sort((a, b) => a.keptSeconds / a.intendedSeconds - b.keptSeconds / b.intendedSeconds);
+}
+
+function plural(n: number, unit: string): string {
+	return `${n} ${unit}${n === 1 ? '' : 's'}`;
+}
+
+/** A span in seconds in words: 6 hours, 7 days. Two days or more is shown in days. */
+export function formatDuration(seconds: number): string {
+	if (seconds >= 2 * 86_400) return plural(Math.round(seconds / 86_400), 'day');
+	if (seconds >= 3600) return plural(Math.round(seconds / 3600), 'hour');
+	return plural(Math.max(1, Math.round(seconds / 60)), 'minute');
+}
+
+/** The notice as a sentence: "KUBEMOOT_OPERATOR keeps 6 hours of the intended 7 days". */
+export function historyNoticeText(n: HistoryNotice): string {
+	const cap = n.cap === 'bytes' ? 'size' : 'message';
+	return `${n.store} keeps ${formatDuration(n.keptSeconds)} of the intended ${formatDuration(n.intendedSeconds)}, because its ${cap} cap is full`;
 }
 
 export type TileState = 'connected' | 'near-limit' | 'disconnected';

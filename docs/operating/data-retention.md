@@ -33,7 +33,7 @@ A crew that declares nothing still has the defaults the Crew schema carries. Rea
 | Scheduler performance history | KV `kubemoot_scheduler_performance` | not a crew's data: no wall-clock expiry; removed when its ModelServer is deleted | yes |
 | Leases, tickets, heartbeats, demand, server state, crew resumes | KV buckets of the same names | each has a short expiry or is deleted with its owner | yes |
 
-When a KV bucket reaches its size limit it refuses new writes until entries expire or the cleanup removes them; a stream drops its oldest messages instead. A store that cannot take writes is a reason to look at the policy that governs it, not to raise the limit first.
+When a KV bucket reaches its size limit it refuses new writes until entries expire or the cleanup removes them; a stream drops its oldest messages instead. The operator publishes the status of an MCP server and the verdict and trial of its report to the `KUBEMOOT_OPERATOR` and `KUBEMOOT_CHRONICLE` streams only when they change, so the message cap holds history of changes and not a message per reconcile. A store that cannot take writes is a reason to look at the policy that governs it, not to raise the limit first.
 
 The bootstrap job removes the legacy `kubemoot_pinned_threads` bucket if it exists; nothing writes it.
 
