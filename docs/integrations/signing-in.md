@@ -9,7 +9,7 @@ liaison's door, and the services a crew's tools call. This page states what is b
 
 ## Today
 
-- **The liaison has no sign-in of its own.** It does not run a login page, an OAuth
+- **The liaison has no sign-in of its own unless you enable the front below.** It does not run a login page, an OAuth
   flow, or an identity provider. It accepts one of three things, set in the chart:
   - No token and no Kubernetes token check: every caller is accepted, as anonymous.
   - A shared token (`liaison.auth.token`): the app sends
@@ -32,6 +32,83 @@ liaison's door, and the services a crew's tools call. This page states what is b
 Per-user placeholders some apps offer in headers (a user id or email in a header) are
 sent to the liaison but are not read: identity comes from a verified token, never
 from a header a client can set.
+
+## The sign-in front
+
+The liaison can run a sign-in front for an upstream service that signs people in with
+plain OAuth (an authorization endpoint, a token endpoint, no ID token). It is off
+unless `LIAISON_SIGNIN_UPSTREAM` is set.
+
+To a chat app, the liaison is then the authorization server for its own `/mcp` door.
+The app finds it through the usual MCP discovery, registers itself, and sends the
+person to the liaison's sign-in. The liaison sends the person on to the upstream's
+sign-in page and, when they come back, hands the app the upstream's own token. The app
+keeps the token and sends it with every question.
+
+Why a front and not the upstream's own sign-in: an MCP app asks for a token for the
+server it is calling and names that server as the `resource`. Some services refuse an
+authorize request for a resource that is not theirs. The front never passes the app's
+`resource` on, so the upstream issues an ordinary token for its own service.
+
+What the front does, in order:
+
+1. The app asks `/mcp` with no token and is answered 401 with a
+   `WWW-Authenticate` header that names `/.well-known/oauth-protected-resource/mcp`.
+   That document names the liaison as the authorization server.
+2. The app reads `/.well-known/oauth-authorization-server`, then registers at
+   `/oauth/register`. The registration needs one to ten redirect addresses, each
+   `https` or `http` on `localhost`, `127.0.0.1` or `[::1]`, and, when an allow-list is
+   set, an allowed host for the `https` ones. The client id it returns is the
+   registration sealed into a string, so the front stores nothing.
+3. The app sends the person to `/oauth/authorize` with a PKCE challenge (method S256 is
+   required). The front checks the client id and redirect address, then sends the person
+   to the upstream with its own registered client id, its own `/oauth/callback`, a fresh
+   PKCE challenge and no `resource`. A short-lived cookie ties the return to the same
+   browser.
+4. The upstream sends the person back to `/oauth/callback`. The front redirects to the
+   app with a code that is valid for 60 seconds. If the upstream refused the sign-in,
+   its error goes to the app unchanged.
+5. The app posts the code and its PKCE verifier to `/oauth/token`. The front checks
+   them, exchanges the upstream code, and returns the upstream's answer as it received
+   it. A `refresh_token` request is passed to the upstream the same way, so a rotated
+   refresh token reaches the app.
+
+The front keeps no state. State, codes and client ids are encrypted strings (AES-GCM),
+so two liaison replicas work together and a restart loses nothing. An upstream code can
+be used once, so a replayed code fails at the upstream. The front never logs a token, a
+code or a verifier.
+
+### Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LIAISON_SIGNIN_UPSTREAM` | empty (front off) | the upstream's authorization endpoint, `https` |
+| `LIAISON_SIGNIN_UPSTREAM_TOKEN_URL` | none, required | the upstream's token endpoint, `https` |
+| `LIAISON_SIGNIN_UPSTREAM_CLIENT_ID` | none, required | the front's own client id at the upstream. Register it once; it must stay the same, because the upstream binds refresh tokens to the client. Its registered redirect address is `<public URL>/oauth/callback`, an exact match |
+| `LIAISON_SIGNIN_UPSTREAM_SCOPES` | `openid offline_access` | scopes asked of the upstream |
+| `LIAISON_SIGNIN_PUBLIC_URL` | none, required | the liaison's public base URL, for example `https://<liaison host>`. It is the issuer in the metadata and the base of the callback |
+| `LIAISON_SIGNIN_SEAL_KEYS` | none | the sealing keys, one `id:base64key` per line or comma, each key 32 random bytes in base64 |
+| `LIAISON_SIGNIN_SEAL_KEYS_FILE` | none | the same list read from a file, for a mounted Secret. One of the two is required |
+| `LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS` | empty (any host) | comma separated hosts an `https` redirect address may use. Loopback `http` addresses are always allowed |
+
+Registration has no login and no consent page, so on a shared deployment always set
+`LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS`. With it empty, anyone can register an `https`
+redirect address on any host and ask a person to sign in to it; the front logs a warning
+at start when it is empty.
+
+Setting `LIAISON_SIGNIN_UPSTREAM` without the other required values stops the liaison at
+start with a message naming the missing one. The public URL, the endpoints and the
+redirect addresses must be `https`, except for `localhost`.
+
+The first key in the list seals new values; every listed key opens older ones. To rotate,
+add the new key at the top, roll the liaison, and remove the old key after the longest
+sealed value has expired (a code lasts 60 seconds, a sign-in in progress 10 minutes, a
+client registration until you remove its key, so apps register again after a removal).
+Generate a key with `openssl rand -base64 32`.
+
+What is not built yet: the liaison does not yet verify the token the app sends and hand
+it to a crew's tools, so the front alone does not make a crew use the asking person's
+own account. That is the per-person work that follows.
 
 ## What a crew's tools sign in to
 

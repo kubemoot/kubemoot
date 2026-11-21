@@ -35,9 +35,9 @@ func ownerOf(ctx context.Context) string {
 // static token (an anonymous caller) or a Kubernetes token the authenticator accepts (a
 // principal), and the caller and the token travel with the request. When a shared token
 // is configured, a request that presents nothing is refused.
-func requireCaller(token string, auth *identity.Authenticator, next http.Handler) http.Handler {
+func requireCaller(token string, auth *identity.Authenticator, metadataURL string, next http.Handler) http.Handler {
 	if auth == nil || !auth.Enforcing() {
-		return requireBearer(token, next)
+		return requireBearer(token, metadataURL, next)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		presented := identity.BearerToken(r)
@@ -48,12 +48,12 @@ func requireCaller(token string, auth *identity.Authenticator, next http.Handler
 		if token != "" && presented == "" {
 			// A shared token is configured, so a request with no credential is refused even
 			// when anonymous callers are allowed: anonymous never loosens the shared token.
-			refuse(w, identity.ErrRequired)
+			refuse(w, identity.ErrRequired, metadataURL)
 			return
 		}
 		caller, err := auth.Authenticate(r)
 		if err != nil {
-			refuse(w, err)
+			refuse(w, err, metadataURL)
 			return
 		}
 		ctx := identity.WithCaller(r.Context(), caller)
@@ -65,10 +65,19 @@ func requireCaller(token string, auth *identity.Authenticator, next http.Handler
 }
 
 // refuse answers an authentication error: 401 with a challenge, or 503 when the check failed.
-func refuse(w http.ResponseWriter, err error) {
+func refuse(w http.ResponseWriter, err error, metadataURL string) {
 	code, message, challenge := identity.Refusal(err, "kubemoot-crew-liaison")
 	if challenge != "" {
-		w.Header().Set("WWW-Authenticate", challenge)
+		w.Header().Set("WWW-Authenticate", withMetadata(challenge, metadataURL))
 	}
 	http.Error(w, message, code)
+}
+
+// withMetadata adds the protected-resource metadata address (RFC 9728) to a Bearer
+// challenge, so an MCP app knows where to learn how to sign in. "" leaves it as it was.
+func withMetadata(challenge, metadataURL string) string {
+	if metadataURL == "" || challenge == "" {
+		return challenge
+	}
+	return challenge + `, resource_metadata="` + metadataURL + `"`
 }
