@@ -40,6 +40,9 @@ spec:
             - name: VERIFY_IMAGE
               value: {{ .Values.verify.image | quote }}
             {{- end }}
+            {{- with (include "kubemoot-dashboard.natsEnv" . | trim) }}
+            {{- . | nindent 12 }}
+            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -48,6 +51,14 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with (include "kubemoot-dashboard.natsMounts" . | trim) }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+      {{- with (include "kubemoot-dashboard.natsVolumes" . | trim) }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -84,6 +84,22 @@ gateway:
 env:
   nodeEnv: production
 
+# NATS connection. Off by default: with none of these set the dashboard connects to its default
+# in-cluster URL plainly and anonymously. Same shape and meaning as the operator chart's nats.tls
+# and nats.auth; the Secrets are in the dashboard's namespace.
+nats:
+  url: ""            # tls:// accepted; empty keeps the default
+  tls:
+    caSecret: ""
+    caKey: ca.crt
+    clientSecret: ""
+  auth:
+    secret: ""
+    credsKey: ""
+    userKey: ""
+    passwordKey: ""
+    tokenKey: ""
+
 # Resource limits and requests
 resources:
   requests:
