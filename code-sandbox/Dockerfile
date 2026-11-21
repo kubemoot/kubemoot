@@ -8,11 +8,16 @@ COPY internal/ internal/
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o code-sandbox ./cmd/code-sandbox/
 
 # The programs agents write run on this image: Python 3.14 with the standard
-# library only, and bash. Nothing else is installed.
+# library only, bash, and GNU date with the zone database, which agents use for
+# time-zone conversion and date arithmetic. Nothing else is installed.
 FROM docker.io/library/python:3.14-slim@sha256:f85c5697265c178cc6887276c55fe16cf3d14ca35c3df6a5eab3b360534a55d2
 # tini reaps processes a killed program leaves behind; without it they stay as
-# zombies under the server for the life of the pod.
-RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
+# zombies under the server for the life of the pod. tzdata is named so a future base
+# image that drops it cannot take the zone database away.
+RUN apt-get update && apt-get install -y --no-install-recommends tini tzdata && rm -rf /var/lib/apt/lists/*
+# The build fails if the image cannot convert a zone or do date arithmetic.
+RUN test "$(TZ=Asia/Tokyo date -d '2026-11-20 15:00 EST' '+%F %R %Z')" = "2026-11-21 05:00 JST" \
+    && test "$(date -d '2026-11-20 + 45 days' +%F)" = "2027-01-04"
 COPY --from=builder /build/code-sandbox /usr/local/bin/code-sandbox
 # uid:gid 1000:1000 matches the workspace-access materializer that writes /kubemoot/workspace.
 USER 1000:1000

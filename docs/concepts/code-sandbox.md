@@ -60,7 +60,9 @@ The sandbox runs code a model wrote, so every run is locked down.
 - **Capped output.** Stdout and stderr are each capped, and the result says when output was
   cut.
 - **A small image.** Python with the standard library only, bash, and an init process that
-  reaps what a killed program leaves behind.
+  reaps what a killed program leaves behind. The image keeps GNU `date` and the zone database:
+  time-zone conversion and date arithmetic are done with `date` in the sandbox, for example
+  `TZ=Asia/Tokyo date -d "2026-11-20 15:00 EST" "+%F %R %Z"`.
 
 A program that fails is a normal result with its exit code. Only an unknown language or a
 program that cannot start is a tool error. At worst, a bad program wastes the pod's CPU until
