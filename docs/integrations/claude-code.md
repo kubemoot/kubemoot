@@ -6,7 +6,9 @@ description: Add the crew liaison to Claude Code and ask a crew in plain languag
 
 Claude Code speaks MCP over HTTP natively, so connecting it to the crew liaison is
 one command. See [The Crew Liaison](../crew-liaison/) for what the tools do and why
-the answer comes by ticket.
+the answer comes by ticket, [Signing in](../signing-in/) for what the liaison expects
+in a request, and [the shared limits](/docs/integrations/#limits-that-apply-to-every-app) (follow-ups
+start a new conversation; the time zone travels only if passed).
 
 ## Try it against any cluster you can reach
 
