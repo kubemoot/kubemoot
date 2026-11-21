@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
+	"github.com/kubemoot/kubemoot/discussion-gateway/internal/grants"
 	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/pkg/askerzone"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
@@ -52,6 +53,11 @@ type Handler struct {
 	// auth and authz verify callers; nil means every caller is anonymous and nothing is checked.
 	auth  *identity.Authenticator
 	authz identity.Authorizer
+	// grants holds the tokens of callers whose verifier passes them to tools; nil keeps none.
+	grants      grants.Store
+	passIssuers map[string]struct{}
+	// now is the clock the grants' expiry is computed on; nil means time.Now.
+	now func() time.Time
 	// deprecatedRoute logs the first call of a deprecated route once.
 	deprecatedRoute sync.Once
 }
@@ -110,6 +116,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/discussions/{crew}/{conversationId}/pause", h.guard(h.controlHandler(pauseControl)))
 	mux.HandleFunc("POST /api/v1/discussions/{crew}/{conversationId}/resume", h.guard(h.controlHandler(resumeControl)))
 	mux.HandleFunc("DELETE /api/v1/discussions/{crew}/{conversationId}", h.guard(h.deleteConversation))
+	mux.HandleFunc("PUT /api/v1/discussions/{crew}/{conversationId}/credential", h.guard(h.renewCredential))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conversationId}/stream", h.guard(h.streamDiscussion))
 }
 
@@ -205,7 +212,6 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	crew := scope.Crew
 
 	var req bus.PostDiscussionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -232,6 +238,18 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.holdForAsk(w, r, conversationID) {
+		return
+	}
+	h.queueDiscussion(w, r, scope, req, conversationID)
+}
+
+// queueDiscussion publishes the question to the request stream and answers the caller. A
+// question that could not be queued drops the token kept for it.
+func (h *Handler) queueDiscussion(
+	w http.ResponseWriter, r *http.Request, scope crewscope.Scope, req bus.PostDiscussionRequest, conversationID string,
+) {
+	crew := scope.Crew
 	// Publish to KUBEMOOT_REQUEST stream; the coordinator pulls and processes FIFO
 	subject := scope.RequestSubject()
 	reqBody, _ := json.Marshal(bus.DiscussionRequest{
@@ -252,6 +270,7 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.natsClient.Publish(ctx, subject, reqBody); err != nil {
 		handlerLog.Error(err, "Failed to queue request to NATS", "crew", crew, "subject", subject)
+		h.dropCredential(conversationID)
 		h.publishCoordinatorError(scope, conversationID, fmt.Sprintf("failed to queue request: %v", err))
 		httpError(w, http.StatusServiceUnavailable, "failed to queue discussion request")
 		return
@@ -299,6 +318,7 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	emit = h.endGrantOnDone(conversationID, callerOf(r).Principal, emit)
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()

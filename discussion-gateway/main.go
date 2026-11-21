@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -9,8 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/api"
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
+	"github.com/kubemoot/kubemoot/discussion-gateway/internal/grants"
 	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/pkg/httporigin"
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
@@ -64,6 +67,7 @@ func main() {
 	}
 	handler := api.NewHandler(nc, namespace).AllowOrigins(origins).EndStreamsOn(ctx).
 		WithAccess(settings.Authenticator, settings.Authorizer)
+	leaseSrv := startCredentials(ctx, handler, log)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
@@ -93,6 +97,7 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error(err, "Shutdown error")
 	}
+	shutdownLease(shutdownCtx, leaseSrv, log)
 
 	fmt.Println("Stopped")
 }
@@ -104,4 +109,50 @@ func kubernetesClient() (kubernetes.Interface, error) {
 		return nil, err
 	}
 	return kubernetes.NewForConfig(cfg)
+}
+
+// startCredentials turns on keeping callers' tokens for the turn when a verifier passes them
+// to tools, and starts the lease listener when the ServiceAccount allowed to lease is named.
+// It returns the lease server, nil when there is none. A bad setting stops the gateway: a
+// crew that was meant to pass tokens must not serve as if it did not.
+func startCredentials(ctx context.Context, handler *api.Handler, log logr.Logger) *http.Server {
+	cfg, err := credentialConfigFromEnv(os.Getenv)
+	if err != nil {
+		log.Error(err, "Cannot read the credential settings")
+		os.Exit(1)
+	}
+	if !cfg.keepsTokens() {
+		return nil
+	}
+	store := grants.NewMemory(cfg.maxGrants, nil)
+	go store.Run(ctx.Done(), sweepInterval)
+	handler.WithGrants(store, cfg.issuers)
+	if !cfg.leases() {
+		log.Info("Keeping callers' tokens for the turn, with no lease listener: " + envBrokerSubject + " is not set")
+		return nil
+	}
+	client, err := leaseClient()
+	if err != nil {
+		log.Error(err, "Cannot set up the lease listener")
+		os.Exit(1)
+	}
+	srv := cfg.leaseServer(store, client)
+	go func() {
+		log.Info("Starting the credential lease listener", "port", cfg.internalPort)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error(err, "Lease listener failed")
+			os.Exit(1)
+		}
+	}()
+	return srv
+}
+
+// shutdownLease stops the lease listener, when there is one.
+func shutdownLease(ctx context.Context, srv *http.Server, log logr.Logger) {
+	if srv == nil {
+		return
+	}
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Error(err, "Lease listener shutdown error")
+	}
 }

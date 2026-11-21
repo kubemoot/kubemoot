@@ -280,6 +280,41 @@ Delete answers a `ConversationErasure`, which says what it removed from each sto
 
 On a crew that verifies no one there are no owners, so any caller who can reach the gateway can stop, pause, resume or delete any conversation, as any caller can read any of them; put the gateway behind your own access control, or turn on `spec.discussion.access`.
 
+### Keeping a person's own token for the turn
+
+A crew whose [service token verifier](../who-is-asking/#subscribers) has `passToTools: true` keeps the bearer token of each person who asks, in the gateway's memory, so a tool the crew calls for that question can call its service as that person. Two routes belong to this and nothing else returns the token.
+
+**Renewal.** `PUT /api/v1/discussions/{crew}/{conversationId}/credential` replaces the token held for a conversation with the one in the request's `Authorization: Bearer` header. A chat app whose token was refreshed during a long answer sends the fresh one. The normal access check applies, and the caller must be the person who started the conversation.
+
+| Answer | Meaning |
+|--------|---------|
+| `200` | The grant is in force. The body is `{"conversationId": "...", "expiresAt": "..."}`, the time it ends. A token that ends earlier than the one already held does not replace it, and the answer still carries the time of the one in force |
+| `401` | The token is missing, not accepted, or has no time left |
+| `403` | The caller is not the conversation's owner, or the caller is a Kubernetes caller, or this crew keeps no credentials for tools |
+| `404` | No conversation with that id has an owner |
+| `409` | Another caller's grant holds the id |
+| `503` | The gateway holds as many grants as it may (1000 by default), or an access check could not be made |
+
+A renewal also restores a grant the gateway lost when it restarted. The same holds when a person asks: the token of a verified person is kept before the question is queued, and a Kubernetes token never is.
+
+**Lease.** `POST /internal/v1/lease` is how a crew's MCP gateway gets the token for one tool call. It is served only on a separate internal port (`INTERNAL_PORT`, default `8081`), never on the port the Service for people exposes, and only when `ACCESS_BROKER_SUBJECT` names the one ServiceAccount allowed to ask. The caller sends its projected ServiceAccount token, bound to the audience `kubemoot-credential-broker`, as the bearer; the gateway checks it with a TokenReview and refuses any other ServiceAccount. The body names the turn:
+
+```json
+{"conversationId": "...", "principalId": "...", "verifier": "oreilly"}
+```
+
+| Answer | Meaning |
+|--------|---------|
+| `200` | `{"token": "...", "expiresAt": "..."}` with `Cache-Control: no-store`. The caller uses the token for one upstream request and does not keep it |
+| `400` | The body is not the three fields, or the conversation id is not valid |
+| `401` | No ServiceAccount token, one that is not valid, or one not bound to the audience |
+| `403` | The ServiceAccount is not the one allowed, or the principal or verifier does not match the grant's |
+| `404` | The conversation holds no grant. The gateway may have restarted; the next renewal restores it |
+| `410` | The grant has expired |
+| `503` | The ServiceAccount token could not be checked |
+
+A grant ends at the earliest of the token's own expiry and 30 minutes after it was written or renewed. It is also dropped when the conversation's synthesis or done event goes out on a stream the owner is reading (an operator reading it changes nothing), when the conversation is stopped, and when it is deleted. Ending on a stream event means a replayed stream of an older turn can drop a newer turn's grant; the next renewal restores it. The token is never published on the bus, written to a log or a store, or sent in any other response. What is held, where and for how long is in [Data ownership](../../operating/data-ownership/#a-persons-own-token-during-a-turn).
+
 ### Fetching a stored result
 
 `GET /api/v1/discussions/{crew}/workspace?key=<key>` returns a stored result's bytes as text,
