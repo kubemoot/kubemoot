@@ -7,7 +7,8 @@ public record RegisterServerRequest(
     String url,
     String transport,
     List<ToolOverride> toolOverrides,
-    ServerCredential auth
+    ServerCredential auth,
+    CallerCredentialConfig callerCredential
 ) {
     public RegisterServerRequest {
         if (name == null || name.isBlank()) {
@@ -20,6 +21,12 @@ public record RegisterServerRequest(
             transport = "sse";
         }
         toolOverrides = toolOverrides == null ? List.of() : List.copyOf(toolOverrides);
+        callerCredential = callerCredential == null ? CallerCredentialConfig.OFF : callerCredential;
+    }
+
+    public RegisterServerRequest(String name, String url, String transport, List<ToolOverride> toolOverrides,
+                                 ServerCredential auth) {
+        this(name, url, transport, toolOverrides, auth, null);
     }
 
     public RegisterServerRequest(String name, String url, String transport, List<ToolOverride> toolOverrides) {

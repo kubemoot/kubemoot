@@ -15,6 +15,7 @@ public class McpGatewayProperties {
     private ToolIndex toolIndex = new ToolIndex();
     private MetaTools metaTools = new MetaTools();
     private Connections connections = new Connections();
+    private CredentialBroker credentialBroker = new CredentialBroker();
     /**
      * Safety net: a connected server whose tool list is older than this is re-listed when
      * the operator next re-registers it. The primary signals are a lost session and the
@@ -53,6 +54,14 @@ public class McpGatewayProperties {
 
     public void setToolListMaxAge(Duration toolListMaxAge) {
         this.toolListMaxAge = toolListMaxAge;
+    }
+
+    public CredentialBroker getCredentialBroker() {
+        return credentialBroker;
+    }
+
+    public void setCredentialBroker(CredentialBroker credentialBroker) {
+        this.credentialBroker = credentialBroker;
     }
 
     public Connections getConnections() {
@@ -141,6 +150,52 @@ public class McpGatewayProperties {
 
         public void setMaxLifeTime(Duration maxLifeTime) {
             this.maxLifeTime = maxLifeTime;
+        }
+    }
+
+    /**
+     * Where the gateway leases a person's token for a server in caller-credential mode
+     * {@code Required}: the broker's base address, the file holding the gateway's projected
+     * ServiceAccount token (read on every lease, because the kubelet rotates it), and how long
+     * the lease may take.
+     */
+    public static class CredentialBroker {
+        private String url = "";
+        private String tokenFile = "/var/run/secrets/kubemoot/credential-broker/token";
+        private Duration timeout = Duration.ofSeconds(3);
+        private Duration callTimeout = Duration.ofMinutes(2);
+
+        public String getUrl() {
+            return url;
+        }
+
+        public void setUrl(String url) {
+            this.url = url;
+        }
+
+        public String getTokenFile() {
+            return tokenFile;
+        }
+
+        public void setTokenFile(String tokenFile) {
+            this.tokenFile = tokenFile;
+        }
+
+        public Duration getTimeout() {
+            return timeout;
+        }
+
+        public void setTimeout(Duration timeout) {
+            this.timeout = timeout;
+        }
+
+        /** Safety net for one upstream call made with a person's token; the normal path ends sooner. */
+        public Duration getCallTimeout() {
+            return callTimeout;
+        }
+
+        public void setCallTimeout(Duration callTimeout) {
+            this.callTimeout = callTimeout;
         }
     }
 

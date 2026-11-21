@@ -252,6 +252,8 @@ Write the message in ADL and name the call that works instead, so the next attem
 
 MCP's `tools/call` carries per-request metadata in `params._meta`. The gateway forwards only the four keys listed below, on every route into a tool server: the MCP endpoint reads them from the `_meta` the caller sent, and `POST /tools/{name}/call` takes an optional `_meta` object next to `arguments`. It re-validates each value (`timeZone` must be a known IANA zone id of at most 64 characters, `localDateTime` an ISO local date-time with a four-digit year and no offset, `requestDate` an ISO date, `workspacePrefix` three plain name parts and a closing slash of at most 512 characters) and drops every other key and every value that fails its check, so a caller cannot pass other fields to a tool through `_meta`. A call with nothing left to forward carries no `_meta`. The gateway does not add values.
 
+The gateway also reads `conversationId` and `principalId` for its own use and never forwards them unless the server asks; see [Calls with the asking person's own credential](#calls-with-the-asking-persons-own-credential).
+
 Agents use it to give a tool the requester's date and time zone, and to give the tools that read a discussion's stored results the thread they run in:
 
 | `_meta` key | Value |
@@ -262,6 +264,61 @@ Agents use it to give a tool the requester's date and time zone, and to give the
 | `workspacePrefix` | the key prefix of the discussion thread, `{namespace}/{crew}/{threadId}/`. The agent runtime sends it only to `workspace_query`, `workspace_list` and `workspace_describe`, the `artifact_*` tools and `execute_code`; the artifact tools resolve a short key such as `k8s-workloads/002-resources_list` inside that thread and refuse a key of another thread, see [Short keys](../../concepts/workspace/#short-keys) |
 
 On a discussion's tool calls `timeZone` and `requestDate` are always present (the asker's zone, else the crew's default zone, else UTC, and the date fixed in it when the question arrived); `localDateTime` is present only when the requester's client sent it and never drives the date; `workspacePrefix` only inside a discussion. A tool that needs "today" should read it from here and not from its own clock; see [Read the requester's date in a tool](../../user-guides/onboard-mcp-tools/#read-the-requesters-date-in-a-tool).
+
+## Calls with the asking person's own credential
+
+By default a server is called with the one credential it was registered with (`registry.authSecretRef`), whoever asked. A server that must be called as the person who asked, such as a library that bills or entitles each person, is registered with `callerCredential` instead. The default is `mode: Off`, which changes nothing.
+
+The gateway reads the registration field on `POST /admin/servers`; the operator's MCPServer field that fills it is a separate change.
+
+| `callerCredential` field | Default | Description |
+|--------------------------|---------|-------------|
+| `mode` | `Off` | `Off` uses the server's registered credential. `Required` calls the server with the asking person's token |
+| `verifier` | | Required in mode `Required`. The name of the verifier that vouched for the person, sent with the lease request. A DNS label |
+| `leaseUrl` | | The broker's lease endpoint for this server. It must have the same scheme, host and port as `mcp.gateway.credential-broker.url` (environment `CREDENTIAL_BROKER_URL`), because the gateway's own token goes only to that broker; any other address is refused as "sign-in unavailable". Empty uses that broker plus `/internal/v1/lease` |
+| `onForbidden` | none | Endpoints tried in order, with the same token, when the server's own endpoint answers 403 to the asker. At most four, http or https |
+| `relayContext` | `false` | Keep `conversationId` and `principalId` in the `_meta` forwarded to the server, for a tool server that calls back through the gateway. Off removes them |
+| `accountName` | the verifier name | How a refusal names the account to connect |
+
+Mode `Required` needs transport `http` (streamable HTTP); a registration with another transport is refused. The call goes to the same endpoint as every other call to the server.
+
+### How a call is made in mode Required
+
+1. The agent runtime puts `conversationId` and `principalId` in the call's `_meta`. They are ids, never a token. The gateway reads them from `_meta` only: an `arguments` object that holds keys with those names is ignored, because the model sets `arguments` and the runtime sets `_meta`. The two keys are removed before the call is forwarded (unless `relayContext` is on). A call with no valid ids is refused without any request upstream.
+2. The gateway asks the credential broker for the person's token with `POST /internal/v1/lease` and `{conversationId, principalId, verifier}`. It proves who it is with its projected ServiceAccount token as bearer, read from `mcp.gateway.credential-broker.token-file` on every lease (the kubelet rotates it). The broker answers `{token, expiresAt}`, or 404 (no grant), 403 (the principal does not own the grant) or 410 (expired).
+3. The gateway opens a session on the server, makes the one call with `Authorization: Bearer <token>`, closes the session and drops the token. It caches nothing: the next call leases again. Redirects are not followed, so the token only goes to the endpoints named in the registration.
+4. The server's `authSecretRef` is used to list tools at registration and is never sent on a `tools/call` in this mode.
+
+When the server's endpoint answers 403, the gateway makes the same call on each `onForbidden` endpoint in turn, with the same token. A fallback endpoint that does not know the tool does not hide the refusal: if every endpoint refuses or does not know the tool, the tool result is the first refusal's own text, followed by a sentence that the person's account does not include the tool. For a library that offers a deep tool to some members and a search tool to every member, list the deep endpoint as the server and the search endpoint in `onForbidden`.
+
+### What the agent sees when there is no token
+
+Every failure is a tool result the agent can report. None is an exception, and none falls back to the server's registered credential.
+
+| Situation | Tool result |
+|-----------|-------------|
+| No grant, or the principal does not own it | This tool uses the asking person's own account and none is connected for this question. Connect your account and ask again |
+| The grant expired (410, or an `expiresAt` in the past) | Your sign-in expired. Sign in again and ask again |
+| The broker or the gateway's ServiceAccount token file is unreachable | Sign-in is unavailable right now. Ask again |
+| The server answers 401 to the token | The server rejected your sign-in. Connect your account again and ask again. No fallback endpoint is tried |
+| Every endpoint answers 403 | The server's refusal text, bounded to 300 characters |
+
+### Not built yet
+
+- On an upstream 401 the gateway does not yet tell the broker (`POST /internal/v1/lease/rejected`) to drop the grant, so later calls in the turn lease and try again.
+- The gateway does not remember that a person's account was refused on the server's own endpoint, so each call pays the refused request before the fallback.
+- Tool listing for a server with no registered credential is not lazy yet.
+
+### Where the token appears
+
+Nowhere except the one upstream request. It is not in a log line, an exception message, a trace attribute or a `toString`, and the lease response is read as bytes so that a codec cannot log it at TRACE. Refusal text from the server is scrubbed of the token before it is returned. The gateway's own ServiceAccount token is handled the same way. A pod that reads the gateway's memory could still see a token in flight, so keep the tokens short lived, as the broker does.
+
+| Property | Default | Meaning |
+|----------|---------|---------|
+| `mcp.gateway.credential-broker.url` | empty | The broker's base address; set from `CREDENTIAL_BROKER_URL` |
+| `mcp.gateway.credential-broker.token-file` | `/var/run/secrets/kubemoot/credential-broker/token` | The projected ServiceAccount token the gateway presents |
+| `mcp.gateway.credential-broker.timeout` | `3s` | How long a lease may take |
+| `mcp.gateway.credential-broker.call-timeout` | `2m` | Safety net for one upstream call made with a person's token |
 
 ## Connections to MCP servers
 

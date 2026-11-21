@@ -49,7 +49,8 @@ public class AdminController {
             request.url(),
             request.transport(),
             request.toolOverrides(),
-            request.auth()
+            request.auth(),
+            request.callerCredential()
         );
 
         return ResponseEntity.status(HttpStatus.CREATED).body(registration);

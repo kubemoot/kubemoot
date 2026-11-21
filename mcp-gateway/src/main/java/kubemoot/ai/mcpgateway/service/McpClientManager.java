@@ -20,6 +20,8 @@ import reactor.core.Disposable;
 import reactor.util.retry.Retry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import kubemoot.ai.mcpgateway.config.McpGatewayProperties;
+import kubemoot.ai.mcpgateway.model.CallerCredentialConfig;
+import kubemoot.ai.mcpgateway.model.CallerIdentity;
 import kubemoot.ai.mcpgateway.model.FeedbackEntry;
 import kubemoot.ai.mcpgateway.model.McpMessage;
 import kubemoot.ai.mcpgateway.model.ServerCredential;
@@ -86,6 +88,9 @@ public class McpClientManager {
     private final Map<String, WebClient> clients = new ConcurrentHashMap<>();
     // Header a server needs on every call, by server ID. In memory only, never listed or logged.
     private final Map<String, ServerCredential> credentials = new ConcurrentHashMap<>();
+    // Servers whose tools/call carries the asking person's own token (mode Required), by server ID
+    private final Map<String, CallerCredentialConfig> callerCredentials = new ConcurrentHashMap<>();
+    private final CallerCredentialCaller callerCredentialCaller;
     // Streamable-HTTP path per server ID, when the registered URL already ends in /mcp
     private final Map<String, String> mcpPaths = new ConcurrentHashMap<>();
     private final Map<String, List<ToolInfo>> serverTools = new ConcurrentHashMap<>();
@@ -115,6 +120,7 @@ public class McpClientManager {
         this.properties = properties;
         this.webClientBuilder = webClientBuilder;
         this.objectMapper = objectMapper;
+        this.callerCredentialCaller = new CallerCredentialCaller(properties, webClientBuilder, objectMapper);
     }
 
     @PostConstruct
@@ -158,7 +164,14 @@ public class McpClientManager {
 
     public ServerRegistration registerServer(String name, String url, String transport,
                                              List<ToolOverride> toolOverrides, ServerCredential credential) {
+        return registerServer(name, url, transport, toolOverrides, credential, null);
+    }
+
+    public ServerRegistration registerServer(String name, String url, String transport,
+                                             List<ToolOverride> toolOverrides, ServerCredential credential,
+                                             CallerCredentialConfig callerCredential) {
         List<ToolOverride> overrides = toolOverrides == null ? List.of() : toolOverrides;
+        requireHttpForPerPerson(transport, callerCredential);
         // Check if a server with the same name already exists
         ServerRegistration existing = findServerByName(name);
         if (existing != null) {
@@ -172,6 +185,9 @@ public class McpClientManager {
                     log.info("Server {} tool overrides changed", name);
                     ToolOverrides.warnUnmatched(getToolsForServer(existing.id()), overrides, name);
                 }
+                if (callerCredential != null) {
+                    setCallerCredential(existing.id(), callerCredential);
+                }
                 reconcileRegisteredServer(existing);
                 return existing;
             } else {
@@ -184,6 +200,7 @@ public class McpClientManager {
         log.info("Registering new MCP server: {} at {}", name, url);
         ServerRegistration registration = ServerRegistration.create(name, url, transport);
         setOverrides(registration.id(), overrides, name);
+        setCallerCredential(registration.id(), callerCredential);
         if (credential != null) {
             credentials.put(registration.id(), credential);
         }
@@ -377,6 +394,7 @@ public class McpClientManager {
         servers.remove(serverId);
         clients.remove(serverId);
         credentials.remove(serverId);
+        callerCredentials.remove(serverId);
         mcpPaths.remove(serverId);
         serverTools.remove(serverId);
         serverOverrides.remove(serverId);
@@ -992,17 +1010,52 @@ public class McpClientManager {
      * rule's message as a tool error and is not forwarded.
      */
     public Mono<McpMessage> forwardRequest(String serverId, McpMessage original) {
+        return forwardRequest(serverId, original, null);
+    }
+
+    /**
+     * As {@link #forwardRequest(String, McpMessage)}, for a call made for the person {@code caller}
+     * names. A tools/call to a server in caller-credential mode Required is made with that
+     * person's own leased token by {@link CallerCredentialCaller}, never with the server's registered
+     * credential, and is refused without an upstream call when there is no lease.
+     */
+    public Mono<McpMessage> forwardRequest(String serverId, McpMessage original, CallerIdentity caller) {
         McpMessage refusal = refuseBrokenRule(serverId, original);
         if (refusal != null) {
             return Mono.just(refusal);
         }
         McpMessage request = ToolArgumentCoercion.coerceCall(original, serverTools.get(serverId));
+        CallerCredentialConfig perPerson = callerCredentials.get(serverId);
+        ServerRegistration target = servers.get(serverId);
+        if (perPerson != null && target != null && "tools/call".equals(request.method())) {
+            return callerCredentialCaller.call(callEndpoint(target), perPerson, request, caller);
+        }
         Object callerId = request.id();
         if (callerId == null) {
             return forwardRequestInternal(serverId, request, true);
         }
         return forwardRequestInternal(serverId, request.withId(upstreamIds.incrementAndGet()), true)
             .map(reply -> reply.withId(callerId));
+    }
+
+    /** The streamable-HTTP endpoint of a server, as the shared client reaches it: the URL when it ends in /mcp, else with /mcp added. */
+    private static String callEndpoint(ServerRegistration server) {
+        String url = server.url();
+        return MCP_URL_ENDING.matcher(url).matches() ? url : url.replaceAll("/+$", "") + "/mcp";
+    }
+
+    private static void requireHttpForPerPerson(String transport, CallerCredentialConfig config) {
+        if (config != null && config.required() && !isStreamableHttp(transport)) {
+            throw new IllegalArgumentException("callerCredential mode Required needs transport http");
+        }
+    }
+
+    private void setCallerCredential(String serverId, CallerCredentialConfig config) {
+        if (config != null && config.required()) {
+            callerCredentials.put(serverId, config);
+        } else {
+            callerCredentials.remove(serverId);
+        }
     }
 
     /** The tool error for a tools/call that breaks an argument rule of the server, else null. */
