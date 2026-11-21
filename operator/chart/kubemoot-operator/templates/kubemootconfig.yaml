@@ -38,6 +38,9 @@ spec:
     {{- end }}
     vectorStoreType: {{ .Values.kubemootConfig.defaults.vectorStoreType | quote }}
     embeddingModel: {{ .Values.kubemootConfig.defaults.embeddingModel | quote }}
+    {{- with .Values.kubemootConfig.defaults.agentRuntimeClassName }}
+    agentRuntimeClassName: {{ . | quote }}
+    {{- end }}
     {{- if or .Values.kubemootConfig.defaults.scheduler (and .Values.placementService.enabled .Values.placementService.agentsUse) }}
     scheduler:
       {{- $sched := .Values.kubemootConfig.defaults.scheduler | default dict }}
