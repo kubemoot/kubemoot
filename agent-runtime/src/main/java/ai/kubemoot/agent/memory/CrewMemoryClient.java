@@ -270,15 +270,7 @@ public class CrewMemoryClient {
                 }
             }
             String now = Instant.now().toString();
-            ObjectNode v = objectMapper.createObjectNode();
-            v.put(F_VALUE, newVal);
-            v.put(F_LEARNED_BY, learnedBy == null ? "" : learnedBy);
-            if (learnedInThread != null && !learnedInThread.isBlank()) {
-                v.put(F_LEARNED_IN_THREAD, learnedInThread);
-            }
-            v.put(F_LEARNED_AT, now);
-            v.put(F_USED_AT, now);
-            kv.put(nk, objectMapper.writeValueAsBytes(v));
+            kv.put(nk, factJson(newVal, learnedBy, learnedInThread, now, now));
             enforceCap(kv);
         } catch (Exception e) {
             log.debug("Failed to remember {}/{}: {}", topic, key, LogContent.reason(e));
@@ -293,18 +285,24 @@ public class CrewMemoryClient {
 
     // --- internals ---
 
+    /** A stored fact's JSON; the learned-in thread is written only when known. */
+    private byte[] factJson(String value, String learnedBy, String learnedInThread, String learnedAt, String usedAt)
+            throws java.io.IOException {
+        ObjectNode v = objectMapper.createObjectNode();
+        v.put(F_VALUE, value);
+        v.put(F_LEARNED_BY, learnedBy == null ? "" : learnedBy);
+        if (learnedInThread != null && !learnedInThread.isBlank()) {
+            v.put(F_LEARNED_IN_THREAD, learnedInThread);
+        }
+        v.put(F_LEARNED_AT, learnedAt);
+        v.put(F_USED_AT, usedAt);
+        return objectMapper.writeValueAsBytes(v);
+    }
+
     /** Refresh a fact's usedAt (LRU touch) without changing its value/provenance. */
     private void touch(KeyValue kv, Fact f) {
         try {
-            ObjectNode v = objectMapper.createObjectNode();
-            v.put(F_VALUE, f.value);
-            v.put(F_LEARNED_BY, f.learnedBy);
-            if (!f.learnedInThread.isEmpty()) {
-                v.put(F_LEARNED_IN_THREAD, f.learnedInThread);
-            }
-            v.put(F_LEARNED_AT, f.learnedAt);
-            v.put(F_USED_AT, Instant.now().toString());
-            kv.put(f.natsKey, objectMapper.writeValueAsBytes(v));
+            kv.put(f.natsKey, factJson(f.value, f.learnedBy, f.learnedInThread, f.learnedAt, Instant.now().toString()));
         } catch (Exception e) {
             log.debug("Failed to touch crew-memory key {}: {}", f.natsKey, LogContent.reason(e));
         }
