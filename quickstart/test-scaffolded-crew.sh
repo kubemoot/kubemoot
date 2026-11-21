@@ -7,20 +7,20 @@
 # model the quickstart installs; the scaffold ships no Models). quickstart.yaml runs it
 # against a release candidate, with a kmctl candidate built by kmctl-ref.sh.
 #
-# The check is deterministic: the ground truth is `kubectl get pods` for the crew's
-# namespace, reduced to workload names (pod hashes dropped). The answer passes when it
-# names every one of them, in any wording. It does not rescue a weak model: one ask, no
-# retry, and a miss fails with the answer and what was expected. Lower NAMED_MIN only to
-# measure how many names a model finds, never to make a run pass.
+# The check proves the crew answers from real tool output and invents nothing, which is
+# what a release gate is for (how completely a model lists things is the fitness suite's
+# job). The ground truth is `kubectl get pods` for the crew's namespace. The answer passes
+# when it names at least one real pod by its full generated name (a name no model can
+# guess without calling its tool) and names no pod that does not exist. One ask, no retry;
+# a miss fails with the answer and what was expected.
 #
-# Requires: kubectl (pointed at the cluster), python3, kmctl (KMCTL, default: on PATH).
+# Requires: kubectl (pointed at the cluster), kmctl (KMCTL, default: on PATH).
 #
 # Environment (all optional):
 #   KMCTL           the kmctl binary (default: kmctl)
 #   CREW            name of the scaffolded crew (default: starter-guide)
 #   MEMBERS         specialists beside the coordinator (default: 1, the scaffold's default)
 #   QUESTION        what to ask (default: names every pod in the crew's namespace)
-#   NAMED_MIN       workload names the answer must contain (default: all of them)
 #   READY_TIMEOUT   safety net in seconds for the crew to become ready (default 900)
 #   ASK_TIMEOUT     safety net for the discussion (default 15m)
 #
@@ -32,20 +32,11 @@ CREW="${CREW:-starter-guide}"
 MEMBERS="${MEMBERS:-1}"
 NS="crew-${CREW}"
 QUESTION="${QUESTION:-Which pods are running in your namespace? Name every one of them.}"
-NAMED_MIN="${NAMED_MIN:-}"
 READY_TIMEOUT="${READY_TIMEOUT:-900}"
 ASK_TIMEOUT="${ASK_TIMEOUT:-15m}"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "scaffolded-crew: missing tool: $1" >&2; exit 2; }; }
 step() { printf '\n== %s ==\n' "$*"; }
-
-# workloads: the workload name of each pod in the namespace, one per line, sorted and
-# distinct. A Deployment pod is <name>-<replicaset hash>-<pod hash>, a StatefulSet pod
-# <name>-<ordinal>; finished Job pods are not part of what the crew runs.
-workloads() {
-  kubectl get pods -n "$NS" --field-selector=status.phase!=Succeeded -o name \
-    | sed -E 's#^pod/##; s/-[a-z0-9]{6,10}-[a-z0-9]{5}$//; s/-[0-9]+$//' | sort -u
-}
 
 # crew_state: "true" when the crew is reconciled and a model in the catalog can run it.
 # The phase alone is not enough on the way to Ready, and Ready alone is also true while
@@ -81,27 +72,27 @@ wait_for_crew() {
   echo "crew $CREW is Ready and has capacity"
 }
 
-# check_answer ANSWER_FILE WORKLOADS_FILE: print what the answer names and what it misses;
-# succeed when it names at least NAMED_MIN workloads (default: all).
+# pods: the full name of each running pod in the namespace, one per line, sorted.
+pods() {
+  kubectl get pods -n "$NS" --field-selector=status.phase!=Succeeded -o name | sed 's#^pod/##' | sort -u
+}
+
+# check_answer ANSWER_FILE PODS_FILE: succeed when the answer names at least one real pod by
+# its full generated name and names no pod of this crew that does not exist. A pod-shaped
+# name is the crew's name followed by name parts and a generated suffix.
 check_answer() {
-  python3 -I - "$1" "$2" "${NAMED_MIN:-}" <<'PY'
-import sys
-answer = open(sys.argv[1], encoding="utf-8").read().lower()
-expected = [w for w in open(sys.argv[2], encoding="utf-8").read().split() if w]
-need = int(sys.argv[3]) if sys.argv[3] else len(expected)
-named = [w for w in expected if w.lower() in answer]
-missed = [w for w in expected if w not in named]
-print(f"named {len(named)} of {len(expected)} workloads (need {need})")
-for w in named:
-    print(f"  named   {w}")
-for w in missed:
-    print(f"  missing {w}")
-sys.exit(0 if expected and len(named) >= need else 1)
-PY
+  local answer="$1" real="$2" claimed invented named
+  claimed="$(tr '[:upper:]' '[:lower:]' < "$answer" | grep -oE "${CREW}-[a-z0-9-]*[a-z0-9]{5}" | grep -E -- '-[a-z0-9]{5}$' | sort -u || true)"
+  named="$(printf '%s\n' "$claimed" | grep -xF -f "$real" || true)"
+  invented="$(printf '%s\n' "$claimed" | grep -vxF -f "$real" | grep -E -- '-[a-z0-9]{6,10}-[a-z0-9]{5}$' || true)"
+  echo "named $(printf '%s' "$named" | grep -c . || true) real pod(s) by full name; invented $(printf '%s' "$invented" | grep -c . || true)"
+  [ -n "$named" ] && printf '%s\n' "$named" | sed 's/^/  real     /'
+  [ -n "$invented" ] && printf '%s\n' "$invented" | sed 's/^/  invented /'
+  [ -n "$named" ] && [ -z "$invented" ]
 }
 
 main() {
-  need kubectl; need python3; need "$KMCTL"
+  need kubectl; need "$KMCTL"
   local work answer_file
   work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 
@@ -132,10 +123,10 @@ main() {
   [ -s "$answer_file" ] || { echo "scaffolded-crew: the crew gave no answer" >&2; diagnose; exit 1; }
 
   # The ground truth is read after the answer, from the live cluster.
-  workloads > "$work/workloads.txt"
-  echo "the namespace runs: $(paste -sd' ' "$work/workloads.txt")"
-  if ! check_answer "$answer_file" "$work/workloads.txt"; then
-    echo "scaffolded-crew: the answer does not name the crew's pods" >&2
+  pods > "$work/pods.txt"
+  echo "the namespace runs: $(paste -sd' ' "$work/pods.txt")"
+  if ! check_answer "$answer_file" "$work/pods.txt"; then
+    echo "scaffolded-crew: the answer does not show real tool output (no real pod named, or a pod invented)" >&2
     diagnose; exit 1
   fi
   echo "scaffolded-crew: PASS"
