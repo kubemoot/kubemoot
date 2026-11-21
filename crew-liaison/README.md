@@ -30,6 +30,7 @@ past two minutes into a background task, so the chain of polls runs unattended.
 
 - `POST /mcp`: MCP over Streamable HTTP, stateless, JSON responses.
 - `GET /health`, `GET /ready`.
+- With sign-in enabled: `GET /.well-known/oauth-protected-resource/mcp`, `GET /.well-known/oauth-authorization-server`, `POST /oauth/register`, `GET /oauth/authorize`, `GET /oauth/callback`, `POST /oauth/token`.
 
 ## Configuration (environment)
 
@@ -38,6 +39,7 @@ past two minutes into a background task, so the chain of polls runs unattended.
 | `PORT` | `8080` | listen port |
 | `LIAISON_TOKEN` | empty | when set, `/mcp` requires `Authorization: Bearer <token>`; leave empty when an edge (for example Cloudflare Access) authenticates |
 | `LIAISON_OPERATOR_REPORT_URL` | empty | the operator's report service, which builds conversation exports; without it `export_conversation` answers that export is not configured. The chart sets it |
+| `LIAISON_SIGNIN_UPSTREAM` and friends | empty | turns on the stateless OAuth sign-in front (`/.well-known/*`, `/oauth/*`); see "The sign-in front" in `docs/integrations/signing-in.md` for `LIAISON_SIGNIN_UPSTREAM_TOKEN_URL`, `_UPSTREAM_CLIENT_ID`, `_UPSTREAM_SCOPES`, `_PUBLIC_URL`, `_SEAL_KEYS`, `_SEAL_KEYS_FILE`, `_ALLOWED_REDIRECT_HOSTS` |
 | `LIAISON_MAX_INFLIGHT` | `4` | discussions in flight at once; every question spends GPU time |
 | `LIAISON_TICKET_TTL_MINUTES` | `60` | how long a settled ticket stays retrievable |
 

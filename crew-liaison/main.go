@@ -18,7 +18,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"github.com/go-logr/logr"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/liaison"
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/signin"
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
@@ -54,9 +56,15 @@ func main() {
 		svc.WithExporter(liaison.NewExporter(reportURL))
 	}
 
+	front, err := signInFront(log)
+	if err != nil {
+		log.Error(err, "sign-in front")
+		os.Exit(1)
+	}
+
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           liaison.NewHandlerWithAuth(svc, token, auth),
+		Handler:           liaison.NewHandlerWithFront(svc, token, auth, front),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
@@ -66,7 +74,8 @@ func main() {
 	go sweep(ctx, tickets)
 	go func() {
 		log.Info("crew liaison listening",
-			"port", port, "maxInflight", maxInflight, "auth", token != "", "kubernetesTokens", auth.Enforcing(),
+			"port", port, "maxInflight", maxInflight, "auth", token != "",
+			"kubernetesTokens", auth.Enforcing(), "signIn", front != nil,
 			"version", liaison.Version)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error(err, "server")
@@ -119,4 +128,21 @@ func callerAuthenticator() (*identity.Authenticator, error) {
 		return kubernetes.NewForConfig(cfg)
 	})
 	return settings.Authenticator, err
+}
+
+// signInFront builds the OAuth sign-in front from LIAISON_SIGNIN_* settings. It returns nil
+// when LIAISON_SIGNIN_UPSTREAM is not set, which leaves the liaison without a sign-in.
+func signInFront(log logr.Logger) (*liaison.SignInFront, error) {
+	cfg, err := signin.ConfigFromEnv(os.Getenv, nil)
+	if err != nil || cfg == nil {
+		return nil, err
+	}
+	cfg.Logger = log.WithName("signin")
+	front, err := signin.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &liaison.SignInFront{
+		Handler: front.Handler(), ResourceMetadataURL: signin.ResourceMetadataURL(cfg.PublicURL),
+	}, nil
 }

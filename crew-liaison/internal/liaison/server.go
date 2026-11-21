@@ -55,11 +55,32 @@ func NewHandler(svc *Service, token string) http.Handler {
 // NewHandlerWithAuth is NewHandler with an authenticator that verifies callers' Kubernetes
 // tokens. A nil or non-enforcing authenticator leaves the door as NewHandler makes it.
 func NewHandlerWithAuth(svc *Service, token string, auth *identity.Authenticator) http.Handler {
+	return NewHandlerWithFront(svc, token, auth, nil)
+}
+
+// SignInFront is a sign-in front mounted beside the door: its routes, and the address of
+// the protected-resource metadata that a 401 on /mcp points the app to.
+type SignInFront struct {
+	Handler             http.Handler
+	ResourceMetadataURL string
+}
+
+// NewHandlerWithFront is NewHandlerWithAuth with a sign-in front (nil for none). The front
+// answers the metadata documents and the /oauth routes; the door's 401 names its metadata.
+func NewHandlerWithFront(svc *Service, token string, auth *identity.Authenticator, front *SignInFront) http.Handler {
+	metadataURL := ""
+	if front != nil {
+		metadataURL = front.ResourceMetadataURL
+	}
 	server := NewMCPServer(svc)
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", requireCaller(token, auth, mcpHandler))
+	mux.Handle("/mcp", requireCaller(token, auth, metadataURL, mcpHandler))
+	if front != nil {
+		mux.Handle("/.well-known/", front.Handler)
+		mux.Handle("/oauth/", front.Handler)
+	}
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, "ok") })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, "ready") })
 	return mux
@@ -67,7 +88,7 @@ func NewHandlerWithAuth(svc *Service, token string, auth *identity.Authenticator
 
 // requireBearer gates next behind a static bearer token; an empty token disables the gate
 // (for installs that authenticate at the edge, for example a Cloudflare Access front door).
-func requireBearer(token string, next http.Handler) http.Handler {
+func requireBearer(token, metadataURL string, next http.Handler) http.Handler {
 	if token == "" {
 		return next
 	}
@@ -75,7 +96,7 @@ func requireBearer(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got := []byte(strings.TrimSpace(r.Header.Get("Authorization")))
 		if subtle.ConstantTimeCompare(got, want) != 1 {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="kubemoot-crew-liaison"`)
+			w.Header().Set("WWW-Authenticate", withMetadata(`Bearer realm="kubemoot-crew-liaison"`, metadataURL))
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
