@@ -45,7 +45,8 @@ type CheckOut struct {
 // staged under /kubemoot/workspace) and what the program cannot reach, so a model does not
 // expect the sandbox to fetch data.
 const executeCodeDescription = "Run a short program and return its stdout, stderr, and exit code. " +
-	"Python 3 with the standard library only, or bash. " +
+	"Python 3 with the standard library only, or bash with coreutils, " +
+	"including date and the time zone database for time-zone conversion and date arithmetic. " +
 	"It computes over data you put in the code or over the files other agents stored in this discussion, " +
 	"which are staged under /kubemoot/workspace. " +
 	"It cannot fetch data: no network, no cluster API, no kubectl, and no credentials. " +
