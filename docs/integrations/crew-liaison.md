@@ -69,7 +69,18 @@ By default the liaison accepts every caller that presents the shared token (or a
 - The caller's token is passed to the crew's discussion gateway on the question and on the stream, so the gateway, not the liaison, decides what that caller may see. The liaison's shared token is never passed on, and a caller who presents it is anonymous.
 - A ticket belongs to the caller who asked. `get_answer` and a retry through `ask` answer only for the same principal; another caller gets "unknown or expired ticket".
 - A caller with no token is refused, unless `liaison.auth.allowAnonymous` is `true`. A token that is present and not valid is always refused, and when a shared token is also configured a request that presents nothing is refused even with `allowAnonymous`.
-- The caller's token is held in memory for the life of the discussion the liaison follows for it (at most thirty minutes) and is never stored.
+- The caller's token is handed to the background follower only to open the discussion's stream. Once the stream is open the follower holds no token, so the liaison keeps none while the discussion runs. It is never stored, logged or put in a trace.
+
+### A person's own token
+
+When the liaison has service token verifiers (`ACCESS_SERVICE_TOKENS`, with the install's `ACCESS_HASH_KEY`, the same settings a crew's gateway reads), a person's own token for a service the crew trusts is accepted at `/mcp` when that service accepts it:
+
+- The ticket belongs to the person the service named, by the same hashed id the gateway uses. Nobody else can read it.
+- A Kubernetes token is checked first and is never sent to a service.
+- The token goes to the crew's gateway on the question and on the stream. The gateway keeps it in memory for the turn when the crew's verifier passes tokens to tools.
+- A chat app refreshes the person's token on its own, so each `get_answer` carries the current one. When it differs from the last one the liaison sent for that ticket, the liaison sends it to the gateway's credential route for that conversation, and the gateway replaces the held token after checking the caller owns the conversation. A token the gateway accepted is not sent again, renewals for one ticket go one at a time, and a ticket that already has its answer is not renewed. If a renewal fails the next poll tries again; the answer does not depend on it.
+- For each ticket the liaison remembers only a keyed fingerprint of the last token sent, never the token.
+- A request with no token, or a token the service refuses, gets 401 with a challenge that names the sign-in front's metadata when the front is on. A service that cannot be asked gets 503, never an allow.
 
 The liaison and the gateway are two doors to one crew and share one definition of who is asking (see [Who is asking](../../concepts/who-is-asking/)). Turn on `spec.discussion.access` on the crew as well: a crew that verifies callers refuses the liaison's questions when the liaison sends no token.
 

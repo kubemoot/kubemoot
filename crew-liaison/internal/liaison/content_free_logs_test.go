@@ -32,9 +32,8 @@ func capturedLogs() string {
 	return logLines.String()
 }
 
-// A question is asked and its discussion stream is refused. The liaison logs the ticket and the
-// crew; the question, and a refusal body that quotes it with a secret, stay out of the log.
-func TestTheLiaisonsLogsCarryNoQuestionOrSecret(t *testing.T) {
+// captureLogs sends the liaison's log lines to capturedLogs, once for the test binary.
+func captureLogs() {
 	logOnce.Do(func() {
 		logf.SetLogger(funcr.New(func(_, args string) {
 			logMu.Lock()
@@ -42,6 +41,12 @@ func TestTheLiaisonsLogsCarryNoQuestionOrSecret(t *testing.T) {
 			logLines.WriteString(args + "\n")
 		}, funcr.Options{Verbosity: 5}))
 	})
+}
+
+// A question is asked and its discussion stream is refused. The liaison logs the ticket and the
+// crew; the question, and a refusal body that quotes it with a secret, stay out of the log.
+func TestTheLiaisonsLogsCarryNoQuestionOrSecret(t *testing.T) {
+	captureLogs()
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/discussions/{crew}", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, `{"conversationId":"conv-42"}`)

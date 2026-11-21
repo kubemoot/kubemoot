@@ -95,15 +95,21 @@ func (g *Gateway) Start(ctx context.Context, namespace, crew, question, timeZone
 }
 
 // Follow reads the discussion's event stream and hands each event to onEvent until
-// the stream ends, ctx is done, or onEvent returns false.
-func (g *Gateway) Follow(ctx context.Context, namespace, crew, conversation string, onEvent func(Event) bool) error {
+// the stream ends, ctx is done, or onEvent returns false. The caller's token comes in
+// credential (nil for none) and is taken from it to open the stream, so nothing in the
+// follower holds it once the stream is open.
+func (g *Gateway) Follow(
+	ctx context.Context, namespace, crew, conversation string, credential *handoff, onEvent func(Event) bool,
+) error {
 	url := g.baseURL(namespace, crew) + "/" + conversation + "/stream"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	presentCredential(req)
+	if token := credential.take(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	resp, err := g.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("crew %s/%s stream unreachable: %w", namespace, crew, err)

@@ -197,6 +197,7 @@ func (s *Service) GetAnswer(
 	if !ok || !ticket.OwnedBy(ownerOf(ctx)) {
 		return toolError("unknown or expired ticket; ask again"), GetAnswerOutput{}, nil
 	}
+	s.renew(ctx, ticket)
 	s.wait(ctx, ticket, waitFor(in.WaitSeconds))
 	return nil, GetAnswerOutput{TicketView: ticket.Snapshot(), Hint: hintFor(ticket)}, nil
 }
@@ -227,19 +228,17 @@ func (s *Service) start(ctx context.Context, crew Crew, question, timeZone strin
 		return nil, err
 	}
 	ticket := s.tickets.Create(crew.Name, crew.Namespace, conversation, question, ownerOf(ctx))
-	go s.follow(ticket, credentialFrom(ctx))
+	s.recordStartCredential(ctx, ticket)
+	go s.follow(ticket, newHandoff(credentialFrom(ctx)))
 	return ticket, nil
 }
 
 // follow consumes the discussion stream until the synthesis, then frees the slot.
-func (s *Service) follow(ticket *Ticket, credential string) {
+func (s *Service) follow(ticket *Ticket, credential *handoff) {
 	defer func() { <-s.inflight }()
 	ctx, cancel := context.WithTimeout(context.Background(), followDeadline)
 	defer cancel()
-	if credential != "" {
-		ctx = withCredential(ctx, credential)
-	}
-	err := s.gateway.Follow(ctx, ticket.Namespace, ticket.Crew, ticket.Conversation, func(ev Event) bool {
+	err := s.gateway.Follow(ctx, ticket.Namespace, ticket.Crew, ticket.Conversation, credential, func(ev Event) bool {
 		return s.apply(ticket, ev)
 	})
 	if err != nil {
