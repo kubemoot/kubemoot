@@ -74,6 +74,9 @@ type MemoryExt struct {
 	Key       string `json:"key"`
 	// UsedAt is when the fact was last read; it drives eviction and expiry.
 	UsedAt string `json:"usedAt,omitempty"`
+	// LearnedInThread is the discussion thread the fact was learned in, which
+	// names the conversation. Left out for a fact written before it was recorded.
+	LearnedInThread string `json:"learnedInThread,omitempty"`
 	// EvidenceUnavailable says the fact rests on something the store does not
 	// record (section 3.1.4): the memory carries no evidence because none exists.
 	EvidenceUnavailable bool `json:"evidenceUnavailable"`

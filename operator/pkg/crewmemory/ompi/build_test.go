@@ -440,3 +440,29 @@ func TestUnreadableEntryWithACredentialKeyIsListedByOpaqueId(t *testing.T) {
 		t.Errorf("report %+v holds the secret", o)
 	}
 }
+
+func TestMemoryCarriesTheThreadItWasLearnedIn(t *testing.T) {
+	f := fact("t", "k", "v")
+	f.LearnedInThread = "th-1"
+	m := buildExport(t, f).Memories[0]
+	if m.Extension.LearnedInThread != "th-1" {
+		t.Errorf("learnedInThread = %q, want th-1", m.Extension.LearnedInThread)
+	}
+	if err := ValidateMemory([]byte(mustJSON(t, m))); err != nil {
+		t.Errorf("a memory with a thread fails the validator: %v", err)
+	}
+	if !strings.Contains(mustJSON(t, m), `"learnedInThread": "th-1"`) {
+		t.Errorf("learnedInThread not in %s", mustJSON(t, m))
+	}
+}
+
+func TestFactWithoutAThreadOmitsTheField(t *testing.T) {
+	m := buildExport(t, fact("t", "k", "v")).Memories[0]
+	data := mustJSON(t, m)
+	if strings.Contains(data, "learnedInThread") {
+		t.Errorf("learnedInThread present for a fact with no thread: %s", data)
+	}
+	if err := ValidateMemory([]byte(data)); err != nil {
+		t.Errorf("a memory without a thread fails the validator: %v", err)
+	}
+}

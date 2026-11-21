@@ -272,10 +272,17 @@ func TestMemoryPartIsTheFilesTheMemoryExportWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	files, _ := exportOne(t, builderWith(fakeSource{convID: fullHeld()}, crewMemory()), Options{})
+	threaded := 0
 	for name, body := range want {
 		if !bytes.Equal(files["memory/"+name], body) {
 			t.Errorf("memory/%s differs from the memory export's file", name)
 		}
+		if strings.HasPrefix(name, "memories/") && strings.Contains(string(body), `"learnedInThread": "`+thread1+`"`) {
+			threaded++
+		}
+	}
+	if threaded != 1 {
+		t.Errorf("%d memory files name the thread %s, want 1", threaded, thread1)
 	}
 }
 
