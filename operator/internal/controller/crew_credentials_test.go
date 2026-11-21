@@ -43,6 +43,7 @@ const (
 	credVerifyURL      = "https://api.example.com/mcp"
 	credExternalURL    = "http://external:9000"
 	credNamespace      = "default"
+	credTeamLabel      = "team"
 	credKubernetesName = "kubernetes"
 	credVerifier       = "oreilly"
 	credHashKey        = "install-hash"
@@ -314,7 +315,7 @@ var _ = Describe("Each person's own access: operator wiring", func() {
 			crew := crewOf("c6", tokenAccess(true))
 			create(crew)
 			gw := gatewayOf("tools")
-			gw.Spec.MCPServerSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"team": "a"}}
+			gw.Spec.MCPServerSelector = &metav1.LabelSelector{MatchLabels: map[string]string{credTeamLabel: "a"}}
 			create(gw)
 			create(requiredServer(ns))
 			Expect(condition(crewReconciler(), crew)).To(BeNil())
