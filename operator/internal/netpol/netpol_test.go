@@ -162,11 +162,40 @@ func TestBaseline(t *testing.T) {
 	eq(t, "deny types", deny.Spec.PolicyTypes, []networkingv1.PolicyType{networkingv1.PolicyTypeIngress})
 	eq(t, "internal name", internal.Name, "km-crew-internal")
 	eq(t, "internal peers: the namespace, the operator namespace, the scraper", len(internal.Spec.Ingress[0].From), 3)
-	eq(t, "internal leaves tool servers and gateways to their own policies", internal.Spec.PodSelector.MatchExpressions,
+	eq(t, "internal leaves tool servers, gateways and a token-keeping discussion gateway to their own policies",
+		internal.Spec.PodSelector.MatchExpressions,
 		[]metav1.LabelSelectorRequirement{{
 			Key: labelComponent, Operator: metav1.LabelSelectorOpNotIn,
 			Values: []string{ComponentMCPServer, ComponentMCPGateway},
-		}})
+		}, {Key: LabelCredentialLease, Operator: metav1.LabelSelectorOpDoesNotExist}})
+}
+
+func TestDiscussionGatewayLeaseIngressAdmitsOnlyTheToolGatewayToTheLeasePort(t *testing.T) {
+	cfg := testConfig()
+	cfg.Metrics = PodRef{Namespace: testScraperNS, Labels: map[string]string{"app": "prom"}}
+	objs := DiscussionGatewayLeaseIngress(cfg, testPilot, testNS)
+	eq(t, "one policy", len(objs), 1)
+	p := asPolicy(t, objs[0])
+	eq(t, "name", p.Name, "km-crew-pilot-gateway-lease")
+	eq(t, "selector", p.Spec.PodSelector.MatchLabels,
+		map[string]string{labelComponent: ComponentDiscussionGateway, LabelCrew: testPilot})
+	lease := p.Spec.Ingress[0]
+	eq(t, "lease port", lease.Ports[0].Port.IntVal, int32(DiscussionGatewayLeasePort))
+	eq(t, "only tool gateway pods", lease.From,
+		[]networkingv1.NetworkPolicyPeer{{PodSelector: podsWith(map[string]string{labelComponent: ComponentMCPGateway})}})
+	for _, rule := range p.Spec.Ingress[1:] {
+		for _, port := range rule.Ports {
+			if port.Port.IntVal == DiscussionGatewayLeasePort {
+				t.Fatalf("the lease port is open to a second rule: %+v", rule)
+			}
+		}
+	}
+	eq(t, "serving port peers: namespace, operator namespace, scraper", len(p.Spec.Ingress[1].From), 3)
+	eq(t, "serving port", p.Spec.Ingress[1].Ports[0].Port.IntVal, int32(DiscussionGatewayPort))
+}
+
+func TestDiscussionGatewayLeaseIngressIsOffWithIngressPolicies(t *testing.T) {
+	eq(t, "no policy", len(DiscussionGatewayLeaseIngress(Config{}, testPilot, testNS)), 0)
 }
 
 // A RAGSource's query service pod (component query-service) is neither a tool server nor a

@@ -128,6 +128,71 @@ type RegistryConfig struct {
 	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9!#$%&'*+.^_|~-]+$`
 	// +optional
 	AuthHeader string `json:"authHeader,omitempty"`
+
+	// CallerCredential makes a call to this server carry the token of the person who asked,
+	// instead of the server's own credential. Unset, or mode Off, the server's own credential
+	// is used as before.
+	// +optional
+	CallerCredential *CallerCredential `json:"callerCredential,omitempty"`
+}
+
+// CallerCredentialMode says whose credential a tool call to a server carries.
+// +kubebuilder:validation:Enum=Off;Required
+type CallerCredentialMode string
+
+const (
+	// CallerCredentialOff sends the server's own registered credential, as always.
+	CallerCredentialOff CallerCredentialMode = "Off"
+	// CallerCredentialRequired sends the asking person's token and nothing else: with no
+	// token for the turn the call fails, and the server's own credential is used only to
+	// list tools.
+	CallerCredentialRequired CallerCredentialMode = "Required"
+)
+
+// CallerCredential configures a server's per-person credential. A crew whose discussion
+// gateway has a serviceTokens verifier with passToTools holds the token; the MCP gateway
+// leases it for each call.
+// +kubebuilder:validation:XValidation:rule="self.mode != 'Required' || (has(self.verifier) && size(self.verifier) > 0)",message="verifier is required when mode is Required"
+type CallerCredential struct {
+	// Mode is Off (the default) or Required.
+	// +kubebuilder:default=Off
+	// +optional
+	Mode CallerCredentialMode `json:"mode,omitempty"`
+
+	// Verifier is the name of the crew's serviceTokens entry whose people's tokens this
+	// server takes. Required when mode is Required.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`
+	// +optional
+	Verifier string `json:"verifier,omitempty"`
+
+	// LeaseURL is the credential broker's lease endpoint for this server. Empty uses the
+	// address the operator sets on the MCP gateway, which is the crew's discussion gateway.
+	// +kubebuilder:validation:Pattern=`^https?://[^\s/]+(/\S*)?$`
+	// +optional
+	LeaseURL string `json:"leaseUrl,omitempty"`
+
+	// OnForbidden are endpoints tried in order, with the same token, when the server's own
+	// endpoint answers 403 to the person (for example a plan without the entitlement). Each
+	// receives the person's token, so each must be https; plain http is allowed only for
+	// localhost, 127.0.0.0/8 and ::1.
+	// +kubebuilder:validation:MaxItems=4
+	// +kubebuilder:validation:items:MaxLength=512
+	// +kubebuilder:validation:items:XValidation:rule="self.startsWith('https://') || self.matches('^http://(localhost|127([.][0-9]{1,3}){3}|[[]::1[]])([:/]|$)')",message="onForbidden endpoints must be https (http only for loopback)"
+	// +optional
+	OnForbidden []string `json:"onForbidden,omitempty"`
+
+	// RelayContext keeps conversationId and principalId in the call's _meta when the gateway
+	// forwards it, for a tool server that calls back through the gateway. Default false: the
+	// gateway removes them.
+	// +kubebuilder:default=false
+	// +optional
+	RelayContext bool `json:"relayContext,omitempty"`
+
+	// AccountName is how a refusal names the account to connect, for example "O'Reilly".
+	// Empty uses the verifier name.
+	// +kubebuilder:validation:MaxLength=64
+	// +optional
+	AccountName string `json:"accountName,omitempty"`
 }
 
 // ToolParameterOverride changes what agents see and send for one tool parameter: its
@@ -231,6 +296,7 @@ const (
 
 // MCPServerSpec defines the desired state of MCPServer
 // +kubebuilder:validation:XValidation:rule="(has(self.image) ? 1 : 0) + (has(self.externalEndpoint) ? 1 : 0) + (has(self.kubemootImage) ? 1 : 0) <= 1",message="image, externalEndpoint, and kubemootImage are mutually exclusive, set only one"
+// +kubebuilder:validation:XValidation:rule="!has(self.registry) || !has(self.registry.callerCredential) || self.registry.callerCredential.mode != 'Required' || self.transport == 'http'",message="registry.callerCredential mode Required needs transport http"
 type MCPServerSpec struct {
 	// Description says in a sentence or two what the server is for, in words a person
 	// reads in the dashboard and in a catalog. It is not shown to agents; agents see the

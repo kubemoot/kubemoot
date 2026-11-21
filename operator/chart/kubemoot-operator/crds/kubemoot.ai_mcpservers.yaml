@@ -459,6 +459,64 @@ spec:
                       A "bearer-token" is sent as "Authorization: Bearer <token>"; an "api-key" is sent
                       in the header named by authHeader. When both keys are present, "bearer-token" wins.
                     type: string
+                  callerCredential:
+                    description: |-
+                      CallerCredential makes a call to this server carry the token of the person who asked,
+                      instead of the server's own credential. Unset, or mode Off, the server's own credential
+                      is used as before.
+                    properties:
+                      accountName:
+                        description: |-
+                          AccountName is how a refusal names the account to connect, for example "O'Reilly".
+                          Empty uses the verifier name.
+                        maxLength: 64
+                        type: string
+                      leaseUrl:
+                        description: |-
+                          LeaseURL is the credential broker's lease endpoint for this server. Empty uses the
+                          address the operator sets on the MCP gateway, which is the crew's discussion gateway.
+                        pattern: ^https?://[^\s/]+(/\S*)?$
+                        type: string
+                      mode:
+                        default: "Off"
+                        description: Mode is Off (the default) or Required.
+                        enum:
+                        - "Off"
+                        - Required
+                        type: string
+                      onForbidden:
+                        description: |-
+                          OnForbidden are endpoints tried in order, with the same token, when the server's own
+                          endpoint answers 403 to the person (for example a plan without the entitlement). Each
+                          receives the person's token, so each must be https; plain http is allowed only for
+                          localhost, 127.0.0.0/8 and ::1.
+                        items:
+                          maxLength: 512
+                          type: string
+                          x-kubernetes-validations:
+                          - message: onForbidden endpoints must be https (http only
+                              for loopback)
+                            rule: self.startsWith('https://') || self.matches('^http://(localhost|127([.][0-9]{1,3}){3}|[[]::1[]])([:/]|$)')
+                        maxItems: 4
+                        type: array
+                      relayContext:
+                        default: false
+                        description: |-
+                          RelayContext keeps conversationId and principalId in the call's _meta when the gateway
+                          forwards it, for a tool server that calls back through the gateway. Default false: the
+                          gateway removes them.
+                        type: boolean
+                      verifier:
+                        description: |-
+                          Verifier is the name of the crew's serviceTokens entry whose people's tokens this
+                          server takes. Required when mode is Required.
+                        pattern: ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                    - message: verifier is required when mode is Required
+                      rule: self.mode != 'Required' || (has(self.verifier) && size(self.verifier)
+                        > 0)
                   categories:
                     description: Categories are searchable tags for tool discovery
                       (e.g., kubernetes, database)
@@ -2521,6 +2579,10 @@ spec:
                 set only one
               rule: '(has(self.image) ? 1 : 0) + (has(self.externalEndpoint) ? 1 :
                 0) + (has(self.kubemootImage) ? 1 : 0) <= 1'
+            - message: registry.callerCredential mode Required needs transport http
+              rule: '!has(self.registry) || !has(self.registry.callerCredential) ||
+                self.registry.callerCredential.mode != ''Required'' || self.transport
+                == ''http'''
           status:
             description: MCPServerStatus defines the observed state of MCPServer
             properties:

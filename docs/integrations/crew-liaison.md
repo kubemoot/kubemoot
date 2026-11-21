@@ -82,6 +82,18 @@ When the liaison has service token verifiers (`ACCESS_SERVICE_TOKENS`, with the 
 - For each ticket the liaison remembers only a keyed fingerprint of the last token sent, never the token.
 - A request with no token, or a token the service refuses, gets 401 with a challenge that names the sign-in front's metadata when the front is on. A service that cannot be asked gets 503, never an allow.
 
+### A person's own token from a service
+
+The chart can also let the liaison accept a person's own token from a service, such as a chat app signed in to a library. It is off by default: `liaison.auth.serviceTokens` is empty.
+
+| Chart value | Default | Meaning |
+|-------------|---------|---------|
+| `liaison.auth.serviceTokens` | `[]` | The services whose acceptance of a bearer token proves who the person is. The same list and keys as a Crew's `spec.discussion.access.serviceTokens` (`name`, `verifyURL`, `subjectClaim`, `audiences`, `maxCacheSeconds`, `passToTools`, `authorize`, `subjects`). It is rendered into `ACCESS_SERVICE_TOKENS` |
+| `liaison.auth.hashKeySecret.name` | empty | A Secret in the release namespace that you create. Required once `serviceTokens` is set; the chart refuses to render without it |
+| `liaison.auth.hashKeySecret.key` | `hash-key` | The key that holds the install's hash key. It must be the same value as the Secret each crew names in `hashKeySecretRef` |
+
+The liaison is one process for every crew, so its list belongs to the whole liaison. A crew whose gateway does not list the same service refuses the token with 401, and the question fails with that message. Turning the list on also turns on enforcement (`ACCESS_ENFORCE`); Kubernetes token review stays as `liaison.auth.kubernetesTokens` sets it.
+
 The liaison and the gateway are two doors to one crew and share one definition of who is asking (see [Who is asking](../../concepts/who-is-asking/)). Turn on `spec.discussion.access` on the crew as well: a crew that verifies callers refuses the liaison's questions when the liaison sends no token.
 
 ## Watching the moot from the dashboard

@@ -103,13 +103,50 @@ spec:
               value: {{ .Values.liaison.maxInflight | quote }}
             - name: LIAISON_TICKET_TTL_MINUTES
               value: {{ .Values.liaison.ticketTTLMinutes | quote }}
-            {{- if .Values.liaison.auth.kubernetesTokens }}
+            {{- if or .Values.liaison.auth.kubernetesTokens .Values.liaison.auth.serviceTokens }}
             - name: ACCESS_ENFORCE
-              value: "true"
-            - name: ACCESS_TOKEN_REVIEW
               value: "true"
             - name: ACCESS_ALLOW_ANONYMOUS
               value: {{ .Values.liaison.auth.allowAnonymous | quote }}
+            {{- end }}
+            {{- if .Values.liaison.auth.kubernetesTokens }}
+            - name: ACCESS_TOKEN_REVIEW
+              value: "true"
+            {{- end }}
+            {{- with .Values.liaison.auth.serviceTokens }}
+            # Services whose acceptance of a person's own token proves who they are, the same
+            # list as a Crew's spec.discussion.access.serviceTokens. The hash key is the
+            # install's, the same Secret value the crews' gateways read.
+            - name: ACCESS_SERVICE_TOKENS
+              value: {{ toJson . | quote }}
+            - name: ACCESS_HASH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "liaison.auth.hashKeySecret.name is required with liaison.auth.serviceTokens" $.Values.liaison.auth.hashKeySecret.name }}
+                  key: {{ $.Values.liaison.auth.hashKeySecret.key | default "hash-key" }}
+            {{- end }}
+            {{- if .Values.liaison.signIn.enabled }}
+            {{- $in := .Values.liaison.signIn }}
+            # The stateless OAuth sign-in front: it holds no token and no state, only keys.
+            - name: LIAISON_SIGNIN_PUBLIC_URL
+              value: {{ required "liaison.signIn.publicURL is required when liaison.signIn.enabled" $in.publicURL | quote }}
+            - name: LIAISON_SIGNIN_UPSTREAM
+              value: {{ required "liaison.signIn.upstream.authorizeURL is required when liaison.signIn.enabled" $in.upstream.authorizeURL | quote }}
+            - name: LIAISON_SIGNIN_UPSTREAM_TOKEN_URL
+              value: {{ required "liaison.signIn.upstream.tokenURL is required when liaison.signIn.enabled" $in.upstream.tokenURL | quote }}
+            - name: LIAISON_SIGNIN_UPSTREAM_CLIENT_ID
+              value: {{ required "liaison.signIn.upstream.clientId is required when liaison.signIn.enabled" $in.upstream.clientId | quote }}
+            {{- with $in.upstream.scopes }}
+            - name: LIAISON_SIGNIN_UPSTREAM_SCOPES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $in.allowedRedirectHosts }}
+            - name: LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            # The sealing keys come from a Secret the installer creates, as a mounted file.
+            - name: LIAISON_SIGNIN_SEAL_KEYS_FILE
+              value: /etc/kubemoot/signin/seal-keys
             {{- end }}
             {{- if or .Values.liaison.auth.existingSecret .Values.liaison.auth.token }}
             - name: LIAISON_TOKEN
@@ -133,6 +170,21 @@ spec:
               drop: ["ALL"]
           resources:
             {{- toYaml .Values.liaison.resources | nindent 12 }}
+          {{- if .Values.liaison.signIn.enabled }}
+          volumeMounts:
+            - name: signin-seal-keys
+              mountPath: /etc/kubemoot/signin
+              readOnly: true
+          {{- end }}
+      {{- if .Values.liaison.signIn.enabled }}
+      volumes:
+        - name: signin-seal-keys
+          secret:
+            secretName: {{ required "liaison.signIn.sealKeySecret.name is required when liaison.signIn.enabled" .Values.liaison.signIn.sealKeySecret.name }}
+            items:
+              - key: {{ .Values.liaison.signIn.sealKeySecret.key | default "seal-keys" }}
+                path: seal-keys
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -174,5 +226,18 @@ spec:
       backendRefs:
         - name: {{ $name }}
           port: 80
+    {{- if .Values.liaison.signIn.enabled }}
+    # The sign-in front's own paths: the discovery documents and the OAuth endpoints.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /oauth
+        - path:
+            type: PathPrefix
+            value: /.well-known
+      backendRefs:
+        - name: {{ $name }}
+          port: 80
+    {{- end }}
 {{- end }}
 {{- end }}

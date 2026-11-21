@@ -219,8 +219,8 @@ func (r *MCPGatewayReconciler) reconcileDeployment(ctx context.Context, gateway 
 
 	// Build desired deployment
 	desiredDeployment := r.buildDeployment(gateway)
-	if err := r.stampAdminTokenHash(ctx, gateway, desiredDeployment); err != nil {
-		return nil, fmt.Errorf("admin access: %w", err)
+	if err := r.addAccessToDeployment(ctx, gateway, desiredDeployment); err != nil {
+		return nil, err
 	}
 
 	if errors.IsNotFound(err) {
@@ -245,6 +245,18 @@ func (r *MCPGatewayReconciler) reconcileDeployment(ctx context.Context, gateway 
 	}
 
 	return deployment, nil
+}
+
+// addAccessToDeployment adds what depends on other objects: the admin token hash, and the
+// credential broker of a gateway that leases people's tokens.
+func (r *MCPGatewayReconciler) addAccessToDeployment(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, d *appsv1.Deployment) error {
+	if err := r.stampAdminTokenHash(ctx, gateway, d); err != nil {
+		return fmt.Errorf("admin access: %w", err)
+	}
+	if err := r.applyCredentialBroker(ctx, gateway, d); err != nil {
+		return fmt.Errorf("credential broker: %w", err)
+	}
+	return nil
 }
 
 // buildDeployment creates the Deployment spec for the gateway
@@ -1074,6 +1086,9 @@ func (r *MCPGatewayReconciler) buildRegistrationPayload(impl kubemootv1alpha1.MC
 
 	if impl == kubemootv1alpha1.ImplementationKubemoot && len(mcp.Spec.ToolOverrides) > 0 {
 		payload["toolOverrides"] = mcp.Spec.ToolOverrides
+	}
+	if cc := callerCredentialPayload(mcp); impl == kubemootv1alpha1.ImplementationKubemoot && cc != nil {
+		payload["callerCredential"] = cc
 	}
 
 	return payload
@@ -2458,6 +2473,12 @@ func (r *MCPGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Service{},
 			handler.EnqueueRequestsFromMapFunc(r.findGatewaysInNamespace),
+		).
+		// Watch Crews: the crew that keeps people's tokens decides where the gateway leases them.
+		Watches(
+			&kubemootv1alpha1.Crew{},
+			handler.EnqueueRequestsFromMapFunc(r.findGatewaysInNamespace),
+			specChangedOnly,
 		).
 		// Watch MCPCatalogs — same spec-change-only filter.
 		Watches(

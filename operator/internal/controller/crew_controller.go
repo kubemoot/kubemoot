@@ -141,7 +141,7 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	r.reconcileRetention(crew)
-	reconcileAuthentication(crew)
+	r.reconcileAccessConditions(ctx, crew)
 	return r.updateAssessedStatus(ctx, crew, assessCrew(agents.Items, coordinatorName))
 }
 
@@ -158,6 +158,11 @@ func (r *CrewReconciler) reconcileNetworkPolicies(ctx context.Context, crew *kub
 			g.Allowed = crew.Spec.Network.AllowedIngress
 		}
 		objects = netpol.DiscussionGatewayIngress(r.NetPol.Resolved(), g)
+		// The lease policy exists from the same reconcile that labels the pod, and the network
+		// policies are applied before the Deployment, so the serving port is never closed.
+		if crewKeepsTokens(crew) {
+			objects = append(objects, netpol.DiscussionGatewayLeaseIngress(r.NetPol.Resolved(), crew.Name, crew.Namespace)...)
+		}
 	}
 	return r.NetPol.Apply(ctx, crew, crew.Namespace, objects)
 }
@@ -396,6 +401,12 @@ func (r *CrewReconciler) purgeCrewMemory(ctx context.Context, crew *kubemootv1al
 
 // gatewayName returns the discussion gateway resource name for a crew
 func (r *CrewReconciler) gatewayName(crew *kubemootv1alpha1.Crew) string {
+	return crewGatewayName(crew)
+}
+
+// crewGatewayName is the name of a crew's discussion gateway resources, which is also the
+// host of the Service the tool gateway leases from.
+func crewGatewayName(crew *kubemootv1alpha1.Crew) string {
 	return crew.Name + "-discussion"
 }
 
@@ -489,6 +500,9 @@ func (r *CrewReconciler) reconcileDeployment(ctx context.Context, crew *kubemoot
 	}
 
 	desired := r.buildDeployment(crew)
+	if err := r.applyCredentialLease(ctx, crew, desired); err != nil {
+		return nil, err
+	}
 
 	if errors.IsNotFound(err) {
 		log.Info("Creating discussion gateway Deployment", "crew", crew.Name)
@@ -644,17 +658,25 @@ func (r *CrewReconciler) reconcileService(ctx context.Context, crew *kubemootv1a
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
 		svc.Labels = r.buildLabels(crew)
+		ports := []corev1.ServicePort{
+			{
+				Name:       portNameHTTP,
+				Port:       80,
+				TargetPort: intstr.FromInt32(crewGatewayPort),
+				Protocol:   corev1.ProtocolTCP,
+			},
+		}
+		if crewKeepsTokens(crew) {
+			// The lease port, which the network policy keeps to the crew's tool gateway.
+			ports = append(ports, corev1.ServicePort{
+				Name: portNameInternal, Port: netpol.DiscussionGatewayLeasePort,
+				TargetPort: intstr.FromInt32(netpol.DiscussionGatewayLeasePort), Protocol: corev1.ProtocolTCP,
+			})
+		}
 		svc.Spec = corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeClusterIP,
 			Selector: r.buildLabels(crew),
-			Ports: []corev1.ServicePort{
-				{
-					Name:       portNameHTTP,
-					Port:       80,
-					TargetPort: intstr.FromInt32(crewGatewayPort),
-					Protocol:   corev1.ProtocolTCP,
-				},
-			},
+			Ports:    ports,
 		}
 		return controllerutil.SetControllerReference(crew, svc, r.Scheme)
 	})
@@ -807,6 +829,10 @@ func (r *CrewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.NetworkPolicy{}).
 		// A crew's readiness is derived from its agents' phases.
 		Watches(&kubemootv1alpha1.Agent{}, enqueueCrewForAgent()).
+		// A tool server that takes the asking person's token, and the tool gateway that
+		// leases it, change what a crew's gateway is told and what its condition says.
+		Watches(&kubemootv1alpha1.MCPServer{}, enqueueCrewsInNamespace(mgr.GetClient())).
+		Watches(&kubemootv1alpha1.MCPGateway{}, enqueueCrewsInNamespace(mgr.GetClient())).
 		// Re-reconcile every Crew when KubemootConfig changes so a
 		// discussionGateway image bump propagates to the Deployment
 		// spec without per-CR annotation. See kubemootconfig_propagation.go.

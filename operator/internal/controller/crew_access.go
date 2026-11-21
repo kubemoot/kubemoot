@@ -30,6 +30,9 @@ const (
 	reasonAnonymous             = "Anonymous"
 	reasonTokenReview           = "TokenReview"
 	reasonClosed                = "Closed"
+	reasonServiceToken          = "ServiceToken"
+
+	verbCreate = "create"
 )
 
 // discussionAccess is the crew's access settings, nil when it declares none.
@@ -54,19 +57,54 @@ func gatewayAccessEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar
 	if len(access.TokenAudiences) > 0 {
 		env = append(env, corev1.EnvVar{Name: identity.EnvTokenAudiences, Value: strings.Join(access.TokenAudiences, ",")})
 	}
-	return env
+	return append(env, gatewayServiceTokenEnv(access)...)
 }
 
 // gatewayAccessRules are the rights a gateway needs to verify callers: create TokenReviews
 // and SubjectAccessReviews. A crew that declares no access gets none.
 func gatewayAccessRules(access *kubemootv1alpha1.DiscussionAccess) []rbacv1.PolicyRule {
-	if access == nil || !access.TokenReviewEnabled() {
+	if access == nil {
+		return nil
+	}
+	if !access.TokenReviewEnabled() {
+		return leaseAccessRules(access)
+	}
+	return []rbacv1.PolicyRule{
+		{APIGroups: []string{"authentication.k8s.io"}, Resources: []string{"tokenreviews"}, Verbs: []string{verbCreate}},
+		{APIGroups: []string{"authorization.k8s.io"}, Resources: []string{"subjectaccessreviews"}, Verbs: []string{verbCreate}},
+	}
+}
+
+// leaseAccessRules are the rights of a gateway that verifies no Kubernetes token but keeps
+// people's tokens: it checks the tool gateway's ServiceAccount token with a TokenReview.
+func leaseAccessRules(access *kubemootv1alpha1.DiscussionAccess) []rbacv1.PolicyRule {
+	if !passesTokens(access) {
 		return nil
 	}
 	return []rbacv1.PolicyRule{
-		{APIGroups: []string{"authentication.k8s.io"}, Resources: []string{"tokenreviews"}, Verbs: []string{"create"}},
-		{APIGroups: []string{"authorization.k8s.io"}, Resources: []string{"subjectaccessreviews"}, Verbs: []string{"create"}},
+		{APIGroups: []string{"authentication.k8s.io"}, Resources: []string{"tokenreviews"}, Verbs: []string{verbCreate}},
 	}
+}
+
+// serviceTokenAuthentication is the Authentication condition of a crew that accepts a
+// service's token for the person asking, and false when it declares none.
+func serviceTokenAuthentication(crew *kubemootv1alpha1.Crew, access *kubemootv1alpha1.DiscussionAccess) bool {
+	if access == nil || len(access.ServiceTokens) == 0 {
+		return false
+	}
+	names := make([]string, 0, len(access.ServiceTokens))
+	for _, v := range access.ServiceTokens {
+		names = append(names, v.Name)
+	}
+	msg := "A caller's own token from " + strings.Join(names, ", ") + " is verified by use, and conversations belong to that person."
+	if access.TokenReviewEnabled() {
+		msg += " Kubernetes tokens are verified too."
+	}
+	if access.AnonymousAllowed() {
+		msg += " Callers with no token are also accepted, as anonymous."
+	}
+	setCrewCondition(crew, conditionTypeAuthentication, metav1.ConditionTrue, reasonServiceToken, msg)
+	return true
 }
 
 // reconcileAuthentication records the Authentication condition: False with reason
@@ -79,6 +117,9 @@ func reconcileAuthentication(crew *kubemootv1alpha1.Crew) {
 		return
 	}
 	access := discussionAccess(crew)
+	if serviceTokenAuthentication(crew, access) {
+		return
+	}
 	switch {
 	case access == nil || (!access.TokenReviewEnabled() && access.AnonymousAllowed()):
 		setCrewCondition(crew, conditionTypeAuthentication, metav1.ConditionFalse, reasonAnonymous,

@@ -35,6 +35,11 @@ const (
 
 	// LabelCrew is on every namespace that holds a crew.
 	LabelCrew = "kubemoot.ai/crew"
+	// LabelCredentialLease is on the discussion gateway pod of a crew that keeps people's
+	// tokens for the tool gateway. The namespace baseline leaves such a pod out of its
+	// every-port rule for the namespace's pods, so the lease port is reachable only through
+	// DiscussionGatewayLeaseIngress.
+	LabelCredentialLease = "kubemoot.ai/credential-lease"
 	// LabelAgent is on every agent pod.
 	LabelAgent = "kubemoot.ai/agent"
 
@@ -55,6 +60,9 @@ const (
 const (
 	// DiscussionGatewayPort is the port the discussion gateway serves on.
 	DiscussionGatewayPort = 8080
+	// DiscussionGatewayLeasePort is the port of the credential lease, which only the crew's
+	// tool gateway may reach.
+	DiscussionGatewayLeasePort = 8081
 	// DefaultEgressPort is the port allowed to declared hosts and ranges when none is listed.
 	DefaultEgressPort = 443
 	dnsPort           = 53

@@ -269,7 +269,7 @@ On a discussion's tool calls `timeZone` and `requestDate` are always present (th
 
 By default a server is called with the one credential it was registered with (`registry.authSecretRef`), whoever asked. A server that must be called as the person who asked, such as a library that bills or entitles each person, is registered with `callerCredential` instead. The default is `mode: Off`, which changes nothing.
 
-The gateway reads the registration field on `POST /admin/servers`; the operator's MCPServer field that fills it is a separate change.
+The gateway reads the registration field on `POST /admin/servers`. The operator fills it from the MCPServer's [`registry.callerCredential`](../mcpserver-guide/#calls-with-the-asking-persons-own-token) and sets up the broker for a gateway that fronts such a server: a ServiceAccount of its own named `<gateway>-credential-broker`, a projected token for the audience `kubemoot-credential-broker` mounted at `/var/run/secrets/kubemoot/credential-broker/token`, and `CREDENTIAL_BROKER_URL` set to the lease port of the namespace's one crew that keeps tokens (`http://<crew>-discussion.<namespace>.svc:8081`). Nothing is added to a gateway whose servers are all in mode `Off`.
 
 | `callerCredential` field | Default | Description |
 |--------------------------|---------|-------------|

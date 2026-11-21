@@ -117,6 +117,10 @@ func Baseline(c Config, namespace string) []client.Object {
 			Key:      labelComponent,
 			Operator: metav1.LabelSelectorOpNotIn,
 			Values:   []string{ComponentMCPServer, ComponentMCPGateway},
+		}, {
+			// A gateway that keeps tokens has its own policy, which names its ports.
+			Key:      LabelCredentialLease,
+			Operator: metav1.LabelSelectorOpDoesNotExist,
 		}},
 	}, networkingv1.PolicyTypeIngress)
 	internal.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{{From: ToolPortPeers(c)}}
@@ -216,6 +220,31 @@ func DiscussionGatewayIngress(c Config, g GatewayProxy) []client.Object {
 		out = append(out, ciliumGatewayEntities(g))
 	}
 	return out
+}
+
+// DiscussionGatewayLeaseIngress is the policy of a discussion gateway that keeps tokens (its
+// pod carries LabelCredentialLease). The crew's tool gateway pods, and nothing else, reach
+// the lease port, where the tool gateway lends a person's own token to one tool call. The
+// serving port is open to the namespace's pods, the operator and the metrics scraper, as the
+// baseline opens it to every other gateway. DiscussionGatewayIngress adds the callers from
+// outside the namespace.
+func DiscussionGatewayLeaseIngress(c Config, crew, namespace string) []client.Object {
+	if !c.IngressOn() {
+		return nil
+	}
+	policy := newPolicy(NamePrefix+"crew-"+crew+"-gateway-lease", namespace,
+		metav1.LabelSelector{MatchLabels: map[string]string{labelComponent: ComponentDiscussionGateway, LabelCrew: crew}},
+		networkingv1.PolicyTypeIngress)
+	policy.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{
+		{
+			From: []networkingv1.NetworkPolicyPeer{{
+				PodSelector: podsWith(map[string]string{labelComponent: ComponentMCPGateway}),
+			}},
+			Ports: tcpPorts(DiscussionGatewayLeasePort),
+		},
+		{From: ToolPortPeers(c), Ports: tcpPorts(DiscussionGatewayPort)},
+	}
+	return []client.Object{policy}
 }
 
 // ciliumGatewayEntities admits the Gateway API proxy (entity ingress), the API server and
