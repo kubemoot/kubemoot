@@ -173,6 +173,24 @@ only inside a fitness run, and it skips a run whose evidence does not cover it (
 cut at the size cap, a call that could not be read, or a workspace read that failed), so
 a skipped run is never flagged.
 
+### Cross-subscriber leakage
+
+When a crew serves more than one caller, the paths below let one caller reach another's data. The defense exists only on a crew whose gateway verifies callers (`spec.discussion.access`, see [Who is asking](../who-is-asking/)); a crew with no `access` is open by design and says so in its `Authentication` condition.
+
+| Path | Defense |
+|------|---------|
+| The list shows other callers' questions | The list shows the caller's own conversations; an operator lists all with a stated reason, audited |
+| Continue another caller's conversation with an id from a list, so their history enters a new answer | Every question is checked against the conversation's owner; another caller is answered `404` |
+| Stream or resume another caller's conversation | The same owner check on the stream and on `Last-Event-ID` |
+| Fetch another caller's stored result by key | The key's thread must belong to a conversation the caller may read |
+| Claim an id whose owner record expired to read its history | An id whose history is still held but has no owner record cannot be claimed |
+| A client sends a `principal` in the body | The gateway ignores it and stamps the one it verified |
+| Identity claimed in the text of a question | Identity comes only from the verified credential; nothing reads it from text |
+| An operator reads a caller's data without cause | The role is explicit RBAC, a reason is required, and each access is audited |
+| A token minted for the API server replayed at the gateway | `tokenAudiences` accepts only tokens bound to the gateway's audience |
+
+What this does not cover: the bus. The principal travels on NATS as data, and any client of NATS can read every discussion and bucket, including the owner records, and can publish a request with any principal. Kubemoot does not claim strict isolation between callers until the bus is divided per crew; these checks close every path an HTTP caller has. Crew memory is also still one scope for the whole crew, so a fact learned from one caller's question can be recalled into another's answer.
+
 ## What is not defended
 
 The following paths have no defense today. Do not rely on Kubemoot for them.

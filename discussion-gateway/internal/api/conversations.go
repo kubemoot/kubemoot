@@ -99,6 +99,16 @@ func questionOf(data bus.DiscussionMessage) string {
 
 // newestFirst lists the conversations by their latest turn, newest first, at most limit.
 func (idx conversationIndex) newestFirst(limit int) []bus.ConversationSummary {
+	return idx.newestFirstWhere(limit, nil)
+}
+
+// visibility decides whether a conversation is listed, and names its owner for the list.
+// A nil visibility lists every conversation, with no owner.
+type visibility func(conversationID string) (owner string, listed bool)
+
+// newestFirstWhere is newestFirst over the conversations visible lists, so the limit counts
+// only what the caller may see.
+func (idx conversationIndex) newestFirstWhere(limit int, visible visibility) []bus.ConversationSummary {
 	accs := make([]*conversationAcc, 0, len(idx))
 	for _, acc := range idx {
 		accs = append(accs, acc)
@@ -109,13 +119,20 @@ func (idx conversationIndex) newestFirst(limit int) []bus.ConversationSummary {
 		}
 		return accs[i].last.After(accs[j].last)
 	})
-	if len(accs) > limit {
-		accs = accs[:limit]
-	}
-	out := make([]bus.ConversationSummary, 0, len(accs))
+	out := make([]bus.ConversationSummary, 0, min(len(accs), limit))
 	for _, acc := range accs {
+		if len(out) == limit {
+			break
+		}
+		owner := ""
+		if visible != nil {
+			var listed bool
+			if owner, listed = visible(acc.id); !listed {
+				continue
+			}
+		}
 		out = append(out, bus.ConversationSummary{
-			ConversationID: acc.id, Question: acc.question, Turns: acc.turns,
+			ConversationID: acc.id, Question: acc.question, Turns: acc.turns, Owner: owner,
 			StartedAt:  acc.first.UTC().Format(time.RFC3339),
 			LastTurnAt: acc.last.UTC().Format(time.RFC3339),
 		})
@@ -131,25 +148,31 @@ func (idx conversationIndex) newestFirst(limit int) []bus.ConversationSummary {
 // and one day; 343 messages, 655 KiB, on the homelab stream when measured), which is at most ten
 // fetches of listFetchBatch within listReadTimeout.
 func listConversations(
-	ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, limit int,
+	ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, limit int, visible visibility,
 ) ([]bus.ConversationSummary, error) {
+	idx := conversationIndex{}
+	if err := readSubject(ctx, js, scope.DiscussFilter(), idx.observe); err != nil {
+		return nil, err
+	}
+	return idx.newestFirstWhere(limit, visible), nil
+}
+
+// readSubject passes observe every message the discussion stream holds on filter, as they
+// were when the read began, within listReadTimeout.
+func readSubject(ctx context.Context, js jetstream.JetStream, filter string, observe func(discussMsg)) error {
 	ctx, cancel := context.WithTimeout(ctx, listReadTimeout)
 	defer cancel()
 	consumer, err := js.CreateConsumer(ctx, streamName, jetstream.ConsumerConfig{
 		AckPolicy:         jetstream.AckNonePolicy,
 		DeliverPolicy:     jetstream.DeliverAllPolicy,
-		FilterSubject:     scope.DiscussFilter(),
+		FilterSubject:     filter,
 		InactiveThreshold: inactiveThreshold,
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer deleteConsumer(ctx, js, consumer.CachedInfo().Name)
-	idx := conversationIndex{}
-	if err := readPending(ctx, consumer, int(consumer.CachedInfo().NumPending), idx.observe); err != nil {
-		return nil, err
-	}
-	return idx.newestFirst(limit), nil
+	return readPending(ctx, consumer, int(consumer.CachedInfo().NumPending), observe)
 }
 
 // deleteConsumer removes a list's consumer, even when the request's context is done,
@@ -214,11 +237,19 @@ func (h *Handler) listConversationsHandler(w http.ResponseWriter, r *http.Reques
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	visible, failed, ok := h.listVisibility(w, r, scope)
+	if !ok {
+		return
+	}
 	js, ok := h.jetStreamFor(w)
 	if !ok {
 		return
 	}
-	conversations, err := listConversations(r.Context(), js, scope, limit)
+	conversations, err := listConversations(r.Context(), js, scope, limit, visible)
+	if checkErr := failed(); err == nil && checkErr != nil {
+		h.failedCheck(w, scope, checkErr)
+		return
+	}
 	if err != nil {
 		handlerLog.Error(err, "Failed to list conversations", "crew", scope.Crew)
 		httpError(w, http.StatusServiceUnavailable, "could not read the discussion stream")

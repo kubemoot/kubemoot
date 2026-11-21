@@ -153,6 +153,7 @@ func TestAnEnforcingGatewayRefusesACallerWhoMayNotUseTheCrew(t *testing.T) {
 
 func TestAVerifiedCallerBecomesTheQueuedRequestsPrincipalAndABodyPrincipalIsIgnored(t *testing.T) {
 	nc, js := jetStreamServer(t)
+	createConversationsBucket(t, js)
 	srv := enforcingServer(t, nc, false)
 	body := `{"message":"hi","principal":{"kind":"kubernetes","id":"someone-else"}}`
 	if resp := do(t, http.MethodPost, srv.URL+postPath, tokenAlice, body); resp.StatusCode != http.StatusOK {
@@ -170,6 +171,7 @@ func TestAVerifiedCallerBecomesTheQueuedRequestsPrincipalAndABodyPrincipalIsIgno
 
 func TestAnonymousCallersAreAcceptedOnlyWhenAllowedAndStayAnonymous(t *testing.T) {
 	nc, js := jetStreamServer(t)
+	createConversationsBucket(t, js)
 	srv := enforcingServer(t, nc, true)
 	if resp := do(t, http.MethodPost, srv.URL+postPath, "", `{"message":"hi"}`); resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp.StatusCode)
@@ -231,5 +233,13 @@ func TestAnIdentityHeaderIsNotACredential(t *testing.T) {
 		"X-Forwarded-User", userAlice, "Kubemoot-Principal", `{"kind":"kubernetes","id":"x"}`)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status %d, want 401", resp.StatusCode)
+	}
+}
+
+// createConversationsBucket makes the bucket owner records live in.
+func createConversationsBucket(t *testing.T, js jetstream.JetStream) {
+	t.Helper()
+	if _, err := js.CreateKeyValue(context.Background(), jetstream.KeyValueConfig{Bucket: bus.ConversationsBucket}); err != nil {
+		t.Fatal(err)
 	}
 }

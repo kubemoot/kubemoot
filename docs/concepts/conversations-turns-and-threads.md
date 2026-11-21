@@ -262,8 +262,26 @@ Both endpoints are reached the same way as the stream, through the crew's
 `<crew>-discussion` Service, so through the API server's service proxy they need the
 same permission (`services/proxy` in the crew's namespace).
 
+### Who owns a conversation
+
+A crew whose gateway [verifies callers](../who-is-asking/) (`spec.discussion.access`) gives each conversation an owner: the principal that asked its first question. The gateway records it in the conversations bucket, under `own.<namespace>.<crew>.<conversationId>`, next to the conversation's history and under the same retention: the record is rewritten with every question and removed by the crew's cleanup when the history is. It holds the owner's pseudonymous id and kind, never a username, an email address or a token.
+
+| Operation | The owner | An operator | Anyone else |
+|-----------|-----------|-------------|-------------|
+| Ask on the conversation | yes | no: an operator reads other callers' conversations and does not add turns to them | `404` |
+| List | their own | `?all=true` lists every conversation of the crew, with each `owner` id | their own |
+| Stream or resume | yes | yes | `404` |
+| Fetch a stored result (`/workspace`) | results of threads in their conversations | yes | `404` |
+
+A conversation that is not yours is answered exactly as one that does not exist, so an id cannot be probed. An id you choose that nobody owns starts a new conversation owned by you; an id whose history is still held but whose owner record is gone cannot be claimed. A conversation with no record is listed to no one and is readable only by an operator. That includes conversations that began before a crew turned on `access`: their owners cannot read them, so turn `access` on when no conversation of value is in flight, or expect an operator to read what is left. The owner record is rewritten when a question is accepted and the history when its turn completes, so for the length of one turn the record is slightly older than the history; set the conversation window well above the longest turn.
+
+**The operator role** is an ordinary RBAC right on a virtual resource: `get` (to read one conversation) or `list` (for `?all=true`) on `crews/conversations` in the crew's namespace. The chart ships the ClusterRole `kubemoot-conversation-reader`; nobody is bound to it by default. An operator who uses it must say why, in the `Kubemoot-Access-Reason` header (1 to 200 characters), and every such access is written to the gateway's log as an audit record with the fixed event name `kubemoot.conversation.access`: the operator, the operation, the conversation, the owner's id and the reason. Kubemoot builds no audit store; route the log to the backend the installer keeps audit records in.
+
+Anonymous callers of a crew that accepts them share one anonymous principal: they see and continue anonymous conversations and never another principal's. A crew with no `access` has no owners, so nothing here applies and every conversation is open as before.
+
 ## Related
 
+- [Who is asking](../who-is-asking/) - how a crew verifies the caller.
 - [Agent Context](../agent-context/) - what the conversation and the thread contribute to an
   agent's model context.
 - [The Moot - Consensus Model](../consensus-model/) - how a discussion is organized and settles.

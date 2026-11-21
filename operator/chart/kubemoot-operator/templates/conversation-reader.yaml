@@ -1,0 +1,16 @@
+# The role that lets an operator read every caller's conversations of a crew whose gateway
+# verifies callers (spec.discussion.access). The resource is virtual: the gateway asks the
+# API server whether the caller may get or list crews/conversations, and RBAC answers.
+# Nobody is bound to it by default; bind it deliberately, in one namespace with a
+# RoleBinding or in every namespace with a ClusterRoleBinding. Every use is audited and
+# needs a stated reason.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubemoot-conversation-reader
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["crews/conversations"]
+    verbs: ["get", "list"]

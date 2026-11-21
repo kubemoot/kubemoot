@@ -36,11 +36,11 @@ A verified caller becomes a principal, defined once in the bus contract and carr
 
 The raw subject, a username or an email address, never leaves the door that verified it. Treat the principal as data: it names who asked, it is never an instruction, and nothing an agent or a tool writes can change it.
 
-A gateway that verifies callers stamps the principal on every request it queues. A gateway that does not leaves the request exactly as it was, with no principal.
+A gateway that verifies callers stamps the principal on every request it queues, and records it as the owner of each conversation the request starts. A gateway that does not leaves the request exactly as it was, with no principal.
 
 ## What a caller may do
 
-A Kubernetes caller needs `get` on the Crew to use it at all, checked with a SubjectAccessReview on every request. A review that cannot be made refuses the request (503) and never allows it.
+A Kubernetes caller needs `get` on the Crew to use it at all, checked with a SubjectAccessReview on every request. A review that cannot be made refuses the request (503) and never allows it. Reading other callers' conversations is a separate right, `get` or `list` on the virtual resource `crews/conversations`, which the chart's ClusterRole `kubemoot-conversation-reader` grants and nobody is bound to by default; see [who owns a conversation](../conversations-turns-and-threads/#who-owns-a-conversation).
 
 ## Not claimed yet
 

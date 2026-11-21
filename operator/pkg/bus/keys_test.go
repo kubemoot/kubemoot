@@ -42,3 +42,22 @@ func TestPerformanceKey(t *testing.T) {
 		t.Errorf("prefix does not pick out exactly the server's entries: %q", key)
 	}
 }
+
+func TestConversationKeys(t *testing.T) {
+	if got := ConversationOwnerKey("ns", "crew", "c1"); got != "own.ns.crew.c1" {
+		t.Errorf("owner key %q", got)
+	}
+	if got := ConversationHistoryKey("ns", "crew", "c1"); got != "conv.ns.crew.c1" {
+		t.Errorf("history key %q", got)
+	}
+	// The owner prefix of one crew never matches another crew's or namespace's records.
+	prefix := ConversationOwnerPrefix("ns", "crew")
+	for _, other := range []string{ConversationOwnerKey("ns", "crewx", "c"), ConversationOwnerKey("ns2", "crew", "c"), ConversationHistoryKey("ns", "crew", "c")} {
+		if strings.HasPrefix(other, prefix) {
+			t.Errorf("%s matches %s", other, prefix)
+		}
+	}
+	if !strings.HasPrefix(ConversationOwnerKey("ns", "crew", "c"), prefix) {
+		t.Error("an owner key starts with its crew's prefix")
+	}
+}

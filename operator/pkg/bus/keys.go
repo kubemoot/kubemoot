@@ -28,6 +28,32 @@ func PerformanceKey(server, model, agent string) string {
 // PerformanceKeyPrefix starts the key of every entry about the server.
 func PerformanceKeyPrefix(server string) string { return KeyToken(server) + "." }
 
+// ConversationsBucket is the NATS KV bucket holding each conversation's history and owner.
+const ConversationsBucket = "kubemoot_conversations"
+
+// ConversationOwnerKey is the key of a conversation's owner record in ConversationsBucket:
+// own.<namespace>.<crew>.<conversationId>. The history of the same conversation is under
+// conv.<namespace>.<crew>.<conversationId>, so the two expire together.
+func ConversationOwnerKey(namespace, crew, conversationID string) string {
+	return ConversationOwnerPrefix(namespace, crew) + conversationID
+}
+
+// ConversationOwnerPrefix starts the key of every owner record of a crew.
+func ConversationOwnerPrefix(namespace, crew string) string {
+	return "own." + namespace + "." + crew + "."
+}
+
+// ConversationHistoryKey is the key of a conversation's history in ConversationsBucket.
+func ConversationHistoryKey(namespace, crew, conversationID string) string {
+	return ConversationHistoryPrefix(namespace, crew) + conversationID
+}
+
+// ConversationHistoryPrefix starts the key of every conversation history of a crew. It is
+// the one place the prefix is spelled: crewscope's ConversationPrefix returns it.
+func ConversationHistoryPrefix(namespace, crew string) string {
+	return "conv." + namespace + "." + crew + "."
+}
+
 // KeyToken encodes a free-form name (a model such as qwen3:14b, an agent id) into a
 // NATS KV key token exactly as the agent runtime's ModelKeys.token does: letters,
 // digits and '-' pass through; any other UTF-16 code unit becomes '_' and two hex

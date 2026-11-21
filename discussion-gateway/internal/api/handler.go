@@ -182,6 +182,19 @@ func padSeconds(localDateTime string) string {
 	return localDateTime
 }
 
+// invalidAsk returns why a question cannot be queued, or "" when it can.
+func invalidAsk(req bus.PostDiscussionRequest) string {
+	switch {
+	case strings.TrimSpace(req.Message) == "":
+		return "message is required"
+	case validateLocalDateTime(req.LocalDateTime) != "":
+		return validateLocalDateTime(req.LocalDateTime)
+	case req.ConversationID != "" && !validConversationID(req.ConversationID):
+		return errInvalidConversationID
+	}
+	return ""
+}
+
 func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 	scope, ok := h.scopeFor(w, r.PathValue("crew"))
 	if !ok {
@@ -194,18 +207,8 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if strings.TrimSpace(req.Message) == "" {
-		httpError(w, http.StatusBadRequest, "message is required")
-		return
-	}
-
-	if msg := validateLocalDateTime(req.LocalDateTime); msg != "" {
+	if msg := invalidAsk(req); msg != "" {
 		httpError(w, http.StatusBadRequest, msg)
-		return
-	}
-
-	if req.ConversationID != "" && !validConversationID(req.ConversationID) {
-		httpError(w, http.StatusBadRequest, errInvalidConversationID)
 		return
 	}
 
@@ -218,6 +221,10 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 	conversationID := req.ConversationID
 	if conversationID == "" {
 		conversationID = uuid.New().String()
+	}
+
+	if !h.mayAsk(w, r, scope, conversationID) {
+		return
 	}
 
 	// Publish to KUBEMOOT_REQUEST stream; the coordinator pulls and processes FIFO
@@ -267,6 +274,9 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 	}
 	scope, ok := h.scopeFor(w, r.PathValue("crew"))
 	if !ok {
+		return
+	}
+	if !h.mayRead(w, r, scope, conversationID, opStream) {
 		return
 	}
 	req, err := h.parseStreamRequest(r, conversationID)

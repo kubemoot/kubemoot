@@ -89,10 +89,10 @@ func reconcileAuthentication(crew *kubemootv1alpha1.Crew) {
 			"The discussion gateway verifies no token and accepts no anonymous caller, so it refuses every request.")
 	case access.AnonymousAllowed():
 		setCrewCondition(crew, conditionTypeAuthentication, metav1.ConditionTrue, reasonTokenReview,
-			"Kubernetes tokens are verified and each caller needs get on the Crew; callers with no token "+
-				"are also accepted, as anonymous.")
+			"Kubernetes tokens are verified, each caller needs get on the Crew, and conversations belong to "+
+				"their caller; callers with no token are also accepted, as anonymous.")
 	default:
 		setCrewCondition(crew, conditionTypeAuthentication, metav1.ConditionTrue, reasonTokenReview,
-			"Every caller presents a Kubernetes token, and each needs get on the Crew.")
+			"Every caller presents a Kubernetes token, each needs get on the Crew, and conversations belong to their caller.")
 	}
 }

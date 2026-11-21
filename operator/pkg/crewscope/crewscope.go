@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
 )
 
@@ -79,7 +80,7 @@ func (s Scope) MemoryPrefix() string {
 // ConversationPrefix is the kubemoot_conversations key prefix conv.<ns>.<crew>. that
 // holds every conversation of the crew.
 func (s Scope) ConversationPrefix() string {
-	return "conv." + s.MemoryPrefix()
+	return bus.ConversationHistoryPrefix(s.Namespace, s.Crew)
 }
 
 // DiscussFilter matches every discussion subject of the crew:
