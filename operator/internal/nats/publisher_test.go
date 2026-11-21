@@ -17,12 +17,14 @@ limitations under the License.
 package nats
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 // errFmtObjectStore is the shared format string used by the object-store
@@ -159,5 +161,12 @@ func TestOpenCrewMemoryReportsAnUnconfiguredServerInsteadOfAnEmptyStore(t *testi
 func TestOpenConversationExportReportsAnUnconfiguredServerInsteadOfAnEmptyStore(t *testing.T) {
 	if _, err := (&Publisher{}).OpenConversationExport(); err == nil {
 		t.Fatal("OpenConversationExport() = nil error with no NATS URL, want an error so an export never reads it as no conversation")
+	}
+}
+
+func TestConversationOwnerReportsAnUnconfiguredStoreAsAnErrorNotAsNoOwner(t *testing.T) {
+	_, found, err := (&Publisher{}).ConversationOwner(context.Background(), crewscope.Scope{Namespace: "ns", Crew: "c"}, "id")
+	if err == nil || found {
+		t.Fatalf("found=%v err=%v: an unreachable store must not read as 'no owner'", found, err)
 	}
 }

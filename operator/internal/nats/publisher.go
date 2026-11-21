@@ -17,6 +17,7 @@ limitations under the License.
 package nats
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/conversationexport/natssource"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/natskv"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
 )
 
@@ -123,6 +125,42 @@ func (p *Publisher) OpenConversationExport() (*conversationexport.Builder, error
 		return nil, err
 	}
 	return &conversationexport.Builder{Source: source, Memory: p.OpenCrewMemory}, nil
+}
+
+// ConversationOwner reads the owner record of a conversation. found is false when the
+// conversation has no record or its record cannot be read. Unlike GetKVValue it reports
+// every failure to reach the store, so a caller can refuse instead of treating an
+// unreachable store as "no owner". The read is not bounded by ctx: the NATS client's own
+// timeouts apply.
+func (p *Publisher) ConversationOwner(_ context.Context, scope crewscope.Scope, id string) (bus.Principal, bool, error) {
+	if p.url == "" {
+		return bus.Principal{}, false, errors.New("NATS is not configured")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.connect(); err != nil {
+		return bus.Principal{}, false, fmt.Errorf("connect NATS: %w", err)
+	}
+	js, err := p.conn.JetStream()
+	if err != nil {
+		return bus.Principal{}, false, err
+	}
+	kv, err := js.KeyValue(bus.ConversationsBucket)
+	if err != nil {
+		return bus.Principal{}, false, err
+	}
+	entry, err := kv.Get(bus.ConversationOwnerKey(scope.Namespace, scope.Crew, id))
+	if errors.Is(err, nats.ErrKeyNotFound) {
+		return bus.Principal{}, false, nil
+	}
+	if err != nil {
+		return bus.Principal{}, false, err
+	}
+	owner, ok := bus.DecodeConversationOwner(entry.Value())
+	if !ok {
+		log.Info("An owner record could not be read; the conversation is operator-only", "crew", scope.Crew)
+	}
+	return owner, ok, nil
 }
 
 // Publish JSON-encodes the payload and publishes to the given subject.

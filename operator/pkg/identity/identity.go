@@ -137,12 +137,22 @@ func (a *Authenticator) Authenticate(r *http.Request) (Caller, error) {
 // callerOf builds the caller of a verified identity: the principal carries the hashed
 // subject, and a display name only for a workload.
 func (a *Authenticator) callerOf(id *Identity) Caller {
-	p := bus.Principal{Kind: bus.PrincipalKindKubernetes, Issuer: id.Issuer, ID: a.hasher.ID(id.Issuer, id.Subject)}
+	return Caller{Principal: PrincipalOf(a.hasher, id), Identity: id}
+}
+
+// PrincipalOf is the principal of a verified identity. Every place that compares a caller
+// with an owner builds it here, so the id is computed one way.
+func PrincipalOf(h Hasher, id *Identity) bus.Principal {
+	p := bus.Principal{Kind: bus.PrincipalKindKubernetes, Issuer: id.Issuer, ID: h.ID(id.Issuer, id.Subject)}
 	if id.IsWorkload() {
 		p.DisplayName = id.Subject
 	}
-	return Caller{Principal: p, Identity: id}
+	return p
 }
+
+// SamePrincipal reports whether two principals are the same caller: the same kind and id.
+// Anonymous callers share the one anonymous principal.
+func SamePrincipal(a, b bus.Principal) bool { return a.Kind == b.Kind && a.ID == b.ID }
 
 // Status is the HTTP status a door answers for an authentication or authorization error,
 // and whether the answer carries a WWW-Authenticate challenge.

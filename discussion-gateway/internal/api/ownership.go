@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/go-logr/logr"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
@@ -25,15 +23,9 @@ import (
 // A crew that verifies no one has no owners and these checks are skipped.
 
 const (
-	// headerAccessReason is the header an operator reads another caller's conversation with.
-	headerAccessReason = "Kubemoot-Access-Reason"
-	// maxAccessReason bounds the reason an audit record carries.
-	maxAccessReason = 200
 	// errConversationNotFound is the one answer for a conversation that does not exist and
 	// one the caller may not see, so an id cannot be probed.
 	errConversationNotFound = "conversation not found"
-	// auditEvent is the fixed event name of an operator's access to another caller's data.
-	auditEvent = "kubemoot.conversation.access"
 )
 
 // The operations an audit record names.
@@ -69,9 +61,7 @@ func (h *Handler) ownerStore(w http.ResponseWriter, scope crewscope.Scope) (owne
 }
 
 // sameOwner reports whether the principal is the one the record names.
-func sameOwner(owner, caller bus.Principal) bool {
-	return owner.Kind == caller.Kind && owner.ID == caller.ID
-}
+func sameOwner(owner, caller bus.Principal) bool { return identity.SamePrincipal(owner, caller) }
 
 // get returns the conversation's owner, and false when it has no record. A record that
 // cannot be read owns nothing, so the conversation is the operator's, and is logged.
@@ -83,12 +73,11 @@ func (o ownerStore) get(ctx context.Context, scope crewscope.Scope, id string) (
 	if err != nil {
 		return bus.Principal{}, false, err
 	}
-	var rec bus.ConversationOwner
-	if err := json.Unmarshal(entry.Value(), &rec); err != nil {
+	owner, ok := bus.DecodeConversationOwner(entry.Value())
+	if !ok {
 		handlerLog.Info("An owner record could not be read; the conversation is operator-only", "crew", scope.Crew)
-		return bus.Principal{}, false, nil
 	}
-	return rec.Owner, true, nil
+	return owner, ok, nil
 }
 
 // claim records the caller as the owner of a new conversation, or refreshes the record of
@@ -214,15 +203,14 @@ func (h *Handler) operatorAccess(
 		httpError(w, http.StatusNotFound, errConversationNotFound)
 		return false
 	}
-	reason := strings.TrimSpace(r.Header.Get(headerAccessReason))
-	if n := utf8.RuneCountInString(reason); n == 0 || n > maxAccessReason {
+	reason, ok := identity.ValidateAccessReason(r.Header.Get(identity.HeaderAccessReason))
+	if !ok {
 		httpError(w, http.StatusBadRequest,
-			"reading another caller's conversations needs a reason of 1 to 200 characters in the "+headerAccessReason+" header")
+			"reading another caller's conversations needs a reason of 1 to 200 characters in the "+identity.HeaderAccessReason+" header")
 		return false
 	}
-	auditLog.Info("Operator access to another caller's conversation", "event", auditEvent,
-		"operator", caller.Identity.Subject, "operatorIssuer", caller.Identity.Issuer, "operation", op,
-		"crew", scope.Crew, "namespace", scope.Namespace, "conversationId", id, "owner", ownerID, "reason", reason)
+	identity.OperatorAccess{Operator: caller.Identity, Operation: op, Namespace: scope.Namespace, Crew: scope.Crew,
+		ConversationID: id, OwnerID: ownerID, Reason: reason}.Audit(auditLog)
 	return true
 }
 

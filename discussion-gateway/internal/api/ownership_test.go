@@ -174,7 +174,7 @@ func TestOperatorAccessIsAudited(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("one operator access, none for the owner: %v", lines)
 	}
-	for _, want := range []string{auditEvent, `"operator"="admin"`, `"operation"="stream"`, convA, "support ticket 42",
+	for _, want := range []string{identity.AuditEvent, `"operator"="admin"`, `"operation"="stream"`, convA, "support ticket 42",
 		(identity.Hasher{}).ID(identity.IssuerKubernetes, userAlice)} {
 		if !strings.Contains(lines[0], want) {
 			t.Errorf("audit record lacks %q: %s", want, lines[0])
@@ -421,7 +421,7 @@ func TestTheAccessReasonIsBoundedInCharactersNotBytes(t *testing.T) {
 	o := newOwnedSetup(t, false)
 	o.ask(t, tokenAlice, convA)
 	o.finishThread(t, "T1", convA)
-	if got := o.streamStatus(t, tokenAdmin, convA, reasonHeader, strings.Repeat("é", maxAccessReason)); got != http.StatusOK {
+	if got := o.streamStatus(t, tokenAdmin, convA, reasonHeader, strings.Repeat("é", identity.MaxAccessReason)); got != http.StatusOK {
 		t.Fatalf("200 two-byte characters are 200 characters: %d", got)
 	}
 }

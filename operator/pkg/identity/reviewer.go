@@ -115,6 +115,13 @@ func audienceAccepted(wanted, granted []string) bool {
 	return false
 }
 
+// The reason an operator gives for reading another caller's conversations travels in this
+// header, 1 to MaxAccessReason characters, and is written to the audit record.
+const (
+	HeaderAccessReason = "Kubemoot-Access-Reason"
+	MaxAccessReason    = 200
+)
+
 // ConversationsSubresource is the crews subresource whose get and list verbs let an
 // operator read other callers' conversations.
 const ConversationsSubresource = "conversations"

@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	authorizationv1 "k8s.io/api/authorization/v1"
 	"k8s.io/client-go/kubernetes"
@@ -33,7 +34,10 @@ var (
 // reportAuthorizer decides whether the caller of a report service endpoint may read
 // what the endpoint returns, described as the Kubernetes resource access it equals.
 type reportAuthorizer interface {
-	Authorize(ctx context.Context, bearerToken string, attrs authorizationv1.ResourceAttributes) error
+	// Authorize returns the caller's verified identity when it may make the access.
+	Authorize(ctx context.Context, bearerToken string, attrs authorizationv1.ResourceAttributes) (*identity.Identity, error)
+	// Allowed asks whether an identity already verified by Authorize may make another access.
+	Allowed(ctx context.Context, id *identity.Identity, attrs authorizationv1.ResourceAttributes) (bool, error)
 }
 
 // reviewAuthorizer authenticates the bearer token with a TokenReview and asks the API
@@ -50,23 +54,28 @@ func NewReviewAuthorizer(c kubernetes.Interface) reportAuthorizer {
 	return reviewAuthorizer{client: c}
 }
 
-func (a reviewAuthorizer) Authorize(ctx context.Context, token string, attrs authorizationv1.ResourceAttributes) error {
+func (a reviewAuthorizer) Authorize(ctx context.Context, token string, attrs authorizationv1.ResourceAttributes) (*identity.Identity, error) {
 	rv := identity.Reviewer{Client: a.client}
 	id, err := rv.Review(ctx, token)
 	switch {
 	case errors.Is(err, identity.ErrNoCredential), errors.Is(err, identity.ErrInvalid):
-		return errUnauthenticated
+		return nil, errUnauthenticated
 	case err != nil:
-		return err
+		return nil, err
 	}
 	allowed, err := rv.Allowed(ctx, id, attrs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !allowed {
-		return errForbidden
+		return nil, errForbidden
 	}
-	return nil
+	return id, nil
+}
+
+// Allowed asks the API server whether id may make the access.
+func (a reviewAuthorizer) Allowed(ctx context.Context, id *identity.Identity, attrs authorizationv1.ResourceAttributes) (bool, error) {
+	return identity.Reviewer{Client: a.client}.Allowed(ctx, id, attrs)
 }
 
 // What each endpoint of the report service returns, as the access it stands for.
@@ -115,10 +124,12 @@ func (s *ReportServer) requireAccess(access accessFor, next http.HandlerFunc) ht
 			http.Error(w, "the report service has no authorizer configured", http.StatusServiceUnavailable)
 			return
 		}
-		err = s.Auth.Authorize(r.Context(), identity.BearerToken(r), attrs)
+		id, err := s.Auth.Authorize(r.Context(), identity.BearerToken(r), attrs)
 		switch {
 		case err == nil:
-			next(w, r)
+			next(w, r.WithContext(withReportCaller(r.Context(), reportCaller{
+				identity: id, reason: strings.TrimSpace(r.Header.Get(identity.HeaderAccessReason)),
+			})))
 		case errors.Is(err, errUnauthenticated):
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, err.Error()+": send the caller's service account token as 'Authorization: Bearer <token>'", http.StatusUnauthorized)

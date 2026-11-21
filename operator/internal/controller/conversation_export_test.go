@@ -75,7 +75,7 @@ func heldConversation() conversationexport.Held {
 }
 
 func convServer(f fakeConversations) *ReportServer {
-	return &ReportServer{Conversations: f, Auth: fakeAuth{allowed: goodToken}}
+	return &ReportServer{Conversations: f, Auth: fakeAuth{allowed: goodToken}, Client: crewClient(nil)}
 }
 
 func getConversations(s *ReportServer, query string, header ...string) *httptest.ResponseRecorder {

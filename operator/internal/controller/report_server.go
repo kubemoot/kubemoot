@@ -380,7 +380,11 @@ type ReportServer struct {
 	Memory memoryOpener
 	// Conversations builds the conversation export; nil answers 503.
 	Conversations conversationOpener
-	// AllowConversation decides who may export a conversation; nil means mayExportConversation.
+	// Owners reads who owns a conversation, for the export of a crew that verifies callers;
+	// nil refuses every export on such a crew.
+	Owners conversationOwners
+	// AllowConversation replaces the ownership check of a conversation export. It is for tests:
+	// production leaves it nil, which means mayExportConversation.
 	AllowConversation conversationexport.Allow
 	// Auth decides who may read each endpoint; nil answers 503 (fail closed).
 	Auth reportAuthorizer
