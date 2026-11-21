@@ -125,11 +125,7 @@ func (idx conversationIndex) newestFirstWhere(limit int, visible visibility) []b
 		}
 		return accs[i].last.After(accs[j].last)
 	})
-	capacity := limit
-	if len(accs) < capacity {
-		capacity = len(accs)
-	}
-	out := make([]bus.ConversationSummary, 0, capacity)
+	out := []bus.ConversationSummary{}
 	for _, acc := range accs {
 		if len(out) == limit {
 			break
