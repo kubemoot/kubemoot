@@ -275,6 +275,11 @@ When the contract names a collector (`observability.otlpEndpoint`, set from the
 KubemootConfig's `defaults.otelCollectorEndpoint`), the sidecar exports spans over OTLP/HTTP.
 With no collector, trace context still flows; nothing is exported.
 
+Each model call is a `chat <model>` span with the OpenTelemetry GenAI attributes (model and
+token counts); the sidecar never records prompt or answer text in a span. Native agents write the
+same span names, attributes and `traceparent`, so one discussion is one trace whichever harness
+its agents use. See [Observability](../../operating/observability/#3-spans--traces-opentelemetry-one-trace-per-discussion).
+
 Metrics are served on the sidecar port at `/metrics`. The chart keeps the existing
 agent PodMonitor for legacy pods and adds a second one for pods labelled
 `kubemoot.ai/harness-mode: sidecar`, so each kind of pod is scraped at its own path

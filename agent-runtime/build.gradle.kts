@@ -84,6 +84,9 @@ dependencies {
     // Observability
     implementation("io.quarkus:quarkus-micrometer-registry-prometheus")
     implementation("io.quarkus:quarkus-smallrye-health")
+    // OpenTelemetry traces, exported over OTLP only when an endpoint is set; see tracing/.
+    implementation("io.quarkus:quarkus-opentelemetry")
+    testImplementation("io.opentelemetry:opentelemetry-sdk-testing")
 
     // REST client for RAG and Gateway
     implementation("io.quarkus:quarkus-rest-client-jackson")

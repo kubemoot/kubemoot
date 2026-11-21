@@ -121,13 +121,39 @@ the operator's metrics, and its placement panels need the agents'.
 - **It is your decision.** Content in logs puts people's questions into your log backend, under that backend's access and retention. Turn it on for a bounded debugging session and turn it off after.
 - **What logs let you observe:** per-pod debugging by `kubectl logs`, and, with a collector and a backend of your choice, central search and retention. Tracing a discussion across components uses the thread id, which every discussion line carries.
 
-### 3. Spans / traces: OTel + Tempo deployed, not yet emitted to
+### 3. Spans / traces: OpenTelemetry, one trace per discussion
 
-- The reference cluster runs an **otel-collector** (OTLP `4317`/`4318` → `tempo.observability:4317`) and **Grafana Tempo** as the trace backend.
-- **Today Kubemoot does not emit OTel traces**: discussion timing is *reconstructed* from NATS signal messages (see the Agent Span Graph below), which is an approximation, not a true distributed trace.
-- Wiring true trace emission to this existing backend is in [Future work](#future-work).
+Agents and the coordinator emit OpenTelemetry traces with W3C trace context. One discussion is one trace, whichever harness its agents use: native agents (the agent runtime) and Moot Mesh sidecars write the same span names, the same resource attributes and the same `traceparent` on every bus message.
 
-Two of the three pillars (logs, spans) have gaps; see [Future work](#future-work).
+**Point it at a collector.** Export is off until you name an OTLP/HTTP collector, for example `http://otel-collector.observability:4318`.
+
+| Where | How |
+|---|---|
+| Every agent | Set `defaults.otelCollectorEndpoint` in KubemootConfig. The operator gives sidecar agents the endpoint in their contract (`observability.otlpEndpoint`) and native agents the environment variable `KUBEMOOT_OTLP_ENDPOINT`. |
+| One native agent | Set `KUBEMOOT_OTLP_ENDPOINT` in the Agent's `spec.deployment.env`. |
+
+The runtime sends spans to `<endpoint>/v1/traces` over OTLP/HTTP. With no endpoint nothing is exported, but an incoming trace context still passes through an agent unchanged, so a trace is not cut by an agent that exports nothing. Any `QUARKUS_OTEL_*` setting on a native agent overrides these defaults, for example to add collector headers.
+
+**What is traced.**
+
+| Span | Made by | Carries |
+|---|---|---|
+| `discussion` | the coordinator, from the question to the answer | `kubemoot.thread`, `kubemoot.crew`, `kubemoot.origin`, `kubemoot.convened` (who was convened) and `kubemoot.outcome` |
+| `phase <name>` | the coordinator, one per phase the discussion passes through | `kubemoot.phase`, `kubemoot.phase.reason` |
+| `turn` | an agent, one pass over a message | `kubemoot.thread`, `kubemoot.trigger`, `kubemoot.agent` |
+| `publish <signal>` | an agent, each signal it publishes | the trace context, also in the message's `traceparent` field and NATS header |
+| `chat <model>` | an agent, each model call | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, token counts `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`; the native agent adds `gen_ai.response.model`, `gen_ai.response.id` and `gen_ai.response.finish_reasons`; the sidecar adds `kubemoot.server` |
+| `execute_tool <name>` | a native agent, each tool call | `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.type` |
+
+Every span carries the resource attributes `kubemoot.namespace`, `kubemoot.crew`, `kubemoot.agent` and `kubemoot.harness` (`native`, or the sidecar harness). The agent runtime also produces the Quarkus extension's spans for its own HTTP server and client calls. The question's trace context arrives on the request message's `traceparent` header and parents the `discussion` span; the coordinator's messages carry the current phase's context, so every agent's `turn` hangs under it. A coordinator restart that hands a thread to another replica starts a new `discussion` span in the same trace.
+
+**Content is off.** No prompt, answer, tool argument or tool result goes into a span by default. Set `KUBEMOOT_TRACE_CONTENT=true` on a native agent to add `gen_ai.input.messages` and `gen_ai.output.messages` to `chat` spans and `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result` to `execute_tool` spans. This switch is separate from `KUBEMOOT_LOG_CONTENT`: a trace backend has its own retention and readers, so enabling content in logs for a debugging session never sends text to it. The sidecar never records content in spans. Leave the switch unset on any cluster whose collector feeds a shared backend. Subscriber identity, where Kubemoot has it, is only ever a hashed id on a span and never a metric label.
+
+The dashboard keeps its live view from the bus; spans are an addition for your trace backend (Tempo, Jaeger, Phoenix and others).
+
+The reference cluster runs an **otel-collector** (OTLP `4317`/`4318` to `tempo.observability:4317`) and **Grafana Tempo** as the trace backend.
+
+One pillar (logs) still has a gap; see [Future work](#future-work).
 
 ## Conversation View and Debug Layer
 
@@ -161,11 +187,11 @@ Signal markers (vertical ticks) appear on bars when an agent has multiple signal
 
 The topology page (`/topology`) shows agent relationships as a graph, with real-time node pulsing when agents receive chat messages via `kubemoot.chat.>` SSE.
 
-> The span graph today **infers** spans from NATS signal timestamps. The future work below replaces this with true OpenTelemetry spans, rendered by the same graph and exportable to the trace backend.
+> The span graph **infers** its bars from NATS signal timestamps. The same discussion is also exported as true OpenTelemetry spans (see [Spans](#3-spans--traces-opentelemetry-one-trace-per-discussion)); rendering the graph from them is future work.
 
 ## Future work
 
-Two items complete the three pillars.
+Two items remain.
 
 ### Logs: a log aggregation backend
 
@@ -176,12 +202,6 @@ Stand up a log backend so the already-structured JSON logs are centrally searcha
 - **Collection** is backend-agnostic: the existing otel-collector can ship pod logs via its `loki` or `elasticsearch` exporter (filelog receiver), so the choice is only the store. Do **not** route logs through NATS; keep app-events and logs separate, on the standard path.
 - **Kubemoot side:** ensure structured logs carry `trace_id`/`thread_id` so logs correlate with the OTel spans below. Logs are content-free by default (see [Logs](#2-logs-content-free-structured-stdout-aggregation-is-yours)), so a backend that ingests them holds no question text unless you turn that on.
 
-### Spans: OpenTelemetry agent trace export
+### Spans: the dashboard on OpenTelemetry spans
 
-Make OpenTelemetry the canonical span model for discussions instead of the bespoke signal-reconstructed span graph:
-
-- **Produce** a real OTel trace per discussion: thread = root span; each agent evaluation or mulling step and each tool call = child spans with true start/end, carrying GenAI semantic-convention attributes (`gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`/`output_tokens`) plus Kubemoot extras (crew, thread, signal, server, GPU label).
-- **Consume**: the dashboard span graph renders OTel-shaped spans rather than reconstructing from signals; the same trace data also flows to the existing otel-collector → Tempo, and to any OTel-compatible profiler.
-- **Two transports**: live (NATS, keeping the dashboard real-time) plus OTLP batch (for Tempo and the wider ecosystem). Unlocks replaying historical discussions from the trace backend, not just live ones.
-
-The infrastructure (otel-collector + Tempo) already exists; the remaining work is Kubemoot-side emission/rendering plus minor config (Grafana Tempo datasource, Tempo retention). Aligning with OTel conventions is table stakes.
+Agents and the coordinator now emit true spans (see [Spans](#3-spans--traces-opentelemetry-one-trace-per-discussion)). The dashboard's span graph still infers its bars from bus signal timestamps and keeps its live view. Rendering the graph from the spans, and replaying a past discussion from the trace backend, is the remaining work.

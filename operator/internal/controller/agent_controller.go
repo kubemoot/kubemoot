@@ -923,6 +923,7 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 	env = append(env, candidateEnvVars(mulling, triage)...)
 	env = append(env, r.placementPolicyEnvVar(ctx, agent))
 	env = append(env, r.placementServiceEnvVars()...)
+	env = append(env, r.otlpEnvVars()...)
 	ws := r.workspaceFor(ctx, agent)
 	env = append(env, agentModelEnvVars(agent, ws.tools)...)
 	env = append(env, workspaceAccessEnvVar(ws.decision)...)

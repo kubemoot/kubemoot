@@ -1,5 +1,7 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.tracing.AgentTrace;
+import io.opentelemetry.context.Context;
 import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.TurnContext;
@@ -333,7 +335,7 @@ public class DiscussionSubscriber {
         String broadcastSubject = scope.channelWildcard("broadcast");
         dispatcher.subscribe(broadcastSubject, msg -> {
             try {
-                handleMessage(msg.getSubject(), new String(msg.getData()));
+                handleMessage(msg.getSubject(), new String(msg.getData()), AgentTrace.extract(msg.getHeaders()));
             } catch (Exception e) {
                 log.warn("Error handling broadcast message on {}: {}", msg.getSubject(), LogContent.reason(e));
             }
@@ -344,7 +346,7 @@ public class DiscussionSubscriber {
             String subject = scope.channelWildcard(channel);
             dispatcher.subscribe(subject, msg -> {
                 try {
-                    handleMessage(msg.getSubject(), new String(msg.getData()));
+                    handleMessage(msg.getSubject(), new String(msg.getData()), AgentTrace.extract(msg.getHeaders()));
                 } catch (Exception e) {
                     log.warn("Error handling discussion message on {}: {}", msg.getSubject(), LogContent.reason(e));
                 }
@@ -380,10 +382,10 @@ public class DiscussionSubscriber {
                 natsMsg.ack();
                 return;
             }
+            var parent = AgentTrace.extract(natsMsg.getHeaders());
             scheduler.submit(() -> {
                 try {
-                    evaluateAndRespond(subject, evaluation.threadId(), evaluation.conversation(),
-                            evaluation.selected());
+                    tracedTurn(parent, subject, evaluation);
                 } finally {
                     natsMsg.ack();
                 }
@@ -398,22 +400,42 @@ public class DiscussionSubscriber {
     /**
      * Handle a core NATS Dispatcher message (no ack needed).
      */
-    private void handleMessage(String subject, String data) {
+    private void handleMessage(String subject, String data, Context parent) {
         try {
             var evaluation = admitForEvaluation(data);
             if (evaluation == null) {
                 return;
             }
-            scheduler.submit(() -> evaluateAndRespond(subject, evaluation.threadId(),
-                    evaluation.conversation(), evaluation.selected()));
+            scheduler.submit(() -> tracedTurn(parent, subject, evaluation));
 
         } catch (Exception e) {
             log.warn("Failed to handle discussion message: {}", LogContent.reason(e));
         }
     }
 
+    /**
+     * One turn: this agent's pass over the message, a span under the trace context the message
+     * carried, current while the agent evaluates and publishes, so its signals and model and
+     * tool calls hang under it.
+     */
+    private void tracedTurn(Context parent, String subject, PendingEvaluation evaluation) {
+        var span = AgentTrace.startTurn(parent, evaluation.threadId(), evaluation.trigger(), properties.agentName());
+        try (var ignored = span.makeCurrent()) {
+            evaluateAndRespond(subject, evaluation.threadId(), evaluation.conversation(), evaluation.selected());
+        } catch (RuntimeException e) {
+            AgentTrace.fail(span, e);
+            throw e;
+        } finally {
+            span.end();
+        }
+    }
+
     /** A discussion message this agent will evaluate, with the thread formatted for the prompt. */
-    record PendingEvaluation(String threadId, String conversation, boolean selected) {}
+    record PendingEvaluation(String threadId, String conversation, boolean selected, String trigger) {
+        PendingEvaluation(String threadId, String conversation, boolean selected) {
+            this(threadId, conversation, selected, "");
+        }
+    }
 
     /**
      * Shared intake for both delivery paths: records the message in the thread state
@@ -450,7 +472,8 @@ public class DiscussionSubscriber {
         var messages = threadContext.get(threadId);
         log.info("Evaluating thread {} on trigger '{}' for agent {} (selected by coordinator)",
                 threadId, messageType, properties.agentName());
-        return new PendingEvaluation(threadId, formatThread(messages, threadId), isExplicitlySelected(data));
+        return new PendingEvaluation(threadId, formatThread(messages, threadId), isExplicitlySelected(data),
+                messageType);
     }
 
     /** Rate-limit permits taken for the thread. Visible for testing. */
@@ -1372,23 +1395,40 @@ public class DiscussionSubscriber {
 
             String contentField = truncate(content == null ? "" : content, CONTENT_MAX_CHARS);
 
-            var message = Map.of(
-                    FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
-                    FIELD_THREAD_ID, threadId,
-                    FIELD_AGENT_NAME, properties.agentName(),
-                    FIELD_MESSAGE_TYPE, signal,
-                    FIELD_CONTENT, contentField,
-                    FIELD_CHANNEL, channel,
-                    FIELD_TIMESTAMP, Instant.now().toString(),
-                    FIELD_METADATA, metadata
-            );
+            var message = new java.util.LinkedHashMap<String, Object>();
+            message.put(FIELD_MESSAGE_ID, UUID.randomUUID().toString());
+            message.put(FIELD_THREAD_ID, threadId);
+            message.put(FIELD_AGENT_NAME, properties.agentName());
+            message.put(FIELD_MESSAGE_TYPE, signal);
+            message.put(FIELD_CONTENT, contentField);
+            message.put(FIELD_CHANNEL, channel);
+            message.put(FIELD_TIMESTAMP, Instant.now().toString());
+            message.put(FIELD_METADATA, metadata);
 
             String publishSubject = scope.discussSubject(channel, threadId);
-            conn.publish(publishSubject, mapper.writeValueAsBytes(message));
+            publishTraced(conn, publishSubject, signal, message);
             log.info("Published {} signal to {} for thread {}", signal, publishSubject, threadId);
 
         } catch (Exception e) {
             log.warn("Failed to publish {} signal: {}", signal, LogContent.reason(e));
+        }
+    }
+
+    /**
+     * Publishes a signal inside a {@code publish <signal>} span, with the span's trace context in
+     * the message's {@code traceparent} field and header, as the sidecar does.
+     */
+    private void publishTraced(io.nats.client.Connection conn, String subject, String signal,
+                               Map<String, Object> message) throws java.io.IOException {
+        var span = AgentTrace.tracer().spanBuilder("publish " + signal).startSpan();
+        try (var ignored = span.makeCurrent()) {
+            message.putAll(AgentTrace.bodyFields());
+            AgentTrace.publish(conn, subject, mapper.writeValueAsBytes(message));
+        } catch (java.io.IOException | RuntimeException e) {
+            AgentTrace.fail(span, e);
+            throw e;
+        } finally {
+            span.end();
         }
     }
 
@@ -1489,7 +1529,7 @@ public class DiscussionSubscriber {
      */
     // Visible for testing
     void handleMessageForTest(String subject, String data) {
-        handleMessage(subject, data);
+        handleMessage(subject, data, Context.current());
     }
 
     /**

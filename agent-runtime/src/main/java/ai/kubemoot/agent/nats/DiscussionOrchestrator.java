@@ -1,5 +1,8 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.tracing.AgentTrace;
+import ai.kubemoot.agent.tracing.DiscussionSpans;
+import io.opentelemetry.context.Context;
 import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.TurnContext;
@@ -280,6 +283,8 @@ public class DiscussionOrchestrator {
 
     /** Writes each decision to the thread's coordinator log; does nothing unless KUBEMOOT_COORDINATOR_EVENT_LOG is true. */
     private volatile CoordinatorEventRecorder events;
+    /** The discussion, its phases and who was convened, as trace spans. */
+    private final DiscussionSpans spans = new DiscussionSpans();
 
     /** Picks up the threads a restarted coordinator had in flight; does nothing unless KUBEMOOT_COORDINATOR_RESUME is true. */
     private volatile CoordinatorResume resume = CoordinatorResume.off();
@@ -487,7 +492,7 @@ public class DiscussionOrchestrator {
             DiscussionFeed.subscribe(conn, dispatcher, sub, this::handleMessage);
         } else {
             dispatcher.subscribe(sub, msg -> {
-                try {
+                try (var ignored = AgentTrace.extract(msg.getHeaders()).makeCurrent()) {
                     handleMessage(new String(msg.getData()));
                 } catch (Exception e) {
                     log.debug("Error handling orchestrator message: {}", LogContent.reason(e));
@@ -729,6 +734,7 @@ public class DiscussionOrchestrator {
         threads.put(threadId, state);
         metrics.threadStarted();
         events.opened(state, "request");
+        spans.opened(threadId, state.crew, "request");
         return state;
     }
 
@@ -790,11 +796,14 @@ public class DiscussionOrchestrator {
                 FIELD_TIMESTAMP, Instant.now().toString(),
                 FIELD_METADATA, metadata
         ));
-        DerivedIds.publish(conn, broadcastSubject(request.crew(), threadId), payload, derivedId);
+        // The question is published inside the thread's span, so every agent's turn hangs under it.
+        try (var ignored = spans.inThread(threadId)) {
+            DerivedIds.publish(conn, broadcastSubject(request.crew(), threadId), payload, derivedId);
+        }
         conn.flush(Duration.ofSeconds(2));
 
         enterAdvisory(state);
-        events.phaseEntered(state, "thread_start");
+        enterPhase(state, "thread_start");
         log.info("Thread {} → ADVISORY phase (reasoning select+brief will run in transitionToEvaluating)", threadId);
     }
 
@@ -816,6 +825,18 @@ public class DiscussionOrchestrator {
         state.receipt.observe(agentName, messageType, msg, at);
     }
 
+    /** Enters the thread's current phase in the trace and in the coordinator's event log. */
+    private boolean enterPhase(ThreadState state, String reason) {
+        spans.phase(state.threadId, state.phase.name().toLowerCase(java.util.Locale.ROOT), reason);
+        return events.phaseEntered(state, reason);
+    }
+
+    /** Ends the thread's spans and writes its close to the coordinator's event log. */
+    private boolean closedThread(ThreadState state, String reason, String channel) {
+        spans.closed(state.threadId, reason);
+        return events.closed(state, reason, channel);
+    }
+
     // Visible for testing
     void handleMessage(String data) {
         handleMessage(data, 0);
@@ -829,7 +850,9 @@ public class DiscussionOrchestrator {
             // A thread being resumed holds its live messages until the ones it missed are applied.
             if (!threadId.isEmpty() && resume.holdsLive(threadId, data, streamSequence)) return;
             if (!threadId.isEmpty() && !admits(threadId, msg)) return;
-            applyMessage(msg, ReplayFilter.LIVE, null, streamSequence);
+            try (var ignored = spans.inThread(threadId)) {
+                applyMessage(msg, ReplayFilter.LIVE, null, streamSequence);
+            }
         } catch (Exception e) {
             log.debug("Failed to parse orchestrator message: {}", LogContent.reason(e));
         }
@@ -998,7 +1021,8 @@ public class DiscussionOrchestrator {
         state.conversationId = conversationId.isBlank() ? null : conversationId;
         enterAdvisory(state);
         events.opened(state, "external");
-        events.phaseEntered(state, "thread_start");
+        spans.opened(state.threadId, state.crew, "external");
+        enterPhase(state, "thread_start");
         metrics.threadStarted();
         log.info("Thread {} started by {} -> ADVISORY phase", state.threadId, agentName);
     }
@@ -1073,7 +1097,7 @@ public class DiscussionOrchestrator {
         if (canPause(state.phase)) {
             state.phaseBeforePause = state.phase;
             state.phase = Phase.PAUSED;
-            events.phaseEntered(state, "pause");
+            enterPhase(state, "pause");
             log.info("Thread {} paused by {} — saved phase {}", threadId, agentName,
                     state.phaseBeforePause);
         }
@@ -1086,7 +1110,7 @@ public class DiscussionOrchestrator {
             state.phase = restored;
             state.phaseStarted = Instant.now();
             state.phaseBeforePause = null;
-            events.phaseEntered(state, "resume");
+            enterPhase(state, "resume");
             log.info("Thread {} resumed by {} → {}", threadId, agentName, restored);
         }
     }
@@ -1354,7 +1378,7 @@ public class DiscussionOrchestrator {
             }
             try {
                 llmExecutor.execute(() -> {
-                    try {
+                    try (var ignored = spans.inThread(state.threadId)) {
                         checkThreadTransition(state, now);
                     } finally {
                         state.checkQueued.set(false);
@@ -1662,7 +1686,7 @@ public class DiscussionOrchestrator {
         state.phase = Phase.EVALUATING;
         state.phaseStarted = Instant.now();
         state.advisoryPending.set(true);
-        events.phaseEntered(state, "advisory");
+        enterPhase(state, "advisory");
 
         log.info("Thread {} → EVALUATING phase (coordinator reasoning select+brief)", state.threadId);
 
@@ -1783,6 +1807,7 @@ public class DiscussionOrchestrator {
             var circle = state.innerCircle;
             var conn = natsProvider.getConnection();
             if (conn == null || circle == null || circle.isEmpty()) return;
+            spans.convened(state.threadId, circle);
             var members = SubcommitteeLine.members(mapper, new java.util.TreeSet<>(circle), loadCrewResumes());
             String derivedId = events.messageId(state, CoordinatorEvent.SUBCOMMITTEE_CONVENED, SubcommitteeLine.MESSAGE_TYPE);
             var message = Map.of(
@@ -2422,7 +2447,7 @@ public class DiscussionOrchestrator {
     void enterReview(ThreadState state) {
         state.phase = Phase.REVIEW;
         state.phaseStarted = Instant.now();
-        events.phaseEntered(state, "settled");
+        enterPhase(state, "settled");
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
     }
 
@@ -2527,7 +2552,7 @@ public class DiscussionOrchestrator {
         state.advisoryContent = reasoning.brief();
         state.phase = Phase.SYNTHESIZING;
         boolean logged = events.answeredDirectly(state, reasoning);
-        events.phaseEntered(state, "direct");
+        enterPhase(state, "direct");
         metrics.advisoryCompleted(Duration.ofMillis(reasoning.inferenceMs()));
         log.info("Thread {} - coordinator selected no toolers; answering directly from reasoning ({}ms), no tooler wake",
                 state.threadId, reasoning.inferenceMs());
@@ -2554,7 +2579,7 @@ public class DiscussionOrchestrator {
         if (state.phase != Phase.SYNTHESIZING) {
             state.advisoryPending.set(false);
             state.phase = Phase.SYNTHESIZING;
-            events.phaseEntered(state, "direct");
+            enterPhase(state, "direct");
         }
         publishAdvisory(state.threadId, technologies, List.of(), brief, 0, state.advisoryModelUse);
         completeSynthesisPhase(state, resolveChannel(state), brief, Instant.now(), "direct");
@@ -2571,7 +2596,7 @@ public class DiscussionOrchestrator {
     private void transitionToSynthesis(ThreadState state, String reason) {
         state.phase = Phase.SYNTHESIZING;
         state.synthesisPromptTooLarge = false;
-        events.phaseEntered(state, reason);
+        enterPhase(state, reason);
         Instant synthesisStart = Instant.now();
         log.info("Thread {} → SYNTHESIZING ({} agrees, {} concerns, {} stand-asides)",
                 state.threadId, state.agreeSignals.size(), state.concernSignals.size(),
@@ -2923,7 +2948,7 @@ public class DiscussionOrchestrator {
             String ch = resolveChannel(state);
             publishThreadClose(state.threadId, ch);
             state.phase = Phase.CLOSED;
-            events.closed(state, "no_signals", ch);
+            closedThread(state, "no_signals", ch);
             events.checkAtClose(state);
             completePending(state.threadId, null);
             return null;
@@ -3129,7 +3154,7 @@ public class DiscussionOrchestrator {
         publishThreadClose(state.threadId, channel);
         state.answer = response;
         state.phase = Phase.CLOSED;
-        events.closed(state, outcome, channel);
+        closedThread(state, outcome, channel);
         events.checkAtClose(state);
         metrics.threadCompleted(Duration.between(state.threadCreated, Instant.now()));
         completePending(state.threadId, response);
@@ -3178,6 +3203,7 @@ public class DiscussionOrchestrator {
             return;
         }
         state.trace.fence();
+        spans.closed(threadId, "lost");
         leases.release(threadId);
         var future = pendingResults.remove(threadId);
         if (future != null) {
@@ -3503,7 +3529,7 @@ public class DiscussionOrchestrator {
 
             String crew = threads.containsKey(threadId) ? threads.get(threadId).crew : null;
             String subject = channelSubject(crew, channel, threadId);
-            conn.publish(subject, mapper.writeValueAsBytes(message));
+            AgentTrace.publish(conn, subject, mapper.writeValueAsBytes(message));
             log.info("Published synthetic failure for timed-out agent {} on thread {}", agentName, threadId);
 
         } catch (Exception e) {
@@ -3908,7 +3934,7 @@ public class DiscussionOrchestrator {
 
             String crew = threads.containsKey(threadId) ? threads.get(threadId).crew : null;
             String subject = broadcastSubject(crew, threadId);
-            conn.publish(subject, mapper.writeValueAsBytes(message));
+            AgentTrace.publish(conn, subject, mapper.writeValueAsBytes(message));
             log.info("Published gap_detected ({}) for thread {} to trigger onboarding evaluation",
                     gapType.name().toLowerCase().replace("_", "-"),
                     threadId);
@@ -4517,7 +4543,7 @@ public class DiscussionOrchestrator {
             );
 
             String subject = broadcastSubject(state.crew, state.threadId);
-            conn.publish(subject, mapper.writeValueAsBytes(message));
+            AgentTrace.publish(conn, subject, mapper.writeValueAsBytes(message));
             log.info("Published triage_result for thread {} ({})", state.threadId, LogContent.size(content));
             LogContent.debug(log, "Thread {} triage_result: {}", state.threadId, content);
 
@@ -4635,7 +4661,7 @@ public class DiscussionOrchestrator {
             publishThreadClose(state.threadId, channel);
             completePending(state.threadId, null);
             state.phase = Phase.CLOSED;
-            events.closed(state, "zombie", channel);
+            closedThread(state, "zombie", channel);
             events.checkAtClose(state);
         } finally {
             state.transitioning.set(false);
@@ -4699,13 +4725,13 @@ public class DiscussionOrchestrator {
     void submitLlm(Runnable task) {
         llmInFlight.incrementAndGet();
         try {
-            llmExecutor.submit(() -> {
+            llmExecutor.submit(Context.current().wrap(() -> {
                 try {
                     task.run();
                 } finally {
                     llmInFlight.decrementAndGet();
                 }
-            });
+            }));
         } catch (RuntimeException e) {
             llmInFlight.decrementAndGet();
             throw e;
