@@ -18,6 +18,7 @@ package nats
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +55,10 @@ type Publisher struct {
 	// conf holds the TLS and credential settings every component reads the same way
 	// (pkg/natsconn); the zero value is a plain, anonymous connection.
 	conf natsconn.Config
+	// lastSent holds, per subject, the hash of the payload last published through
+	// PublishOnChange. It lives in memory only, so the first publish after an operator
+	// restart always goes out.
+	lastSent map[string][sha256.Size]byte
 }
 
 // NewPublisher creates a publisher that connects lazily on first Publish call.
@@ -173,28 +178,71 @@ func (p *Publisher) ConversationOwner(_ context.Context, scope crewscope.Scope, 
 // Returns nil (no-op) when NATS is not configured.
 func (p *Publisher) Publish(subject string, payload interface{}) error {
 	if p.url == "" {
-		return nil // NATS not configured — graceful no-op
+		return nil // NATS not configured - graceful no-op
 	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
-		log.V(1).Info("Failed to connect to NATS, skipping publish", "subject", subject, "error", err)
-		return nil // Non-fatal — operator continues without NATS
-	}
-
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sendLocked(subject, data) // a failed send is non-fatal: the operator continues without NATS
+	return nil
+}
 
+// PublishOnChange publishes the payload only when it differs from the last payload
+// published on the same subject; an unchanged payload sends nothing. A reconcile that
+// runs every minute therefore writes to the stream when the object's state changes, not
+// on every pass. The payload must not carry timestamps or counters that change on their
+// own. A payload that could not be sent (NATS down) is not remembered, so the next call
+// tries again. The publish is buffered by the client, so a connection lost right after
+// it can drop one change until the payload changes again; the stream records changes of
+// state, and the object's own status is the source of truth. Returns nil (no-op) when
+// NATS is not configured.
+func (p *Publisher) PublishOnChange(subject string, payload interface{}) error {
+	if p.url == "" {
+		return nil
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(data)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if last, ok := p.lastSent[subject]; ok && last == sum {
+		return nil
+	}
+	if !p.sendLocked(subject, data) {
+		return nil
+	}
+	if p.lastSent == nil {
+		p.lastSent = map[string][sha256.Size]byte{}
+	}
+	p.lastSent[subject] = sum
+	return nil
+}
+
+// ForgetPublished drops the remembered payload of a subject, for an object that was
+// deleted: a later object with the same name publishes again.
+func (p *Publisher) ForgetPublished(subject string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.lastSent, subject)
+}
+
+// sendLocked publishes data and reports whether it went out. Must be called under mu.
+func (p *Publisher) sendLocked(subject string, data []byte) bool {
+	if err := p.connect(); err != nil {
+		log.V(1).Info("Failed to connect to NATS, skipping publish", "subject", subject, "error", err)
+		return false
+	}
 	if err := p.conn.Publish(subject, data); err != nil {
 		log.V(1).Info("Failed to publish to NATS", "subject", subject, "error", err)
-		return nil // Non-fatal
+		return false
 	}
-
-	return nil
+	return true
 }
 
 // Configured reports whether a NATS URL is set (false → the publisher is a no-op).

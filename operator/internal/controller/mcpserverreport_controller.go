@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -51,6 +52,9 @@ func (r *MCPServerReportReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	report := &kubemootv1alpha1.MCPServerReport{}
 	if err := r.Get(ctx, req.NamespacedName, report); err != nil {
+		if apierrors.IsNotFound(err) && r.NATSPublisher != nil {
+			r.NATSPublisher.ForgetPublished(verdictSubject(req.Name))
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -88,8 +92,8 @@ func (r *MCPServerReportReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Publish verdict to NATS
 	if r.NATSPublisher != nil {
-		_ = r.NATSPublisher.Publish(
-			fmt.Sprintf("kubemoot.chronicle.%s.verdict", report.Name),
+		_ = r.NATSPublisher.PublishOnChange(
+			verdictSubject(report.Name),
 			map[string]interface{}{
 				jsonKeyServer:          report.Spec.ServerName,
 				"verdict":              report.Status.Verdict,
@@ -199,4 +203,9 @@ func (r *MCPServerReportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kubemootv1alpha1.MCPServerReport{}).
 		Named("mcpserverreport").
 		Complete(r)
+}
+
+// verdictSubject is the chronicle subject a report's verdict is published on.
+func verdictSubject(reportName string) string {
+	return fmt.Sprintf("kubemoot.chronicle.%s.verdict", reportName)
 }

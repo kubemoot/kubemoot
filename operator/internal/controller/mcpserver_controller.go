@@ -927,6 +927,10 @@ func (r *MCPServerReconciler) handleDeletion(ctx context.Context, mcpServer *kub
 	}
 
 	log.Info("Handling MCPServer deletion", "name", mcpServer.Name)
+	if r.NATSPublisher != nil {
+		r.NATSPublisher.ForgetPublished(statusSubject(mcpServer.Name))
+		r.NATSPublisher.ForgetPublished(trialSubject(mcpServer.Name))
+	}
 
 	// Deployment and Service will be garbage collected via owner references
 
@@ -1157,8 +1161,8 @@ func (r *MCPServerReconciler) updateStatus(ctx context.Context, mcpServer *kubem
 
 	// Publish status change to NATS
 	if r.NATSPublisher != nil {
-		_ = r.NATSPublisher.Publish(
-			fmt.Sprintf("kubemoot.operator.mcpserver.%s.status", mcpServer.Name),
+		_ = r.NATSPublisher.PublishOnChange(
+			statusSubject(mcpServer.Name),
 			map[string]interface{}{
 				jsonKeyName:    mcpServer.Name,
 				jsonKeyPhase:   phase,
@@ -1246,8 +1250,8 @@ func (r *MCPServerReconciler) recordDeploymentTrial(ctx context.Context, mcpServ
 
 	// Publish trial event to NATS
 	if r.NATSPublisher != nil {
-		_ = r.NATSPublisher.Publish(
-			fmt.Sprintf("kubemoot.chronicle.%s.trial", mcpServer.Name),
+		_ = r.NATSPublisher.PublishOnChange(
+			trialSubject(mcpServer.Name),
 			map[string]interface{}{
 				jsonKeyServer:  mcpServer.Name,
 				jsonKeyPhase:   "deploy",
@@ -1304,3 +1308,14 @@ func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // connection options (CA bundle, client certificate, credential) the chart sets. Only a
 // server that dials NATS needs it.
 const AnnotationNATSConnection = "kubemoot.ai/nats-connection"
+
+// statusSubject is the operator subject an MCPServer's status is published on.
+func statusSubject(serverName string) string {
+	return fmt.Sprintf("kubemoot.operator.mcpserver.%s.status", serverName)
+}
+
+// trialSubject is the chronicle subject an MCPServer's deployment trial is published on.
+// A repeat of the same outcome is not republished; the MCPServerReport keeps every trial.
+func trialSubject(serverName string) string {
+	return fmt.Sprintf("kubemoot.chronicle.%s.trial", serverName)
+}

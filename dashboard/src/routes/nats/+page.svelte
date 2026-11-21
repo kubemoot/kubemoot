@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { refreshTrigger } from '#lib/stores/index.js';
 	import { LoadingSpinner, Section } from '#lib/components/common/index.js';
-	import { allWarnings, formatBytes, formatLimit, formatPercent, fraction, type AccountLimit, type NatsStatus } from '#lib/nats/status.js';
+	import { allHistoryNotices, allWarnings, historyNoticeText, formatBytes, formatLimit, formatPercent, fraction, type AccountLimit, type NatsStatus } from '#lib/nats/status.js';
 	import { retentionLine, storeRow } from '#lib/nats/view.js';
 	import { formatCapped, type CrewStoreUsage } from '#lib/nats/crew-usage.js';
 	import type { CrewRetentionStatus } from '#lib/types/kubemoot.js';
@@ -50,6 +50,7 @@
 
 	const rows = $derived((status?.stores ?? []).map(storeRow));
 	const warnings = $derived(allWarnings(status?.stores ?? []));
+	const notices = $derived(allHistoryNotices(status?.stores ?? [], status?.checkedAt));
 
 	function account(a: AccountLimit): string {
 		const share = formatPercent(fraction(a.used, a.limit));
@@ -80,6 +81,14 @@
 			<div class="warning-band" data-testid="nats-warnings">
 				{#each warnings as w (w.store + w.kind)}
 					<div class={w.level}>{w.store} is at {formatPercent(w.fraction)} of its {w.kind} limit</div>
+				{/each}
+			</div>
+		{/if}
+
+		{#if notices.length > 0}
+			<div class="notice-band" data-testid="nats-history-notices">
+				{#each notices as n (n.store)}
+					<div>{historyNoticeText(n)}</div>
 				{/each}
 			</div>
 		{/if}
@@ -203,6 +212,7 @@
 		max-width: 28rem;
 	}
 	.error-banner,
+	.notice-band,
 	.warning-band {
 		border-radius: 0.5rem;
 		padding: 0.75rem 1rem;
@@ -216,6 +226,12 @@
 	.warning-band {
 		background: rgba(245, 158, 11, 0.12);
 		border: 1px solid #f59e0b;
+		font-size: 0.85rem;
+	}
+	.notice-band {
+		background: var(--color-surface, rgba(100, 116, 139, 0.1));
+		border: 1px solid var(--color-border, rgba(100, 116, 139, 0.4));
+		color: var(--color-text-muted);
 		font-size: 0.85rem;
 	}
 	.warning-band .critical {

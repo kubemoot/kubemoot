@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+	allHistoryNotices,
 	allWarnings,
 	formatAge,
 	formatBytes,
+	formatDuration,
 	formatLimit,
 	fraction,
 	historyFill,
+	historyNotice,
+	historyNoticeText,
 	storeWarnings,
 	tileOf,
 	type NatsStatus,
@@ -160,5 +164,86 @@ describe('a scoped dashboard\'s share', () => {
 	it('marks the tile scoped, and a cluster status not', () => {
 		expect(tileOf(status({ scoped: true, stores: [share] }))).toMatchObject({ scoped: true, state: 'connected', messages: 99 });
 		expect(tileOf(status())?.scoped).toBe(false);
+	});
+});
+
+describe('history of a stream that drops its oldest messages at a cap', () => {
+	const now = new Date('2026-11-21T12:00:00Z');
+	const SEVEN_DAYS = 604_800;
+	const hoursAgo = (h: number) => new Date(now.getTime() - h * 3600_000).toISOString();
+	const full = (over: StoreOver = {}) =>
+		store({
+			name: 'KUBEMOOT_OPERATOR',
+			limits: { discard: 'old', maxAgeSeconds: SEVEN_DAYS, maxMessages: 10_000, maxBytes: null, ...over.limits },
+			usage: { messages: 10_000, bytes: 2_000_000, firstTs: hoursAgo(6), ...over.usage }
+		});
+
+	it('raises no warning at the cap', () => {
+		expect(storeWarnings(full())).toEqual([]);
+		expect(tileOf(status({ stores: [full()] }))?.state).toBe('connected');
+	});
+
+	it('says how much history it keeps against the intended age when the cap is full', () => {
+		const notice = historyNotice(full(), now);
+		expect(notice).toEqual({ store: 'KUBEMOOT_OPERATOR', cap: 'messages', keptSeconds: 21_600, intendedSeconds: SEVEN_DAYS });
+		expect(historyNoticeText(notice!)).toBe(
+			'KUBEMOOT_OPERATOR keeps 6 hours of the intended 7 days, because its message cap is full'
+		);
+	});
+
+	it('names the byte cap when that is the full one', () => {
+		const s = full({ limits: { maxBytes: 2_000_000, maxMessages: 1_000_000 } });
+		expect(historyNotice(s, now)?.cap).toBe('bytes');
+	});
+
+	it('says nothing when the oldest message already spans the max age', () => {
+		expect(historyNotice(full({ usage: { firstTs: hoursAgo(24 * 8) } }), now)).toBeNull();
+	});
+
+	it('says nothing while the cap has room, even a young stream near it', () => {
+		expect(historyNotice(full({ usage: { messages: 500 } }), now)).toBeNull();
+		expect(historyNotice(full({ usage: { messages: 9_000 } }), now)).toBeNull();
+	});
+
+	it('says nothing without a max age, an oldest time, or messages', () => {
+		expect(historyNotice(full({ limits: { maxAgeSeconds: null } }), now)).toBeNull();
+		expect(historyNotice(full({ usage: { firstTs: null } }), now)).toBeNull();
+		expect(historyNotice(full({ usage: { firstTs: '0001-01-01T00:00:00Z' } }), now)).toBeNull();
+		expect(historyNotice(full({ usage: { messages: 0 } }), now)).toBeNull();
+	});
+
+	it('does not apply to a stream that refuses writes at its limit', () => {
+		expect(historyNotice(full({ limits: { discard: 'new' } }), now)).toBeNull();
+	});
+
+	it('lists the notices from a status time and skips an unreadable one', () => {
+		const stores = [full()];
+		expect(allHistoryNotices(stores, now.toISOString())).toHaveLength(1);
+		expect(allHistoryNotices(stores, 'now')).toEqual([]);
+		expect(allHistoryNotices(stores, undefined)).toEqual([]);
+	});
+});
+
+describe('a stream that refuses writes at its limit', () => {
+	it('keeps a real warning near the limit', () => {
+		const s = store({ limits: { discard: 'new' }, usage: { messages: 96 } });
+		expect(storeWarnings(s)).toEqual([{ store: 's', kind: 'messages', fraction: 0.96, level: 'critical' }]);
+		expect(tileOf(status({ stores: [s] }))?.state).toBe('near-limit');
+	});
+
+	it('is quiet while it has room', () => {
+		expect(storeWarnings(store({ limits: { discard: 'new' } }))).toEqual([]);
+	});
+});
+
+describe('formatDuration', () => {
+	it('uses minutes, hours and days, singular and plural', () => {
+		expect(formatDuration(30)).toBe('1 minute');
+		expect(formatDuration(1800)).toBe('30 minutes');
+		expect(formatDuration(3600)).toBe('1 hour');
+		expect(formatDuration(21_600)).toBe('6 hours');
+		expect(formatDuration(86_400)).toBe('24 hours');
+		expect(formatDuration(604_800)).toBe('7 days');
+		expect(formatDuration(2_592_000)).toBe('30 days');
 	});
 });

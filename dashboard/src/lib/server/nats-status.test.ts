@@ -37,8 +37,15 @@ describe('storeStatusOf', () => {
 		const s = storeStatusOf(streamInfo('KUBEMOOT_DISCUSS') as never);
 		expect(s.definition?.name).toBe('KUBEMOOT_DISCUSS');
 		expect(s.kind).toBe('stream');
-		expect(s.limits).toEqual({ maxAgeSeconds: 86400, maxBytes: 1000, maxMessages: 100, history: null });
+		expect(s.limits).toEqual({ maxAgeSeconds: 86400, maxBytes: 1000, maxMessages: 100, history: null, discard: null });
 		expect(s.usage).toMatchObject({ messages: 10, bytes: 100, firstSeq: 1, lastSeq: 10, consumers: 2, keys: null });
+	});
+
+	it('reads the discard policy and the oldest message time', () => {
+		const old = storeStatusOf(streamInfo('KUBEMOOT_OPERATOR', { discard: 'old' }, { first_ts: '2026-11-21T06:00:00Z' }) as never);
+		expect(old.limits.discard).toBe('old');
+		expect(old.usage.firstTs).toBe('2026-11-21T06:00:00Z');
+		expect(storeStatusOf(streamInfo('KUBEMOOT_OPERATOR', { discard: 'new' }) as never).limits.discard).toBe('new');
 	});
 
 	it('shows a KV bucket under its bucket name with its history', () => {
