@@ -1,6 +1,7 @@
 package ai.kubemoot.placement;
 
 import ai.kubemoot.agent.nats.NatsLink;
+import ai.kubemoot.agent.nats.NatsConnectionSettings;
 import io.nats.client.Connection;
 import io.nats.client.Nats;
 import io.nats.client.Options;
@@ -72,11 +73,14 @@ public class NatsConnection implements NatsLink {
                 .maxReconnects(-1)
                 .reconnectWait(Duration.ofSeconds(2))
                 .connectionName("placement-" + settings.holderId());
+        // The CA, client certificate and credential come from the variables every Kubemoot component
+        // reads; the user and password of this service's own settings take their place when set.
+        NatsConnectionSettings conn = NatsConnectionSettings.fromEnvironment(System::getenv);
         if (settings.natsUser().isPresent()) {
-            options.userInfo(settings.natsUser().get(), settings.natsPassword().orElse(""));
+            conn = conn.withUserInfo(settings.natsUser().get(), settings.natsPassword().orElse(""));
         }
         try {
-            connection = Nats.connect(options.build());
+            connection = Nats.connect(conn.configure(options).build());
             lastFailure = null;
             log.info("Connected to NATS");
             return connection;

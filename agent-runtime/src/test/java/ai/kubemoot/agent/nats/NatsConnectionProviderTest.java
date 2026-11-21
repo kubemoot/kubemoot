@@ -43,6 +43,40 @@ class NatsConnectionProviderTest {
         assertThrows(IllegalStateException.class, server::scope);
     }
 
+    
+    void unusableNatsOptions_stopTheAgentAtStartup() {
+        var settings = new NatsConnectionSettings("nats://nats:4222", "/no/such/ca.crt", "", "", "", "", "", "");
+        var e = assertThrows(IllegalArgumentException.class, () -> new NatsConnectionProvider(
+                props("nats://nats:4222", "team-a", "crew"), settings, o -> null, Duration.ofMillis(1),
+                Duration.ofSeconds(30)));
+        assertTrue(e.getMessage().contains("NATS_CA_FILE"), e.getMessage());
+    }
+
+    
+    void credential_reachesTheConnectionOptions() {
+        var settings = new NatsConnectionSettings("", "", "", "", "", "alice", "s3cret", "");
+        var seen = new java.util.concurrent.atomic.AtomicReference<io.nats.client.Options>();
+        var p = new NatsConnectionProvider(props("nats://nats:4222", "ns", "crew"), settings, options -> {
+            seen.set(options);
+            return conn(Connection.Status.CONNECTED);
+        }, Duration.ofMillis(1), Duration.ofSeconds(30));
+        assertNotNull(p.getConnection());
+        assertEquals("alice", seen.get().getUsername());
+    }
+
+    
+    void withoutNatsOptions_connectsAsBefore() {
+        var seen = new java.util.concurrent.atomic.AtomicReference<io.nats.client.Options>();
+        var p = new NatsConnectionProvider(props("nats://nats:4222", "ns", "crew"),
+                new NatsConnectionSettings("", "", "", "", "", "", "", ""), options -> {
+                    seen.set(options);
+                    return conn(Connection.Status.CONNECTED);
+                }, Duration.ofMillis(1), Duration.ofSeconds(30));
+        assertNotNull(p.getConnection());
+        assertNull(seen.get().getSslContext());
+        assertNull(seen.get().getUsername());
+    }
+
     private static Connection conn(Connection.Status status) {
         var c = mock(Connection.class);
         when(c.getStatus()).thenReturn(status);

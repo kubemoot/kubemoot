@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
 import io.nats.client.KeyValue;
 import io.nats.client.Nats;
+import io.nats.client.Options;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
@@ -63,7 +64,8 @@ public class NatsKVSourceLoader implements SourceLoader {
 
         logger.info("Reading from NATS KV: bucket={}, key={}, url={}", bucket, key, natsUrl);
 
-        try (Connection nc = Nats.connect(natsUrl)) {
+        try (Connection nc = Nats.connect(NatsConnectionSettings.fromEnvironment(System::getenv)
+                .configure(new Options.Builder().server(natsUrl)).build())) {
             KeyValue kv = nc.keyValue(bucket);
             byte[] value = kv.get(key).getValue();
 

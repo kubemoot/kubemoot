@@ -54,6 +54,14 @@ names="$(yq -N 'select(.kind == "Deployment" and .metadata.name == "'$ps'") | .s
 out="$(render --set acceleratorMcp.enabled=true)"
 [ "$(yq -N 'select(.kind == "MCPServer" and .metadata.name == "accelerator-mcp") | .metadata.annotations["kubemoot.ai/nats-connection"]' <<<"$out")" = true ] || fail "accelerator-mcp does not ask for the NATS options"
 
+# The dashboard subchart takes the same options under dashboard.nats.
+out="$(render --set dashboard.enabled=true --set dashboard.nats.url=tls://nats:4222 --set dashboard.nats.tls.caSecret=nats-ca --set dashboard.nats.auth.secret=nats-auth --set dashboard.nats.auth.tokenKey=t)"
+dash="$(yq -N 'select(.kind == "Deployment" and .spec.template.spec.containers[0].name == "dashboard") | .spec.template.spec.containers[0].env[] | select(.name == "NATS_CA_FILE") | .value' <<<"$out")"
+[ "$dash" = /etc/kubemoot/nats-conn/ca/ca.crt ] || fail "dashboard CA file: $dash"
+tok="$(yq -N 'select(.kind == "Deployment" and .spec.template.spec.containers[0].name == "dashboard") | .spec.template.spec.containers[0].env[] | select(.name == "NATS_TOKEN") | .valueFrom.secretKeyRef.key' <<<"$out")"
+[ "$tok" = t ] || fail "dashboard token: $tok"
+if render --set dashboard.enabled=true --set dashboard.nats.auth.secret=a >/dev/null 2>&1; then fail "dashboard rendered a credential Secret with no key"; fi
+
 # Contradictions fail the render.
 for bad in "--set nats.auth.secret=a" "--set nats.auth.credsKey=c" "--set nats.auth.secret=a --set nats.auth.credsKey=c --set nats.auth.tokenKey=t" "--set nats.auth.secret=a --set nats.auth.userKey=u"; do
   # shellcheck disable=SC2086

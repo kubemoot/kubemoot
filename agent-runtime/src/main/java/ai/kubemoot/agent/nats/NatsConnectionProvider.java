@@ -28,6 +28,7 @@ public class NatsConnectionProvider implements NatsLink {
     private static final Duration DEFAULT_RECONNECT_BACKOFF = Duration.ofSeconds(30);
 
     private final String natsUrl;
+    private final NatsConnectionSettings settings;
     private final String agentName;
     private final CrewScope scope;
     private final ReentrantLock connectLock = new ReentrantLock();
@@ -50,10 +51,17 @@ public class NatsConnectionProvider implements NatsLink {
 
     NatsConnectionProvider(AgentProperties properties, Connector connector, Duration retryInterval,
                            Duration reconnectBackoff) {
+        this(properties, NatsConnectionSettings.fromEnvironment(System::getenv), connector, retryInterval,
+                reconnectBackoff);
+    }
+
+    NatsConnectionProvider(AgentProperties properties, NatsConnectionSettings settings, Connector connector,
+                           Duration retryInterval, Duration reconnectBackoff) {
         this.reconnectBackoff = reconnectBackoff;
         this.connector = connector;
         this.retryInterval = retryInterval;
         this.natsUrl = properties.nats().url().orElse("");
+        this.settings = settings;
         this.agentName = properties.agentName();
         if (natsUrl.isEmpty()) {
             this.scope = null;
@@ -62,7 +70,10 @@ public class NatsConnectionProvider implements NatsLink {
             // Fails startup when the namespace is unknown: an unscoped subject or key
             // would cross into every other namespace running the same crew name.
             this.scope = CrewScope.fromProperties(properties);
-            log.info("NATS connection server initialized: {} (scope {})", natsUrl, scope);
+            // The CA, client certificate and credential files are read now: a wrong one stops
+            // the agent at startup naming its variable, not as a handshake error later.
+            settings.configure(new Options.Builder());
+            log.info("NATS connection server initialized: {} (scope {}, {})", natsUrl, scope, settings.describe());
         }
     }
 
@@ -155,12 +166,11 @@ public class NatsConnectionProvider implements NatsLink {
     }
 
     private Connection attemptConnect() {
-        var options = new Options.Builder()
+        var options = settings.configure(new Options.Builder()
                 .server(natsUrl)
                 .maxReconnects(-1)
                 .reconnectWait(Duration.ofSeconds(2))
-                .connectionName("agent-" + agentName)
-                .build();
+                .connectionName("agent-" + agentName)).build();
 
         for (int attempt = 1; attempt <= MAX_INITIAL_RETRIES; attempt++) {
             try {

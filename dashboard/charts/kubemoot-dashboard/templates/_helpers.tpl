@@ -127,3 +127,114 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: kubemoot
 app.kubernetes.io/component: dashboard-workshop
 {{- end }}
+
+{{/*
+The NATS connection options (nats.tls, nats.auth), checked: a credential Secret needs exactly one
+kind of credential (a creds key, a user key with a password key, or a token key).
+*/}}
+{{- define "kubemoot-dashboard.natsCheck" -}}
+{{- $a := (.Values.nats.auth | default dict) -}}
+{{- $kinds := 0 -}}
+{{- if $a.credsKey }}{{ $kinds = add1 $kinds }}{{ end -}}
+{{- if or $a.userKey $a.passwordKey }}{{ $kinds = add1 $kinds }}{{ end -}}
+{{- if $a.tokenKey }}{{ $kinds = add1 $kinds }}{{ end -}}
+{{- if and $a.secret (ne (int $kinds) 1) -}}
+{{- fail "nats.auth.secret needs exactly one of nats.auth.credsKey, nats.auth.userKey with nats.auth.passwordKey, or nats.auth.tokenKey" -}}
+{{- end -}}
+{{- if and (not $a.secret) (gt (int $kinds) 0) -}}
+{{- fail "nats.auth keys need nats.auth.secret" -}}
+{{- end -}}
+{{- if or (and $a.userKey (not $a.passwordKey)) (and $a.passwordKey (not $a.userKey)) -}}
+{{- fail "nats.auth.userKey and nats.auth.passwordKey go together" -}}
+{{- end -}}
+{{- end }}
+
+{{/* Environment the dashboard reads for NATS; the names every Kubemoot component reads. */}}
+{{- define "kubemoot-dashboard.natsEnv" -}}
+{{- include "kubemoot-dashboard.natsCheck" . -}}
+{{- $tls := (.Values.nats.tls | default dict) -}}
+{{- $a := (.Values.nats.auth | default dict) -}}
+{{- with .Values.nats.url }}
+- name: NATS_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- if $tls.caSecret }}
+- name: NATS_CA_FILE
+  value: /etc/kubemoot/nats-conn/ca/ca.crt
+{{- end }}
+{{- if $tls.clientSecret }}
+- name: NATS_CLIENT_CERT_FILE
+  value: /etc/kubemoot/nats-conn/client/tls.crt
+- name: NATS_CLIENT_KEY_FILE
+  value: /etc/kubemoot/nats-conn/client/tls.key
+{{- end }}
+{{- if $a.secret }}
+{{- if $a.credsKey }}
+- name: NATS_CREDS_FILE
+  value: /etc/kubemoot/nats-conn/auth/nats.creds
+{{- else if $a.userKey }}
+- name: NATS_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ $a.secret | quote }}
+      key: {{ $a.userKey | quote }}
+- name: NATS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $a.secret | quote }}
+      key: {{ $a.passwordKey | quote }}
+{{- else if $a.tokenKey }}
+- name: NATS_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ $a.secret | quote }}
+      key: {{ $a.tokenKey | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "kubemoot-dashboard.natsMounts" -}}
+{{- $tls := (.Values.nats.tls | default dict) -}}
+{{- $a := (.Values.nats.auth | default dict) -}}
+{{- if $tls.caSecret }}
+- name: nats-conn-ca
+  mountPath: /etc/kubemoot/nats-conn/ca
+  readOnly: true
+{{- end }}
+{{- if $tls.clientSecret }}
+- name: nats-conn-client
+  mountPath: /etc/kubemoot/nats-conn/client
+  readOnly: true
+{{- end }}
+{{- if and $a.secret $a.credsKey }}
+- name: nats-conn-auth
+  mountPath: /etc/kubemoot/nats-conn/auth
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- define "kubemoot-dashboard.natsVolumes" -}}
+{{- $tls := (.Values.nats.tls | default dict) -}}
+{{- $a := (.Values.nats.auth | default dict) -}}
+{{- if $tls.caSecret }}
+- name: nats-conn-ca
+  secret:
+    secretName: {{ $tls.caSecret | quote }}
+    items:
+      - key: {{ $tls.caKey | default "ca.crt" | quote }}
+        path: ca.crt
+{{- end }}
+{{- if $tls.clientSecret }}
+- name: nats-conn-client
+  secret:
+    secretName: {{ $tls.clientSecret | quote }}
+{{- end }}
+{{- if and $a.secret $a.credsKey }}
+- name: nats-conn-auth
+  secret:
+    secretName: {{ $a.secret | quote }}
+    items:
+      - key: {{ $a.credsKey | quote }}
+        path: nats.creds
+{{- end }}
+{{- end }}
