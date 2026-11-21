@@ -206,7 +206,8 @@ func (h *Handler) operatorAccess(
 	reason, ok := identity.ValidateAccessReason(r.Header.Get(identity.HeaderAccessReason))
 	if !ok {
 		httpError(w, http.StatusBadRequest,
-			"reading another caller's conversations needs a reason of 1 to 200 characters in the "+identity.HeaderAccessReason+" header")
+			"reading another caller's conversations needs a reason of 1 to 200 characters in the "+
+				identity.HeaderAccessReason+" header")
 		return false
 	}
 	identity.OperatorAccess{Operator: caller.Identity, Operation: op, Namespace: scope.Namespace, Crew: scope.Crew,
