@@ -144,9 +144,10 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 		// on each download (no pre-baked artifact), so every report reflects the
 		// currently deployed generator. The dashboard's download endpoint proxies here.
 		{"fitness report server", &controller.ReportServer{
-			Client:    mgr.GetClient(),
-			Publisher: natsPublisher,
-			Memory:    natsPublisher,
+			Client:        mgr.GetClient(),
+			Publisher:     natsPublisher,
+			Memory:        natsPublisher,
+			Conversations: natsPublisher,
 			// The report service is reachable by any pod; every endpoint checks the
 			// caller's token and RBAC before it answers.
 			Auth: controller.NewReviewAuthorizer(kube),

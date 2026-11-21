@@ -42,6 +42,9 @@ func main() {
 
 	tickets := liaison.NewStore(ttl)
 	svc := liaison.NewService(liaison.NewLister(k8s), liaison.NewGateway(), tickets, maxInflight)
+	if reportURL := os.Getenv("LIAISON_OPERATOR_REPORT_URL"); reportURL != "" {
+		svc.WithExporter(liaison.NewExporter(reportURL))
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + port,

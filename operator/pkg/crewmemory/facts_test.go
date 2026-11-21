@@ -143,3 +143,35 @@ func TestReadFactsEmptyBucket(t *testing.T) {
 		t.Errorf("ReadFacts() = %v, %v", res, err)
 	}
 }
+
+const testThread = "th-1"
+
+func TestParseFactReadsTheThreadItWasLearnedIn(t *testing.T) {
+	scope, _ := crewscope.New("ns", "c")
+	f, err := ParseFact(scope, "ns.c.hw.gpu", Entry{Value: []byte(`{"value":"v","learnedBy":"a","learnedInThread":"th-1"}`)})
+	if err != nil || f.LearnedInThread != testThread {
+		t.Fatalf("fact = %+v, err = %v", f, err)
+	}
+	old, err := ParseFact(scope, "ns.c.hw.gpu", Entry{Value: []byte(`{"value":"v","learnedBy":"a"}`)})
+	if err != nil || old.LearnedInThread != "" {
+		t.Fatalf("a fact without the field = %+v, err = %v", old, err)
+	}
+}
+
+func TestLearnedInThreadsKeepsOnlyFactsOfThoseThreads(t *testing.T) {
+	res := ReadResult{
+		Facts: []Fact{
+			{Key: "mine", LearnedInThread: testThread},
+			{Key: "other", LearnedInThread: "th-2"},
+			{Key: "unknown"},
+		},
+		Skipped: []Skipped{{Key: "unreadable", Reason: "x"}},
+	}
+	got := LearnedInThreads(res, map[string]struct{}{testThread: {}, "": {}})
+	if len(got.Facts) != 1 || got.Facts[0].Key != "mine" {
+		t.Errorf("facts = %+v, want only the fact of th-1 (a fact with no thread is never kept, even for an empty thread)", got.Facts)
+	}
+	if len(got.Skipped) != 0 {
+		t.Errorf("skipped = %+v, want none: nothing says whose they were", got.Skipped)
+	}
+}

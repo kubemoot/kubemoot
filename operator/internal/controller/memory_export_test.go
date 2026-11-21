@@ -206,9 +206,9 @@ func (failingEntry) GetKVEntry(_, key string) (crewmemory.Entry, error) {
 func TestMemoryExportErrorsCarryNoKeyToTheClientOrTheLog(t *testing.T) {
 	const keySecret = "ghp_abcdefghijklmnopqrstuvwxyz0123"
 	var logged strings.Builder
-	saved := memoryExportLog
-	memoryExportLog = funcr.New(func(prefix, args string) { logged.WriteString(prefix + args + "\n") }, funcr.Options{})
-	defer func() { memoryExportLog = saved }()
+	saved := exportLog
+	exportLog = funcr.New(func(prefix, args string) { logged.WriteString(prefix + args + "\n") }, funcr.Options{})
+	defer func() { exportLog = saved }()
 
 	reader := failingEntry{memReader{"ns.c.ops." + keySecret: `{"value":"x","learnedBy":"a"}`}}
 	opens := map[string]memoryOpener{

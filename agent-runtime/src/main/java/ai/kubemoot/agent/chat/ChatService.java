@@ -394,7 +394,7 @@ public class ChatService {
         String text = loopResult.text();
         if (crewMemory != null) {
             // Facts come only from what the model itself wrote, never from tool output.
-            crewMemory.persistDirectives(loopResult.modelText(), properties.agentName());
+            crewMemory.persistDirectives(loopResult.modelText(), properties.agentName(), request.discussionThreadId());
             if (!loopResult.contributionIsToolOutput()) {
                 text = crewMemory.stripDirectives(text);
             }

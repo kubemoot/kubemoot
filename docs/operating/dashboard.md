@@ -192,6 +192,7 @@ The dashboard reads the component status, the fitness report download, and the c
 |----------|----------------|
 | `/report/{namespace}/{suite}` (fitness report) | `get` the CrewFitnessSuite in that namespace |
 | `/memory-export/{namespace}/{crew}` | `get` the Crew in that namespace |
+| `/conversation-export/{namespace}/{crew}?id=...` | `get` the Crew in that namespace; see [Taking a conversation away](../data-ownership/#taking-a-conversation-away) |
 | `/componentstatuses` | `list` ModelServers in all namespaces |
 
 The component status reports the operator, NATS, and how many ModelServers are ready. The ModelServer count is the only part that comes from cluster objects and it spans namespaces, so listing ModelServers is the narrowest access that fits it. The dashboard sends its service account token on every call, and its `kubemoot.ai` read grant above covers all three. A call with no valid token answers 401 with the header to send (`Authorization: Bearer <token>`), one whose identity lacks the access answers 403, and a service started without an authorizer answers 503 rather than serving. Any other client of these endpoints, such as a script in a pod, sends its own service account token and needs the same access; `kmctl` and CrewForge do not call them.

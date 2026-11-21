@@ -29,6 +29,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/conversationexport"
+	"github.com/kubemoot/kubemoot/operator/pkg/conversationexport/natssource"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/natskv"
 	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
@@ -101,6 +103,26 @@ func (p *Publisher) OpenCrewMemory() (crewmemory.EntryReader, error) {
 		return nil, fmt.Errorf("connect NATS: %w", err)
 	}
 	return natskv.Open(p.conn)
+}
+
+// OpenConversationExport returns a builder of conversation exports over this publisher's
+// NATS connection: it reads the conversation history, the discussion stream and the
+// workspace, and the crew memory for the facts learned in the conversation. It reports
+// every failure, like OpenCrewMemory.
+func (p *Publisher) OpenConversationExport() (*conversationexport.Builder, error) {
+	if p.url == "" {
+		return nil, errors.New("NATS is not configured")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.connect(); err != nil {
+		return nil, fmt.Errorf("connect NATS: %w", err)
+	}
+	source, err := natssource.Open(p.conn)
+	if err != nil {
+		return nil, err
+	}
+	return &conversationexport.Builder{Source: source, Memory: p.OpenCrewMemory}, nil
 }
 
 // Publish JSON-encodes the payload and publishes to the given subject.

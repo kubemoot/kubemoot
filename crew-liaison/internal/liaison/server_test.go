@@ -55,7 +55,7 @@ func TestMCPEndToEnd(t *testing.T) {
 	defer cancel()
 	session := connectSession(ctx, t, srv.URL+"/mcp", "s3cret")
 
-	if names := toolNames(ctx, t, session); names != "ask,get_answer,list_crews" {
+	if names := toolNames(ctx, t, session); names != "ask,export_conversation,get_answer,list_crews" {
 		t.Fatalf("tools %v", names)
 	}
 	listed := callTool(ctx, t, session, "list_crews", map[string]any{})

@@ -31,6 +31,7 @@ import (
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/pkg/conversationexport"
 )
 
 // componentModelServers names the ModelServer entry in the component status list.
@@ -377,6 +378,10 @@ type ReportServer struct {
 	Publisher *kubemootnats.Publisher
 	// Memory opens the crew memory store for the memory export; nil answers 503.
 	Memory memoryOpener
+	// Conversations builds the conversation export; nil answers 503.
+	Conversations conversationOpener
+	// AllowConversation decides who may export a conversation; nil means mayExportConversation.
+	AllowConversation conversationexport.Allow
 	// Auth decides who may read each endpoint; nil answers 503 (fail closed).
 	Auth reportAuthorizer
 	Addr string
@@ -452,6 +457,7 @@ func (s *ReportServer) routeTable() []reportRoute {
 			func(*http.Request) (authorizationv1.ResourceAttributes, error) { return componentStatusAccess(), nil },
 			s.serveComponentStatuses},
 		{"GET /memory-export/{namespace}/{crew}", memoryExportAccess, s.serveMemoryExport},
+		{"GET /conversation-export/{namespace}/{crew}", memoryExportAccess, s.serveConversationExport},
 		{"GET /report/{namespace}/{name}",
 			func(r *http.Request) (authorizationv1.ResourceAttributes, error) {
 				return suiteAccess(r.PathValue("namespace"), r.PathValue("name")), nil

@@ -87,7 +87,7 @@ class ChatServiceCrewMemoryTest {
 
     private String persistedText() {
         var text = ArgumentCaptor.forClass(String.class);
-        verify(memory, atLeastOnce()).persistDirectives(text.capture(), eq("test-agent"));
+        verify(memory, atLeastOnce()).persistDirectives(text.capture(), eq("test-agent"), any());
         return String.join("\n", text.getAllValues());
     }
 
@@ -104,6 +104,17 @@ class ChatServiceCrewMemoryTest {
 
         assertTrue(persistedText().contains(FACT));
         assertEquals("[t]\n{\"gpu\":\"idle\"}", result.response());
+    }
+
+    @Test
+    void persistedFactsRecordTheDiscussionThreadTheyWereLearnedIn() {
+        registerTool("{\"gpu\":\"idle\"}");
+        scriptModel(n -> n == 0 ? callWithText("", 0) : new AiMessage("rig0 is idle\n" + FACT));
+
+        service(5, "tooler", memory).directChat(
+                new ChatService.ChatRequest("c9", "gpu?", "crew", "thread-77"), false);
+
+        verify(memory, atLeastOnce()).persistDirectives(any(), eq("test-agent"), eq("thread-77"));
     }
 
     @Test

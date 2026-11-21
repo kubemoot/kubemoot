@@ -4,13 +4,18 @@ import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.nats.CrewScope;
 import ai.kubemoot.agent.nats.NatsConnectionProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.nats.client.Connection;
+import io.nats.client.KeyValue;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.Optional;
 import java.util.regex.Matcher;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -167,5 +172,75 @@ class CrewMemoryClientTest {
     void recallForContext_nullQuery_emptyWhenNatsUnavailable() {
         // null query is the recency-only path; still empty with NATS down.
         assertEquals("", clientWithoutNats().recallForContext(null));
+    }
+
+    /** A client over a mocked bucket, and the bucket, so a test reads what was written. */
+    private static CrewMemoryClient clientWithBucket(KeyValue kv) throws Exception {
+        return clientWithBucket(kv, false);
+    }
+
+    private static CrewMemoryClient clientWithBucket(KeyValue kv, boolean verifyOnAdd) throws Exception {
+        var nats = mock(NatsConnectionProvider.class);
+        var conn = mock(Connection.class);
+        when(conn.keyValue("kubemoot_crew_memory")).thenReturn(kv);
+        when(nats.isAvailable()).thenReturn(true);
+        when(nats.getConnection()).thenReturn(conn);
+        when(nats.scope()).thenReturn(CrewScope.of("ns-a", "homelab-pilot"));
+        var props = mock(AgentProperties.class);
+        when(props.crew()).thenReturn(Optional.of("homelab-pilot"));
+        var mem = mock(AgentProperties.Memory.class);
+        when(mem.enabled()).thenReturn(true);
+        when(mem.maxFacts()).thenReturn(5000);
+        when(mem.ttlDays()).thenReturn(365);
+        when(mem.injectLimit()).thenReturn(8);
+        when(mem.verifyOnAdd()).thenReturn(verifyOnAdd);
+        when(props.memory()).thenReturn(mem);
+        return new CrewMemoryClient(nats, new ObjectMapper(), props);
+    }
+
+    private static String storedFact(KeyValue kv) throws Exception {
+        var value = ArgumentCaptor.forClass(byte[].class);
+        verify(kv).put(anyString(), value.capture());
+        return new String(value.getValue(), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void persistDirectives_recordsTheThreadTheFactWasLearnedIn() throws Exception {
+        var kv = mock(KeyValue.class);
+        clientWithBucket(kv).persistDirectives("REMEMBER: gpu | rig0 | RTX 5090", "obs", "thread-7");
+        var stored = new ObjectMapper().readTree(storedFact(kv));
+        assertEquals("thread-7", stored.path("learnedInThread").asText());
+        assertEquals("obs", stored.path("learnedBy").asText());
+    }
+
+    @Test
+    void persistDirectives_withoutAThreadRecordsNone() throws Exception {
+        var kv = mock(KeyValue.class);
+        clientWithBucket(kv).persistDirectives("REMEMBER: gpu | rig0 | RTX 5090", "obs");
+        assertFalse(new ObjectMapper().readTree(storedFact(kv)).has("learnedInThread"));
+    }
+
+    private static KeyValue bucketHolding(String value) throws Exception {
+        var kv = mock(KeyValue.class);
+        var entry = mock(io.nats.client.api.KeyValueEntry.class);
+        String stored = "{\"value\":\"" + value + "\",\"learnedBy\":\"obs\","
+                + "\"learnedInThread\":\"thread-old\",\"learnedAt\":\"2026-11-20T10:00:00Z\"}";
+        when(entry.getValue()).thenReturn(stored.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        when(kv.get(anyString())).thenReturn(entry);
+        return kv;
+    }
+
+    @Test
+    void remember_theSameValueAgainKeepsTheThreadItWasFirstLearnedIn() throws Exception {
+        var kv = bucketHolding("RTX 5090");
+        clientWithBucket(kv, true).remember("gpu", "rig0", "RTX 5090", "obs", "thread-new");
+        assertEquals("thread-old", new ObjectMapper().readTree(storedFact(kv)).path("learnedInThread").asText());
+    }
+
+    @Test
+    void remember_aSupersedingValueRecordsTheNewThread() throws Exception {
+        var kv = bucketHolding("RTX 4090");
+        clientWithBucket(kv, true).remember("gpu", "rig0", "RTX 5090", "obs", "thread-new");
+        assertEquals("thread-new", new ObjectMapper().readTree(storedFact(kv)).path("learnedInThread").asText());
     }
 }

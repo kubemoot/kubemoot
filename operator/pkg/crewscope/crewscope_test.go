@@ -154,3 +154,28 @@ func TestSubjectAndKeyHelpers(t *testing.T) {
 		}
 	}
 }
+
+func TestValidConversationID(t *testing.T) {
+	long := make([]byte, MaxConversationIDLength+1)
+	for i := range long {
+		long[i] = 'a'
+	}
+	cases := map[string]bool{
+		"6733c361-aa0c-4bde-85c6-e143af23b251": true,
+		"a_B-9":                                true,
+		string(long[:MaxConversationIDLength]): true,
+		string(long):                           false,
+		"":                                     false,
+		"ns.crew.id":                           false,
+		"a>":                                   false,
+		"a*":                                   false,
+		"../x":                                 false,
+		"a b":                                  false,
+		"id\n":                                 false,
+	}
+	for id, want := range cases {
+		if got := ValidConversationID(id); got != want {
+			t.Errorf("ValidConversationID(%.20q) = %v, want %v", id, got, want)
+		}
+	}
+}

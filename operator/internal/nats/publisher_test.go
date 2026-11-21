@@ -155,3 +155,9 @@ func TestOpenCrewMemoryReportsAnUnconfiguredServerInsteadOfAnEmptyStore(t *testi
 		t.Fatal("OpenCrewMemory() = nil error with no NATS URL, want an error so an export never reads it as no facts")
 	}
 }
+
+func TestOpenConversationExportReportsAnUnconfiguredServerInsteadOfAnEmptyStore(t *testing.T) {
+	if _, err := (&Publisher{}).OpenConversationExport(); err == nil {
+		t.Fatal("OpenConversationExport() = nil error with no NATS URL, want an error so an export never reads it as no conversation")
+	}
+}

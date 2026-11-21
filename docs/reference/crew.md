@@ -203,7 +203,7 @@ the next Helm upgrade.
 
 ## Storage
 
-Working memory lives in the NATS KV bucket `kubemoot_crew_memory` (provisioned by the operator's nats-streams-job). Keys are namespace-and-crew-scoped: `<namespace>.<crew>.<topic>.<key>`; values carry `value`, `learnedBy`, `learnedAt`, `usedAt`. The agent-runtime reads/writes it directly (`CrewMemoryClient`), native-safe via `readTree`, degrading to a no-op when NATS is unavailable.
+Working memory lives in the NATS KV bucket `kubemoot_crew_memory` (provisioned by the operator's nats-streams-job). Keys are namespace-and-crew-scoped: `<namespace>.<crew>.<topic>.<key>`; values carry `value`, `learnedBy`, `learnedInThread` (the discussion thread it was learned in, when there was one), `learnedAt`, `usedAt`. The agent-runtime reads/writes it directly (`CrewMemoryClient`), native-safe via `readTree`, degrading to a no-op when NATS is unavailable.
 
 ## Related
 

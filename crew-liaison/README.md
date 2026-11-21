@@ -14,6 +14,7 @@ count of contributions so far, so a polling client can tell progress from a stal
 | `list_crews` | none | every crew with a discussion gateway: name, namespace, description, ready |
 | `ask` | `crew`, `question`, optional `namespace`, optional `waitSeconds` (default and max 45; 0 returns at once) | a ticket, plus the answer if it arrived within the wait |
 | `get_answer` | `ticket`, optional `waitSeconds` (default and max 45) | `pending` (with a count of contributions so far), `answered` with the answer, or `failed` |
+| `export_conversation` | `crew`, `conversationIds` (1 to 50), optional `namespace`, `timeZone` | the conversation's zip as an embedded resource when it is at most 48 KiB, with its manifest; several ids return a zip of zips |
 
 A crew discussion takes one to several minutes, longer than most MCP clients allow
 a tool call (Claude Code's default is sixty seconds). So no call blocks longer than
@@ -36,6 +37,7 @@ past two minutes into a background task, so the chain of polls runs unattended.
 |---|---|---|
 | `PORT` | `8080` | listen port |
 | `LIAISON_TOKEN` | empty | when set, `/mcp` requires `Authorization: Bearer <token>`; leave empty when an edge (for example Cloudflare Access) authenticates |
+| `LIAISON_OPERATOR_REPORT_URL` | empty | the operator's report service, which builds conversation exports; without it `export_conversation` answers that export is not configured. The chart sets it |
 | `LIAISON_MAX_INFLIGHT` | `4` | discussions in flight at once; every question spends GPU time |
 | `LIAISON_TICKET_TTL_MINUTES` | `60` | how long a settled ticket stays retrievable |
 

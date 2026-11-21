@@ -12,7 +12,7 @@ import (
 // Version is stamped by the build; the MCP handshake reports it.
 var Version = "dev"
 
-// NewMCPServer registers the three tools on a fresh MCP server.
+// NewMCPServer registers the four tools on a fresh MCP server.
 func NewMCPServer(svc *Service) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "kubemoot-crew-liaison", Version: Version}, nil)
 	mcp.AddTool(server, &mcp.Tool{
@@ -33,6 +33,15 @@ func NewMCPServer(svc *Service) *mcp.Server {
 			"answered (with the answer), or failed. Call it again while pending.",
 		InputSchema: getAnswerInputSchema(),
 	}, svc.GetAnswer)
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "export_conversation",
+		Description: "Take away a conversation: one conversation id returns that conversation as a zip (the turns " +
+			"readable and structured, the stored receipts, the workspace files, and the crew memory facts learned " +
+			"in it, with a manifest of what had already expired); several ids return a zip of zips with a manifest " +
+			"listing each as included, refused or expired. Built on request and never stored. A zip too large for a " +
+			"tool result is not returned; the manifest says so and names the other ways to take it.",
+		InputSchema: exportInputSchema(),
+	}, svc.ExportConversation)
 	return server
 }
 

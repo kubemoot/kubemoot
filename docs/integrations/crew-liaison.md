@@ -12,13 +12,16 @@ synthesized answer.
 
 ## What the client sees
 
-Three tools, and nothing about the discussion's substance.
+Four tools, and nothing about the discussion's substance.
 
 | Tool | What it does |
 |---|---|
 | `list_crews` | The crews that can be asked: name, namespace, what each is for, whether it is ready. |
 | `ask` | Starts a discussion with a crew and returns a ticket. It waits up to 45 seconds first, so a quick crew answers in the same call. |
 | `get_answer` | Reports a ticket: `pending`, `answered` with the answer, or `failed` with the reason. It too waits up to 45 seconds, returning the moment the answer exists. |
+| `export_conversation` | Takes a conversation away as one zip: the turns, receipts, workspace files and the memory facts learned in it, with a manifest of what had expired. |
+
+`export_conversation` takes the crew, `conversationIds` (the `conversationId` that `ask` and `get_answer` return; several ids return a zip of zips with a manifest listing each as included, refused or expired) and an optional `timeZone` for the times in the file. The liaison asks the operator's [conversation export](../../operating/data-ownership/#taking-a-conversation-away) with its own service account, and the zip is built for that call and never stored. The result carries the zip as an embedded resource when it is at most 48 KiB, because a model client reads a tool result as text and caps how much of it it takes in. A larger zip is not returned: the result carries the manifest and a note naming the other ways to take it (`kmctl conversation export`, or the operator endpoint). The chart sets `LIAISON_OPERATOR_REPORT_URL` to the operator's report service; without it the tool answers that export is not configured.
 
 `ask` takes the crew and the question, and these optional arguments: `namespace` (when the crew name is not unique), `waitSeconds`, `ticket` (a retry rejoins its discussion), and `timeZone`, the asker's IANA time zone such as `America/New_York`. The liaison forwards the zone with the question and keeps it nowhere; the crew states the asker's date in it. A zone that is not in the IANA time zone database is dropped, and the crew uses its default zone. A client that knows where its person is (a chat client with the person's locale, a script) should send it.
 

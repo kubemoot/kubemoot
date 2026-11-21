@@ -7,6 +7,7 @@
   "properties": {
     "value": { "type": "string", "description": "The fact." },
     "learnedBy": { "type": "string", "description": "The agent that learned it, or dashboard." },
+    "learnedInThread": { "type": "string", "description": "The discussion thread it was learned in, which names the conversation. Absent on entries written before it was recorded and on facts written outside a thread." },
     "learnedAt": { "type": "string", "description": "When it was learned, RFC 3339 in UTC." },
     "usedAt": { "type": "string", "description": "When it was last used, RFC 3339 in UTC. Older entries lack it; readers use learnedAt." }
   }

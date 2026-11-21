@@ -535,6 +535,9 @@
       "type": "string",
       "required": true
     },
+    "crew-memory-fact.json#/learnedInThread": {
+      "type": "string"
+    },
     "crew-memory-fact.json#/usedAt": {
       "type": "string"
     },
