@@ -387,6 +387,16 @@ class DiscussionOrchestratorHelpersTest {
     }
 
     @Test
+    void fallbackWithAnEmptySpilledFinding_neverPrintsAnEmptyEntry() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "starter-guide-workloads", "agree", "", signal(null, null));
+
+        String fb = orchestrator.buildFallbackResponse(state);
+
+        assertEquals("Here's what the toolers found:\n\n**starter-guide-workloads**: returned no data\n\n", fb);
+    }
+
+    @Test
     void synthesisPromptTooLarge_withNoFindings_saysSo() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         state.synthesisPromptTooLarge = true;

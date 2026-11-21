@@ -333,7 +333,7 @@ missing:
 | No agent's resume clears the confidence threshold | Treated as a capability gap; the onboarding agent can propose a fix. |
 | An agent crashes mid-evaluation | No heartbeat means its deadline expires; the coordinator treats it as absent and moves on. |
 | A block is raised | Coordinator halts, reports the block, and asks the user whether to proceed. |
-| Synthesis itself fails | A fallback synthesis publishes the raw agrees collected so far; the thread still closes cleanly. |
+| Synthesis itself fails | A fallback answer lists each agreeing agent's finding followed by the stored results of its tool calls, so a finding whose data was spilled to the workspace still reaches the person. The results are cut to the same room the synthesis input has (one result an eighth of it, one agent's results a quarter of it up to 20,000 characters, all of them the room up to 100,000 characters); a cut result says it was truncated and names the workspace key that holds the full result. An agent with no finding text and no stored result is listed as having returned no data. The thread still closes cleanly. |
 | Every agent stands aside or nothing responds | The coordinator answers using its own capabilities rather than returning nothing. |
 | NATS isn't configured | All discussion features are no-ops; agents answer direct chat requests without deliberating. |
 

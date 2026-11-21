@@ -87,19 +87,42 @@ final class StoredResults {
         this.chatService = chatService;
     }
 
-    /** Reads the successful stored calls of the thread, from its catalog, as the room allows. */
-    Result read(String threadId) {
+    /** The most characters of stored results the answer shown when synthesis fails carries in all. */
+    static final int FALLBACK_TOTAL_CHARS_MAX = 100_000;
+
+    /**
+     * The successful stored calls of a thread and how to read them within the room: {@code perResult}
+     * characters for one result, {@code perAgent} for the results of one agent, {@code total} in all.
+     */
+    record Source(String prefix, List<ThreadCatalog.Entry> calls, Reader reader, int perResult, int perAgent,
+                  int total, BooleanSupplier timeUp) {
+
+        /** A source with nothing stored. */
+        static Source empty() {
+            return new Source("", List.of(), (call, maxBytes) -> null, 0, 0, 0, () -> false);
+        }
+    }
+
+    /** The successful stored calls of the thread, from its catalog, with the room to read them in. */
+    Source source(String threadId) {
         Connection conn = natsProvider.getConnection();
         if (conn == null) {
-            return new Result(Status.NOTHING_STORED, "");
+            return Source.empty();
         }
         String prefix = DiscussionArtifacts.threadPrefix(natsProvider.scope(), threadId);
         var calls = ThreadCatalog.load(conn, prefix).entries().stream().filter(e -> !e.error()).toList();
         OptionalLong window = chatService.simpleCallContextTokens();
         long stop = System.nanoTime() + DEADLINE_NANOS;
-        return render(calls, prefix, (call, maxBytes) -> fetch(conn, call, maxBytes, () -> System.nanoTime() - stop > 0),
+        BooleanSupplier timeUp = () -> System.nanoTime() - stop > 0;
+        return new Source(prefix, calls, (call, maxBytes) -> fetch(conn, call, maxBytes, timeUp),
                 DiscussionRoom.perResultChars(window), DiscussionRoom.perContributionChars(window),
-                () -> System.nanoTime() - stop > 0);
+                Math.min(DiscussionRoom.chars(window), FALLBACK_TOTAL_CHARS_MAX), timeUp);
+    }
+
+    /** Reads the successful stored calls of the thread, from its catalog, as the room allows. */
+    Result read(String threadId) {
+        Source src = source(threadId);
+        return render(src.calls(), src.prefix(), src.reader(), src.perResult(), src.perAgent(), src.timeUp());
     }
 
     private static Fetched fetch(Connection conn, ThreadCatalog.Entry call, int maxBytes, BooleanSupplier timeUp)
@@ -143,9 +166,8 @@ final class StoredResults {
             return new Result(Status.NOTHING_STORED, "");
         }
         var tally = new Tally(total);
-        int maxBytes = (int) Math.min(Integer.MAX_VALUE - 8L, (long) perResult * MAX_BYTES_PER_CHAR);
         for (var call : calls) {
-            tally.add(call, prefix, Math.min(perResult, tally.left), () -> readOne(reader, call, maxBytes, timeUp));
+            tally.add(call, prefix, Math.min(perResult, tally.left), () -> readClipped(reader, call, Math.min(perResult, tally.left), timeUp));
             if (tally.unreadable > 0 && (Thread.currentThread().isInterrupted() || timeUp.getAsBoolean())) {
                 break;
             }
@@ -165,21 +187,21 @@ final class StoredResults {
             this.left = total;
         }
 
-        void add(ThreadCatalog.Entry call, String prefix, int room, Supplier<Fetched> read) {
+        void add(ThreadCatalog.Entry call, String prefix, int room, Supplier<Clipped> read) {
             if (room < MIN_SHOWN_CHARS) {
                 notShown++;
                 return;
             }
-            Fetched fetched = read.get();
-            if (fetched == null || fetched.text() == null || fetched.text().isBlank()) {
+            Clipped clipped = read.get();
+            if (clipped.text() == null) {
                 unreadable++;
                 return;
             }
-            String block = block(call, prefix, fetched, room);
-            if (block == null) {
+            if (clipped.refused()) {
                 notShown++;
                 return;
             }
+            String block = block(call, prefix, clipped);
             out.append(block).append('\n');
             left -= block.length();
             shown++;
@@ -212,17 +234,30 @@ final class StoredResults {
         }
     }
 
-    /** The block showing one result, or null when its text holds a marker of the discussion's format. */
-    private static String block(ThreadCatalog.Entry call, String prefix, Fetched fetched, int room) {
-        String shown = TextCut.prefix(fetched.text(), room);
-        if (FORBIDDEN.stream().anyMatch(shown::contains)) {
-            return null;
+    /** One result read within a room: {@code text} is null when it could not be read, {@code refused} when it holds a marker of the discussion's format. */
+    record Clipped(String text, boolean cut, boolean refused) {}
+
+    /**
+     * Reads one result and clips it to {@code room} characters, the one step both the synthesizer's
+     * blocks and the answer shown when synthesis fails take. A read that fails, is interrupted or runs
+     * past {@code timeUp} gives null text; a result holding a marker of the discussion's own format is
+     * refused, so its content can never close a block or pose as the discussion.
+     */
+    static Clipped readClipped(Reader reader, ThreadCatalog.Entry call, int room, BooleanSupplier timeUp) {
+        int maxBytes = (int) Math.min(Integer.MAX_VALUE - 8L, (long) room * MAX_BYTES_PER_CHAR);
+        Fetched fetched = readOne(reader, call, maxBytes, timeUp);
+        if (fetched == null || fetched.text() == null || fetched.text().isBlank()) {
+            return new Clipped(null, false, false);
         }
-        boolean complete = !fetched.cut() && shown.length() == fetched.text().length()
-                && !fetched.text().endsWith(TextCut.MARKER);
+        String shown = TextCut.prefix(fetched.text(), room);
+        boolean cut = fetched.cut() || shown.length() < fetched.text().length() || fetched.text().endsWith(TextCut.MARKER);
+        return new Clipped(shown, cut, FORBIDDEN.stream().anyMatch(shown::contains));
+    }
+
+    private static String block(ThreadCatalog.Entry call, String prefix, Clipped clipped) {
         return OPEN + "key=" + call.relativeKey(prefix) + " tool=" + call.tool() + " type=" + call.type()
-                + " bytes=" + call.bytes() + " shown=" + shown.length() + " complete=" + complete + "]\n"
-                + shown + "\n" + CLOSE;
+                + " bytes=" + call.bytes() + " shown=" + clipped.text().length() + " complete=" + !clipped.cut() + "]\n"
+                + clipped.text() + "\n" + CLOSE;
     }
 
     /** Why a read of one object stopped before its end. */
