@@ -28,10 +28,11 @@ import (
 )
 
 const (
-	saUser    = "system:serviceaccount:team:builder"
-	humanUser = "jane@example.com"
-	crewName  = "pilot"
-	teamNS    = "team"
+	otherIssuer = "https://idp.example"
+	saUser      = "system:serviceaccount:team:builder"
+	humanUser   = "jane@example.com"
+	crewName    = "pilot"
+	teamNS      = "team"
 )
 
 // tokenClient answers TokenReviews from a table of token to user and audiences, and
@@ -171,10 +172,10 @@ func TestVerifierFailureIsNotAnAuthenticationAnswer(t *testing.T) {
 func TestVerifiersAreTriedInOrderAndANoCredentialFallsThrough(t *testing.T) {
 	first := verifierFunc(func(*http.Request) (*Identity, error) { return nil, ErrNoCredential })
 	second := verifierFunc(func(*http.Request) (*Identity, error) {
-		return &Identity{Issuer: "https://idp.example", Subject: "u1"}, nil
+		return &Identity{Issuer: otherIssuer, Subject: "u1"}, nil
 	})
 	c, err := NewAuthenticator(Hasher{}, false, first, second).Authenticate(request(""))
-	if err != nil || c.Principal.Issuer != "https://idp.example" {
+	if err != nil || c.Principal.Issuer != otherIssuer {
 		t.Fatalf("%+v, %v", c, err)
 	}
 }
@@ -296,7 +297,7 @@ func TestPrincipalOfAndSamePrincipal(t *testing.T) {
 	if PrincipalOf(Hasher{}, &Identity{Issuer: IssuerKubernetes, Subject: humanUser}).DisplayName != "" {
 		t.Error("a person's name must not travel")
 	}
-	other := PrincipalOf(Hasher{}, &Identity{Issuer: "https://idp.example", Subject: saUser})
+	other := PrincipalOf(Hasher{}, &Identity{Issuer: otherIssuer, Subject: saUser})
 	if SamePrincipal(sa, other) {
 		t.Error("the same subject from another issuer is another principal")
 	}
