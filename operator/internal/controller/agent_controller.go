@@ -820,6 +820,7 @@ func (r *AgentReconciler) buildDeployment(ctx context.Context, agent *kubemootv1
 		override = agent.Spec.Deployment.Resources
 	}
 	d.Spec.Template.Spec.Containers[0].Resources = r.agentContainerResources("", override)
+	applyNATSOptions(&d.Spec.Template.Spec, "agent")
 	// Prompt hash on the pod template: changing it rolls the pod (agents cache
 	// the system prompt at startup) and feeds computeDeploymentHash so a
 	// PromptModule-only edit triggers a Deployment update.

@@ -304,6 +304,21 @@ internalAgents:
 nats:
   enabled: true
   url: "nats://nats.nats.svc.cluster.local:4222"
+  # TLS to NATS. Off by default: with none of these set every component connects as it always
+  # has, plainly. Use a tls:// url above when the server speaks TLS. Each Secret is in the
+  # operator's namespace; the operator copies it into the namespaces its workloads run in.
+  tls:
+    caSecret: ""      # Secret holding the CA bundle that signed the NATS server certificate
+    caKey: ca.crt     # the key in that Secret
+    clientSecret: ""  # kubernetes.io/tls Secret (tls.crt, tls.key): the client certificate for mutual TLS
+  # The credential every Kubemoot component presents to NATS. Set secret and exactly one of:
+  # credsKey (a .creds file), userKey with passwordKey, or tokenKey. Each names a key of the Secret.
+  auth:
+    secret: ""
+    credsKey: ""
+    userKey: ""
+    passwordKey: ""
+    tokenKey: ""
   # MCPServer that lets agents inspect NATS (sinadarbouy/mcp-nats, Apache-2.0, via
   # mcp-bridge). Off for a minimal install; the operator needs only the server above.
   # A crew's gateway selects servers in its own namespace, so a crew that should use

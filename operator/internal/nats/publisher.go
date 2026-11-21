@@ -36,6 +36,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/natskv"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 )
 
 var log = logf.Log.WithName("nats-publisher")
@@ -50,6 +51,9 @@ type Publisher struct {
 	mu   sync.Mutex
 	conn *nats.Conn
 	url  string
+	// conf holds the TLS and credential settings every component reads the same way
+	// (pkg/natsconn); the zero value is a plain, anonymous connection.
+	conf natsconn.Config
 }
 
 // NewPublisher creates a publisher that connects lazily on first Publish call.
@@ -59,7 +63,9 @@ func NewPublisher(url string) *Publisher {
 	if url == "" {
 		url = os.Getenv("NATS_URL")
 	}
-	return &Publisher{url: url}
+	conf := natsconn.FromEnv(os.Getenv)
+	conf.URL = url
+	return &Publisher{url: url, conf: conf}
 }
 
 // connect establishes the connection lazily. Must be called under lock.
@@ -82,7 +88,7 @@ func (p *Publisher) connect() error {
 		}),
 	}
 
-	conn, err := nats.Connect(p.url, opts...)
+	conn, err := p.conf.Connect(opts...)
 	if err != nil {
 		return err
 	}

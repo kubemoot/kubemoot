@@ -53,6 +53,9 @@ metadata:
     app.kubernetes.io/component: core-mcp
     kubemoot.ai/core-mcp: "true"
     kubemoot.ai/tools: accelerators
+  annotations:
+    # Dials NATS: the operator gives the pod the nats.tls and nats.auth options.
+    kubemoot.ai/nats-connection: "true"
 spec:
   image: {{ include "kubemoot-operator.image" (dict "root" . "image" .Values.acceleratorMcp.image) | quote }}
   transport: stdio

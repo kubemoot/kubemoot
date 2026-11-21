@@ -105,6 +105,7 @@ spec:
           env:
             - name: NATS_URL
               value: {{ .Values.nats.url | quote }}
+            {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnEnv" "ctx" (dict "root" . "skipAuth" (ne (default "" $ps.nats.existingSecret) "")) "indent" 12) }}
             {{- if $ps.nats.existingSecret }}
             - name: NATS_USER
               valueFrom:
@@ -156,12 +157,14 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnMounts" "ctx" . "indent" 12) }}
           resources:
             {{- toYaml $ps.resources | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 16Mi
+        {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnVolumes" "ctx" . "indent" 8) }}
 ---
 apiVersion: v1
 kind: Service

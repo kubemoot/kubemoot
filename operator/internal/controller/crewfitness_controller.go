@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -440,7 +441,7 @@ func (r *CrewFitnessReconciler) buildJob(cf *kubemootv1alpha1.CrewFitness, jobNa
 		Type: corev1.SeccompProfileTypeRuntimeDefault,
 	}
 
-	return &batchv1.Job{
+	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
 			Namespace: cf.Namespace,
@@ -511,6 +512,11 @@ func (r *CrewFitnessReconciler) buildJob(cf *kubemootv1alpha1.CrewFitness, jobNa
 			},
 		},
 	}
+	// Only a runner that writes a transcript dials NATS.
+	if slices.ContainsFunc(job.Spec.Template.Spec.Containers[0].Env, func(e corev1.EnvVar) bool { return e.Name == envNATSURL }) {
+		applyNATSOptions(&job.Spec.Template.Spec, componentFitnessRunner)
+	}
+	return job
 }
 
 func (r *CrewFitnessReconciler) SetupWithManager(mgr ctrl.Manager) error {

@@ -338,6 +338,7 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 			Template: tmpl,
 		},
 	}
+	applyNATSOptions(&d.Spec.Template.Spec, mesh.SidecarContainerName)
 	r.setCoordinatorStrategy(d, agent)
 	d.Annotations[deploymentHashAnnotation] = computeDeploymentHash(d)
 	return d, nil
