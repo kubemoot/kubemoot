@@ -55,6 +55,8 @@ The operator chart's NATS bootstrap job creates the stores below on install and 
 | `kubemoot_workspace` | Tool results and contributions agents spill during a thread, stored as the tool returned them | Yes: a tool can return anything | Deleted when the thread closes; 48 hours is the backstop; 2 GiB | Chart value `nats.stores.workspace.maxBytes`; the 48 hour age is in the bootstrap job |
 | `kubemoot_fitness_artifacts` | Fitness result spreadsheets and per-iteration transcripts | Test questions written by the crew's author; people's questions only if a suite replays real ones | 168 hours; 1 GiB | Chart values `nats.stores.fitnessArtifacts.maxAge` and `maxBytes`; a suite's `spec.artifactRetention` applies only when the suite creates the store first |
 
+The [dashboard's NATS page](../dashboard/#nats) shows each of these stores live, with its use against its limit and each crew's share. Its list of stores, what each holds and whether it can hold people's data is one file in the dashboard that a test holds to these tables, so a change here is made in that file too.
+
 A limit marked "in the bootstrap job" lives in `templates/nats-streams-job.yaml` of the operator chart and has no chart value. To change one, edit that template and upgrade, or alter the stream or bucket with the `nats` command line after the install; the next upgrade restores the chart's limit.
 
 ## What keeps people's data by default, and for how long

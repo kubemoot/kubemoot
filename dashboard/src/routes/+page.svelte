@@ -6,6 +6,8 @@
 	import { StatusBadge, LoadingSpinner } from '#lib/components/common/index.js';
 	import { nodeCounts, overviewNamespace, readyCount, type CountEntry } from '#lib/overview-counts.js';
 	import { readyCountStatus } from '#lib/resource-status.js';
+	import NatsTile from '#lib/components/nats/NatsTile.svelte';
+	import type { NatsStatus } from '#lib/nats/status.js';
 
 	type ResourceCounts = Record<string, CountEntry>;
 
@@ -35,6 +37,26 @@
 		} catch {
 			controlPlane = null;
 			cpUnavailable = true;
+		}
+	}
+
+	// NATS, read from the dashboard's own server-side reads of JetStream. null until the first read;
+	// a failed request shows the tile as not connected.
+	let nats = $state<NatsStatus | null>(null);
+
+	async function fetchNats() {
+		try {
+			const r = await fetch(resolve('/api/nats/status'));
+			if (!r.ok) throw new Error(`HTTP ${r.status}`);
+			nats = await r.json();
+		} catch (e) {
+			nats = {
+				connected: false,
+				error: e instanceof Error ? e.message : 'NATS status unavailable',
+				checkedAt: new Date().toISOString(),
+				stores: [],
+				absent: []
+			};
 		}
 	}
 
@@ -81,6 +103,11 @@
 	});
 
 	$effect(() => {
+		$refreshTrigger; // NATS is cluster-wide, like the control plane: refresh on the interval only
+		fetchNats();
+	});
+
+	$effect(() => {
 		$refreshTrigger; // control plane is cluster-scoped - refresh on trigger, not namespace
 		fetchComponentStatuses();
 	});
@@ -121,7 +148,7 @@
 		<h2 class="cp-title">Control plane</h2>
 		{#if controlPlane && controlPlane.length}
 			<div class="cp-row">
-				{#each controlPlane as comp}
+				{#each controlPlane.filter((c) => c.name !== 'nats') as comp}
 					<span class="cp-item" class:bad={!comp.healthy} title={comp.message}>
 						<span class="cp-mark">{comp.healthy ? '✓' : '✗'}</span>
 						<span class="cp-name">{comp.name}</span>
@@ -137,6 +164,7 @@
 	</section>
 
 	<div class="grid">
+		<NatsTile status={nats} href={resolve('/nats')} />
 		{#each resourceTypes as resource}
 			{@const c = counts?.[resource.key]}
 			<a href={resource.href} class="card">

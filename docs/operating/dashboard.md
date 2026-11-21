@@ -69,13 +69,13 @@ The info icon next to the version opens the Kubemoot components panel. Its first
 
 | Section | Pages | Shows |
 |---------|-------|-------|
-| Top | Overview, Nodes | Ready-of-total counts for nodes, GPUs, crews, and every other resource type (a tile shows a small spinner until its first count arrives, never a zero); Kubernetes nodes with GPU detection and model-loading state. The Overview has the same **Crew** selector as the other pages: it narrows the counts to one crew, while nodes, model servers, models, and embedding models are shared by every crew and always counted in full |
+| Top | Overview, Nodes | Ready-of-total counts for nodes, GPUs, crews, and every other resource type (a tile shows a small spinner until its first count arrives, never a zero); Kubernetes nodes with GPU detection and model-loading state. The first tile is NATS: whether it is connected, its server version, JetStream storage in use against its limit, message and byte totals, and a warning band when a store nears a limit; it opens the NATS page. The Overview has the same **Crew** selector as the other pages: it narrows the counts to one crew, while nodes, model servers, models, and embedding models are shared by every crew and always counted in full |
 | Messaging | Discussions, Messages | Multi-agent discussion threads with a timeline view; the conversations people have had with a crew |
 | Crews | Crews, Agents, Prompts, Memory, Fitness | Crew and agent configuration, PromptModule contents, crew memory, and fitness suite runs |
 | Models | Models, Model servers, Embeddings | ModelServer backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed; an embedding model shows as skipped and a model that could not be measured as failed, each with its reason and no speeds), Model state, and EmbeddingModel configuration. Model servers belong to the cluster, so the Model servers page lists them all whatever crew is selected. The Models page also lists each ModelServer's catalog (the models a crew selects by label), because crews ship no Model resources |
 | Tools | MCP servers, MCP gateways, Catalogs, Quality policies, Reports | MCPServer instances and tools, gateway routing, quality policies, catalog discovery, and quality verdicts |
 | Knowledge | RAG Sources | RAGSource indexing status with document and chunk counts |
-| System | Config | The `KubemootConfig` cluster singleton |
+| System | Config, NATS | The `KubemootConfig` cluster singleton; what NATS holds against its limits (see [NATS](#nats)) |
 
 ### Refresh and resource views
 
@@ -100,7 +100,7 @@ The Kubemoot logo and **Powered by Kubemoot** open [kubemoot.org](https://kubemo
 
 ### Discussions
 
-A two-panel thread viewer. The left panel lists threads, newest first, each tagged with its crew and channel. The right panel shows the message timeline for the selected thread: the question, each agent's contribution, and the synthesis. Recent threads are replayed from the JetStream history on page load, and new messages arrive live.
+A two-panel thread viewer. The left panel lists threads, newest first, each tagged with its crew and channel. The right panel shows the message timeline for the selected thread: the question, each agent's contribution, and the synthesis. The page loads the newest 200 sequence numbers of the stream to list the newest threads, and new messages arrive live. Opening a thread reads that thread's own subject, so it shows complete even when it began before the loaded history, and scrolling the list to its end (or **Load older threads**) reads the next older page. A thread that began before the loaded page shows its question and counts once its own subject has been read, which happens at once for the threads at the edge of a page.
 
 The conversation view shows the question, a **subcommittee line** naming the agents the coordinator convened with a short reason for each, every agent's position, and the synthesis. Token counts, timings, the triage result, the thread close, placement, and work after the answer sit in a **debug layer** that is off by default. The bug icon in the thread toolbar turns it on and off; its tooltip says how much more it shows, and the dashboard remembers the choice per viewer. The rest of this section describes what the layer shows.
 
@@ -126,6 +126,24 @@ Select **alternatives considered** on a row to see the other placements the sche
 The thread toolbar copies the discussion as Markdown, copies its thread ID, and shows or hides the span graph and the debug layer. It cannot start, answer, pause, stop, replay, pin or delete a discussion. Below the timeline the page shows the `kmctl conversation ask` command that asks a follow-up in the same conversation (find the conversation ID with `kmctl conversation list CREW`), and an empty list shows the command that starts one.
 
 The span graph draws one bar per agent from its first to its last message. Each bar names the ModelServer that ran the agent's latest call, taken from the placement the messages carry. A server the scheduler weighed but did not choose is not named, and the label of an agent's static endpoint, which a message sent without a placed call carries, is not shown as a server. A thread started straight on the bus, such as a smoke test, may carry messages with no timestamp. The graph draws the agents whose start and end are known and labels each of the others "no timing recorded" instead of drawing a bar.
+
+### NATS
+
+The tile on the Overview and the **NATS** page under System show what NATS JetStream holds and how close each store is to its limit. Everything is read, nothing changes, and the numbers refresh on the dashboard's refresh interval.
+
+**Tile.** Connected or not (with the reason when not), the server version, file storage and memory in use against the account's limit, the message and byte totals, and a warning band. A store is in the band when its bytes or its messages reach 80% of its limit (95% is marked critical). A KV bucket that reaches its byte limit refuses new writes until entries expire, and a stream drops its oldest messages, so a store near its limit is the one to look at first. KV history is shown on the page as how full each key's revisions are, and is not a warning: a key that is rewritten often sits at its depth by design.
+
+**Page.**
+
+- **Server and account:** version, the JetStream account's storage, memory, stream and consumer limits and use, and the uptime and connection count when the server's monitoring port (`NATS_MONITOR_URL`, else port 8222 of the NATS host) answers. Without it they read as absent.
+- **Every store Kubemoot creates:** messages, bytes and the share of the byte limit, max age, max bytes, max messages, KV history, first and last sequence, consumers, who owns the data (a crew, system learning, or Kubemoot), whether it can hold people's data, and the Crew field that shortens how long a crew's data stays. Stores the install does not hold are listed as not created.
+- **Per crew:** each crew's share of the stores keyed by crew (`<namespace>.<crew>`): messages, keys and bytes per stream, KV bucket and object store, and the crew's last retention cleanup from its status (`status.retention`: when it ran and what it removed). Counts come from subject-filtered stream info, so they are exact. Bytes in a stream or KV bucket are the crew's share of the messages applied to the store's bytes, shown as "about", because NATS does not report bytes per subject; object store sizes are exact. At most 5000 subjects or objects count per crew and store, and a crew above that shows "more than" its count. The page therefore costs the same however large a bucket is.
+
+In a namespace-scoped dashboard the page shows only the stores that instance serves (the discussion stream and the agent heartbeat bucket) and the crews in its namespaces.
+
+**One definition of the stores.** What each store holds, whether it can hold people's data, and who owns it come from one file, `dashboard/src/lib/nats/nats-stores.json`, which the page reads. A test in the dashboard fails when the tables in [Data ownership](../data-ownership/#every-store-kubemoot-creates) or the stores the operator chart's bootstrap job creates (with their size limits) disagree with it, so the page and the docs cannot drift. Change a store in the bootstrap job, the file and the docs table together.
+
+**Cost of reading history.** The dashboard records how long each discussion history read takes: the response carries a `Server-Timing` header, the server logs one line per read with the scope (`stream` or `thread`), message count, response bytes and durations, and never a subject, thread id or message text, and the NATS page shows the last read and the average and slowest of the last 100.
 
 ### Memory
 
@@ -182,7 +200,7 @@ The chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grant
 | `deployments` (apps) | get, list, watch | Operator version in the Kubemoot components panel |
 | All `kubemoot.ai` resources | get, list, watch | Every Kubemoot page |
 
-Every grant is read-only: a test fails if the chart's `ClusterRole` or `Role` holds any verb but `get`, `list` and `watch`. The server also makes no write to the Kubernetes API or NATS, apart from the short-lived read consumers it opens on the discussion stream. The dashboard never reads or displays Secret values. The container runs as a non-root user with a read-only root filesystem.
+Every grant is read-only: a test fails if the chart's `ClusterRole` or `Role` holds any verb but `get`, `list` and `watch`. The server also makes no write to the Kubernetes API or NATS, apart from the short-lived read consumers it opens to read history and list objects. The dashboard never reads or displays Secret values. The container runs as a non-root user with a read-only root filesystem.
 
 ### The operator report service
 
@@ -212,7 +230,8 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 | `/api/kubemoot/crew-memory/export?namespace=&crew=` | GET | The crew's memory as an OMPI v0.6 zip, always screened (an `allowUnscreened` parameter is refused); `report=true` returns the selection report as JSON (left-out entries by key or opaque id and reason, never text) |
 | `/api/kubemoot/watch/<plural>` | GET | Kubernetes resource updates as server-sent events |
 | `/api/nats/subscribe?subject=` | GET | Server-sent events for a NATS subject |
-| `/api/nats/history?stream=&subject=&limit=` | GET | JetStream history replay as a JSON array |
+| `/api/nats/history?stream=&subject=&limit=&before=` | GET | JetStream history as a JSON array: the newest `limit` sequence numbers of a pattern, the `limit` before sequence `before` to page back, or every message of one thread when `subject` names it. Answers `windowStart` (the next `before`) and `hasMore`; `Server-Timing` reports the cost |
+| `/api/nats/status`, `/api/nats/crews` | GET | The NATS tile and page: server, account and every store; each crew's share of them and its last retention cleanup |
 | `/api/nats/config`, `/api/nats/kv`, `/api/nats/stream` | GET | NATS connection status, the agent-state key-value bucket, and stream replay |
 
 The browser talks to the SvelteKit server with server-sent events. Only the server holds a NATS connection (the `nats` client over TCP), so the browser never connects to NATS directly, and the server only reads from it.

@@ -694,6 +694,14 @@ export interface CrewStatus {
 	agentCount?: number;
 	message?: string;
 	conditions?: Condition[];
+	/** The crew's last retention cleanup. */
+	retention?: CrewRetentionStatus;
+}
+
+export interface CrewRetentionStatus {
+	lastRunTime?: string;
+	removed?: { conversations?: number; memory?: number; other?: number };
+	error?: string;
 }
 
 // PromptModule types

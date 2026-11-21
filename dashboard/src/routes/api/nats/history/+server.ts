@@ -1,13 +1,21 @@
 import type { RequestHandler } from './$types';
 import { getNatsConnection, sc } from '#lib/server/nats-client.js';
-import { AckPolicy, DeliverPolicy, type JsMsg } from 'nats';
-import { DISCUSS_ALL } from '#lib/crewScope.js';
+import { AckPolicy, DeliverPolicy, type JetStreamManager, type JsMsg } from 'nats';
 import { guardStreamRead, messageSubjectAllowed } from '#lib/server/scope.js';
+import { isLiteralSubject, parseParams, startPlan, type Params } from '#lib/server/history-read.js';
+import { recordHistoryRead, serverTimingHeader, type HistoryTiming } from '#lib/server/history-timing.js';
 
-/** The fetched messages decoded to text; a message that does not decode is skipped. */
-async function decodeMessages(iter: AsyncIterable<JsMsg>) {
-	const messages: Array<{ subject: string; data: string; seq: number }> = [];
+interface HistoryMessage {
+	subject: string;
+	data: string;
+	seq: number;
+}
+
+/** The fetched messages decoded to text, stopping before sequence `before`; a message that does not decode is skipped. */
+async function decodeMessages(iter: AsyncIterable<JsMsg>, before: number) {
+	const messages: HistoryMessage[] = [];
 	for await (const msg of iter) {
+		if (msg.seq >= before) break;
 		try {
 			if (!messageSubjectAllowed(msg.subject)) continue;
 			messages.push({ subject: msg.subject, data: sc.decode(msg.data), seq: msg.seq });
@@ -18,30 +26,74 @@ async function decodeMessages(iter: AsyncIterable<JsMsg>) {
 	return messages;
 }
 
+async function readWindow(jsm: JetStreamManager, nc: Awaited<ReturnType<typeof getNatsConnection>>, p: Params, startSeq: number, policy: DeliverPolicy) {
+	const ci = await jsm.consumers.add(p.stream, {
+		ack_policy: AckPolicy.None,
+		deliver_policy: policy,
+		...(policy === DeliverPolicy.StartSequence ? { opt_start_seq: startSeq } : {}),
+		filter_subject: p.subject,
+		inactive_threshold: 30_000_000_000 // 30 seconds in nanoseconds
+	});
+	const setupDone = performance.now();
+	try {
+		// Ask for no more than the consumer holds: a fetch for more waits out its expiry.
+		const want = Math.min(p.limit, ci.num_pending);
+		if (want === 0) return { messages: [] as HistoryMessage[], setupDone, pending: 0 };
+		const consumer = await nc.jetstream().consumers.get(p.stream, ci.name);
+		const iter = await consumer.fetch({ max_messages: want, expires: 5000 });
+		return { messages: await decodeMessages(iter, p.before), setupDone, pending: ci.num_pending };
+	} finally {
+		try {
+			await jsm.consumers.delete(p.stream, ci.name);
+		} catch {
+			/* already cleaned up by inactivity */
+		}
+	}
+}
+
+function respond(body: object, timing: Omit<HistoryTiming, 'bytes' | 'totalMs'>, started: number, status = 200): Response {
+	const text = JSON.stringify(body);
+	const full: HistoryTiming = { ...timing, bytes: Buffer.byteLength(text), totalMs: Math.round(performance.now() - started) };
+	recordHistoryRead(full);
+	return new Response(text, {
+		status,
+		headers: { 'Content-Type': 'application/json', 'Server-Timing': serverTimingHeader(full) }
+	});
+}
+
 /**
  * REST endpoint that fetches historical messages from a NATS JetStream stream.
  * Unlike the SSE /subscribe endpoint which only shows live messages, this
  * replays stored messages from JetStream.
  *
- * Usage: GET /api/nats/history?stream=KUBEMOOT_DISCUSS&subject=kubemoot.discuss.>&limit=500
+ * Usage:
+ *   GET /api/nats/history?stream=KUBEMOOT_DISCUSS&subject=kubemoot.discuss.>&limit=200
+ *       the newest 200 sequence numbers of the stream
+ *   ...&before=<seq>      the 200 before that sequence, to page back
+ *   ...&subject=kubemoot.discuss.<ns>.<crew>.<channel>.<thread>
+ *       every message of one thread, and nothing else
+ *
+ * A thread read returns up to `limit` messages and sets `truncated` when it holds more.
+ * The answer carries `windowStart`, the sequence to pass as `before` for the next page
+ * back, and `hasMore` when older messages exist. The Server-Timing header and one log
+ * line report durations, size and count, never content.
  */
 export const GET: RequestHandler = async ({ url }) => {
-	const stream = url.searchParams.get('stream') || 'KUBEMOOT_DISCUSS';
-	const subject = url.searchParams.get('subject') || DISCUSS_ALL;
-	const limit = Math.min(Number.parseInt(url.searchParams.get('limit') || '500'), 2000);
+	const started = performance.now();
+	const params = parseParams(url);
+	const scope = isLiteralSubject(params.subject) ? 'thread' : 'stream';
 
-	const denied = await guardStreamRead(stream, subject);
+	const denied = await guardStreamRead(params.stream, params.subject);
 	if (denied) return denied;
 
 	try {
 		const nc = await getNatsConnection();
 		const jsm = await nc.jetstreamManager();
-		const js = nc.jetstream();
 
 		// Check stream exists and has messages
 		let info;
 		try {
-			info = await jsm.streams.info(stream);
+			info = await jsm.streams.info(params.stream);
 		} catch {
 			return Response.json({ messages: [] });
 		}
@@ -51,32 +103,18 @@ export const GET: RequestHandler = async ({ url }) => {
 			return Response.json({ messages: [], lastSeq });
 		}
 
-		// Deliver the NEWEST `limit` messages, not the oldest: start the ephemeral
-		// consumer near the stream tip (last_seq - limit + 1). This keeps the
-		// Discussions page bounded to the most recent threads instead of replaying
-		// the whole stream from sequence 1.
-		const startSeq = Math.max(Number(info.state.first_seq), lastSeq - limit + 1);
-		const ci = await jsm.consumers.add(stream, {
-			ack_policy: AckPolicy.None,
-			deliver_policy: DeliverPolicy.StartSequence,
-			opt_start_seq: startSeq,
-			filter_subject: subject,
-			inactive_threshold: 30_000_000_000 // 30 seconds in nanoseconds
-		});
-
-		const consumer = await js.consumers.get(stream, ci.name);
-		const iter = await consumer.fetch({ max_messages: limit, expires: 5000 });
-
-		const messages = await decodeMessages(iter);
-
-		// Cleanup ephemeral consumer
-		try {
-			await jsm.consumers.delete(stream, ci.name);
-		} catch {
-			/* already cleaned up by inactivity */
-		}
-
-		return Response.json({ messages, lastSeq });
+		const firstSeq = Number(info.state.first_seq);
+		const { policy, startSeq } = startPlan(params, firstSeq, lastSeq);
+		const { messages, setupDone, pending } = await readWindow(jsm, nc, params, startSeq, policy);
+		const timing = {
+			scope,
+			messages: messages.length,
+			setupMs: Math.round(setupDone - started),
+			fetchMs: Math.round(performance.now() - setupDone)
+		} as const;
+		const hasMore = scope === 'stream' && startSeq > firstSeq;
+		const truncated = scope === 'thread' && pending > params.limit;
+		return respond({ messages, lastSeq, windowStart: startSeq, hasMore, truncated }, timing, started);
 	} catch (e) {
 		const error = e instanceof Error ? e.message : 'Failed to read history';
 		return Response.json({ messages: [], error }, { status: 500 });

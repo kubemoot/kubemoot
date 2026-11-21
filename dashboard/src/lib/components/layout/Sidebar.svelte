@@ -42,7 +42,8 @@
 		{ href: resolve('/mcpqualitypolicies'), label: 'Quality policies', icon: 'shield' },
 		{ href: resolve('/mcpreports'), label: 'Reports', icon: 'file-text' },
 		{ href: resolve('/ragsources'), label: 'RAG Sources', icon: 'database', section: 'Knowledge' },
-		{ href: resolve('/config'), label: 'Config', icon: 'settings', section: 'System' }
+		{ href: resolve('/config'), label: 'Config', icon: 'settings', section: 'System' },
+		{ href: resolve('/nats'), label: 'NATS', icon: 'database' }
 	];
 
 	const isActive = (href: string, currentPath: string) =>
