@@ -384,6 +384,20 @@ kmctl conversation ask homelab-pilot "can you be more specific?" \
   --conversation-id <id>
 ```
 
+### Stop, pause, resume, delete, or take away a conversation
+
+```bash
+kmctl conversation stop homelab-pilot 6733c361 -n crew-homelab-pilot
+kmctl conversation pause homelab-pilot 6733c361 -n crew-homelab-pilot
+kmctl conversation resume homelab-pilot 6733c361 -n crew-homelab-pilot
+kmctl conversation export homelab-pilot 6733c361 -n crew-homelab-pilot
+kmctl conversation delete homelab-pilot 6733c361 -n crew-homelab-pilot
+```
+
+`delete` asks first and prints what it erased from each store. To act on another
+caller's conversation, bind the `kubemoot-conversation-controller` role and add
+`--reason "<why>"`. See the [reference](../../reference/kmctl/#kmctl-conversation-stop-pause-and-resume).
+
 ### Run a fitness suite and wait for completion
 
 ```bash

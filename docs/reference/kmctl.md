@@ -754,6 +754,9 @@ kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml] [--all --re
 kmctl conversation replay <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
 kmctl conversation placements <crew> <conversation-id> [-n <namespace>] [-o table|yaml|json|kyaml] [--timeout <duration>]
 kmctl conversation workspace <crew> <key> [-n <namespace>] [-f <file>]
+kmctl conversation stop|pause|resume <crew> <conversation-id> [-n <namespace>] [--reason <text>]
+kmctl conversation delete <crew> <conversation-id> [-n <namespace>] [--force] [-y] [--reason <text>]
+kmctl conversation export <crew> <conversation-id>... [-n <namespace>] [-o <file>] [--report [--json]]
 ```
 
 Start a conversation turn with a crew and stream the moot's deliberation in real
@@ -781,7 +784,7 @@ apply to every `kmctl conversation` command:
 |---|---|---|
 | `--token-service-account NAMESPACE/NAME` | | A ServiceAccount to mint a ten-minute token for. It wins over the kubeconfig's token. You need `create` on `serviceaccounts/token`; the Kubernetes audit log records who asked |
 | `--token-audience AUDIENCE` | | Audience of the minted token (repeatable, or comma-separated). Use it when the crew declares `spec.discussion.access.tokenAudiences`. A kubeconfig token cannot carry an audience |
-| `--reason TEXT` | | Why you read another caller's conversation, sent as the `Kubemoot-Access-Reason` header and audited by the gateway; 1 to 200 characters |
+| `--reason TEXT` | | Why you read or act on another caller's conversation, sent as the `Kubemoot-Access-Reason` header and audited by the gateway; 1 to 200 characters |
 
 ```bash
 kmctl conversation ask homelab-pilot "Describe the proxmox nodes." -n crew-homelab-pilot \
@@ -1009,6 +1012,104 @@ the command: it still works for one release, prints a warning on stderr, and is 
 removed. kmctl asks the gateway's `/workspace` route and falls back to the old `/artifact`
 route on a gateway that does not have it. In `-o json`, objects are under `workspace` and
 `workspaces`; the old `artifact` and `artifacts` keys carry the same content for one release.
+
+### kmctl conversation stop, pause, and resume
+
+```
+kmctl conversation stop <crew> <conversation-id> [-n <namespace>] [--reason <text>]
+kmctl conversation pause <crew> <conversation-id> [-n <namespace>] [--reason <text>]
+kmctl conversation resume <crew> <conversation-id> [-n <namespace>] [--reason <text>]
+```
+
+Control the discussion that is running in a conversation. `stop` ends the crew's work on
+the question, `pause` holds it, and `resume` continues a paused one. The request goes to
+the crew's discussion gateway ([the endpoints](../../concepts/conversations-turns-and-threads/#stopping-pausing-resuming-and-deleting-a-conversation))
+and prints one line:
+
+```bash
+kmctl conversation stop homelab-pilot 6733c361 -n crew-homelab-pilot
+# stopped conversation 6733c361-aa0c-4bde-85c6-e143af23b251 of crew homelab-pilot: 1 thread(s) (t-42)
+```
+
+The conversation's owner may do this. So may an operator who holds `update` on
+`crews/conversations` (the ClusterRole `kubemoot-conversation-controller`) and gives a
+`--reason`; the gateway audits it. See [Who is asking](../../concepts/who-is-asking/). A
+conversation with nothing running is refused, and the error says so.
+
+### kmctl conversation delete
+
+```
+kmctl conversation delete <crew> <conversation-id> [-n <namespace>] [--force] [-y] [--reason <text>]
+```
+
+Erase a conversation from every store that holds it, and print what was removed per store:
+
+```bash
+kmctl conversation delete homelab-pilot 6733c361 -n crew-homelab-pilot
+# Erase conversation 6733c361-aa0c-4bde-85c6-e143af23b251 of crew homelab-pilot from every store? This cannot be undone. [y/N]: y
+# erased conversation 6733c361-aa0c-4bde-85c6-e143af23b251 (1 thread(s))
+#   history                1
+#   owner record           1
+#   discussion messages    14
+#   coordinator events     9
+#   workspace objects      2
+#   scheduled follow-ups   0
+#   memory facts           3
+# not removed: logs and backups
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--force` | | Delete a conversation whose discussion is still running: stop it, then erase. Without it a running conversation is refused, and the error names `kmctl conversation stop` |
+| `-y`, `--yes` | | Do not ask for confirmation |
+
+kmctl asks before it deletes unless you pass `--yes`, and the question goes to stderr.
+The gateway has no dry run, so `delete` has none; `kmctl conversation export --report`
+shows what a conversation holds. If a store could not be cleared, kmctl prints what was
+removed and which stores failed, and exits non-zero; repeat the delete to remove what is
+left. Who may delete is the same as for the controls above, with `delete` on
+`crews/conversations` for an operator. What each store holds is listed in
+[Answering an erasure request](../../operating/data-ownership/#answering-an-erasure-request).
+
+### kmctl conversation export
+
+```
+kmctl conversation export <crew> <conversation-id>... [-n <namespace>] [-o <file>] [--report [--json]] [--time-zone <zone>]
+```
+
+Download everything Kubemoot still holds about one or more conversations as a zip: the
+turns as Markdown and JSON, the receipts and workspace files still stored, the crew memory
+learned in the conversation (screened), and a manifest. The operator builds the zip on
+request and keeps no copy; see
+[Taking a conversation away](../../operating/data-ownership/#taking-a-conversation-away).
+
+```bash
+kmctl conversation export homelab-pilot 6733c361 -n crew-homelab-pilot
+kmctl conversation export homelab-pilot 6733c361 9f1e22a0 -o review.zip
+kmctl conversation export homelab-pilot 6733c361 9f1e22a0 --report
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `-o`, `--output` | `./<crew>-conversation-<id>.zip` (`./<crew>-conversations.zip` for several) | File to write. The file is written whole or not at all, and an existing file is never overwritten |
+| `--report` | | Print what the export would include and leave out, and write no zip |
+| `--json` | | With `--report`, print the manifest as JSON. It is an error without `--report`, because the zip carries its own `manifest.json` |
+| `--time-zone` | this machine's | IANA time zone the times in the export are written in |
+| `--operator-namespace` | `kubemoot` | Namespace of the operator's report Service |
+| `--operator-service` | `kubemoot-operator-report` | Name of the operator's report Service |
+
+One ID gives that conversation's zip. Several IDs (at most 50) give a zip of zips with a
+manifest that says which conversations are included and which are refused (you may not
+read them), expired (Kubemoot no longer holds them) or failed (a store could not be read);
+kmctl prints each of those after the download, then `wrote N conversation(s) of
+<namespace>/<crew> to <file>`.
+
+Unlike the other conversation commands, `export` port-forwards to the operator's report
+Service, not to the crew, with your kubeconfig token, as the dashboard does. You need
+`get` on the Crew, and the operator checks it; reaching the Service takes `get` on
+`services`, `list` on `pods` and `create` on `pods/portforward` in the operator's
+namespace. Another caller's conversation takes `get` on `crews/conversations` (the
+ClusterRole `kubemoot-conversation-reader`) and a `--reason`.
 
 ### Still planned in kmctl conversation
 
