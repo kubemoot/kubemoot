@@ -15,6 +15,11 @@ import (
 	"fmt"
 	"net/url"
 
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 )
@@ -134,6 +139,15 @@ func (s *NetPolicySync) endpointDests(ctx context.Context, where string, ep netp
 	if parseErr != nil {
 		return nil, where + parseErr.Error(), nil
 	}
+	if ep.Service == nil && ep.MaybeService != nil {
+		found, err := s.serviceExists(ctx, ep.MaybeService)
+		if err != nil {
+			return nil, "", err
+		}
+		if found {
+			ep.Service = ep.MaybeService
+		}
+	}
 	if ep.Service == nil {
 		return []netpol.Dest{ep.Dest}, "", nil
 	}
@@ -142,6 +156,7 @@ func (s *NetPolicySync) endpointDests(ctx context.Context, where string, ep netp
 		return nil, "", err
 	}
 	if res.Reason != "" {
+		log.FromContext(ctx).Info("no egress rule for the endpoint's Service", "reason", where+res.Reason)
 		return nil, where + res.Reason, nil
 	}
 	return res.Dests, "", nil
@@ -188,4 +203,14 @@ func callsTheNetwork(raw string) bool {
 	}
 	u, err := url.Parse(raw)
 	return err != nil || u.Hostname() != ""
+}
+
+// serviceExists reports whether the Service a two label host (name.namespace) may name
+// exists. A host such as example.com names no Service and stays a host outside the cluster.
+func (s *NetPolicySync) serviceExists(ctx context.Context, ref *netpol.ServiceRef) (bool, error) {
+	err := s.Client.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, &corev1.Service{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	return err == nil, err
 }

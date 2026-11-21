@@ -15,12 +15,14 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -33,6 +35,7 @@ const (
 	gwEgressName   = "gw"
 	gwEgressPolicy = "km-gateway-gw-egress"
 	gwOReilly      = "api.oreilly.com"
+	gwExample      = "example.com"
 )
 
 func gwEgressConfig(egress netpol.EgressMode) netpol.Config {
@@ -64,15 +67,14 @@ type gwEgressEnv struct {
 	gw  *aiv1alpha1.MCPGateway
 }
 
-func newGwEgressEnv(t *testing.T, cfg netpol.Config, cilium bool, servers ...*aiv1alpha1.MCPServer) *gwEgressEnv {
+func newGwEgressEnv(t *testing.T, cfg netpol.Config, cilium bool, servers ...client.Object) *gwEgressEnv {
 	t.Helper()
 	scheme := gatewayScheme(t)
-	gw := gwEgressGateway()
-	objs := make([]client.Object, 0, 1+len(servers))
-	objs = append(objs, gw)
-	for _, s := range servers {
-		objs = append(objs, s)
+	if err := discoveryv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
 	}
+	gw := gwEgressGateway()
+	objs := append([]client.Object{gw}, servers...)
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 	r := &MCPGatewayReconciler{Client: cli, Scheme: scheme, NetPol: &NetPolicySync{
 		Client: cli, Scheme: scheme, Config: cfg, CiliumInstalled: func() bool { return cilium },
@@ -280,12 +282,12 @@ func (e *gwEgressEnv) condition() *metav1.Condition {
 
 func TestGatewayEgressReadsEveryKindOfEndpoint(t *testing.T) {
 	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), true,
-		gwEgressServer("a", "https://example.com"), gwEgressServer("b", "https://x.kube-system/mcp"),
+		gwEgressServer("a", "https://"+gwExample), gwEgressServer("b", "https://x.kube-system/mcp"),
 		gwEgressServer("c", "http://plain.example.net/mcp"), gwEgressServer("d", "https://user:pw@auth.example.org/mcp"),
 		gwEgressServer("e", "https://trailing.example.io./mcp"))
 	e.reconcile()
 	assertHostPorts(t, fqdnRule(t, e.cli), map[string]string{
-		"example.com": "443", "x.kube-system": "443", "plain.example.net": "80",
+		gwExample: "443", "x.kube-system": "443", "plain.example.net": "80",
 		"auth.example.org": "443", "trailing.example.io": "443",
 	})
 }
@@ -418,5 +420,93 @@ func TestGatewayEgressReportsAnOtherURLWhosePortItCannotDetermine(t *testing.T) 
 	}
 	if strings.Contains(c.Message, "sqlite") || strings.Contains(c.Message, "redisURL") {
 		t.Errorf("a file database and an empty Redis URL are not network calls: %s", c.Message)
+	}
+}
+
+const ragQueryPort = 8000
+
+func gwQueryService() *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "helm-reference-query", Namespace: gwEgressNS},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				"app.kubernetes.io/component": "query-service", "app.kubernetes.io/name": "helm-reference-query",
+				"kubemoot.ai/ragsource": "helm-reference",
+			},
+			Ports: []corev1.ServicePort{{Port: ragQueryPort, TargetPort: intstr.FromInt32(ragQueryPort), Protocol: corev1.ProtocolTCP}},
+		},
+	}
+}
+
+// queryPodRules are the egress rules that admit the RAG query pods on their port.
+func queryPodRules(p *networkingv1.NetworkPolicy) int {
+	n := 0
+	for _, rule := range p.Spec.Egress {
+		if len(rule.To) != 1 || rule.To[0].PodSelector == nil ||
+			rule.To[0].PodSelector.MatchLabels["kubemoot.ai/ragsource"] != "helm-reference" {
+			continue
+		}
+		if len(rule.Ports) == 1 && rule.Ports[0].Port.IntVal == ragQueryPort {
+			n++
+		}
+	}
+	return n
+}
+
+func TestGatewayEgressAllowsTheQueryPodsOfAGeneratedRAGSearchServer(t *testing.T) {
+	for name, endpoint := range map[string]string{
+		"namespaced":      "http://helm-reference-query." + gwEgressNS + ":8000/mcp",
+		"svc":             "http://helm-reference-query." + gwEgressNS + ".svc:8000/mcp",
+		"cluster domain":  "http://helm-reference-query." + gwEgressNS + ".svc.cluster.local:8000/mcp",
+		"short host name": "http://helm-reference-query:8000/mcp",
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), false,
+				gwEgressServer("helm-reference-search", endpoint), gwQueryService())
+			e.reconcile()
+			if n := queryPodRules(e.policy()); n != 1 {
+				t.Errorf("one rule admits the query pods on port 8000, got %d: %+v", n, e.policy().Spec.Egress)
+			}
+			if c := e.condition(); c == nil || c.Status != metav1.ConditionTrue {
+				t.Errorf("everything is enforced: %+v", c)
+			}
+		})
+	}
+}
+
+func TestGatewayEgressAddsNoPodRuleForAnEndpointOutsideTheCluster(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), false,
+		gwEgressServer("outside", "https://"+gwOReilly+"/mcp"), gwQueryService())
+	e.reconcile()
+	if n := queryPodRules(e.policy()); n != 0 {
+		t.Errorf("an outside host adds no pod rule: %d", n)
+	}
+}
+
+func TestGatewayEgressKeepsATwoLabelNameWithNoServiceAsAHost(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), true, gwEgressServer("a", "https://"+gwExample+"/mcp"))
+	e.reconcile()
+	assertHostPorts(t, fqdnRule(t, e.cli), map[string]string{gwExample: "443"})
+}
+
+func TestGatewayEgressGivesAMissingQueryServiceNoRuleAndReportsIt(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), false,
+		gwEgressServer("helm-reference-search", "http://helm-reference-query:8000/mcp"))
+	e.reconcile()
+	if n := queryPodRules(e.policy()); n != 0 {
+		t.Errorf("no Service, no rule: %d", n)
+	}
+	if c := e.condition(); c == nil || c.Reason != netpol.ReasonEndpointInvalid || !strings.Contains(c.Message, "does not exist") {
+		t.Errorf("the missing Service is reported: %+v", c)
+	}
+	if err := e.cli.Create(context.Background(), gwQueryService()); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.r.findGatewaysInNamespace(context.Background(), gwQueryService()); len(got) != 1 || got[0].Name != gwEgressName {
+		t.Errorf("a new Service re-reconciles the namespace's gateways: %v", got)
+	}
+	e.reconcile()
+	if n := queryPodRules(e.policy()); n != 1 {
+		t.Errorf("the rule appears once the Service does: %d", n)
 	}
 }

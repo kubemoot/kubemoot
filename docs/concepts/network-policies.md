@@ -212,9 +212,12 @@ fronts:
   database such as `sqlite:///./mcp.db` makes no network call and adds nothing.
 - An `externalEndpoint` host is a Service inside the cluster only when it is a single label
   (a Service in the gateway's namespace) or has the form `name.namespace.svc` or
-  `name.namespace.svc.<cluster domain>`. Every other name is a host outside the cluster,
-  including a two-label name such as `example.com` or `x.kube-system`, which gets a host rule
-  and never a rule for the cluster Service of that name. An address literal is allowed as a
+  `name.namespace.svc.<cluster domain>`. A two-label name such as
+  `helm-reference-query.crew-a` is a cluster Service when a Service of that name exists in that
+  namespace, and gets a rule for that Service's pods; otherwise (`example.com`,
+  `x.kube-system`) it is a host outside the cluster and gets a host rule. Every other name is a
+  host outside the cluster. A named Service that does not exist gets no rule, is logged and
+  reported in the EgressEnforced condition, and the rule appears when the Service is created. An address literal is allowed as a
   single address, a trailing dot and letter case in the host are ignored, and a URL with no
   port uses the scheme's port.
 

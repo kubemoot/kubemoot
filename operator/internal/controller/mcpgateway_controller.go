@@ -1438,6 +1438,19 @@ func (r *MCPGatewayReconciler) findGatewaysForSecret(ctx context.Context, obj cl
 	return requests
 }
 
+// findGatewaysInNamespace is every gateway in the object's namespace.
+func (r *MCPGatewayReconciler) findGatewaysInNamespace(ctx context.Context, obj client.Object) []reconcile.Request {
+	list := &kubemootv1alpha1.MCPGatewayList{}
+	if err := r.List(ctx, list, client.InNamespace(obj.GetNamespace())); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(list.Items))
+	for _, gw := range list.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&gw)})
+	}
+	return requests
+}
+
 // gatewayRequests is a reconcile request for each gateway whose selector (chosen
 // by pick) matches the server. A nil selector matches when nilMatches is set.
 func gatewayRequests(gateways []kubemootv1alpha1.MCPGateway, mcp *kubemootv1alpha1.MCPServer,
@@ -2436,6 +2449,12 @@ func (r *MCPGatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findGatewaysForSecret),
+		).
+		// Watch Services the gateway does not own, so an egress rule for an external
+		// server that names a Service appears when the Service does.
+		Watches(
+			&corev1.Service{},
+			handler.EnqueueRequestsFromMapFunc(r.findGatewaysInNamespace),
 		).
 		// Watch MCPCatalogs — same spec-change-only filter.
 		Watches(
