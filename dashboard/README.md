@@ -102,6 +102,8 @@ All endpoints support `?namespace=` query parameter:
 - `GET /dashboard/api/kubemoot/watch/<plural>?namespace=` - Kubernetes resource changes as Server-Sent Events
 - `GET /dashboard/api/nats/subscribe?subject=` - NATS messages as Server-Sent Events
 - `GET /dashboard/api/nats/stream?stream=&subject=&from_seq=` - JetStream replay then live messages as Server-Sent Events
+- `GET /dashboard/api/nats/history?stream=&subject=&limit=&before=` - JetStream history: a window of the stream, an older page, or one thread by its subject; `Server-Timing` reports the cost
+- `GET /dashboard/api/nats/status` and `GET /dashboard/api/nats/crews` - the NATS tile and page: server, account and store use against limits, and each crew's share
 
 ## RBAC
 

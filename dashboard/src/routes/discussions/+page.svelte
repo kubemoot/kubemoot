@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
-	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, showStandAsides, showDebugDetail, namespace } from '#lib/stores/index.js';
+	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, ensureThreadLoaded, loadOlder, loadingOlder, hasOlder, showStandAsides, showDebugDetail, namespace } from '#lib/stores/index.js';
 	import type { Thread } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewTooltip } from '#lib/crew-display-name.js';
@@ -130,6 +130,18 @@
 		if (status === 'open') return 'Active';
 		if (status === 'synthesized') return 'Answered';
 		return 'Closed';
+	}
+
+	// Opening a thread reads its own subject, so a thread that began before the loaded
+	// history shows complete without loading the stream around it.
+	$effect(() => {
+		if (selectedThreadId) void ensureThreadLoaded(selectedThreadId);
+	});
+
+	// Older threads load a page at a time when the list is scrolled near its end.
+	function onListScroll(e: Event) {
+		const el = e.currentTarget as HTMLElement;
+		if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) void loadOlder();
 	}
 
 	function selectThread(threadId: string) {
@@ -268,7 +280,7 @@
 	</div>
 
 	<div class="discussions-layout">
-		<div class="thread-list">
+		<div class="thread-list" onscroll={onListScroll}>
 			{#if !$historyLoaded && $sortedThreads.length === 0}
 				<div class="empty-state">Loading discussion history...</div>
 			{:else if visibleThreads.length === 0}
@@ -313,6 +325,11 @@
 					</button>
 					</div>
 				{/each}
+				{#if $hasOlder}
+					<button class="load-older" disabled={$loadingOlder} onclick={() => loadOlder()}>
+						{$loadingOlder ? 'Loading older threads...' : 'Load older threads'}
+					</button>
+				{/if}
 			{/if}
 		</div>
 
@@ -544,6 +561,16 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+	}
+
+	.load-older {
+		background: transparent;
+		border: 1px dashed var(--color-border);
+		border-radius: 0.5rem;
+		color: var(--color-text-muted);
+		padding: 0.5rem;
+		font-size: 0.8rem;
+		cursor: pointer;
 	}
 
 	.empty-state {

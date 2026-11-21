@@ -1,4 +1,4 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/env';
 import { resolve } from '$app/paths';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
@@ -30,6 +30,8 @@ export interface Thread {
 	namespace?: string;
 	crew?: string;
 	crewVersion?: string;
+	/** The NATS subject of the thread, which a thread-scoped history read needs. */
+	subject?: string;
 	// Legacy aliases
 	contributorCount: number;
 	declineCount: number;
@@ -181,35 +183,100 @@ function applyUnknownThreadMessage(
 }
 
 /**
- * Folds one discussion message into the thread map. `subject` is the NATS subject
- * the message arrived on; its namespace and crew scope the
- * thread.
+ * Folds one discussion message into the thread map, in place. `subject` is the NATS
+ * subject the message arrived on; its namespace and crew scope the thread. Returns
+ * false when the message was already there.
  */
-export function handleMessage(msg: DiscussionMessage, subject?: string) {
+function foldMessage(threads: Map<string, Thread>, msg: DiscussionMessage, subject?: string): boolean {
 	const parsed = parseDiscussSubject(subject);
+	const existing = threads.get(msg.threadId);
 
+	// Dedup by messageId
+	if (existing && msg.messageId && existing.messages.some((m) => m.messageId === msg.messageId)) {
+		return false;
+	}
+
+	if (msg.messageType === 'thread_start') {
+		applyThreadStart(threads, existing, msg, parsed);
+	} else if (existing) {
+		const updated = { ...existing, messages: [...existing.messages, msg] };
+		fillScope(updated, parsed);
+		updateThreadCounts(updated, msg);
+		threads.set(msg.threadId, updated);
+	} else {
+		// Message arrived for unknown thread (rare with ordered delivery)
+		applyUnknownThreadMessage(threads, msg, parsed);
+	}
+	const folded = threads.get(msg.threadId);
+	if (folded && subject) folded.subject ??= subject;
+	return true;
+}
+
+/** Folds one live discussion message into the threads and notifies subscribers once. */
+export function handleMessage(msg: DiscussionMessage, subject?: string) {
+	threadsMap.update((threads) => (foldMessage(threads, msg, subject) ? new Map(threads) : threads));
+}
+
+/** A message as the history endpoint returns it. */
+interface HistoryMessage {
+	seq?: unknown;
+	data?: unknown;
+	subject?: string;
+}
+
+/** The message a history entry holds, or null when it is not a discussion message. */
+function parseHistoryMessage(m: HistoryMessage): DiscussionMessage | null {
+	try {
+		const d = typeof m.data === 'string' ? JSON.parse(m.data) : m.data;
+		return d?.threadId && d.messageType ? (d as DiscussionMessage) : null;
+	} catch {
+		return null;
+	}
+}
+
+/** Folds a page of history into the threads with one notification, not one per message. */
+export function foldHistory(messages: HistoryMessage[]) {
 	threadsMap.update((threads) => {
-		const existing = threads.get(msg.threadId);
-
-		// Dedup by messageId
-		if (existing && msg.messageId) {
-			if (existing.messages.some((m) => m.messageId === msg.messageId)) {
-				return threads;
-			}
+		for (const m of messages) {
+			if (typeof m.seq === 'number' && m.seq > lastSeq) lastSeq = m.seq;
+			const msg = parseHistoryMessage(m);
+			if (msg) foldMessage(threads, msg, m.subject);
 		}
+		return new Map(threads);
+	});
+}
 
-		if (msg.messageType === 'thread_start') {
-			applyThreadStart(threads, existing, msg, parsed);
-		} else if (existing) {
-			const updated = { ...existing, messages: [...existing.messages, msg] };
-			fillScope(updated, parsed);
-			updateThreadCounts(updated, msg);
-			threads.set(msg.threadId, updated);
-		} else {
-			// Message arrived for unknown thread (rare with ordered delivery)
-			applyUnknownThreadMessage(threads, msg, parsed);
-		}
+/** What identifies a message: its id, else its time, sender and type. */
+function messageKey(m: DiscussionMessage): string {
+	return m.messageId ?? `${m.timestamp}|${m.agentName}|${m.messageType}`;
+}
 
+/** A message's time for ordering; one with no usable time sorts last, in arrival order. */
+function timeRank(m: DiscussionMessage): number {
+	const t = Date.parse(m.timestamp ?? '');
+	return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t;
+}
+
+/**
+ * Replaces one thread with everything the stream holds for it, keeping any live message
+ * that arrived while the read was in flight. Messages are ordered by time, ties by the
+ * order they arrived.
+ */
+function mergeThread(threadId: string, fetched: HistoryMessage[]) {
+	threadsMap.update((threads) => {
+		const held = threads.get(threadId)?.messages ?? [];
+		const heldSubject = threads.get(threadId)?.subject;
+		const parsed = fetched.flatMap((m) => {
+			const msg = parseHistoryMessage(m);
+			return msg ? [{ msg, subject: m.subject }] : [];
+		});
+		const known = new Set(parsed.map((p) => messageKey(p.msg)));
+		const all = [
+			...parsed,
+			...held.filter((m) => !known.has(messageKey(m))).map((msg) => ({ msg, subject: heldSubject }))
+		].sort((a, b) => timeRank(a.msg) - timeRank(b.msg));
+		threads.delete(threadId);
+		for (const { msg, subject } of all) foldMessage(threads, msg, subject);
 		return new Map(threads);
 	});
 }
@@ -263,43 +330,105 @@ function startStream() {
 	};
 }
 
-// How many of the most recent discussion messages to load on open. Bounded so the
-// page stays responsive even when suite runs have filled the stream with thousands
-// of judge-discussion threads. Older threads aren't loaded up front (a future
-// "load older" can page back); the namespace selector still narrows the view.
-const RECENT_LIMIT = 1000;
+// How many of the newest sequence numbers one history page covers. The page needs only
+// enough to list the newest threads; opening a thread reads that thread's own subject,
+// and older threads load a page at a time when the list is scrolled to its end.
+export const HISTORY_PAGE = 200;
 
-function processHistoryMessage(m: { seq?: unknown; data?: unknown; subject?: string }) {
-	if (typeof m.seq === 'number' && m.seq > lastSeq) lastSeq = m.seq;
+/** True while an older page is being read. */
+export const loadingOlder = writable(false);
+/** True while the stream holds messages older than the oldest page loaded. */
+export const hasOlder = writable(false);
+
+// The sequence the oldest loaded page starts at: the next page back is read before it.
+let windowStart = 0;
+
+const historyUrl = (subject: string, extra: string) =>
+	`${resolve('/api/nats/history')}?stream=KUBEMOOT_DISCUSS&subject=${encodeURIComponent(subject)}&${extra}`;
+
+interface HistoryPage {
+	messages: HistoryMessage[];
+	lastSeq?: number;
+	windowStart?: number;
+	hasMore?: boolean;
+	/** A thread read that stopped at the per-read maximum. */
+	truncated?: boolean;
+}
+
+async function fetchHistory(url: string): Promise<HistoryPage | null> {
 	try {
-		const d = typeof m.data === 'string' ? JSON.parse(m.data) : m.data;
-		if (d?.threadId && d.messageType) handleMessage(d as DiscussionMessage, m.subject);
+		const res = await fetch(url);
+		return res.ok ? ((await res.json()) as HistoryPage) : null;
 	} catch {
-		/* skip malformed */
+		return null;
 	}
 }
 
-// loadRecent pulls the newest RECENT_LIMIT messages (the history endpoint delivers
-// newest-first), builds the recent thread map, and records the stream tip so
-// the live tail starts there rather than replaying the entire stream on every
-// page load.
+// Threads whose own subject was read, or is being read, so a thread is fetched once.
+const threadReads = new Set<string>();
+
+/** A thread started before the loaded pages has no start message: its title and counts are partial. */
+function isPartial(thread: Thread): boolean {
+	return !thread.messages.some((m) => m.messageType === 'thread_start');
+}
+
+/**
+ * Reads everything the stream holds for one thread, by its subject, and merges it in. A no-op
+ * for a thread already read, one that is complete, or one whose subject is not known.
+ */
+export async function ensureThreadLoaded(threadId: string): Promise<void> {
+	const thread = get(threadsMap).get(threadId);
+	if (!thread?.subject || !isPartial(thread) || threadReads.has(threadId)) return;
+	threadReads.add(threadId);
+	const page = await fetchHistory(historyUrl(thread.subject, 'limit=2000'));
+	if (page) mergeThread(threadId, page.messages ?? []);
+	if (page?.truncated) console.warn('discussions: a thread holds more messages than one read returns');
+	else threadReads.delete(threadId);
+}
+
+const HYDRATE_CONCURRENCY = 4;
+
+/** Reads the partial threads at the edge of a page, a few at a time. */
+async function completePartialThreads(): Promise<void> {
+	const ids = [...get(threadsMap).values()].filter(isPartial).map((t) => t.threadId);
+	let next = 0;
+	const worker = async () => {
+		while (next < ids.length) await ensureThreadLoaded(ids[next++]);
+	};
+	await Promise.all(Array.from({ length: Math.min(HYDRATE_CONCURRENCY, ids.length) }, worker));
+}
+
+function noteWindow(page: HistoryPage) {
+	if (typeof page.lastSeq === 'number' && page.lastSeq > lastSeq) lastSeq = page.lastSeq;
+	if (typeof page.windowStart === 'number') windowStart = page.windowStart;
+	hasOlder.set(page.hasMore === true);
+}
+
+// loadRecent pulls the newest HISTORY_PAGE sequence numbers, builds the recent thread
+// map, and records the stream tip so the live tail starts there rather than replaying the
+// entire stream on every page load.
 async function loadRecent() {
-	try {
-		const subject = encodeURIComponent(DISCUSS_ALL);
-		const res = await fetch(
-			`${resolve('/api/nats/history')}?stream=KUBEMOOT_DISCUSS&subject=${subject}&limit=${RECENT_LIMIT}`
-		);
-		if (res.ok) {
-			const data = await res.json();
-			for (const m of data.messages ?? []) {
-				processHistoryMessage(m);
-			}
-			if (typeof data.lastSeq === 'number' && data.lastSeq > lastSeq) lastSeq = data.lastSeq;
-		}
-	} catch {
-		/* fall through - the live stream still connects below */
+	const page = await fetchHistory(historyUrl(DISCUSS_ALL, `limit=${HISTORY_PAGE}`));
+	if (page) {
+		foldHistory(page.messages ?? []);
+		noteWindow(page);
 	}
 	streamReady.set(true);
+}
+
+/** Reads the page of history before the oldest one loaded; call when the thread list is scrolled to its end. */
+export async function loadOlder(): Promise<void> {
+	if (get(loadingOlder) || !get(hasOlder)) return;
+	loadingOlder.set(true);
+	try {
+		const page = await fetchHistory(historyUrl(DISCUSS_ALL, `limit=${HISTORY_PAGE}&before=${windowStart}`));
+		if (!page) return;
+		foldHistory(page.messages ?? []);
+		noteWindow(page);
+		await completePartialThreads();
+	} finally {
+		loadingOlder.set(false);
+	}
 }
 
 /** Call from onMount - bounded recent load, then the live tail. No-op if already initialized. */
@@ -307,7 +436,10 @@ export function initDiscussions() {
 	if (!browser || initialized) return;
 	initialized = true;
 	loadRecent()
-		.then(startStream)
+		.then(() => {
+			startStream();
+			void completePartialThreads();
+		})
 		.catch((err) => console.error('discussions: initial load/stream failed', err));
 }
 

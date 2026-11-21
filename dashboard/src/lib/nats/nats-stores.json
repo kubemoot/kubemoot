@@ -1,0 +1,215 @@
+{
+	"$comment": "The one definition of every NATS store Kubemoot creates: what it holds, whether it can hold people's data, who owns the data, and where a crew's share of it lives. The dashboard's NATS page reads this file. nats-stores.test.ts fails when docs/operating/data-ownership.md or the operator chart's nats-streams-job.yaml disagrees with it, so the three cannot drift. peoplesData: yes, derived (written by a model from people's data), maybe (only if someone replays real questions), no. owner: crew (keyed by the crew's namespace and name), system-learning (state about models, servers and tools, no question text), kubemoot (the platform's own working state). crewKey: where a crew's share lives; {ns} and {crew} are the crew's namespace and name. A store with no crewKey is not keyed by crew. defaultMaxBytes is the bootstrap job's size limit in bytes, or null when a chart value sets it.",
+	"stores": [
+		{
+			"name": "KUBEMOOT_DISCUSS",
+			"kind": "stream",
+			"holds": "Every message of every discussion: the question, each agent's finding and reason, the synthesis, the closing receipt",
+			"peoplesData": "yes",
+			"owner": "crew",
+			"crewKey": "kubemoot.discuss.{ns}.{crew}.>",
+			"crewPolicy": "retention.other.window",
+			"defaultMaxBytes": null
+		},
+		{
+			"name": "KUBEMOOT_COORDINATOR",
+			"kind": "stream",
+			"holds": "Each coordinator's decision log per thread, including the question, the brief and the synthesis",
+			"peoplesData": "yes",
+			"owner": "crew",
+			"crewKey": "kubemoot.coordinator.{ns}.{crew}.>",
+			"crewPolicy": "retention.other.window",
+			"defaultMaxBytes": 268435456
+		},
+		{
+			"name": "KUBEMOOT_REQUEST",
+			"kind": "stream",
+			"holds": "Questions waiting for a crew to pick them up, with the requester's time zone and local time",
+			"peoplesData": "yes",
+			"owner": "crew",
+			"crewKey": "kubemoot.request.{ns}.{crew}",
+			"crewPolicy": "retention.other.window",
+			"defaultMaxBytes": 67108864
+		},
+		{
+			"name": "KUBEMOOT_CHAT",
+			"kind": "stream",
+			"holds": "Direct chat exchanges: the question cut to 500 characters, the answer cut to 2000",
+			"peoplesData": "yes",
+			"owner": "crew",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 67108864
+		},
+		{
+			"name": "KUBEMOOT_OPERATOR",
+			"kind": "stream",
+			"holds": "Onboarding progress of MCP servers",
+			"peoplesData": "no",
+			"owner": "system-learning",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 67108864
+		},
+		{
+			"name": "KUBEMOOT_CHRONICLE",
+			"kind": "stream",
+			"holds": "MCP server verdicts and trials",
+			"peoplesData": "no",
+			"owner": "system-learning",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 134217728
+		},
+		{
+			"name": "KUBEMOOT_QUALITY",
+			"kind": "stream",
+			"holds": "Reserved for quality events; nothing writes to it today",
+			"peoplesData": "no",
+			"owner": "kubemoot",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 16777216
+		},
+		{
+			"name": "kubemoot_conversations",
+			"kind": "kv",
+			"holds": "Earlier turns of each conversation (question and answer per turn), for follow-up questions",
+			"peoplesData": "yes",
+			"owner": "crew",
+			"crewKey": "conv.{ns}.{crew}.>",
+			"crewPolicy": "retention.conversations.window",
+			"defaultMaxBytes": 268435456
+		},
+		{
+			"name": "kubemoot_crew_memory",
+			"kind": "kv",
+			"holds": "Facts a crew learned, written by a model from conversations and tool results",
+			"peoplesData": "derived",
+			"owner": "crew",
+			"crewKey": "{ns}.{crew}.>",
+			"crewPolicy": "retention.memory.purgeUnused",
+			"defaultMaxBytes": 67108864
+		},
+		{
+			"name": "kubemoot_scheduled",
+			"kind": "kv",
+			"holds": "Reminders and follow-ups an agent scheduled, with their text; a record is deleted when it fires",
+			"peoplesData": "yes",
+			"owner": "crew",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 16777216
+		},
+		{
+			"name": "kubemoot_scheduler_performance",
+			"kind": "kv",
+			"holds": "What the scheduler observed per model server, model and agent",
+			"peoplesData": "no",
+			"owner": "system-learning",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 67108864
+		},
+		{
+			"name": "kubemoot_crew_resumes",
+			"kind": "kv",
+			"holds": "What each crew's agents and skills offer",
+			"peoplesData": "no",
+			"owner": "system-learning",
+			"crewKey": "{ns}.{crew}",
+			"crewPolicy": null,
+			"defaultMaxBytes": 67108864
+		},
+		{
+			"name": "kubemoot_server_state",
+			"kind": "kv",
+			"holds": "A ModelServer's probed capacity",
+			"peoplesData": "no",
+			"owner": "system-learning",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 4194304
+		},
+		{
+			"name": "kubemoot_latency",
+			"kind": "kv",
+			"holds": "Evaluation latencies per server",
+			"peoplesData": "no",
+			"owner": "system-learning",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 1048576
+		},
+		{
+			"name": "kubemoot_model_demand",
+			"kind": "kv",
+			"holds": "Which models crews wait for or used recently",
+			"peoplesData": "no",
+			"owner": "system-learning",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 8388608
+		},
+		{
+			"name": "kubemoot_server_tickets",
+			"kind": "kv",
+			"holds": "Per-call reservations of accelerator memory",
+			"peoplesData": "no",
+			"owner": "system-learning",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 4194304
+		},
+		{
+			"name": "kubemoot_agent_state",
+			"kind": "kv",
+			"holds": "Agent heartbeats",
+			"peoplesData": "no",
+			"owner": "kubemoot",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 8388608
+		},
+		{
+			"name": "kubemoot_coordinator_leases",
+			"kind": "kv",
+			"holds": "Which coordinator owns a thread (created only with coordinator.lease)",
+			"peoplesData": "no",
+			"owner": "kubemoot",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 1048576
+		},
+		{
+			"name": "kubemoot_placement_leader",
+			"kind": "kv",
+			"holds": "The placement service's leader lease",
+			"peoplesData": "no",
+			"owner": "kubemoot",
+			"crewKey": null,
+			"crewPolicy": null,
+			"defaultMaxBytes": 1048576
+		},
+		{
+			"name": "kubemoot_workspace",
+			"kind": "object",
+			"holds": "Tool results and contributions agents spill during a thread, stored as the tool returned them",
+			"peoplesData": "yes",
+			"owner": "crew",
+			"crewKey": "{ns}/{crew}/",
+			"crewPolicy": null,
+			"defaultMaxBytes": null
+		},
+		{
+			"name": "kubemoot_fitness_artifacts",
+			"kind": "object",
+			"holds": "Fitness result spreadsheets and per-iteration transcripts",
+			"peoplesData": "maybe",
+			"owner": "crew",
+			"crewKey": "{ns}/{crew}/",
+			"crewPolicy": null,
+			"defaultMaxBytes": null
+		}
+	]
+}
