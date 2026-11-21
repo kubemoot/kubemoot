@@ -195,6 +195,23 @@ operator runs every coordinator Agent with exactly one replica and the `Recreate
 `spec.deployment.replicas` asks for, and says so in the Agent's `ReplicasLimited` status condition. The job that creates the NATS streams
 applies `nats.streams.discuss.*` on every install and upgrade, to an existing stream too.
 
+### Optional: TLS and credentials for NATS
+
+If your NATS server demands TLS or credentials, point `nats.url` at it and give the chart the Secrets that hold the CA bundle, an optional client certificate and the credential. Every component that dials NATS reads them, and the operator passes them to the agents, gateways and jobs it creates:
+
+```yaml
+nats:
+  url: "tls://nats.nats.svc.cluster.local:4222"
+  tls:
+    caSecret: nats-ca          # key ca.crt, or set nats.tls.caKey
+    clientSecret: nats-client  # optional, for mutual TLS (tls.crt and tls.key)
+  auth:
+    secret: nats-auth
+    credsKey: app.creds        # or userKey with passwordKey, or tokenKey
+```
+
+All three are off by default and the install connects as before. The names every component reads, what each component covers and what it does not are in [Connecting to NATS with TLS and credentials](../../operating/nats-connection/). To encrypt what NATS stores, see [Encryption at rest](../../operating/data-ownership/#encryption-at-rest).
+
 ### Optional: the dashboard
 
 The operator chart carries the [dashboard](../../operating/dashboard/) as an optional
