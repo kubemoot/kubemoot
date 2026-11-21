@@ -130,10 +130,10 @@ func TestConnectFailsClearlyWithoutWhatTheServerDemands(t *testing.T) {
 		wanted string
 	}{
 		{"no CA", natstest.Options{TLS: true}, func(c *natsconn.Config) { c.CAFile = "" }, "certificate"},
-		{"no credentials", natstest.Options{TLS: true, Auth: natstest.AuthUser}, func(c *natsconn.Config) { c.ClearAuth() }, "uthorization"},
-		{"wrong password", natstest.Options{Auth: natstest.AuthUser}, func(c *natsconn.Config) { c.Password = "nope" }, "uthorization"},
-		{"wrong token", natstest.Options{Auth: natstest.AuthToken}, func(c *natsconn.Config) { c.Token = "nope" }, "uthorization"},
-		{"no creds", natstest.Options{Auth: natstest.AuthCreds}, func(c *natsconn.Config) { c.ClearAuth() }, "uthorization"},
+		{"no credentials", natstest.Options{TLS: true, Auth: natstest.AuthUser}, func(c *natsconn.Config) { c.ClearAuth() }, authFailure},
+		{"wrong password", natstest.Options{Auth: natstest.AuthUser}, func(c *natsconn.Config) { c.Password = "nope" }, authFailure},
+		{"wrong token", natstest.Options{Auth: natstest.AuthToken}, func(c *natsconn.Config) { c.Token = "nope" }, authFailure},
+		{"no creds", natstest.Options{Auth: natstest.AuthCreds}, func(c *natsconn.Config) { c.ClearAuth() }, authFailure},
 		{"no client certificate", natstest.Options{MutualTLS: true}, func(c *natsconn.Config) { c.ClientCertFile, c.ClientKeyFile = "", "" }, ""},
 	}
 	for _, c := range cases {
@@ -152,3 +152,5 @@ func TestConnectFailsClearlyWithoutWhatTheServerDemands(t *testing.T) {
 		})
 	}
 }
+
+const authFailure = "uthorization"

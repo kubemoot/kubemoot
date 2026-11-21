@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 	"github.com/nats-io/nats.go"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -86,7 +87,7 @@ func runMaterializer(ctx context.Context, natsURL string, store *natsstore.Store
 		log.Fatalf("artifact subject: %v", err)
 	}
 
-	nc, err := nats.Connect(natsURL,
+	nc, err := natsconn.ForURL(natsURL).Connect(
 		nats.Name("workspace-access-sub"),
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2*time.Second),

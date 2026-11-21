@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 )
 
 // Names of the files in the credentials directory the operator mounts into the sidecar only.
@@ -46,4 +48,34 @@ func connectOptions(dir string) ([]nats.Option, error) {
 func read(dir, name string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(dir, name))
 	return strings.TrimSpace(string(b)), err
+}
+
+// busOptions are the connection options of the sidecar: the cluster-wide ones every Kubemoot
+// component reads from the environment (NATS_CA_FILE, NATS_CLIENT_CERT_FILE, a credential),
+// then the agent's own credentials directory, which replaces the environment's credential and
+// CA when it holds one. An agent with its own NATS account thus never presents the shared one.
+func busOptions(dir string) ([]nats.Option, error) {
+	own, err := connectOptions(dir)
+	if err != nil {
+		return nil, err
+	}
+	shared := natsconn.ForURL("")
+	if dir != "" {
+		if has(dir, credsFile) || has(dir, userFile) {
+			shared.ClearAuth()
+		}
+		if has(dir, caFile) {
+			shared.CAFile = ""
+		}
+	}
+	base, err := shared.Options()
+	if err != nil {
+		return nil, err
+	}
+	return append(base, own...), nil
+}
+
+func has(dir, name string) bool {
+	_, err := os.Stat(filepath.Join(dir, name))
+	return err == nil
 }

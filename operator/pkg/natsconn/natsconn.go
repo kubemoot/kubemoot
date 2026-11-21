@@ -196,3 +196,13 @@ func (c Config) Describe() string {
 	}
 	return strings.Join(parts, ", ")
 }
+
+// ForURL reads the process environment and dials url, which a component got from its own
+// flag or settings. An empty url keeps the one in NATS_URL.
+func ForURL(url string) Config {
+	c := FromEnv(os.Getenv)
+	if url != "" {
+		c.URL = url
+	}
+	return c
+}

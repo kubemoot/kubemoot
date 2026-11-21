@@ -47,19 +47,7 @@ func TestEverythingSetMountsAndNamesIt(t *testing.T) {
 		t.Errorf("the CA key must be projected as ca.crt: %+v", items)
 	}
 	for _, c := range []corev1.Container{spec.Containers[0], spec.InitContainers[0]} {
-		for name, want := range map[string]string{
-			natsconn.EnvCAFile:         "/etc/kubemoot/nats-conn/ca/ca.crt",
-			natsconn.EnvClientCertFile: "/etc/kubemoot/nats-conn/client/tls.crt",
-			natsconn.EnvClientKeyFile:  "/etc/kubemoot/nats-conn/client/tls.key",
-			natsconn.EnvCredsFile:      "/etc/kubemoot/nats-conn/auth/nats.creds",
-		} {
-			if e := envOf(c, name); e == nil || e.Value != want {
-				t.Errorf("%s: %s = %+v, want %s", c.Name, name, e, want)
-			}
-		}
-		if len(c.VolumeMounts) != 3 {
-			t.Errorf("%s: want 3 mounts, got %d", c.Name, len(c.VolumeMounts))
-		}
+		checkMounted(t, c)
 	}
 	if len(spec.Containers[1].Env) != 0 || len(spec.Containers[1].VolumeMounts) != 0 {
 		t.Errorf("a container not named gets nothing: %+v", spec.Containers[1])
@@ -68,13 +56,13 @@ func TestEverythingSetMountsAndNamesIt(t *testing.T) {
 
 func TestUserAndPasswordAndTokenComeFromTheSecretNotTheSpec(t *testing.T) {
 	up := fromGetenv(func(k string) string {
-		return map[string]string{EnvAuthSecret: "auth", EnvAuthUserKey: "u", EnvAuthPasswdKey: "p"}[k]
+		return map[string]string{EnvAuthSecret: authName, EnvAuthUserKey: "u", EnvAuthPasswdKey: "p"}[k]
 	})
 	spec := pod()
 	up.Apply(spec, "agent")
 	for name, key := range map[string]string{natsconn.EnvUser: "u", natsconn.EnvPassword: "p"} {
 		e := envOf(spec.Containers[0], name)
-		if e == nil || e.Value != "" || e.ValueFrom.SecretKeyRef.Name != "auth" || e.ValueFrom.SecretKeyRef.Key != key {
+		if e == nil || e.Value != "" || e.ValueFrom.SecretKeyRef.Name != authName || e.ValueFrom.SecretKeyRef.Key != key {
 			t.Errorf("%s must be a reference to key %s of the Secret: %+v", name, key, e)
 		}
 	}
@@ -82,7 +70,7 @@ func TestUserAndPasswordAndTokenComeFromTheSecretNotTheSpec(t *testing.T) {
 		t.Errorf("a user and password need no volume: %+v", spec.Volumes)
 	}
 
-	tok := fromGetenv(func(k string) string { return map[string]string{EnvAuthSecret: "auth", EnvAuthTokenKey: "t"}[k] })
+	tok := fromGetenv(func(k string) string { return map[string]string{EnvAuthSecret: authName, EnvAuthTokenKey: "t"}[k] })
 	spec = pod()
 	tok.Apply(spec, "agent")
 	if e := envOf(spec.Containers[0], natsconn.EnvToken); e == nil || e.ValueFrom.SecretKeyRef.Key != "t" {
@@ -92,7 +80,7 @@ func TestUserAndPasswordAndTokenComeFromTheSecretNotTheSpec(t *testing.T) {
 
 func TestAnAuthSecretWithNoKeyAddsNothing(t *testing.T) {
 	spec := pod()
-	fromGetenv(func(k string) string { return map[string]string{EnvAuthSecret: "auth"}[k] }).Apply(spec, "agent")
+	fromGetenv(func(k string) string { return map[string]string{EnvAuthSecret: authName}[k] }).Apply(spec, "agent")
 	if len(spec.Containers[0].Env) != 0 || len(spec.Volumes) != 0 {
 		t.Fatalf("no key chosen, nothing to pass: %+v", spec)
 	}
@@ -109,12 +97,34 @@ func TestApplyTwiceDoesNotDuplicate(t *testing.T) {
 }
 
 func TestSecretNamesAreDistinctAndSkipBlanks(t *testing.T) {
-	s := Source{CASecret: "shared", ClientSecret: "shared", AuthSecret: "auth"}
+	s := Source{CASecret: sharedName, ClientSecret: sharedName, AuthSecret: authName}
 	got := s.SecretNames()
-	if len(got) != 2 || got[0] != "shared" || got[1] != "auth" {
+	if len(got) != 2 || got[0] != sharedName || got[1] != authName {
 		t.Fatalf("got %v", got)
 	}
 	if n := (Source{}).SecretNames(); len(n) != 0 {
 		t.Fatalf("empty source names %v", n)
+	}
+}
+
+const (
+	authName   = "auth"
+	sharedName = "shared"
+)
+
+func checkMounted(t *testing.T, c corev1.Container) {
+	t.Helper()
+	for name, want := range map[string]string{
+		natsconn.EnvCAFile:         "/etc/kubemoot/nats-conn/ca/ca.crt",
+		natsconn.EnvClientCertFile: "/etc/kubemoot/nats-conn/client/tls.crt",
+		natsconn.EnvClientKeyFile:  "/etc/kubemoot/nats-conn/client/tls.key",
+		natsconn.EnvCredsFile:      "/etc/kubemoot/nats-conn/auth/nats.creds",
+	} {
+		if e := envOf(c, name); e == nil || e.Value != want {
+			t.Errorf("%s: %s = %+v, want %s", c.Name, name, e, want)
+		}
+	}
+	if len(c.VolumeMounts) != 3 {
+		t.Errorf("%s: want 3 mounts, got %d", c.Name, len(c.VolumeMounts))
 	}
 }

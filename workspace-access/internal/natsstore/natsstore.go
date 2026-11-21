@@ -20,6 +20,7 @@ import (
 
 	"github.com/kubemoot/kubemoot/workspace-access/internal/store"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -108,7 +109,7 @@ func (s *Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 // connect opens the one connection a call uses for every bucket it tries. On error nothing is left
 // open; on success the caller closes the connection.
 func (s *Store) connect(name string) (*nats.Conn, jetstream.JetStream, error) {
-	nc, err := nats.Connect(s.url, nats.Name(name))
+	nc, err := natsconn.ForURL(s.url).Connect(nats.Name(name))
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect %s: %w", s.url, err)
 	}

@@ -687,9 +687,7 @@ func (r *RAGSourceReconciler) buildIndexingJob(ragSource *kubemootv1alpha1.RAGSo
 	hardened.VolumeMounts = container.VolumeMounts
 	podSpec.Containers[0] = hardened
 	podSpec.Volumes = volumes
-	if ragSource.Spec.Source.NatsKV != nil {
-		applyNATSOptions(&podSpec, componentIndexer)
-	}
+	applyIndexerNATSOptions(ragSource, &podSpec)
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{

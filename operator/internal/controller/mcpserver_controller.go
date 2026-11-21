@@ -380,11 +380,7 @@ func (r *MCPServerReconciler) buildDeployment(mcpServer *kubemootv1alpha1.MCPSer
 
 	if mcpServer.Annotations[AnnotationNATSConnection] == valueTrue {
 		spec := &deployment.Spec.Template.Spec
-		var names []string
-		for _, c := range spec.Containers {
-			names = append(names, c.Name)
-		}
-		applyNATSOptions(spec, names...)
+		applyNATSOptions(spec, containerNames(spec.Containers)...)
 	}
 	return deployment
 }

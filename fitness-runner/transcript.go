@@ -16,6 +16,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 	"github.com/nats-io/nats.go"
 )
 
@@ -64,7 +65,7 @@ func maybeWriteTranscript(outcome *RunOutcome, getenv func(string) string) {
 // writes the blob at key. Each call opens and drains its own connection: the
 // runner is a short-lived Job that writes exactly one transcript.
 func putObject(natsURL, bucket, key string, data []byte, ttl time.Duration) error {
-	nc, err := nats.Connect(natsURL, nats.Name("fitness-runner-transcript"))
+	nc, err := natsconn.ForURL(natsURL).Connect(nats.Name("fitness-runner-transcript"))
 	if err != nil {
 		return fmt.Errorf("connect NATS: %w", err)
 	}
