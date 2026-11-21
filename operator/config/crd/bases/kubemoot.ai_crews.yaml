@@ -95,6 +95,120 @@ spec:
                           as the anonymous caller. A token that is present and not
                           valid is always refused.
                         type: boolean
+                      hashKeySecretRef:
+                        description: |-
+                          HashKeySecretRef names the Secret key, in the crew's namespace, that holds the install's
+                          hash key. The gateway uses it to turn a person's account id into the opaque principal id
+                          the bus carries, the same key in every door (the liaison's chart takes the same Secret).
+                          Required while serviceTokens is set; the installer creates the Secret.
+                        properties:
+                          key:
+                            default: hash-key
+                            description: Key is the key in the Secret that holds the
+                              hash key.
+                            type: string
+                          name:
+                            description: Name is the Secret's name.
+                            minLength: 1
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      serviceTokens:
+                        description: |-
+                          ServiceTokens are services whose acceptance of a person's own bearer token proves who
+                          that person is, so a chat app signed in to the service can ask the crew as that person.
+                          Empty by default: no service token is accepted. With more than one entry each needs
+                          audiences, so a token is only ever tried against the service it was issued for.
+                        items:
+                          description: |-
+                            ServiceTokenVerifier is one service that vouches for a person by accepting their own
+                            bearer token. The gateway tries the token against VerifyURL and reads the person's id from
+                            the token's payload; it never reads an identity from anything the caller says.
+                          properties:
+                            audiences:
+                              description: Audiences, when set, are the values the
+                                token's aud must have one of.
+                              items:
+                                type: string
+                              maxItems: 16
+                              type: array
+                            authorize:
+                              default: AnyAccepted
+                              description: |-
+                                Authorize says who the crew accepts: AnyAccepted lets every person the service accepts
+                                use the crew, Subjects only the listed ones.
+                              enum:
+                              - AnyAccepted
+                              - Subjects
+                              type: string
+                            maxCacheSeconds:
+                              default: 300
+                              description: |-
+                                MaxCacheSeconds bounds how long an accepted token is remembered, never beyond its own
+                                expiry. Empty means 300.
+                              format: int32
+                              maximum: 900
+                              minimum: 1
+                              type: integer
+                            name:
+                              description: |-
+                                Name is the issuer of the people this service vouches for, a DNS label. It appears in
+                                the principal, so it cannot change without changing every person's id.
+                              pattern: ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$
+                              type: string
+                              x-kubernetes-validations:
+                              - message: kubernetes is the issuer of Kubernetes tokens
+                                rule: self != 'kubernetes'
+                            passToTools:
+                              default: false
+                              description: |-
+                                PassToTools lets the gateway keep the accepted token in memory for the turn, so a tool
+                                server registered with callerCredential Required can call the service as the person.
+                              type: boolean
+                            subjectClaim:
+                              description: |-
+                                SubjectClaim is the dotted path in the token's payload that names the person,
+                                for example upstream_claims.sub.
+                              maxLength: 256
+                              pattern: ^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$
+                              type: string
+                            subjects:
+                              description: Subjects are the raw account ids allowed
+                                when authorize is Subjects.
+                              items:
+                                type: string
+                              maxItems: 256
+                              type: array
+                            verifyMethod:
+                              default: McpInitialize
+                              description: 'VerifyMethod is how the token is tried:
+                                McpInitialize posts an MCP initialize request.'
+                              enum:
+                              - McpInitialize
+                              type: string
+                            verifyURL:
+                              description: VerifyURL is the service endpoint the token
+                                is tried against. https only.
+                              pattern: ^https://[^\s/]+(/\S*)?$
+                              type: string
+                          required:
+                          - name
+                          - subjectClaim
+                          - verifyURL
+                          type: object
+                          x-kubernetes-validations:
+                          - message: authorize Subjects needs at least one subject
+                            rule: self.authorize != 'Subjects' || (has(self.subjects)
+                              && size(self.subjects) > 0)
+                          - message: subjects are only used with authorize Subjects
+                            rule: self.authorize == 'Subjects' || !has(self.subjects)
+                              || size(self.subjects) == 0
+                        maxItems: 8
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
                       tokenAudiences:
                         description: |-
                           TokenAudiences are the audiences a token must be bound to, so a token minted for the
@@ -109,6 +223,14 @@ spec:
                           a SubjectAccessReview.
                         type: boolean
                     type: object
+                    x-kubernetes-validations:
+                    - message: serviceTokens needs hashKeySecretRef
+                      rule: '!has(self.serviceTokens) || size(self.serviceTokens)
+                        == 0 || has(self.hashKeySecretRef)'
+                    - message: with more than one serviceTokens entry each needs audiences
+                      rule: '!has(self.serviceTokens) || size(self.serviceTokens)
+                        < 2 || self.serviceTokens.all(t, has(t.audiences) && size(t.audiences)
+                        > 0)'
                   enabled:
                     default: true
                     description: |-

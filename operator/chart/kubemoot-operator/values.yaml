@@ -487,6 +487,43 @@ liaison:
     kubernetesTokens: false
     # With kubernetesTokens on, accept a caller that sends no token as anonymous.
     allowAnonymous: false
+    # Services whose acceptance of a person's own bearer token proves who that person is, so a
+    # chat app signed in to the service can ask a crew as that person. The same list and keys
+    # as a Crew's spec.discussion.access.serviceTokens (name, verifyURL, subjectClaim,
+    # audiences, maxCacheSeconds, passToTools, authorize, subjects). The liaison is one process
+    # for every crew: its list is for the whole liaison, and a crew whose gateway does not
+    # list the same service refuses the token. Empty, no service token is accepted.
+    serviceTokens: []
+    # The install's hash key, a Secret in this release's namespace that you create. It turns a
+    # person's account id into the opaque id the bus carries, so it must hold the same value
+    # as the Secret each crew names in hashKeySecretRef. Needed once serviceTokens is set.
+    hashKeySecret:
+      name: ""
+      key: hash-key
+  # The OAuth sign-in front a chat app signs in through, so it holds a person's own token for
+  # a service in serviceTokens. Stateless: it keeps no token, no session and no client record,
+  # only the sealing keys below. Off by default. Needs liaison.expose so the chat app and the
+  # person's browser can reach /oauth and /.well-known on the hostname.
+  signIn:
+    enabled: false
+    # The liaison's public base URL as the chat app and the browser reach it.
+    publicURL: ""
+    upstream:
+      # The service's authorization and token endpoints, and the client id the front registered
+      # with the service.
+      authorizeURL: ""
+      tokenURL: ""
+      clientId: ""
+      scopes: "openid offline_access"
+    # A Secret you create in this namespace: a key holding one or more "id:base64key" lines,
+    # each key 32 random bytes in base64. The first seals new codes; older ones still open.
+    sealKeySecret:
+      name: ""
+      key: seal-keys
+    # Hosts an https redirect address may use (loopback http is always allowed). Empty allows
+    # any host, so anyone could register a redirect address and ask a person to sign in to it:
+    # always set it on a shared deployment.
+    allowedRedirectHosts: []
   # Public route through the Gateway API listener configured under `gateway` above.
   # Path /mcp on the hostname; the hostname defaults to gateway.hostname.
   expose:

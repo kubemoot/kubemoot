@@ -58,6 +58,8 @@ jobs:
         run: operator/chart/test-placement-service.sh
       - name: Secret use grant render tests
         run: operator/chart/test-secret-use-grants.sh
+      - name: Liaison sign-in render tests
+        run: operator/chart/test-liaison-signin.sh
       - name: Verify runner RBAC render tests
         run: operator/chart/test-verify-rbac.sh
       - name: Kubernetes MCP read RBAC render tests

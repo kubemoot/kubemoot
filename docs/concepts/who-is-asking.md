@@ -63,7 +63,7 @@ Everything a verifier does is bounded:
 - **The token stays out of sight.** The verifier does not log it, trace it, put it in an error, or send it on the bus. The verified identity holds it in memory with a redacting type, so printing or marshalling the identity shows `[redacted]`. A tool that must call the service as the person receives it from the door that verified it, for the length of the turn only: the discussion gateway keeps it in memory and lends it to the crew's MCP gateway ([how](../conversations-turns-and-threads/#keeping-a-persons-own-token-for-the-turn)).
 - **A claim that is not there refuses.** The subject comes from a payload claim you name (for example `upstream_claims.sub`). If the claim is missing, not a string, empty or longer than 256 bytes, the token is refused.
 
-The configuration is two environment variables on a crew's discussion gateway and on the liaison. Both are off until set; a door with neither behaves exactly as before.
+The configuration is two environment variables on a crew's discussion gateway and on the liaison. Both are off until set; a door with neither behaves exactly as before. The operator writes them for a crew from `spec.discussion.access.serviceTokens` and `hashKeySecretRef` ([Crew reference](../../reference/crew/#a-persons-own-token-from-a-service)); the operator chart writes them for the liaison from `liaison.auth.serviceTokens` and `liaison.auth.hashKeySecret` ([Crew liaison](../../integrations/crew-liaison/#knowing-who-is-asking)).
 
 | Variable | Value |
 |----------|-------|

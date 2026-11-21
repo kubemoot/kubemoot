@@ -47,6 +47,8 @@ type DiscussionConfig struct {
 // verification on; a caller then sends their Kubernetes token as "Authorization: Bearer".
 // A caller needs get on the Crew to use it, and get or list on crews/conversations (the
 // ClusterRole kubemoot-conversation-reader) to read other callers' conversations.
+// +kubebuilder:validation:XValidation:rule="!has(self.serviceTokens) || size(self.serviceTokens) == 0 || has(self.hashKeySecretRef)",message="serviceTokens needs hashKeySecretRef"
+// +kubebuilder:validation:XValidation:rule="!has(self.serviceTokens) || size(self.serviceTokens) < 2 || self.serviceTokens.all(t, has(t.audiences) && size(t.audiences) > 0)",message="with more than one serviceTokens entry each needs audiences"
 type DiscussionAccess struct {
 	// TokenReview makes the gateway check Kubernetes bearer tokens with a TokenReview and
 	// a SubjectAccessReview.
@@ -63,6 +65,95 @@ type DiscussionAccess struct {
 	// API server alone is not accepted. Empty accepts the API server's own audience.
 	// +optional
 	TokenAudiences []string `json:"tokenAudiences,omitempty"`
+
+	// ServiceTokens are services whose acceptance of a person's own bearer token proves who
+	// that person is, so a chat app signed in to the service can ask the crew as that person.
+	// Empty by default: no service token is accepted. With more than one entry each needs
+	// audiences, so a token is only ever tried against the service it was issued for.
+	// +kubebuilder:validation:MaxItems=8
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	ServiceTokens []ServiceTokenVerifier `json:"serviceTokens,omitempty"`
+
+	// HashKeySecretRef names the Secret key, in the crew's namespace, that holds the install's
+	// hash key. The gateway uses it to turn a person's account id into the opaque principal id
+	// the bus carries, the same key in every door (the liaison's chart takes the same Secret).
+	// Required while serviceTokens is set; the installer creates the Secret.
+	// +optional
+	HashKeySecretRef *HashKeySecretRef `json:"hashKeySecretRef,omitempty"`
+}
+
+// HashKeySecretRef is a key of a Secret in the crew's namespace.
+type HashKeySecretRef struct {
+	// Name is the Secret's name.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// Key is the key in the Secret that holds the hash key.
+	// +kubebuilder:default=hash-key
+	// +optional
+	Key string `json:"key,omitempty"`
+}
+
+// ServiceTokenVerifier is one service that vouches for a person by accepting their own
+// bearer token. The gateway tries the token against VerifyURL and reads the person's id from
+// the token's payload; it never reads an identity from anything the caller says.
+// +kubebuilder:validation:XValidation:rule="self.authorize != 'Subjects' || (has(self.subjects) && size(self.subjects) > 0)",message="authorize Subjects needs at least one subject"
+// +kubebuilder:validation:XValidation:rule="self.authorize == 'Subjects' || !has(self.subjects) || size(self.subjects) == 0",message="subjects are only used with authorize Subjects"
+type ServiceTokenVerifier struct {
+	// Name is the issuer of the people this service vouches for, a DNS label. It appears in
+	// the principal, so it cannot change without changing every person's id.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`
+	// +kubebuilder:validation:XValidation:rule="self != 'kubernetes'",message="kubernetes is the issuer of Kubernetes tokens"
+	Name string `json:"name"`
+
+	// VerifyURL is the service endpoint the token is tried against. https only.
+	// +kubebuilder:validation:Pattern=`^https://[^\s/]+(/\S*)?$`
+	VerifyURL string `json:"verifyURL"`
+
+	// VerifyMethod is how the token is tried: McpInitialize posts an MCP initialize request.
+	// +kubebuilder:validation:Enum=McpInitialize
+	// +kubebuilder:default=McpInitialize
+	// +optional
+	VerifyMethod string `json:"verifyMethod,omitempty"`
+
+	// SubjectClaim is the dotted path in the token's payload that names the person,
+	// for example upstream_claims.sub.
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`
+	// +kubebuilder:validation:MaxLength=256
+	SubjectClaim string `json:"subjectClaim"`
+
+	// Audiences, when set, are the values the token's aud must have one of.
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	Audiences []string `json:"audiences,omitempty"`
+
+	// MaxCacheSeconds bounds how long an accepted token is remembered, never beyond its own
+	// expiry. Empty means 300.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=900
+	// +kubebuilder:default=300
+	// +optional
+	MaxCacheSeconds int32 `json:"maxCacheSeconds,omitempty"`
+
+	// PassToTools lets the gateway keep the accepted token in memory for the turn, so a tool
+	// server registered with callerCredential Required can call the service as the person.
+	// +kubebuilder:default=false
+	// +optional
+	PassToTools bool `json:"passToTools,omitempty"`
+
+	// Authorize says who the crew accepts: AnyAccepted lets every person the service accepts
+	// use the crew, Subjects only the listed ones.
+	// +kubebuilder:validation:Enum=AnyAccepted;Subjects
+	// +kubebuilder:default=AnyAccepted
+	// +optional
+	Authorize string `json:"authorize,omitempty"`
+
+	// Subjects are the raw account ids allowed when authorize is Subjects.
+	// +kubebuilder:validation:MaxItems=256
+	// +optional
+	Subjects []string `json:"subjects,omitempty"`
 }
 
 // TokenReviewEnabled reports whether Kubernetes tokens are checked: on unless set off.

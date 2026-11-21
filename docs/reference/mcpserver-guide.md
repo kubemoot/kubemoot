@@ -192,6 +192,18 @@ spec:
 | `categories` | []string | | Searchable tags for tool discovery |
 | `authSecretRef` | string | | Secret with the key this server needs: `bearer-token` or `api-key` (see [Connect an external MCP server that needs a key](#connect-an-external-mcp-server-that-needs-a-key)) |
 | `authHeader` | string | `X-API-Key` | Header that carries the Secret's `api-key`; ignored for a `bearer-token` |
+| `callerCredential` | CallerCredential | none | Make a call carry the asking person's own token instead of the server's credential (see [Calls with the asking person's own token](#calls-with-the-asking-persons-own-token)). Unset, the server's own credential is used as before |
+
+### CallerCredential
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `mode` | string | `Off` | `Off` or `Required`. `Required` calls the server with the asking person's token and with nothing else |
+| `verifier` | string | | Required with `Required`. The name of the crew's `serviceTokens` entry whose people's tokens this server takes |
+| `leaseUrl` | string | | The broker's lease endpoint for this server. Empty uses the address the operator sets, the crew's discussion gateway |
+| `onForbidden` | []string | none | At most four endpoints tried in order, with the same token, when the server answers 403 to the person. Each receives the token, so each must be `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8` and `[::1]` |
+| `relayContext` | bool | `false` | Keep `conversationId` and `principalId` in the `_meta` forwarded to the server, for a tool server that calls back through the gateway |
+| `accountName` | string | the verifier name | How a refusal names the account to connect |
 
 ### ToolOverride
 
@@ -434,6 +446,31 @@ How it behaves:
   recovers on its own once the image appears.
 - The sidecars of an MCPServer (the workspace-access materializer next to the code sandbox)
   still name their image; `kubemootImage` applies to the server's main container.
+
+### Calls with the asking person's own token
+
+Some services bill or entitle each person, so a call must carry the token of the person who asked, not one key for everyone. Set `registry.callerCredential.mode: Required` on the server. The crew then needs a [`serviceTokens` entry with `passToTools: true`](../crew/#a-persons-own-token-from-a-service) whose `name` is the server's `verifier`; the crew's Crew resource reports the result in its `CallerCredentials` condition.
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: MCPServer
+metadata:
+  name: example-search
+spec:
+  externalEndpoint: https://mcp.example.com/api/v1/mcp/
+  transport: http              # Required needs http
+  registry:
+    authSecretRef: example-mcp-auth   # lists the tools; never sent on a call
+    callerCredential:
+      mode: Required
+      verifier: example
+      onForbidden:
+        - https://mcp.example.com/api/v1/search/mcp
+```
+
+The operator passes the field through the registration and wires the rest, only for a gateway whose servers include one in mode `Required`: the MCPGateway runs as its own ServiceAccount (`<gateway>-credential-broker`), carries a projected token for the audience `kubemoot-credential-broker`, and is told the address of the crew's lease port. The server's `authSecretRef` lists the tools at registration and is never sent on a call in this mode: with no token for the turn the call fails, and the agent reports that the person's account is not connected. How the gateway makes the call and what the agent sees is in the [MCPGateway guide](../mcpgateway-guide/#calls-with-the-asking-persons-own-credential).
+
+The transport must be `http`; the API server refuses `Required` on any other. Each `onForbidden` entry must be `https`, because it receives the person's token. A namespace uses one MCPGateway and one crew that keeps tokens; with more, the crew's `CallerCredentials` condition says so.
 
 ### Connect an external MCP server that needs a key
 

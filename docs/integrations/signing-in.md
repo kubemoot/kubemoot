@@ -127,6 +127,24 @@ What the liaison does with the person's token:
 Whether a crew's tools then use the person's own account is up to the crew's gateway; see
 below.
 
+### Chart values
+
+The operator chart renders the variables above from `liaison.signIn`. It is off by default (`liaison.signIn.enabled: false`) and renders nothing when off. With `liaison.expose.enabled` on, the liaison's route also carries `/oauth` and `/.well-known`, so a chat app and a person's browser reach the front on the hostname.
+
+| Chart value | Default | Becomes |
+|-------------|---------|---------|
+| `liaison.signIn.enabled` | `false` | Turns the front on. The chart refuses to render without the required values below |
+| `liaison.signIn.publicURL` | empty, required | `LIAISON_SIGNIN_PUBLIC_URL` |
+| `liaison.signIn.upstream.authorizeURL` | empty, required | `LIAISON_SIGNIN_UPSTREAM` |
+| `liaison.signIn.upstream.tokenURL` | empty, required | `LIAISON_SIGNIN_UPSTREAM_TOKEN_URL` |
+| `liaison.signIn.upstream.clientId` | empty, required | `LIAISON_SIGNIN_UPSTREAM_CLIENT_ID` |
+| `liaison.signIn.upstream.scopes` | `openid offline_access` | `LIAISON_SIGNIN_UPSTREAM_SCOPES` |
+| `liaison.signIn.sealKeySecret.name` | empty, required | A Secret you create in the release namespace. The chart mounts its key read-only and sets `LIAISON_SIGNIN_SEAL_KEYS_FILE`; the keys are never in the Deployment or its environment |
+| `liaison.signIn.sealKeySecret.key` | `seal-keys` | The key in that Secret, holding the `id:base64key` list |
+| `liaison.signIn.allowedRedirectHosts` | `[]` | `LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS`. Set it on a shared deployment |
+
+The front is one for the whole liaison, not one per crew. To hand the person's token to a crew's tools, also set `liaison.auth.serviceTokens` ([Crew liaison](../crew-liaison/#a-persons-own-token-from-a-service)) and the matching `serviceTokens` on the crew.
+
 ## What a crew's tools sign in to
 
 A crew's tools may call services that have their own accounts, such as a search

@@ -143,7 +143,52 @@ Setting `access` turns verification on. A caller sends its Kubernetes token as `
 
 | Condition | Meaning |
 |-----------|---------|
-| `Authentication` | `False`, reason `Anonymous`: the gateway accepts anonymous callers and verifies no one. `True`, reason `TokenReview`: the gateway verifies callers. `False`, reason `Closed`: the gateway checks no token and accepts no anonymous caller, so it refuses every request. Absent when the crew runs no gateway |
+| `Authentication` | `False`, reason `Anonymous`: the gateway accepts anonymous callers and verifies no one. `True`, reason `TokenReview`: the gateway verifies callers. `True`, reason `ServiceToken`: the crew lists `serviceTokens`, so a person's own token from a service is verified too. `False`, reason `Closed`: the gateway checks no token and accepts no anonymous caller, so it refuses every request. Absent when the crew runs no gateway |
+| `CallerCredentials` | Present only when a tool server in the crew's namespace has `registry.callerCredential.mode: Required`. `True`, reason `Ready`: a verifier passes the person's token to tools and the pieces that carry it exist. `False`, with the reason: `NoVerifierPassesTokens` (no `serviceTokens` entry has `passToTools`), `UnknownVerifier` (the server names a verifier the crew does not list, or one without `passToTools`), `NoSingleToolGateway` (the namespace has no MCPGateway, or several), `SeveralCrewsPassTokens` (another crew of the namespace also keeps tokens). It never affects `Ready` |
+
+### A person's own token from a service
+
+`access.serviceTokens` lets a person ask the crew with the token they already hold for another service, for example a chat app signed in to a library. The gateway asks the service whether it accepts the token, so the crew never issues or checks the token itself (see [Who is asking](../../concepts/who-is-asking/#subscribers)). It is empty by default and nothing changes for a crew that leaves it out.
+
+```yaml
+spec:
+  discussion:
+    access:
+      hashKeySecretRef:
+        name: kubemoot-hash-key   # a Secret in the crew's namespace that you create
+      serviceTokens:
+        - name: oreilly
+          verifyURL: https://api.example.com/mcp
+          subjectClaim: upstream_claims.sub
+          passToTools: true
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `access.serviceTokens[].name` | string | required | The issuer of these people, a DNS label other than `kubernetes`. It is part of each person's id, so renaming it changes every id. Names are unique in the list |
+| `access.serviceTokens[].verifyURL` | string | required | The service endpoint the token is tried against. `https` only |
+| `access.serviceTokens[].verifyMethod` | string | `McpInitialize` | How the token is tried. `McpInitialize` posts an MCP initialize request |
+| `access.serviceTokens[].subjectClaim` | string | required | The dotted path in the token's payload that names the person, such as `upstream_claims.sub` |
+| `access.serviceTokens[].audiences` | []string | none | Values the token's `aud` must have one of. With more than one entry, each entry needs audiences, so a token is only tried against the service it was issued for |
+| `access.serviceTokens[].maxCacheSeconds` | int | `300` | How long an accepted token is remembered, never beyond its own expiry. 1 to 900 |
+| `access.serviceTokens[].passToTools` | bool | `false` | The gateway keeps the accepted token in memory for the turn so a tool server with `registry.callerCredential.mode: Required` can call the service as the person |
+| `access.serviceTokens[].authorize` | string | `AnyAccepted` | `AnyAccepted` lets every person the service accepts use the crew. `Subjects` lets only the listed subjects |
+| `access.serviceTokens[].subjects` | []string | none | Raw account ids allowed with `Subjects`. Needs at least one, and is refused with `AnyAccepted` |
+| `access.hashKeySecretRef.name` | string | | A Secret in the crew's namespace. Required while `serviceTokens` is set |
+| `access.hashKeySecretRef.key` | string | `hash-key` | The key in that Secret that holds the install's hash key |
+
+The hash key turns a person's account id into the opaque id the bus carries. It must be the same value in every door of the install: the Secret each crew names, and the Secret of `liaison.auth.hashKeySecret` in the operator chart. Create it once, for example `kubectl create secret generic kubemoot-hash-key --from-literal=hash-key="$(openssl rand -base64 32)"` in each namespace. The operator writes the list into the gateway's `ACCESS_SERVICE_TOKENS` and the key into `ACCESS_HASH_KEY` from the Secret; the key is never written into the Deployment.
+
+#### Passing the token to tools
+
+A verifier with `passToTools: true` makes the operator wire the two hops that carry the token to a tool, none of which exist for a crew without one:
+
+- The discussion gateway gets `ACCESS_BROKER_SUBJECT` (the ServiceAccount of the namespace's MCPGateway) and listens for leases on port 8081. The crew's Service gains a port named `internal` for it, and the gateway pod carries the label `kubemoot.ai/credential-lease`.
+- With generated network policies on, the policy `km-crew-<crew>-gateway-lease` lets only the MCPGateway pods of the crew's namespace reach port 8081. The namespace baseline leaves a pod with that label out of its every-port rule, so agent pods and other namespaces cannot reach it; the serving port stays open to the same callers as before.
+- The gateway's ServiceAccount may create TokenReviews even when `tokenReview` is `false`, to check the tool gateway's token.
+- The MCPGateway is described in [MCPGateway guide](../mcpgateway-guide/#calls-with-the-asking-persons-own-credential) and the server field in the [MCPServer guide](../mcpserver-guide/#calls-with-the-asking-persons-own-token).
+
+The tool gateway leases from one crew, so keep tokens in one crew per namespace; a second crew that passes tokens turns `CallerCredentials` to `False`. With generated network policies off, nothing but the lease's own ServiceAccount check stops another pod from calling port 8081.
 
 ## Retention
 
