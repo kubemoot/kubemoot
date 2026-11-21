@@ -1,6 +1,8 @@
 package ai.kubemoot.agent.chat;
 
 import ai.kubemoot.agent.logging.LogContent;
+import ai.kubemoot.agent.requester.Caller;
+import ai.kubemoot.agent.requester.CallerScope;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.RequesterScope;
 import ai.kubemoot.agent.requester.TurnContext;
@@ -374,6 +376,7 @@ public class ChatService {
         // with an infrastructure cause, or an Error): the circuit-breaker input.
         boolean callFailed = true;
         try (var requesterScope = RequesterScope.bind(request.requester());
+             var callerScope = CallerScope.bind(request.caller());
              var workspaceScope = WorkspaceScope.bind(threadPrefixOf(request.discussionThreadId()))) {
             ledger = loopLedger(request.discussionThreadId(), toolerRawOutput, readersWindow(pick));
             loopResult = callWithToolLoop(messages,
@@ -2863,22 +2866,27 @@ public class ChatService {
      * search with instead of the whole message: inside a discussion the message is the
      * formatted thread (brief, other agents' responses), while the user's question is
      * what the documents should match. requester, when set, is the person's time zone and
-     * local date-time; every tool call of the turn carries it.
+     * local date-time; every tool call of the turn carries it. caller, when set, is the conversation
+     * and the principal that asked; every tool call of the turn carries their ids in {@code _meta}.
      */
     public record ChatRequest(String conversationId, String message, String crew, String discussionThreadId,
-                              String retrievalQuery, Requester requester) {
+                              String retrievalQuery, Requester requester, Caller caller) {
+        public ChatRequest(String conversationId, String message, String crew, String discussionThreadId,
+                           String retrievalQuery, Requester requester) {
+            this(conversationId, message, crew, discussionThreadId, retrievalQuery, requester, null);
+        }
         public ChatRequest(String conversationId, String message, String crew, String discussionThreadId,
                            String retrievalQuery) {
-            this(conversationId, message, crew, discussionThreadId, retrievalQuery, null);
+            this(conversationId, message, crew, discussionThreadId, retrievalQuery, null, null);
         }
         public ChatRequest(String conversationId, String message, String crew, String discussionThreadId) {
-            this(conversationId, message, crew, discussionThreadId, null, null);
+            this(conversationId, message, crew, discussionThreadId, null, null, null);
         }
         public ChatRequest(String conversationId, String message, String crew) {
-            this(conversationId, message, crew, null, null, null);
+            this(conversationId, message, crew, null, null, null, null);
         }
         public ChatRequest(String conversationId, String message) {
-            this(conversationId, message, null, null, null, null);
+            this(conversationId, message, null, null, null, null, null);
         }
         public ChatRequest {
             if (conversationId == null || conversationId.isEmpty()) {

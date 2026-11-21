@@ -1,0 +1,25 @@
+{
+  "messageId": "0a1b2c3d-1111-4222-8333-444455556666",
+  "channel": "general",
+  "threadId": "7f6e5d4c-aaaa-4bbb-8ccc-ddddeeeeffff",
+  "timestamp": "2026-10-24T16:15:00.000000000Z",
+  "content": "What new Kubernetes books came out this week?",
+  "metadata": {
+    "conversationId": "9c8b7a65-1234-4567-89ab-cdef01234567",
+    "userQuery": "What new Kubernetes books came out this week?",
+    "primaryChannel": "general",
+    "crew": "oguide",
+    "principal": {
+      "kind": "subscriber",
+      "issuer": "oreilly",
+      "id": "4f9c0b1e7a2d83c65b1f0e9d8c7b6a5948372615c4d3e2f1a0b9c8d7e6f50413"
+    },
+    "requester": {
+      "timeZone": "America/Los_Angeles",
+      "localDateTime": "2026-10-24T09:15:00",
+      "requestDate": "2026-10-24"
+    }
+  },
+  "agentName": "oguide-coordinator",
+  "messageType": "thread_start"
+}

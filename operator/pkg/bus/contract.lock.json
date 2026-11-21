@@ -1218,6 +1218,9 @@
     "discussion-metadata.json#/primaryChannel": {
       "type": "string"
     },
+    "discussion-metadata.json#/principal": {
+      "ref": "principal.json"
+    },
     "discussion-metadata.json#/reason": {
       "type": "string"
     },
