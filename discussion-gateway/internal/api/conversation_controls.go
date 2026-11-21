@@ -121,17 +121,31 @@ func conversationIDOf(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, true
 }
 
+// beginControl reads the crew and conversation of a control request and applies the owner
+// rule. A stop also drops the credential kept for the conversation, once the caller is known
+// to be allowed to stop it: a stopped turn makes no more tool calls.
+func (h *Handler) beginControl(w http.ResponseWriter, r *http.Request, c controlOf) (crewscope.Scope, string, bool) {
+	scope, ok := h.scopeFor(w, r.PathValue("crew"))
+	if !ok {
+		return scope, "", false
+	}
+	id, ok := conversationIDOf(w, r)
+	if !ok || !h.mayUse(w, r, scope, id, c.op, verbUpdate) {
+		return scope, "", false
+	}
+	if c.action == bus.ConversationControlActionStop {
+		h.dropCredential(id)
+	}
+	return scope, id, true
+}
+
 // controlHandler answers a stop, pause or resume: the control goes to each running thread of
 // the conversation. A conversation with no thread is answered as unknown, and one with none
 // running is a conflict.
 func (h *Handler) controlHandler(c controlOf) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		scope, ok := h.scopeFor(w, r.PathValue("crew"))
+		scope, id, ok := h.beginControl(w, r, c)
 		if !ok {
-			return
-		}
-		id, ok := conversationIDOf(w, r)
-		if !ok || !h.mayUse(w, r, scope, id, c.op, verbUpdate) {
 			return
 		}
 		js, ok := h.jetStreamFor(w)
@@ -195,6 +209,7 @@ func (h *Handler) deleteConversation(w http.ResponseWriter, r *http.Request) {
 	if !ok || !h.mayUse(w, r, scope, id, opDelete, verbDelete) {
 		return
 	}
+	h.dropCredential(id)
 	js, ok := h.jetStreamFor(w)
 	if !ok {
 		return
