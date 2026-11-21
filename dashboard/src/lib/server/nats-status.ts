@@ -5,7 +5,7 @@
 import type { JetStreamManager, NatsConnection, StreamInfo } from 'nats';
 import { getNatsConnection, sc } from './nats-client.js';
 import { isScoped } from './mode.js';
-import { kvBucketAllowed, streamAllowed } from './scope.js';
+import { kvBucketAllowed, scopedNamespaces, streamAllowed } from './scope.js';
 import { historyReadSummary } from './history-timing.js';
 import {
 	CREW_ENTRY_CAP,
@@ -16,7 +16,7 @@ import {
 	type ObjectEntry,
 	type SubjectPage
 } from '#lib/nats/crew-usage.js';
-import { crewKeyFor, crewKeyedStores, jetstreamName, storeForStream, STORES, type StoreDefinition } from '#lib/nats/stores.js';
+import { crewKeyFor, crewKeyedStores, jetstreamName, namespaceKeyFor, storeForStream, STORES, type StoreDefinition } from '#lib/nats/stores.js';
 import type { AccountLimit, NatsServerInfo, NatsStatus, StoreStatus } from '#lib/nats/status.js';
 
 /** How long the server waits for NATS before the page shows it as not reachable. */
@@ -128,6 +128,36 @@ async function monitoringVarz(): Promise<{ uptime: string; connections: number }
 	}
 }
 
+/** The store with its usage replaced by the share of the given namespaces; sequences and consumers are cluster-wide, so they are dropped. */
+export function withNamespaceShare(store: StoreStatus, shares: CrewStoreUsage[]): StoreStatus {
+	const sum = (pick: (u: CrewStoreUsage) => number) => shares.reduce((n, u) => n + pick(u), 0);
+	return {
+		...store,
+		share: 'namespaces',
+		usage: { messages: sum((u) => u.messages), bytes: sum((u) => u.bytes), firstSeq: 0, lastSeq: 0, consumers: 0, keys: sum((u) => u.keys) }
+	};
+}
+
+/** On a scoped dashboard, each served store counts only the allowed namespaces' subjects. */
+async function scopeStores(nc: NatsConnection, stores: StoreStatus[]): Promise<StoreStatus[]> {
+	const namespaces = await scopedNamespaces();
+	if (namespaces === null) return stores;
+	return Promise.all(
+		stores.map(async (store) => {
+			const template = store.definition?.namespaceKey;
+			if (!store.definition || !template) return { ...store, share: 'namespaces' as const, usage: { ...store.usage, messages: 0, bytes: 0, firstSeq: 0, lastSeq: 0, consumers: 0, keys: 0 } };
+			const shares: CrewStoreUsage[] = [];
+			for (const ns of namespaces) {
+				const key = namespaceKeyFor(template, ns);
+				const filter = store.kind === 'kv' ? kvSubjectFilter(store.name, key) : key;
+				const page = await subjectPage(nc, jetstreamName(store.definition), filter);
+				if (page) shares.push(usageFromSubjects(store.name, page, store.usage.messages, store.usage.bytes));
+			}
+			return withNamespaceShare(store, shares);
+		})
+	);
+}
+
 function disconnected(error: unknown): NatsStatus {
 	return {
 		connected: false,
@@ -149,9 +179,11 @@ export async function readNatsStatus(): Promise<NatsStatus> {
 	try {
 		const nc = await withTimeout(getNatsConnection(), CONNECT_TIMEOUT_MS, 'NATS connection');
 		const jsm = await nc.jetstreamManager();
-		const [account, stores, server] = await Promise.all([jsm.getAccountInfo(), listStores(jsm), serverInfo(nc)]);
+		const [account, listed, server] = await Promise.all([jsm.getAccountInfo(), listStores(jsm), serverInfo(nc)]);
+		const stores = await scopeStores(nc, listed);
 		return {
 			connected: true,
+			scoped: isScoped(),
 			checkedAt: new Date().toISOString(),
 			server,
 			account: {
@@ -256,10 +288,9 @@ async function objectListings(nc: NatsConnection, stores: StoreDefinition[]) {
 
 /** A crew's share of every store keyed by crew; a store that cannot be read is left out. */
 export async function readCrewUsage(crews: CrewRef[]): Promise<CrewUsage[]> {
-	const status = await readNatsStatus();
-	if (!status.connected) throw new Error(status.error ?? 'NATS is not reachable');
-	const nc = await getNatsConnection();
-	const totals = new Map(status.stores.map((s) => [s.name, s]));
+	const nc = await withTimeout(getNatsConnection(), CONNECT_TIMEOUT_MS, 'NATS connection');
+	// Whole-store totals, never a scoped share: a crew's bytes are its share of the whole store.
+	const totals = new Map((await listStores(await nc.jetstreamManager())).map((s) => [s.name, s]));
 	const keyed = crewKeyedStores().filter((s) => totals.has(s.name));
 	const listings = await objectListings(nc, keyed);
 	const tasks = crews.map((crew) => async (): Promise<CrewUsage> => {

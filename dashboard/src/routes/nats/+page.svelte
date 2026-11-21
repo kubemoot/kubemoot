@@ -106,6 +106,13 @@
 		</Section>
 
 		<Section title="Streams, KV buckets and object stores">
+			<p class="note" data-testid="nats-share-note">
+				{#if status.scoped}
+					This dashboard serves some namespaces only: messages and bytes are their share of each store (bytes are an estimate), and sequences and consumers are not shown.
+				{:else}
+					Messages, bytes, sequences and consumers are cluster-wide totals for each store.
+				{/if}
+			</p>
 			<div class="table-wrap">
 				<table data-testid="nats-stores">
 					<thead>

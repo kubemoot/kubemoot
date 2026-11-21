@@ -15,6 +15,8 @@ export interface StoreDefinition {
 	crewKey: string | null;
 	/** The Crew field that shortens how long the crew's data stays, when there is one. */
 	crewPolicy: string | null;
+	/** Key pattern of one namespace's share; set on the stores a namespace-scoped dashboard serves. */
+	namespaceKey?: string;
 	/** The bootstrap job's size limit in bytes; null when a chart value sets it. */
 	defaultMaxBytes: number | null;
 }
@@ -46,6 +48,11 @@ function pick(store: StoreDefinition | undefined, kind: StoreKind): StoreDefinit
 /** Fills {ns} and {crew} in a crewKey template. */
 export function crewKeyFor(template: string, namespace: string, crew: string): string {
 	return template.replace('{ns}', namespace).replace('{crew}', crew);
+}
+
+/** Fills {ns} in a namespaceKey template. */
+export function namespaceKeyFor(template: string, namespace: string): string {
+	return template.replace('{ns}', namespace);
 }
 
 /** The stores that hold data keyed by crew. */

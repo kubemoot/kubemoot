@@ -22,6 +22,11 @@ export interface StoreUsage {
 
 export interface StoreStatus {
 	definition: StoreDefinition | null;
+	/**
+	 * 'cluster': the usage is the whole store's. 'namespaces': the usage is only the share
+	 * of the namespaces a scoped dashboard serves; sequences and consumers are not shown.
+	 */
+	share?: 'cluster' | 'namespaces';
 	/** The bucket or stream name as a person knows it (no KV_ or OBJ_ prefix). */
 	name: string;
 	kind: 'stream' | 'kv' | 'object';
@@ -44,6 +49,8 @@ export interface NatsServerInfo {
 
 export interface NatsStatus {
 	connected: boolean;
+	/** True on a namespace-scoped dashboard: store usage is that scope's share, not cluster-wide. */
+	scoped?: boolean;
 	error?: string;
 	checkedAt: string;
 	server?: NatsServerInfo;
@@ -90,6 +97,8 @@ function levelOf(f: number): 'warning' | 'critical' | null {
 
 /** The limits of one store that are at or above the warning share: bytes and messages. */
 export function storeWarnings(store: StoreStatus): LimitWarning[] {
+	// A namespace's share says nothing about how full the whole store is.
+	if (store.share === 'namespaces') return [];
 	const checks: [LimitKind, number | null][] = [
 		['bytes', fraction(store.usage.bytes, store.limits.maxBytes)],
 		['messages', fraction(store.usage.messages, store.limits.maxMessages)]
@@ -124,6 +133,8 @@ export type TileState = 'connected' | 'near-limit' | 'disconnected';
 
 export interface NatsTile {
 	state: TileState;
+	/** True when the totals are a scoped dashboard's namespaces' share, not the whole cluster's. */
+	scoped: boolean;
 	version: string | null;
 	storage: { used: number; limit: number | null; fraction: number | null } | null;
 	memory: { used: number; limit: number | null; fraction: number | null } | null;
@@ -153,6 +164,7 @@ export function tileOf(status: NatsStatus | null): NatsTile | null {
 	const memory = usageOf(status.account?.memory);
 	return {
 		state: tileState(status.connected, warnings, [storage, memory]),
+		scoped: status.scoped === true,
 		version: status.server?.version ?? null,
 		storage,
 		memory,

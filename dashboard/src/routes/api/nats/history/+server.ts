@@ -2,7 +2,7 @@ import type { RequestHandler } from './$types';
 import { getNatsConnection, sc } from '#lib/server/nats-client.js';
 import { AckPolicy, DeliverPolicy, type JetStreamManager, type JsMsg } from 'nats';
 import { guardStreamRead, messageSubjectAllowed } from '#lib/server/scope.js';
-import { isLiteralSubject, parseParams, startPlan, type Params } from '#lib/server/history-read.js';
+import { MAX_LIMIT, isLiteralSubject, parseParams, startPlan, type Params } from '#lib/server/history-read.js';
 import { recordHistoryRead, serverTimingHeader, type HistoryTiming } from '#lib/server/history-timing.js';
 
 interface HistoryMessage {
@@ -49,6 +49,27 @@ async function readWindow(jsm: JetStreamManager, nc: Awaited<ReturnType<typeof g
 			/* already cleaned up by inactivity */
 		}
 	}
+}
+
+/** Windows a page may skip when none of their messages is one this dashboard shows. */
+const MAX_EMPTY_WINDOWS = 1000;
+
+/**
+ * Reads a window, and while a stream read comes back empty (a scoped dashboard drops other
+ * namespaces' messages after the fetch) reads the next older, larger window, so a page
+ * holds messages or says there is nothing older.
+ */
+async function readPage(jsm: JetStreamManager, nc: Awaited<ReturnType<typeof getNatsConnection>>, params: Params, firstSeq: number, lastSeq: number) {
+	let p = params;
+	let plan = startPlan(p, firstSeq, lastSeq);
+	let read = await readWindow(jsm, nc, p, plan.startSeq, plan.policy);
+	const setupDone = read.setupDone;
+	for (let skipped = 0; read.messages.length === 0 && !isLiteralSubject(p.subject) && plan.startSeq > firstSeq && skipped < MAX_EMPTY_WINDOWS; skipped++) {
+		p = { ...p, before: plan.startSeq, limit: MAX_LIMIT };
+		plan = startPlan(p, firstSeq, lastSeq);
+		read = await readWindow(jsm, nc, p, plan.startSeq, plan.policy);
+	}
+	return { ...read, setupDone, startSeq: plan.startSeq, limit: params.limit, ended: read.messages.length === 0 };
 }
 
 function respond(body: object, timing: Omit<HistoryTiming, 'bytes' | 'totalMs'>, started: number, status = 200): Response {
@@ -104,15 +125,15 @@ export const GET: RequestHandler = async ({ url }) => {
 		}
 
 		const firstSeq = Number(info.state.first_seq);
-		const { policy, startSeq } = startPlan(params, firstSeq, lastSeq);
-		const { messages, setupDone, pending } = await readWindow(jsm, nc, params, startSeq, policy);
+		const { messages, setupDone, pending, startSeq, ended } = await readPage(jsm, nc, params, firstSeq, lastSeq);
 		const timing = {
 			scope,
 			messages: messages.length,
 			setupMs: Math.round(setupDone - started),
 			fetchMs: Math.round(performance.now() - setupDone)
 		} as const;
-		const hasMore = scope === 'stream' && startSeq > firstSeq;
+		// An empty page never claims older messages: paging ends instead of looping on nothing.
+		const hasMore = scope === 'stream' && startSeq > firstSeq && !ended;
 		const truncated = scope === 'thread' && pending > params.limit;
 		return respond({ messages, lastSeq, windowStart: startSeq, hasMore, truncated }, timing, started);
 	} catch (e) {

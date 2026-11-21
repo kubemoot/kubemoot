@@ -19,7 +19,7 @@ export interface StoreRow {
 	maxMessages: string;
 	history: string;
 	sequences: string;
-	consumers: number;
+	consumers: string;
 	crewPolicy: string;
 	/** True when the store is not in the shared definition: something other than Kubemoot made it. */
 	unknown: boolean;
@@ -54,6 +54,11 @@ function historyText(s: StoreStatus): string {
 	return fill === null ? depth : depth + ' (' + formatPercent(fill) + ' filled)';
 }
 
+function sequencesText(s: StoreStatus): string {
+	if (s.share === 'namespaces') return 'not shown';
+	return s.usage.messages === 0 ? 'empty' : s.usage.firstSeq + ' to ' + s.usage.lastSeq;
+}
+
 const withCommas = (n: number) => n.toLocaleString('en-US');
 
 /** The columns that come from what NATS reports. */
@@ -61,13 +66,13 @@ function usageColumns(s: StoreStatus) {
 	return {
 		messages: withCommas(s.usage.messages),
 		bytes: formatBytes(s.usage.bytes),
-		bytesShare: formatPercent(fraction(s.usage.bytes, s.limits.maxBytes)),
+		bytesShare: s.share === 'namespaces' ? '' : formatPercent(fraction(s.usage.bytes, s.limits.maxBytes)),
 		maxAge: formatAge(s.limits.maxAgeSeconds),
 		maxBytes: formatLimit(s.limits.maxBytes, formatBytes),
 		maxMessages: formatLimit(s.limits.maxMessages, withCommas),
 		history: historyText(s),
-		sequences: s.usage.messages === 0 ? 'empty' : s.usage.firstSeq + ' to ' + s.usage.lastSeq,
-		consumers: s.usage.consumers
+		sequences: sequencesText(s),
+		consumers: s.share === 'namespaces' ? '' : String(s.usage.consumers)
 	};
 }
 

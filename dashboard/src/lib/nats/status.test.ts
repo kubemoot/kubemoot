@@ -148,3 +148,17 @@ describe('formatting', () => {
 		expect(formatLimit(2048, formatBytes)).toBe('2.0 KiB');
 	});
 });
+
+describe('a scoped dashboard\'s share', () => {
+	const share = store({ name: 'KUBEMOOT_DISCUSS', usage: { bytes: 990, messages: 99 } });
+	share.share = 'namespaces';
+
+	it('raises no store warning, since a share says nothing of how full the store is', () => {
+		expect(storeWarnings(share)).toEqual([]);
+	});
+
+	it('marks the tile scoped, and a cluster status not', () => {
+		expect(tileOf(status({ scoped: true, stores: [share] }))).toMatchObject({ scoped: true, state: 'connected', messages: 99 });
+		expect(tileOf(status())?.scoped).toBe(false);
+	});
+});

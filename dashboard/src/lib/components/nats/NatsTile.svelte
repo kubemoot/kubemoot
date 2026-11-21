@@ -52,8 +52,8 @@
 				<dt>Memory</dt>
 				<dd data-testid="nats-memory">{usage(tile.memory)}</dd>
 			{/if}
-			<dt>Stored</dt>
-			<dd>{tile.messages.toLocaleString('en-US')} messages, {formatBytes(tile.bytes)} in {tile.streams} stores</dd>
+			<dt>{tile.scoped ? 'Your namespaces' : 'Stored, cluster-wide'}</dt>
+			<dd data-testid="nats-totals">{tile.messages.toLocaleString('en-US')} messages, {tile.scoped ? 'about ' : ''}{formatBytes(tile.bytes)} in {tile.streams} stores</dd>
 		</dl>
 		{#if tile.warnings.length > 0}
 			<ul class="warnings" data-testid="nats-warnings">
