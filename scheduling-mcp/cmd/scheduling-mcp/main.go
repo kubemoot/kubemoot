@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 	"github.com/nats-io/nats.go"
 
 	"github.com/kubemoot/kubemoot/scheduling-mcp/internal/handlers"
@@ -55,7 +56,7 @@ func main() {
 	log.SetOutput(os.Stderr)
 	log.Printf("scheduling-mcp starting: namespace=%s crew=%s nats=%s", namespace, crew, natsURL)
 
-	nc, err := nats.Connect(natsURL,
+	nc, err := natsconn.ForURL(natsURL).Connect(
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2*time.Second),
 		nats.Name("kubemoot-scheduling-mcp"),

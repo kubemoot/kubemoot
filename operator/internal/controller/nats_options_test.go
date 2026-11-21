@@ -118,19 +118,21 @@ func TestNATSSecretsAreCopiedIntoWorkloadNamespacesAndWatched(t *testing.T) {
 		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: operatorNamespace()},
 			Data: map[string][]byte{"k": []byte("v")}}
 	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mk("nats-ca"), mk("nats-auth"), mk("unrelated")).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mk("nats-ca"), mk("nats-auth"), mk(unrelatedSecret)).Build()
 
-	replicateNATSSecrets(context.Background(), c, "crew-ns")
+	replicateNATSSecrets(context.Background(), c, testPlacementNS)
 
 	for _, name := range []string{"nats-ca", "nats-auth"} {
-		if err := c.Get(context.Background(), types.NamespacedName{Name: name, Namespace: "crew-ns"}, &corev1.Secret{}); err != nil {
+		if err := c.Get(context.Background(), types.NamespacedName{Name: name, Namespace: testPlacementNS}, &corev1.Secret{}); err != nil {
 			t.Errorf("%s was not copied: %v", name, err)
 		}
 	}
-	if err := c.Get(context.Background(), types.NamespacedName{Name: "unrelated", Namespace: "crew-ns"}, &corev1.Secret{}); err == nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Name: unrelatedSecret, Namespace: testPlacementNS}, &corev1.Secret{}); err == nil {
 		t.Error("only the NATS secrets are copied")
 	}
-	if !secretIsConfiguredSource(NewConfigCache(), mk("nats-ca")) || secretIsConfiguredSource(NewConfigCache(), mk("unrelated")) {
+	if !secretIsConfiguredSource(NewConfigCache(), mk("nats-ca")) || secretIsConfiguredSource(NewConfigCache(), mk(unrelatedSecret)) {
 		t.Error("a change to a NATS secret must re-copy it, and only that")
 	}
 }
+
+const unrelatedSecret = "unrelated"

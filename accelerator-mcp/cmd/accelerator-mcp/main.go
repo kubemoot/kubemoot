@@ -31,6 +31,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 	"github.com/nats-io/nats.go"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -72,7 +73,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("kubernetes client: %v", err)
 	}
-	nc, err := nats.Connect(natsURL, nats.MaxReconnects(-1), nats.ReconnectWait(2*time.Second),
+	nc, err := natsconn.ForURL(natsURL).Connect(nats.MaxReconnects(-1), nats.ReconnectWait(2*time.Second),
 		nats.Name(serverName))
 	if err != nil {
 		log.Fatalf("nats connect: %v", err)

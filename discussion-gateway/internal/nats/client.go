@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -53,7 +54,7 @@ func (c *Client) Start() error {
 		return nil
 	}
 
-	conn, err := nats.Connect(c.url,
+	conn, err := natsconn.ForURL(c.url).Connect(
 		nats.Name("discussion-gateway"),
 		nats.RetryOnFailedConnect(true),
 		nats.ReconnectWait(2*time.Second),

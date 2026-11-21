@@ -14,6 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+
 	"github.com/kubemoot/kubemoot/operator/internal/natspod"
 )
 
@@ -228,3 +230,19 @@ func replicateNATSSecrets(ctx context.Context, c client.Client, targetNamespace 
 // connection options (CA bundle, client certificate, credential) the chart sets. Only a
 // server that dials NATS needs it.
 const AnnotationNATSConnection = "kubemoot.ai/nats-connection"
+
+// applyIndexerNATSOptions gives an indexing Job the NATS options when its source is a NATS KV
+// key; no other source dials NATS.
+func applyIndexerNATSOptions(rs *kubemootv1alpha1.RAGSource, spec *corev1.PodSpec) {
+	if rs.Spec.Source.NatsKV != nil {
+		applyNATSOptions(spec, componentIndexer)
+	}
+}
+
+func containerNames(list []corev1.Container) []string {
+	names := make([]string, 0, len(list))
+	for _, c := range list {
+		names = append(names, c.Name)
+	}
+	return names
+}

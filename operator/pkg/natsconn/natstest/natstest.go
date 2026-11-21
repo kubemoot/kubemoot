@@ -205,7 +205,8 @@ func newCA(t testing.TB) (*ecdsa.PrivateKey, *x509.Certificate, []byte) {
 	return key, cert, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
-func newLeaf(t testing.TB, caKey *ecdsa.PrivateKey, ca *x509.Certificate, cn string, usage x509.ExtKeyUsage) (certPEM, keyPEM []byte) {
+func newLeaf(t testing.TB, caKey *ecdsa.PrivateKey, ca *x509.Certificate, cn string,
+	usage x509.ExtKeyUsage) (certPEM, keyPEM []byte) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

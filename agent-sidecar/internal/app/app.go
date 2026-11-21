@@ -312,7 +312,7 @@ func (a *App) holdSubscription(ctx context.Context, run *bus.Runner) {
 
 // connect keeps trying until NATS answers; the connection state feeds readiness.
 func (a *App) connect(ctx context.Context) (*nats.Conn, error) {
-	creds, err := connectOptions(a.c.Bus.CredentialsDir)
+	creds, err := busOptions(a.c.Bus.CredentialsDir)
 	if err != nil {
 		return nil, err
 	}

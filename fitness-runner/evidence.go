@@ -19,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 	"github.com/nats-io/nats.go"
 
 	"github.com/kubemoot/kubemoot/fitness-runner/internal/evidencenames"
@@ -400,13 +401,13 @@ func bucketMissing(err error) bool {
 }
 
 // captureEvidence opens the workspace buckets and checks the run. NATS is
-// reached anonymously, as for the transcript write. Best-effort: a failed
+// reached with the same options as the transcript write. Best-effort: a failed
 // connect, or any bucket error other than "not found", means the run is not checked.
 func captureEvidence(natsURL, namespace string, outcome *RunOutcome) Evidence {
 	if natsURL == "" || outcome.ThreadID == "" {
 		return Evidence{}
 	}
-	nc, err := nats.Connect(natsURL, nats.Name("fitness-runner-evidence"))
+	nc, err := natsconn.ForURL(natsURL).Connect(nats.Name("fitness-runner-evidence"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[fitness-runner] WARNING: evidence connect: %v\n", err)
 		return Evidence{}
