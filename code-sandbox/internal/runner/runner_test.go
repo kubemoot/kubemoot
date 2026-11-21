@@ -189,3 +189,26 @@ func TestEnvironmentPassesOnlyWhatProgramsNeed(t *testing.T) {
 		t.Fatal("an empty LD_LIBRARY_PATH should not be passed")
 	}
 }
+
+// Agents do time-zone conversion and date arithmetic with GNU date in bash. The image
+// build runs the same two commands; this test keeps them in the unit suite.
+func TestBashDateConvertsZonesAndAddsDays(t *testing.T) {
+	r := newRunner(t)
+	cases := []struct{ name, code, want string }{
+		{"zone conversion", `TZ=Asia/Tokyo date -d "2026-11-20 15:00 EST" "+%F %R %Z"`, "2026-11-21 05:00 JST"},
+		{"date arithmetic", `date -d "2026-11-20 + 45 days" +%F`, "2027-01-04"},
+	}
+	for _, c := range cases {
+		res := execute(t, r, "bash", c.code)
+		if got := strings.TrimSpace(res.Stdout); got != c.want || res.ExitCode != 0 {
+			t.Errorf("%s: got %q exit %d stderr %q, want %q", c.name, got, res.ExitCode, res.Stderr, c.want)
+		}
+	}
+}
+
+func TestBashDateRejectsAnInvalidDate(t *testing.T) {
+	res := execute(t, newRunner(t), "bash", `date -d "not a date" +%F`)
+	if res.ExitCode == 0 {
+		t.Fatalf("an invalid date should fail, got stdout %q", res.Stdout)
+	}
+}
