@@ -90,13 +90,16 @@ func (v TokenReviewVerifier) Verify(r *http.Request) (*Identity, error) {
 	return v.Reviewer.Review(r.Context(), BearerToken(r))
 }
 
-const verbGet = "get"
+const (
+	verbGet       = "get"
+	resourceCrews = "crews"
+)
 
 // UseAccess is the access of using a crew at all: get that Crew, as the report endpoints
 // require to read its memory.
 func UseAccess(namespace, crew string) authorizationv1.ResourceAttributes {
 	return authorizationv1.ResourceAttributes{
-		Namespace: namespace, Verb: verbGet, Group: kubemootv1alpha1.GroupVersion.Group, Resource: "crews", Name: crew,
+		Namespace: namespace, Verb: verbGet, Group: kubemootv1alpha1.GroupVersion.Group, Resource: resourceCrews, Name: crew,
 	}
 }
 
@@ -134,6 +137,6 @@ const ConversationsSubresource = "conversations"
 func ConversationsAccess(namespace, crew, verb string) authorizationv1.ResourceAttributes {
 	return authorizationv1.ResourceAttributes{
 		Namespace: namespace, Verb: verb, Group: kubemootv1alpha1.GroupVersion.Group,
-		Resource: "crews", Subresource: ConversationsSubresource, Name: crew,
+		Resource: resourceCrews, Subresource: ConversationsSubresource, Name: crew,
 	}
 }
