@@ -146,8 +146,6 @@ public class DiscussionOrchestrator {
     private static final int ADVISORY_CONTENT_CHARS = 2000;
     // per-agent agree/concern snippet in the review-phase summary.
     private static final int REVIEW_SNIPPET_CHARS = 1000;
-    // per-agent agree snippet in the synthesis-fallback response.
-    private static final int FALLBACK_SNIPPET_CHARS = 2000;
     // prior-turn response echoed into advisory/coordinator prompt context.
     private static final int CONTEXT_RESPONSE_CHARS = 300;
     // prior-turn response echoed into the subcommittee-selection prompt.
@@ -3228,11 +3226,7 @@ public class DiscussionOrchestrator {
         if (!state.agreeSignals.isEmpty()) {
             var fb = new StringBuilder(state.synthesisPromptTooLarge ? SYNTHESIS_TOO_LARGE_PREFIX : "");
             fb.append("Here's what the toolers found:\n\n");
-            for (var agree : state.agreeSignals.entrySet()) {
-                fb.append("**").append(agree.getKey()).append("**: ")
-                        .append(truncate(agree.getValue(), FALLBACK_SNIPPET_CHARS)).append("\n\n");
-            }
-            return fb.toString();
+            return fb.append(FallbackFindings.render(state.agreeSignals, storedSource(state))).toString();
         }
         String capacity = capacityMessage(state);
         if (capacity != null) {
@@ -3245,6 +3239,17 @@ public class DiscussionOrchestrator {
                 + "synthesize a response. The crew's agents may not cover this "
                 + "topic, or may lack the tools to answer it. Try rephrasing, or add an "
                 + "agent or tool for this area.";
+    }
+
+    /** The stored results of the thread to show beside the findings; none when they cannot be read. */
+    private StoredResults.Source storedSource(ThreadState state) {
+        try {
+            return new StoredResults(natsProvider, chatService).source(state.threadId);
+        } catch (RuntimeException e) {
+            log.warn("Could not read the stored results for the fallback of thread {}: {}", state.threadId,
+                    LogContent.reason(e));
+            return StoredResults.Source.empty();
+        }
     }
 
     /** Leads the toolers' raw findings when the synthesis prompt fit no GPU's context window. */
