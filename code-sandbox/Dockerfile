@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o code-sandbox ./cmd/cod
 # The programs agents write run on this image: Python 3.14 with the standard
 # library only, bash, and GNU date with the zone database, which agents use for
 # time-zone conversion and date arithmetic. Nothing else is installed.
-FROM docker.io/library/python:3.14-slim@sha256:f85c5697265c178cc6887276c55fe16cf3d14ca35c3df6a5eab3b360534a55d2
+FROM docker.io/library/python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 # tini reaps processes a killed program leaves behind; without it they stay as
 # zombies under the server for the life of the pod. tzdata is named so a future base
 # image that drops it cannot take the zone database away.
