@@ -124,16 +124,18 @@ func (s Source) fileMounts() []fileMount {
 }
 
 func (s Source) volumes() []corev1.Volume {
-	var out []corev1.Volume
-	for _, m := range s.fileMounts() {
+	files := s.fileMounts()
+	out := make([]corev1.Volume, 0, len(files))
+	for _, m := range files {
 		out = append(out, secretVolume(m.volume, m.secret, m.items))
 	}
 	return out
 }
 
 func (s Source) mounts() []corev1.VolumeMount {
-	var out []corev1.VolumeMount
-	for _, m := range s.fileMounts() {
+	files := s.fileMounts()
+	out := make([]corev1.VolumeMount, 0, len(files))
+	for _, m := range files {
 		out = append(out, corev1.VolumeMount{Name: m.volume, MountPath: m.dir, ReadOnly: true})
 	}
 	return out
