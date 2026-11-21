@@ -39,6 +39,19 @@ The raw subject, a username or an email address, never leaves the door that veri
 
 A gateway that verifies callers stamps the principal on every request it queues, and records it as the owner of each conversation the request starts. A gateway that does not leaves the request exactly as it was, with no principal.
 
+## From the question to the tools
+
+The coordinator copies the request's principal onto the `thread_start` message of the thread it opens, next to the requester, so every agent in the thread keeps it. A request with no principal gives a `thread_start` with none.
+
+An agent binds the thread's principal for exactly the model turn it runs, the way it binds the requester's time zone, so two threads running at once on the same agent never see each other's. Every tool call the agent makes through the MCP gateway then carries two keys in the call's `_meta`:
+
+| Key | Value |
+|-----|-------|
+| `conversationId` | the conversation the question belongs to |
+| `principalId` | the principal's `id`; left out for an anonymous caller, who has none |
+
+The runtime sets both keys from the thread. The model supplies only a call's arguments, and an argument it names `conversationId` or `principalId` stays an argument: it never reaches `_meta` and never replaces the runtime's value. These two ids are handles. No token is ever on the bus or in an agent, so an agent cannot hand a person's credential to a tool; a tool server that needs one asks the gateway for the credential of that conversation and person.
+
 ## Subscribers
 
 A service token verifier lets a person use a crew with the token they already hold for another service. The crew does not issue the token and cannot check its signature. It asks the service: one request to a URL you name, carrying the person's token. If the service answers 200, the person is who the token says; 401 or 403 refuses them. If the service cannot be reached or answers anything else, the door answers 503 and never lets the caller in.

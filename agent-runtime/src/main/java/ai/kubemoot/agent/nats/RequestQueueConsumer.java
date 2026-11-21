@@ -2,6 +2,7 @@ package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.tracing.AgentTrace;
 import ai.kubemoot.agent.logging.LogContent;
+import ai.kubemoot.agent.requester.Principal;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -298,7 +299,7 @@ public class RequestQueueConsumer {
             DiscussionOrchestrator.OrchestrateResult result;
             try (var ignored = AgentTrace.extract(msg.getHeaders()).makeCurrent()) {
                 result = orchestrator.orchestrate(request.message(), request.conversationId(), request.crew(),
-                        arrivedRequester(request), streamSequence(msg));
+                        arrivedRequester(request), request.principal(), streamSequence(msg));
             }
             // An interrupted orchestrate() returns null; one that finished returns a result
             // and is acked even when shutdown began meanwhile, so it is not answered twice.
@@ -417,7 +418,8 @@ public class RequestQueueConsumer {
                 node.path("timestamp").asText(),
                 node.path("use_rag").asBoolean(true),
                 node.path("use_tools").asBoolean(true),
-                Requester.fromJson(node).orElse(null)
+                Requester.fromJson(node).orElse(null),
+                Principal.fromJson(node.get(Principal.METADATA_KEY)).orElse(null)
         );
     }
 
@@ -428,6 +430,12 @@ public class RequestQueueConsumer {
             String timestamp,
             boolean useRag,
             boolean useTools,
-            Requester requester
-    ) {}
+            Requester requester,
+            Principal principal
+    ) {
+        RequestMessage(String message, String conversationId, String crew, String timestamp,
+                       boolean useRag, boolean useTools, Requester requester) {
+            this(message, conversationId, crew, timestamp, useRag, useTools, requester, null);
+        }
+    }
 }

@@ -679,6 +679,37 @@ class DiscussionOrchestratorReasoningSelectTest {
     // (Record Crew Name and Version in Discussion Thread)
 
     @Test
+    void threadStartMetadata_carriesThePrincipal_theWayItCarriesTheRequester() {
+        var principal = new ai.kubemoot.agent.requester.Principal("subscriber", "oreilly", "abc123", null);
+        var requester = ai.kubemoot.agent.requester.Requester.of("Europe/Paris", null).orElseThrow();
+
+        var md = orchestrator.buildThreadStartMetadata(
+                "q", "general", "conv-1", List.of(), "oguide", "thread-p", new DiscussionOrchestrator.Asker(requester, principal));
+
+        assertEquals(Map.of("kind", "subscriber", "issuer", "oreilly", "id", "abc123"), md.get("principal"));
+        assertEquals("conv-1", md.get("conversationId"));
+        assertTrue(md.containsKey("requester"));
+    }
+
+    @Test
+    void threadStartMetadata_omitsThePrincipal_whenTheRequestHadNone() {
+        var md = orchestrator.buildThreadStartMetadata(
+                "q", "general", "conv-1", List.of(), "oguide", "thread-q", DiscussionOrchestrator.Asker.NONE);
+
+        assertFalse(md.containsKey("principal"));
+    }
+
+    @Test
+    void threadStartMetadata_neverCarriesAToken() {
+        var principal = new ai.kubemoot.agent.requester.Principal("subscriber", "oreilly", "abc123", null);
+
+        var md = orchestrator.buildThreadStartMetadata(
+                "q", "general", "conv-1", List.of(), "oguide", "thread-r", new DiscussionOrchestrator.Asker(null, principal));
+
+        assertFalse(md.toString().toLowerCase().contains("token"));
+    }
+
+    @Test
     void threadStartMetadata_includesCrewNameAndVersion_whenVersionPresent() {
         when(properties.crewVersion()).thenReturn(Optional.of("1.4.2"));
 
@@ -730,7 +761,7 @@ class DiscussionOrchestratorReasoningSelectTest {
     @Test
     void threadStartMetadata_omitsTheRequester_whenAbsent() {
         var md = orchestrator.buildThreadStartMetadata(
-                "q", "general", "conv-1", List.of(), "homelab-pilot", "thread-w", null);
+                "q", "general", "conv-1", List.of(), "homelab-pilot", "thread-w", (Requester) null);
 
         assertFalse(md.containsKey("requester"));
     }
