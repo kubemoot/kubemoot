@@ -8,6 +8,7 @@
 package natsconn
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"os"
@@ -107,10 +108,13 @@ func (c Config) Options() ([]nats.Option, error) {
 		opts = append(opts, nats.RootCAs(c.CAFile))
 	}
 	if c.ClientCertFile != "" {
-		for env, path := range map[string]string{EnvClientCertFile: c.ClientCertFile, EnvClientKeyFile: c.ClientKeyFile} {
-			if err := checkReadable(env, path); err != nil {
+		for _, f := range [][2]string{{EnvClientCertFile, c.ClientCertFile}, {EnvClientKeyFile, c.ClientKeyFile}} {
+			if err := checkReadable(f[0], f[1]); err != nil {
 				return nil, err
 			}
+		}
+		if _, err := tls.LoadX509KeyPair(c.ClientCertFile, c.ClientKeyFile); err != nil {
+			return nil, fmt.Errorf("%s and %s: %w", EnvClientCertFile, EnvClientKeyFile, err)
 		}
 		opts = append(opts, nats.ClientCert(c.ClientCertFile, c.ClientKeyFile))
 	}
