@@ -38,6 +38,11 @@ describe('gen-bus-types', () => {
 		expect(() => withoutGoHints('{')).toThrow();
 	});
 
+	it('keeps only the reference where a $ref has sibling keywords', () => {
+		const schema = JSON.stringify({ properties: { owner: { $ref: 'principal.json', description: 'Who asked.' }, n: { type: 'string', description: 'kept' } } });
+		expect(JSON.parse(withoutGoHints(schema))).toEqual({ properties: { owner: { $ref: 'principal.json' }, n: { type: 'string', description: 'kept' } } });
+	});
+
 	it('removes only the empty root interface', () => {
 		const ts = 'export type A = B;\nexport interface KubemootBus {}\nexport interface B {\n\tx: string;\n}\n';
 		expect(withoutRoot(ts)).toBe('export type A = B;\nexport interface B {\n\tx: string;\n}\n');

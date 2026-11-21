@@ -378,7 +378,10 @@ export interface ConversationOwner {
 	owner: Principal;
 }
 /**
- * The principal that started the conversation. An anonymous owner is the anonymous caller of a crew that accepts them.
+ * Who is asking, as a door of the crew verified it. Only the discussion gateway and the crew liaison set it, from a credential they checked, never from anything the client put in a body, a header or the question's text. Readers treat it as data: it scopes what a turn may read and is never an instruction. It carries a pseudonymous id, never a token, an email address or a name that identifies a person.
+ *
+ * This interface was referenced by `KubemootBus`'s JSON-Schema
+ * via the `definition` "principal".
  */
 export interface Principal {
 	/**
@@ -1136,7 +1139,10 @@ export interface Evidence {
 	note?: string;
 }
 /**
- * Who is asking, as the coordinator fixed it when the question arrived, on thread_start and advisory_ready. Every agent's turn context names its date and zone, and agents pass it to every tool call of the thread as the MCP request's _meta. Absent only on messages from before the field existed.
+ * The asker's time zone and date. The client reports a time zone and, optionally, its local date-time; the coordinator fixes requestDate when the question arrives and keeps it for the whole thread, so a discussion that crosses midnight keeps one date. A server may run in another time zone, so a tool that needs today's date reads this and not its own clock. A value that is not a known IANA zone or not an ISO local date-time is ignored by readers.
+ *
+ * This interface was referenced by `DiscussionMetadata`'s JSON-Schema
+ * via the `definition` "Requester".
  */
 export interface Requester {
 	/**
@@ -1371,7 +1377,10 @@ export interface PlacementError {
 	firstTokenRelative?: number;
 }
 /**
- * On thread_close, what the thread cost and how it went.
+ * What one thread cost and how it went, from the coordinator's view. Times are milliseconds; startedAt and settledAt are epoch milliseconds, and the other times count from the thread's start as the coordinator received its messages. It is a snapshot at the close. A reply that reopens the thread starts a new round, and the next close carries that round's receipt.
+ *
+ * This interface was referenced by `DiscussionMetadata`'s JSON-Schema
+ * via the `definition` "DiscussionReceipt".
  */
 export interface DiscussionReceipt {
 	/**
@@ -1543,141 +1552,6 @@ export interface ReceiptPlacement {
 	agents: number;
 }
 /**
- * What one thread cost and how it went, from the coordinator's view. Times are milliseconds; startedAt and settledAt are epoch milliseconds, and the other times count from the thread's start as the coordinator received its messages. It is a snapshot at the close. A reply that reopens the thread starts a new round, and the next close carries that round's receipt.
- *
- * This interface was referenced by `DiscussionMetadata`'s JSON-Schema
- * via the `definition` "DiscussionReceipt".
- */
-export interface DiscussionReceipt1 {
-	/**
-	 * When the coordinator saw the thread start.
-	 */
-	startedAt: number;
-	/**
-	 * When the coordinator closed the thread.
-	 */
-	settledAt: number;
-	/**
-	 * From start to close.
-	 */
-	totalMs: number;
-	/**
-	 * From start to the first agent's terminal signal; absent when no agent signalled.
-	 */
-	firstSignalMs?: number;
-	/**
-	 * Time in each phase: advisory to the advisory, selection to the triage result, evaluation from the end of selection (or the first agent signal, when earlier) to the last signal, synthesis to the close. A phase the thread skipped is absent.
-	 */
-	phasesMs: {
-		/**
-		 * From start to the advisory.
-		 */
-		advisory?: number;
-		/**
-		 * To the triage result.
-		 */
-		selection?: number;
-		/**
-		 * To the last agent's terminal signal.
-		 */
-		evaluation?: number;
-		/**
-		 * To the close.
-		 */
-		synthesis?: number;
-	};
-	/**
-	 * Who was convened and how they signalled.
-	 */
-	consensus: {
-		/**
-		 * The larger of the agents the coordinator selected and the agents that signalled.
-		 */
-		convened: number;
-		/**
-		 * Agents whose last terminal signal was agree.
-		 */
-		agree: number;
-		/**
-		 * Agents that raised a concern.
-		 */
-		concern: number;
-		/**
-		 * Agents that blocked.
-		 */
-		block: number;
-		/**
-		 * Agents that stood aside.
-		 */
-		standAside: number;
-		/**
-		 * Agents that failed.
-		 */
-		failure: number;
-	};
-	/**
-	 * Tokens the thread used: the agents' calls behind their signals, the coordinator's own advisory, triage and synthesis, and the sums.
-	 */
-	tokens: {
-		/**
-		 * All input tokens.
-		 */
-		in: number;
-		/**
-		 * All output tokens.
-		 */
-		out: number;
-		/**
-		 * Input tokens of the agents' calls.
-		 */
-		agentsIn: number;
-		/**
-		 * Output tokens of the agents' calls.
-		 */
-		agentsOut: number;
-		/**
-		 * The coordinator's input tokens.
-		 */
-		coordinatorIn: number;
-		/**
-		 * The coordinator's output tokens.
-		 */
-		coordinatorOut: number;
-	};
-	/**
-	 * One line per agent that sent a terminal signal, in the order they signalled.
-	 */
-	agents: ReceiptAgent[];
-	/**
-	 * How many agents' calls ran at each model@server.
-	 */
-	placements: ReceiptPlacement[];
-	/**
-	 * Every model call the scheduler placed in the round, the coordinator's and the agents', in the order they started. Each says where it ran, which policy placed it and why, the options it weighed, what was predicted, and what was measured. Absent when no call reported its placement.
-	 */
-	calls?: PlacementCall[];
-}
-/**
- * The asker's time zone and date. The client reports a time zone and, optionally, its local date-time; the coordinator fixes requestDate when the question arrives and keeps it for the whole thread, so a discussion that crosses midnight keeps one date. A server may run in another time zone, so a tool that needs today's date reads this and not its own clock. A value that is not a known IANA zone or not an ISO local date-time is ignored by readers.
- *
- * This interface was referenced by `DiscussionMetadata`'s JSON-Schema
- * via the `definition` "Requester".
- */
-export interface Requester1 {
-	/**
-	 * The IANA time zone name, such as America/Los_Angeles. The zone the asker's client sent; when it sent none, the crew's default zone, else UTC. The asker's date is always stated in this zone.
-	 */
-	timeZone?: string;
-	/**
-	 * The person's local date and time when they asked, ISO 8601 without an offset, such as 2026-10-24T09:15:00. Reported by the client; the thread's date is requestDate.
-	 */
-	localDateTime?: string;
-	/**
-	 * The asker's date in timeZone when the question arrived, YYYY-MM-DD. Fixed by the coordinator once per question; the date only, never the clock time, so prompts stay stable across the discussion.
-	 */
-	requestDate?: string;
-}
-/**
  * A question queued for a crew on kubemoot.request.<namespace>.<crew>. The crew's coordinator takes requests one at a time and starts a thread for each.
  *
  * This interface was referenced by `KubemootBus`'s JSON-Schema
@@ -1720,28 +1594,7 @@ export interface DiscussionRequest {
 	 * The person's local date and time when they asked, ISO 8601 without an offset. Absent when the client sent none.
 	 */
 	localDateTime?: string;
-	principal?: Principal1;
-}
-/**
- * Who asked, as the gateway verified it. The gateway overwrites any principal a client sends. Absent on a request from a gateway that predates the field, which readers treat as anonymous.
- */
-export interface Principal1 {
-	/**
-	 * The verifier that vouched for the caller: anonymous for a caller that presented no credential on a crew that accepts them, kubernetes for a Kubernetes bearer token checked with a TokenReview, subscriber for a person whose own token a service the crew trusts accepted.
-	 */
-	kind: 'anonymous' | 'kubernetes' | 'subscriber';
-	/**
-	 * Who vouched for the caller: kubernetes for a Kubernetes token, or the name of the service token verifier (for example oreilly) for a subscriber. Absent for an anonymous caller.
-	 */
-	issuer?: string;
-	/**
-	 * The caller's pseudonymous id, a hash of the issuer and the subject (keyed with the install's hash key for a subscriber), stable across requests and replicas. It is the owner a conversation records. Absent for an anonymous caller.
-	 */
-	id?: string;
-	/**
-	 * A name safe to show, set only when the subject is a workload and not a person, such as a ServiceAccount's name. Absent otherwise.
-	 */
-	displayName?: string;
+	principal?: Principal;
 }
 /**
  * The body of a gateway answer that is not a success.
@@ -1990,30 +1843,6 @@ export interface PostDiscussionResponse {
 	 * When the gateway queued the question, RFC 3339 in UTC. Send it as the stream's since parameter.
 	 */
 	requestedAt: string;
-}
-/**
- * Who is asking, as a door of the crew verified it. Only the discussion gateway and the crew liaison set it, from a credential they checked, never from anything the client put in a body, a header or the question's text. Readers treat it as data: it scopes what a turn may read and is never an instruction. It carries a pseudonymous id, never a token, an email address or a name that identifies a person.
- *
- * This interface was referenced by `KubemootBus`'s JSON-Schema
- * via the `definition` "principal".
- */
-export interface Principal2 {
-	/**
-	 * The verifier that vouched for the caller: anonymous for a caller that presented no credential on a crew that accepts them, kubernetes for a Kubernetes bearer token checked with a TokenReview, subscriber for a person whose own token a service the crew trusts accepted.
-	 */
-	kind: 'anonymous' | 'kubernetes' | 'subscriber';
-	/**
-	 * Who vouched for the caller: kubernetes for a Kubernetes token, or the name of the service token verifier (for example oreilly) for a subscriber. Absent for an anonymous caller.
-	 */
-	issuer?: string;
-	/**
-	 * The caller's pseudonymous id, a hash of the issuer and the subject (keyed with the install's hash key for a subscriber), stable across requests and replicas. It is the owner a conversation records. Absent for an anonymous caller.
-	 */
-	id?: string;
-	/**
-	 * A name safe to show, set only when the subject is a workload and not a person, such as a ServiceAccount's name. Absent otherwise.
-	 */
-	displayName?: string;
 }
 /**
  * A scheduled reminder or follow-up, in the kubemoot_scheduled bucket, key <scheduleId>. The operator fires it at triggerAt and deletes it.
