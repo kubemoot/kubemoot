@@ -8,7 +8,7 @@ import (
 
 func TestTicketLifecycle(t *testing.T) {
 	s := NewStore(time.Hour)
-	tk := s.Create(testCrew, testCrew, "conv-1", "q")
+	tk := s.Create(testCrew, testCrew, "conv-1", "q", "")
 	if v := tk.Snapshot(); v.State != StatePending || v.Crew != testCrew || v.Contributions != 0 {
 		t.Fatalf("new ticket: %+v", v)
 	}
@@ -32,7 +32,7 @@ func TestTicketLifecycle(t *testing.T) {
 
 func TestTicketFail(t *testing.T) {
 	s := NewStore(time.Hour)
-	tk := s.Create(testCrew, testCrew, "conv-1", "q")
+	tk := s.Create(testCrew, testCrew, "conv-1", "q", "")
 	tk.Fail("stream ended", time.Now())
 	tk.Answer("late", time.Now()) // ignored after Fail
 	if v := tk.Snapshot(); v.State != StateFailed || v.Error != "stream ended" || v.Answer != "" {
@@ -44,10 +44,10 @@ func TestStoreSweep(t *testing.T) {
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	s := NewStore(time.Hour)
 	s.now = func() time.Time { return now }
-	settled := s.Create("a", "a", "c1", "q")
+	settled := s.Create("a", "a", "c1", "q", "")
 	settled.Answer("x", now)
-	pending := s.Create("b", "b", "c2", "q")
-	fresh := s.Create("c", "c", "c3", "q")
+	pending := s.Create("b", "b", "c2", "q", "")
+	fresh := s.Create("c", "c", "c3", "q", "")
 
 	now = now.Add(90 * time.Minute) // settled expired (1h), pending not (2h)
 	fresh.Contribution(now)
@@ -78,27 +78,27 @@ func TestStoreGetUnknown(t *testing.T) {
 
 func TestStoreRejoinNeedsTheTicketID(t *testing.T) {
 	s := NewStore(time.Hour)
-	a := s.Create(testCrew, testCrew, "c1", "what?")
-	if got, ok := s.Rejoin(a.ID, testCrew, testCrew, "what?"); !ok || got != a {
+	a := s.Create(testCrew, testCrew, "c1", "what?", "")
+	if got, ok := s.Rejoin(a.ID, testCrew, testCrew, "what?", ""); !ok || got != a {
 		t.Fatal("the creator's ticket id did not rejoin")
 	}
-	if _, ok := s.Rejoin("", testCrew, testCrew, "what?"); ok {
+	if _, ok := s.Rejoin("", testCrew, testCrew, "what?", ""); ok {
 		t.Fatal("the same question without an id matched")
 	}
-	if _, ok := s.Rejoin("not-the-id", testCrew, testCrew, "what?"); ok {
+	if _, ok := s.Rejoin("not-the-id", testCrew, testCrew, "what?", ""); ok {
 		t.Fatal("an unknown id matched")
 	}
-	if _, ok := s.Rejoin(a.ID, testCrew, testCrew, "other?"); ok {
+	if _, ok := s.Rejoin(a.ID, testCrew, testCrew, "other?", ""); ok {
 		t.Fatal("a different question matched")
 	}
-	if _, ok := s.Rejoin(a.ID, testCrew, "elsewhere", "what?"); ok {
+	if _, ok := s.Rejoin(a.ID, testCrew, "elsewhere", "what?", ""); ok {
 		t.Fatal("a different namespace matched")
 	}
-	if _, ok := s.Rejoin(a.ID, "other-crew", testCrew, "what?"); ok {
+	if _, ok := s.Rejoin(a.ID, "other-crew", testCrew, "what?", ""); ok {
 		t.Fatal("a different crew matched")
 	}
 	a.Answer("x", time.Now())
-	if _, ok := s.Rejoin(a.ID, testCrew, testCrew, "what?"); ok {
+	if _, ok := s.Rejoin(a.ID, testCrew, testCrew, "what?", ""); ok {
 		t.Fatal("settled ticket returned as pending")
 	}
 }
@@ -107,7 +107,7 @@ func TestTicketIDsAre128BitsAndDistinct(t *testing.T) {
 	s := NewStore(time.Hour)
 	seen := map[string]bool{}
 	for i := 0; i < 200; i++ {
-		id := s.Create(testCrew, testCrew, "c", "q").ID
+		id := s.Create(testCrew, testCrew, "c", "q", "").ID
 		if len(id) != 2*ticketIDBytes || strings.Trim(id, "0123456789abcdef") != "" {
 			t.Fatalf("id %q is not 128 bits of hex", id)
 		}

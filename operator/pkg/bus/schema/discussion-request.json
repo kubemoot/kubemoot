@@ -40,6 +40,10 @@
     "localDateTime": {
       "type": "string",
       "description": "The person's local date and time when they asked, ISO 8601 without an offset. Absent when the client sent none."
+    },
+    "principal": {
+      "$ref": "principal.json",
+      "description": "Who asked, as the gateway verified it. The gateway overwrites any principal a client sends. Absent on a request from a gateway that predates the field, which readers treat as anonymous."
     }
   }
 }

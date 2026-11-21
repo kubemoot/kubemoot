@@ -194,7 +194,7 @@ func (s *Service) GetAnswer(
 	ctx context.Context, _ *mcp.CallToolRequest, in GetAnswerInput,
 ) (*mcp.CallToolResult, GetAnswerOutput, error) {
 	ticket, ok := s.tickets.Get(strings.TrimSpace(in.Ticket))
-	if !ok {
+	if !ok || !ticket.OwnedBy(ownerOf(ctx)) {
 		return toolError("unknown or expired ticket; ask again"), GetAnswerOutput{}, nil
 	}
 	s.wait(ctx, ticket, waitFor(in.WaitSeconds))
@@ -205,7 +205,8 @@ func (s *Service) GetAnswer(
 // question, else starts a discussion. A question without a ticket id always starts one.
 func (s *Service) startOrRejoin(ctx context.Context, crew Crew, question, ticketID, timeZone string) (*Ticket, error) {
 	if ticketID != "" {
-		if ticket, ok := s.tickets.Rejoin(strings.TrimSpace(ticketID), crew.Name, crew.Namespace, question); ok {
+		id := strings.TrimSpace(ticketID)
+		if ticket, ok := s.tickets.Rejoin(id, crew.Name, crew.Namespace, question, ownerOf(ctx)); ok {
 			return ticket, nil
 		}
 	}
@@ -225,16 +226,19 @@ func (s *Service) start(ctx context.Context, crew Crew, question, timeZone strin
 		<-s.inflight
 		return nil, err
 	}
-	ticket := s.tickets.Create(crew.Name, crew.Namespace, conversation, question)
-	go s.follow(ticket)
+	ticket := s.tickets.Create(crew.Name, crew.Namespace, conversation, question, ownerOf(ctx))
+	go s.follow(ticket, credentialFrom(ctx))
 	return ticket, nil
 }
 
 // follow consumes the discussion stream until the synthesis, then frees the slot.
-func (s *Service) follow(ticket *Ticket) {
+func (s *Service) follow(ticket *Ticket, credential string) {
 	defer func() { <-s.inflight }()
 	ctx, cancel := context.WithTimeout(context.Background(), followDeadline)
 	defer cancel()
+	if credential != "" {
+		ctx = withCredential(ctx, credential)
+	}
 	err := s.gateway.Follow(ctx, ticket.Namespace, ticket.Crew, ticket.Conversation, func(ev Event) bool {
 		return s.apply(ticket, ev)
 	})

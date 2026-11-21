@@ -56,7 +56,7 @@ Because the domain is the crew's, a crew must be **portable** across clusters - 
 | Field | Type | Description |
 |-------|------|-------------|
 | `description` | string | Human-readable purpose |
-| `discussion` | object | Discussion gateway config (`enabled`, `resources`) - the HTTP entry point for external clients |
+| `discussion` | object | Discussion gateway config (`enabled`, `resources`, `access`) - the HTTP entry point for external clients. See [Access](#access) |
 | `memory` | object | Crew working-memory policy - see below |
 | `workspace.defaultAccess` | enum | The workspace access of every agent in the crew that declares none of its own: `none`, `read`, `write` or `readWrite`. An Agent's `spec.workspace.access` overrides it; left out, the KubemootConfig's `workspace.defaultAccess` applies, and with none declared agents behave as they always have. See [Agent](../../reference/agent/#specworkspaceaccess) |
 | `defaultTimeZone` | string | The IANA time zone (such as `America/New_York`) in which the crew states today's date when the asker's client sent no zone. Left out, or a name that is not an IANA zone, the crew uses UTC. See [the turn context line](../../concepts/agent-context/#the-turn-context-line) |
@@ -119,6 +119,31 @@ Facts are kept alive by use and aged out when abandoned:
 | `ttlDays` | int32 | none | Deprecated: use `retention.memory.purgeUnused`. When set, it overrides that value |
 | `injectLimit` | int32 | `8` | Max facts injected into context per query (small - context budget, not storage) |
 | `verifyOnAdd` | bool | `true` | Vet new facts for duplicates/conflicts on write |
+
+## Access
+
+`spec.discussion.access` says who may call the crew's discussion gateway. Left out, the gateway accepts every caller as the anonymous caller, as it always has: nothing is verified, and every conversation is open to every caller. The Crew says so with the `Authentication` condition set to `False` with reason `Anonymous`. The condition never affects `Ready`.
+
+```yaml
+spec:
+  discussion:
+    access:
+      tokenReview: true       # default; check Kubernetes bearer tokens
+      allowAnonymous: false   # default; refuse a caller with no token
+      tokenAudiences: []      # optional; accept only tokens bound to these audiences
+```
+
+Setting `access` turns verification on. A caller sends its Kubernetes token as `Authorization: Bearer <token>`; the gateway checks it with a TokenReview, then asks the API server (a SubjectAccessReview) whether the caller may `get` that Crew, so plain RBAC decides who may use the crew. A request with no token is refused with 401 unless `allowAnonymous` is `true`, and a token that is present and not valid is always refused, never treated as anonymous. The gateway needs no configuration beyond this: the operator gives its ServiceAccount the right to create TokenReviews and SubjectAccessReviews. The gateway passes the verified caller, as a principal, with every question it queues. See [Who is asking](../../concepts/who-is-asking/).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `access.tokenReview` | bool | `true` | Check Kubernetes bearer tokens |
+| `access.allowAnonymous` | bool | `false` | Accept a caller with no token as the anonymous caller |
+| `access.tokenAudiences` | []string | none | Accept only tokens bound to one of these audiences, so a token minted for the API server alone is refused. Empty accepts the API server's own audience |
+
+| Condition | Meaning |
+|-----------|---------|
+| `Authentication` | `False`, reason `Anonymous`: the gateway accepts anonymous callers and verifies no one. `True`, reason `TokenReview`: the gateway verifies callers. `False`, reason `Closed`: the gateway checks no token and accepts no anonymous caller, so it refuses every request. Absent when the crew runs no gateway |
 
 ## Retention
 

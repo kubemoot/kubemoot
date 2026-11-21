@@ -141,6 +141,7 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	r.reconcileRetention(crew)
+	reconcileAuthentication(crew)
 	return r.updateAssessedStatus(ctx, crew, assessCrew(agents.Items, coordinatorName))
 }
 
@@ -434,13 +435,13 @@ func (r *CrewReconciler) reconcileRBAC(ctx context.Context, crew *kubemootv1alph
 	}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cr, func() error {
 		cr.Labels = r.buildLabels(crew)
-		cr.Rules = []rbacv1.PolicyRule{
+		cr.Rules = append([]rbacv1.PolicyRule{
 			{
 				APIGroups: []string{"kubemoot.ai"},
 				Resources: []string{"agents"},
 				Verbs:     []string{"get", "list"},
 			},
-		}
+		}, gatewayAccessRules(discussionAccess(crew))...)
 		return nil
 	})
 	if err != nil {
@@ -517,7 +518,7 @@ func (r *CrewReconciler) reconcileDeployment(ctx context.Context, crew *kubemoot
 const gatewayAllowedOriginsEnv = "DISCUSSION_GATEWAY_ALLOWED_ORIGINS"
 
 // gatewayEnv is the environment of a crew's discussion gateway.
-func gatewayEnv(natsURL string) []corev1.EnvVar {
+func gatewayEnv(natsURL string, access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: envPort, Value: fmt.Sprintf("%d", crewGatewayPort)},
 		{Name: "NATS_URL", Value: natsURL},
@@ -532,7 +533,7 @@ func gatewayEnv(natsURL string) []corev1.EnvVar {
 	if len(origins) > 0 {
 		env = append(env, corev1.EnvVar{Name: "ALLOWED_ORIGINS", Value: strings.Join(origins, ",")})
 	}
-	return env
+	return append(env, gatewayAccessEnv(access)...)
 }
 
 func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.Deployment {
@@ -589,7 +590,7 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 							Ports: []corev1.ContainerPort{
 								{Name: portNameHTTP, ContainerPort: crewGatewayPort, Protocol: corev1.ProtocolTCP},
 							},
-							Env: gatewayEnv(natsURL),
+							Env: gatewayEnv(natsURL, discussionAccess(crew)),
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: &noEscalation,
 								ReadOnlyRootFilesystem:   &nonRoot,

@@ -9,6 +9,7 @@ package liaison
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"sync"
 	"time"
@@ -45,7 +46,10 @@ type Ticket struct {
 	Crew         string
 	Namespace    string
 	Conversation string
-	question     string // never exposed; only compared, to deduplicate retries
+	// Owner is the id of the principal that asked, empty for an anonymous caller. Only the
+	// owner may read or rejoin the ticket.
+	Owner    string
+	question string // never exposed; only compared, to deduplicate retries
 
 	mu            sync.Mutex
 	state         State
@@ -69,6 +73,11 @@ type TicketView struct {
 	Error         string    `json:"error,omitempty"`
 	Created       time.Time `json:"created"`
 	Updated       time.Time `json:"updated"`
+}
+
+// OwnedBy reports whether owner is the principal id the ticket records.
+func (t *Ticket) OwnedBy(owner string) bool {
+	return subtle.ConstantTimeCompare([]byte(t.Owner), []byte(owner)) == 1
 }
 
 // Done is closed when the ticket leaves the pending state.
@@ -138,13 +147,14 @@ func NewStore(ttl time.Duration) *Store {
 }
 
 // Create registers a pending ticket for a started discussion.
-func (s *Store) Create(crew, namespace, conversation, question string) *Ticket {
+func (s *Store) Create(crew, namespace, conversation, question, owner string) *Ticket {
 	now := s.now()
 	t := &Ticket{
 		ID:           newTicketID(),
 		Crew:         crew,
 		Namespace:    namespace,
 		Conversation: conversation,
+		Owner:        owner,
 		question:     question,
 		state:        StatePending,
 		created:      now,
@@ -163,9 +173,9 @@ func (s *Store) Create(crew, namespace, conversation, question string) *Ticket {
 // ticket; a question's text alone never matches, so one client cannot join another's
 // discussion by asking the same thing. An unknown, settled or mismatched id returns false
 // and says nothing about why.
-func (s *Store) Rejoin(id, crew, namespace, question string) (*Ticket, bool) {
+func (s *Store) Rejoin(id, crew, namespace, question, owner string) (*Ticket, bool) {
 	t, ok := s.Get(id)
-	if !ok || t.Crew != crew || t.Namespace != namespace || t.question != question ||
+	if !ok || !t.OwnedBy(owner) || t.Crew != crew || t.Namespace != namespace || t.question != question ||
 		t.Snapshot().State != StatePending {
 		return nil, false
 	}

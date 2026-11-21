@@ -13,11 +13,13 @@ import (
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/liaison"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 func main() {
@@ -40,6 +42,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	auth, err := callerAuthenticator()
+	if err != nil {
+		log.Error(err, "caller verification")
+		os.Exit(1)
+	}
+
 	tickets := liaison.NewStore(ttl)
 	svc := liaison.NewService(liaison.NewLister(k8s), liaison.NewGateway(), tickets, maxInflight)
 	if reportURL := os.Getenv("LIAISON_OPERATOR_REPORT_URL"); reportURL != "" {
@@ -48,7 +56,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           liaison.NewHandler(svc, token),
+		Handler:           liaison.NewHandlerWithAuth(svc, token, auth),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
@@ -58,7 +66,8 @@ func main() {
 	go sweep(ctx, tickets)
 	go func() {
 		log.Info("crew liaison listening",
-			"port", port, "maxInflight", maxInflight, "auth", token != "", "version", liaison.Version)
+			"port", port, "maxInflight", maxInflight, "auth", token != "", "kubernetesTokens", auth.Enforcing(),
+			"version", liaison.Version)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error(err, "server")
 			os.Exit(1)
@@ -97,4 +106,17 @@ func envInt(key string, fallback int) int {
 		return v
 	}
 	return fallback
+}
+
+// callerAuthenticator reads the caller settings from the same ACCESS_* environment the
+// discussion gateway reads: verifying Kubernetes tokens when ACCESS_TOKEN_REVIEW is "true".
+func callerAuthenticator() (*identity.Authenticator, error) {
+	settings, err := identity.FromEnv(os.Getenv, func() (kubernetes.Interface, error) {
+		cfg, err := ctrl.GetConfig()
+		if err != nil {
+			return nil, err
+		}
+		return kubernetes.NewForConfig(cfg)
+	})
+	return settings.Authenticator, err
 }

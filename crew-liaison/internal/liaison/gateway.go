@@ -74,6 +74,7 @@ func (g *Gateway) Start(ctx context.Context, namespace, crew, question, timeZone
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	presentCredential(req)
 	resp, err := g.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("crew %s/%s gateway unreachable: %w", namespace, crew, err)
@@ -102,6 +103,7 @@ func (g *Gateway) Follow(ctx context.Context, namespace, crew, conversation stri
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
+	presentCredential(req)
 	resp, err := g.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("crew %s/%s stream unreachable: %w", namespace, crew, err)
@@ -122,4 +124,11 @@ func readEvents(r io.Reader, onEvent func(Event) bool) error {
 		}
 		return onEvent(ev)
 	})
+}
+
+// presentCredential sends the caller's bearer token, when the request's context carries one.
+func presentCredential(req *http.Request) {
+	if token := credentialFrom(req.Context()); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 }

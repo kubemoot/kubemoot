@@ -52,7 +52,7 @@ func newFakeOperator(report, zipBody string) *fakeOperator {
 func exportService(t *testing.T, f *fakeOperator) *Service {
 	t.Helper()
 	crews := staticLister{crews: []Crew{{Name: testCrew, Namespace: "ns", Ready: true}}}
-	exporter := NewExporterWith(f.srv.URL, f.srv.Client(), func() (string, error) { return "sa-token", nil })
+	exporter := NewExporterWith(f.srv.URL, f.srv.Client(), func() (string, error) { return saToken, nil })
 	return NewService(crews, NewGateway(), NewStore(time.Hour), 1).WithExporter(exporter)
 }
 
@@ -107,7 +107,7 @@ func assertOperatorCalls(t *testing.T, f *fakeOperator) {
 		t.Errorf("calls = %v, want one zip request: the manifest is read from the zip", f.calls)
 	}
 	for _, tok := range f.tokens {
-		if tok != "Bearer sa-token" {
+		if tok != "Bearer "+saToken {
 			t.Errorf("Authorization = %q, want the liaison's service account token", tok)
 		}
 	}
@@ -230,7 +230,7 @@ func TestExportThroughTheMCPProtocol(t *testing.T) {
 	defer cancel()
 	session := connectSession(ctx, t, srv.URL+"/mcp", "s3cret")
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "export_conversation", Arguments: map[string]any{"crew": testCrew, "conversationIds": []string{convID}},
+		Name: "export_conversation", Arguments: map[string]any{argCrew: testCrew, "conversationIds": []string{convID}},
 	})
 	if err != nil || res.IsError || len(res.Content) == 0 {
 		t.Fatalf("res = %+v, err = %v", res, err)
@@ -242,7 +242,7 @@ func TestExportThroughTheMCPProtocol(t *testing.T) {
 }
 
 func TestTheTicketNamesItsConversationSoItCanBeExported(t *testing.T) {
-	tk := NewStore(time.Hour).Create(testCrew, "ns", "conv-9", "q")
+	tk := NewStore(time.Hour).Create(testCrew, "ns", "conv-9", "q", "")
 	if got := tk.Snapshot().Conversation; got != "conv-9" {
 		t.Errorf("conversation = %q", got)
 	}
@@ -257,10 +257,30 @@ func TestTheExporterNeverFollowsARedirectWithItsToken(t *testing.T) {
 	}))
 	defer op.Close()
 	crews := staticLister{crews: []Crew{{Name: testCrew, Namespace: "ns"}}}
-	exporter := NewExporterWith(op.URL, NewExporter(op.URL).client, func() (string, error) { return "sa-token", nil })
+	exporter := NewExporterWith(op.URL, NewExporter(op.URL).client, func() (string, error) { return saToken, nil })
 	svc := NewService(crews, NewGateway(), NewStore(time.Hour), 1).WithExporter(exporter)
 	res, _, _ := svc.ExportConversation(context.Background(), nil, ExportConversationInput{Crew: testCrew, ConversationIDs: []string{"c"}})
 	if res == nil || !res.IsError || elsewhere != 0 {
 		t.Errorf("res = %+v, the redirect target was called %d times", res, elsewhere)
+	}
+}
+
+// A caller who has a Kubernetes token of their own is exported as themselves, so the operator
+// applies its owner check to them; any other caller is exported as the liaison.
+func TestTheExportPresentsTheCallersOwnTokenWhenTheyHaveOne(t *testing.T) {
+	var seen []string
+	op := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		http.Error(w, "refused", http.StatusForbidden)
+	}))
+	defer op.Close()
+	crews := staticLister{crews: []Crew{{Name: testCrew, Namespace: "ns"}}}
+	exporter := NewExporterWith(op.URL, NewExporter(op.URL).client, func() (string, error) { return saToken, nil })
+	svc := NewService(crews, NewGateway(), NewStore(time.Hour), 1).WithExporter(exporter)
+	in := ExportConversationInput{Crew: testCrew, ConversationIDs: []string{"c"}}
+	_, _, _ = svc.ExportConversation(withCredential(context.Background(), "alice-token"), nil, in)
+	_, _, _ = svc.ExportConversation(context.Background(), nil, in)
+	if len(seen) != 2 || seen[0] != "Bearer alice-token" || seen[1] != "Bearer "+saToken {
+		t.Fatalf("operator saw %v", seen)
 	}
 }

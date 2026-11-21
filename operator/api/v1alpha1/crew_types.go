@@ -33,6 +33,42 @@ type DiscussionConfig struct {
 	// Resources defines resource requirements for the gateway pod
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// Access declares who may call the gateway. Unset, the gateway accepts every caller
+	// as anonymous, as it always has, and the Crew reports Authentication=False with reason
+	// Anonymous. Set, the gateway verifies each caller's Kubernetes token, requires get on
+	// the Crew, and passes the verified caller with each question.
+	// +optional
+	Access *DiscussionAccess `json:"access,omitempty"`
+}
+
+// DiscussionAccess is how a crew's discussion gateway knows who is asking. Setting it turns
+// verification on; a caller then sends their Kubernetes token as "Authorization: Bearer".
+// A caller needs get on the Crew to use it.
+type DiscussionAccess struct {
+	// TokenReview makes the gateway check Kubernetes bearer tokens with a TokenReview and
+	// a SubjectAccessReview.
+	// +kubebuilder:default=true
+	// +optional
+	TokenReview *bool `json:"tokenReview,omitempty"`
+
+	// AllowAnonymous lets a caller with no token ask as the anonymous caller. A token that is present and not valid is always refused.
+	// +kubebuilder:default=false
+	// +optional
+	AllowAnonymous *bool `json:"allowAnonymous,omitempty"`
+
+	// TokenAudiences are the audiences a token must be bound to, so a token minted for the
+	// API server alone is not accepted. Empty accepts the API server's own audience.
+	// +optional
+	TokenAudiences []string `json:"tokenAudiences,omitempty"`
+}
+
+// TokenReviewEnabled reports whether Kubernetes tokens are checked: on unless set off.
+func (a *DiscussionAccess) TokenReviewEnabled() bool { return a.TokenReview == nil || *a.TokenReview }
+
+// AnonymousAllowed reports whether a caller with no token is accepted: off unless set on.
+func (a *DiscussionAccess) AnonymousAllowed() bool {
+	return a.AllowAnonymous != nil && *a.AllowAnonymous
 }
 
 // CrewSpec defines the desired state of Crew

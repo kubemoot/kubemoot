@@ -20,7 +20,8 @@
         "question": { "type": "string", "description": "The first question of the conversation the discussion stream holds." },
         "startedAt": { "type": "string", "description": "When its first turn began, RFC 3339 in UTC." },
         "lastTurnAt": { "type": "string", "description": "When its latest turn began, RFC 3339 in UTC." },
-        "turns": { "type": "integer", "description": "How many threads answered it." }
+        "turns": { "type": "integer", "description": "How many threads answered it." },
+        "owner": { "type": "string", "description": "The pseudonymous id of the principal that owns the conversation. Absent for an anonymous conversation, and in a list the caller reads as the owner." }
       }
     }
   }

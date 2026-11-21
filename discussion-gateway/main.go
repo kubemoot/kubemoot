@@ -13,6 +13,8 @@ import (
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
 	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/pkg/httporigin"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
@@ -55,7 +57,13 @@ func main() {
 	if len(rejected) > 0 {
 		log.Info("Ignoring ALLOWED_ORIGINS entries that are not an exact origin", "entries", rejected)
 	}
-	handler := api.NewHandler(nc, namespace).AllowOrigins(origins).EndStreamsOn(ctx)
+	settings, err := identity.FromEnv(os.Getenv, kubernetesClient)
+	if err != nil {
+		log.Error(err, "Cannot set up caller verification; refusing to serve open")
+		os.Exit(1)
+	}
+	handler := api.NewHandler(nc, namespace).AllowOrigins(origins).EndStreamsOn(ctx).
+		WithAccess(settings.Authenticator, settings.Authorizer)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
@@ -87,4 +95,13 @@ func main() {
 	}
 
 	fmt.Println("Stopped")
+}
+
+// kubernetesClient is the in-cluster client the gateway checks tokens with.
+func kubernetesClient() (kubernetes.Interface, error) {
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return nil, err
+	}
+	return kubernetes.NewForConfig(cfg)
 }
