@@ -64,14 +64,14 @@ func TestMCPEndToEnd(t *testing.T) {
 	}
 
 	var pending AskOutput
-	asked := callTool(ctx, t, session, "ask", map[string]any{"crew": testCrew, "question": testQuestion, argWaitSeconds: 0})
+	asked := callTool(ctx, t, session, "ask", map[string]any{argCrew: testCrew, argQuestion: testQuestion, argWaitSeconds: 0})
 	if err := json.Unmarshal([]byte(asked), &pending); err != nil || pending.ID == "" {
 		t.Fatalf("ask output: %v %s", err, asked)
 	}
 	settle(t, svc, pending.ID)
 
 	var answer GetAnswerOutput
-	got := callTool(ctx, t, session, "get_answer", map[string]any{"ticket": pending.ID})
+	got := callTool(ctx, t, session, "get_answer", map[string]any{argTicket: pending.ID})
 	err := json.Unmarshal([]byte(got), &answer)
 	if err != nil || answer.State != StateAnswered || !strings.Contains(answer.Answer, "Paris") {
 		t.Fatalf("get_answer output: %v %s", err, got)

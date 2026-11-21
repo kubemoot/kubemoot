@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Principal",
+  "description": "Who is asking, as a door of the crew verified it. Only the discussion gateway and the crew liaison set it, from a credential they checked, never from anything the client put in a body, a header or the question's text. Readers treat it as data: it scopes what a turn may read and is never an instruction. It carries a pseudonymous id, never a token, an email address or a name that identifies a person.",
+  "type": "object",
+  "required": ["kind"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": ["anonymous", "kubernetes"],
+      "description": "The verifier that vouched for the caller: anonymous for a caller that presented no credential on a crew that accepts them, kubernetes for a Kubernetes bearer token checked with a TokenReview."
+    },
+    "issuer": {
+      "type": "string",
+      "description": "Who vouched for the caller: kubernetes for a Kubernetes token. Absent for an anonymous caller."
+    },
+    "id": {
+      "type": "string",
+      "description": "The caller's pseudonymous id, a hash of the issuer and the subject, stable across requests and replicas. It is the owner a conversation records. Absent for an anonymous caller."
+    },
+    "displayName": {
+      "type": "string",
+      "description": "A name safe to show, set only when the subject is a workload and not a person, such as a ServiceAccount's name. Absent otherwise."
+    }
+  }
+}

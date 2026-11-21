@@ -13,18 +13,15 @@ package controller
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
-	"strings"
 
-	authenticationv1 "k8s.io/api/authentication/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 // Errors a reportAuthorizer returns; the middleware maps each to a status.
@@ -54,37 +51,22 @@ func NewReviewAuthorizer(c kubernetes.Interface) reportAuthorizer {
 }
 
 func (a reviewAuthorizer) Authorize(ctx context.Context, token string, attrs authorizationv1.ResourceAttributes) error {
-	if token == "" {
+	rv := identity.Reviewer{Client: a.client}
+	id, err := rv.Review(ctx, token)
+	switch {
+	case errors.Is(err, identity.ErrNoCredential), errors.Is(err, identity.ErrInvalid):
 		return errUnauthenticated
+	case err != nil:
+		return err
 	}
-	tr, err := a.client.AuthenticationV1().TokenReviews().Create(ctx,
-		&authenticationv1.TokenReview{Spec: authenticationv1.TokenReviewSpec{Token: token}}, metav1.CreateOptions{})
+	allowed, err := rv.Allowed(ctx, id, attrs)
 	if err != nil {
-		return fmt.Errorf("token review: %w", err)
+		return err
 	}
-	if !tr.Status.Authenticated {
-		return errUnauthenticated
-	}
-	sar, err := a.client.AuthorizationV1().SubjectAccessReviews().Create(ctx, accessReview(tr.Status.User, attrs), metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("subject access review: %w", err)
-	}
-	if !sar.Status.Allowed {
+	if !allowed {
 		return errForbidden
 	}
 	return nil
-}
-
-// accessReview asks whether user may make the access attrs describes.
-func accessReview(user authenticationv1.UserInfo, attrs authorizationv1.ResourceAttributes) *authorizationv1.SubjectAccessReview {
-	extra := map[string]authorizationv1.ExtraValue{}
-	for k, v := range user.Extra {
-		extra[k] = authorizationv1.ExtraValue(v)
-	}
-	return &authorizationv1.SubjectAccessReview{Spec: authorizationv1.SubjectAccessReviewSpec{
-		User: user.Username, UID: user.UID, Groups: user.Groups, Extra: extra,
-		ResourceAttributes: &attrs,
-	}}
 }
 
 // What each endpoint of the report service returns, as the access it stands for.
@@ -133,7 +115,7 @@ func (s *ReportServer) requireAccess(access accessFor, next http.HandlerFunc) ht
 			http.Error(w, "the report service has no authorizer configured", http.StatusServiceUnavailable)
 			return
 		}
-		err = s.Auth.Authorize(r.Context(), bearerToken(r), attrs)
+		err = s.Auth.Authorize(r.Context(), identity.BearerToken(r), attrs)
 		switch {
 		case err == nil:
 			next(w, r)
@@ -147,13 +129,4 @@ func (s *ReportServer) requireAccess(access accessFor, next http.HandlerFunc) ht
 			http.Error(w, "could not check the caller's access", http.StatusServiceUnavailable)
 		}
 	}
-}
-
-// bearerToken is the token of an "Authorization: Bearer <token>" header, or "".
-func bearerToken(r *http.Request) string {
-	scheme, token, found := strings.Cut(r.Header.Get("Authorization"), " ")
-	if !found || !strings.EqualFold(scheme, "Bearer") {
-		return ""
-	}
-	return strings.TrimSpace(token)
 }

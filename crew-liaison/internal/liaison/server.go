@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 // Version is stamped by the build; the MCP handshake reports it.
@@ -47,11 +49,17 @@ func NewMCPServer(svc *Service) *mcp.Server {
 
 // NewHandler serves MCP at /mcp (bearer-protected when token is set) plus health probes.
 func NewHandler(svc *Service, token string) http.Handler {
+	return NewHandlerWithAuth(svc, token, nil)
+}
+
+// NewHandlerWithAuth is NewHandler with an authenticator that verifies callers' Kubernetes
+// tokens. A nil or non-enforcing authenticator leaves the door as NewHandler makes it.
+func NewHandlerWithAuth(svc *Service, token string, auth *identity.Authenticator) http.Handler {
 	server := NewMCPServer(svc)
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", requireBearer(token, mcpHandler))
+	mux.Handle("/mcp", requireCaller(token, auth, mcpHandler))
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, "ok") })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, "ready") })
 	return mux

@@ -81,6 +81,33 @@ spec:
               discussion:
                 description: Discussion configures the crew's discussion gateway
                 properties:
+                  access:
+                    description: |-
+                      Access declares who may call the gateway. Unset, the gateway accepts every caller
+                      as anonymous, as it always has, and the Crew reports Authentication=False with reason
+                      Anonymous. Set, the gateway verifies each caller's Kubernetes token, requires get on
+                      the Crew, and passes the verified caller with each question.
+                    properties:
+                      allowAnonymous:
+                        default: false
+                        description: AllowAnonymous lets a caller with no token ask
+                          as the anonymous caller. A token that is present and not
+                          valid is always refused.
+                        type: boolean
+                      tokenAudiences:
+                        description: |-
+                          TokenAudiences are the audiences a token must be bound to, so a token minted for the
+                          API server alone is not accepted. Empty accepts the API server's own audience.
+                        items:
+                          type: string
+                        type: array
+                      tokenReview:
+                        default: true
+                        description: |-
+                          TokenReview makes the gateway check Kubernetes bearer tokens with a TokenReview and
+                          a SubjectAccessReview.
+                        type: boolean
+                    type: object
                   enabled:
                     default: true
                     description: |-

@@ -95,9 +95,15 @@ func (e *Exporter) fetch(
 	if err != nil {
 		return nil, false, err
 	}
-	token, err := e.token()
-	if err != nil {
-		return nil, false, fmt.Errorf("the liaison has no service account token: %w", err)
+	token := credentialFrom(ctx)
+	if token == "" {
+		// A caller with no Kubernetes token of its own (the shared token, or no verification)
+		// is served as the liaison itself, which the operator refuses on a crew that verifies
+		// callers and the liaison does not own the conversation of.
+		var err error
+		if token, err = e.token(); err != nil {
+			return nil, false, fmt.Errorf("the liaison has no service account token: %w", err)
+		}
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := e.client.Do(req)
@@ -148,12 +154,6 @@ type ExportConversationOutput struct {
 	Manifest map[string]any `json:"manifest"`
 }
 
-// mayExport is the one place the liaison decides whether a caller may export a conversation.
-// A conversation has no owner yet, and the liaison fronts the crews its service account may
-// get behind one shared bearer token, so any id of a fronted crew is allowed; the operator
-// checks the liaison's own access too. Identity phase 1 replaces this with the owner check.
-func (s *Service) mayExport(context.Context, Crew, string) error { return nil }
-
 // ExportConversation returns the zip of one conversation, or a zip of zips of several, as
 // an embedded resource, when it is small enough to return; otherwise the manifest and the
 // way to take the file. The zip is built by the operator on this request and never stored.
@@ -167,7 +167,7 @@ func (s *Service) ExportConversation(
 	if err != nil {
 		return toolError(err.Error()), ExportConversationOutput{}, nil
 	}
-	crew, err := s.exportCrew(ctx, in, ids)
+	crew, err := s.exportCrew(ctx, in)
 	if err != nil {
 		return toolError(err.Error()), ExportConversationOutput{}, nil
 	}
@@ -191,8 +191,9 @@ func exportIDs(raw []string) ([]string, error) {
 	return ids, nil
 }
 
-// exportCrew finds the crew and checks the caller's right to each id.
-func (s *Service) exportCrew(ctx context.Context, in ExportConversationInput, ids []string) (Crew, error) {
+// exportCrew finds the crew. Whether the caller may export each id is the operator's to decide:
+// it holds the conversation's owner, and fetch presents the caller's own token to it.
+func (s *Service) exportCrew(ctx context.Context, in ExportConversationInput) (Crew, error) {
 	crews, err := s.crews.List(ctx)
 	if err != nil {
 		return Crew{}, err
@@ -200,11 +201,6 @@ func (s *Service) exportCrew(ctx context.Context, in ExportConversationInput, id
 	crew, err := find(crews, in.Crew, in.Namespace)
 	if err != nil {
 		return Crew{}, err
-	}
-	for _, id := range ids {
-		if err := s.mayExport(ctx, crew, id); err != nil {
-			return Crew{}, err
-		}
 	}
 	return crew, nil
 }

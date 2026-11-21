@@ -10,7 +10,8 @@ metadata:
   labels:
     {{- include "kubemoot-operator.labels" . | nindent 4 }}
 ---
-# The liaison only reads Crew resources, cluster-wide, to know whom it may front.
+# The liaison reads Crew resources, cluster-wide, to know whom it may front, and checks
+# callers' tokens when liaison.auth.kubernetesTokens is on.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -21,6 +22,12 @@ rules:
   - apiGroups: ["kubemoot.ai"]
     resources: ["crews"]
     verbs: ["get", "list", "watch"]
+  {{- if .Values.liaison.auth.kubernetesTokens }}
+  # Checking callers' Kubernetes tokens.
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -96,6 +103,14 @@ spec:
               value: {{ .Values.liaison.maxInflight | quote }}
             - name: LIAISON_TICKET_TTL_MINUTES
               value: {{ .Values.liaison.ticketTTLMinutes | quote }}
+            {{- if .Values.liaison.auth.kubernetesTokens }}
+            - name: ACCESS_ENFORCE
+              value: "true"
+            - name: ACCESS_TOKEN_REVIEW
+              value: "true"
+            - name: ACCESS_ALLOW_ANONYMOUS
+              value: {{ .Values.liaison.auth.allowAnonymous | quote }}
+            {{- end }}
             {{- if or .Values.liaison.auth.existingSecret .Values.liaison.auth.token }}
             - name: LIAISON_TOKEN
               valueFrom:

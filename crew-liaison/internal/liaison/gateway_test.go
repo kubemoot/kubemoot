@@ -15,6 +15,7 @@ type fakeGateway struct {
 	mu        sync.Mutex
 	questions []string
 	zones     []string
+	auths     []string // the Authorization header of each request, in order
 	events    []string // raw SSE lines to stream
 	startCode int
 	srv       *httptest.Server
@@ -37,6 +38,7 @@ func newFakeGateway(events ...string) *fakeGateway {
 		}
 		_ = decodeJSON(r, &body)
 		f.mu.Lock()
+		f.auths = append(f.auths, r.Header.Get("Authorization"))
 		f.questions = append(f.questions, body.Message)
 		f.zones = append(f.zones, body.TimeZone)
 		code := f.startCode
@@ -51,6 +53,7 @@ func newFakeGateway(events ...string) *fakeGateway {
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conv}/stream", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		f.mu.Lock()
+		f.auths = append(f.auths, r.Header.Get("Authorization"))
 		events := append([]string(nil), f.events...)
 		f.mu.Unlock()
 		for _, ev := range events {
@@ -69,6 +72,12 @@ func (f *fakeGateway) asked() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.questions...)
+}
+
+func (f *fakeGateway) authorizations() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.auths...)
 }
 
 func (f *fakeGateway) askedZones() []string {

@@ -21,7 +21,7 @@ Four tools, and nothing about the discussion's substance.
 | `get_answer` | Reports a ticket: `pending`, `answered` with the answer, or `failed` with the reason. It too waits up to 45 seconds, returning the moment the answer exists. |
 | `export_conversation` | Takes a conversation away as one zip: the turns, receipts, workspace files and the memory facts learned in it, with a manifest of what had expired. |
 
-`export_conversation` takes the crew, `conversationIds` (the `conversationId` that `ask` and `get_answer` return; several ids return a zip of zips with a manifest listing each as included, refused or expired) and an optional `timeZone` for the times in the file. The liaison asks the operator's [conversation export](../../operating/data-ownership/#taking-a-conversation-away) with its own service account, and the zip is built for that call and never stored. The result carries the zip as an embedded resource when it is at most 48 KiB, because a model client reads a tool result as text and caps how much of it it takes in. A larger zip is not returned: the result carries the manifest and a note naming the other ways to take it (`kmctl conversation export`, or the operator endpoint). The chart sets `LIAISON_OPERATOR_REPORT_URL` to the operator's report service; without it the tool answers that export is not configured.
+`export_conversation` takes the crew, `conversationIds` (the `conversationId` that `ask` and `get_answer` return; several ids return a zip of zips with a manifest listing each as included, refused or expired) and an optional `timeZone` for the times in the file. The liaison asks the operator's [conversation export](../../operating/data-ownership/#taking-a-conversation-away) with the caller's own Kubernetes token when it verifies tokens (see below), so the operator's owner check applies to the caller, and otherwise with its own service account, and the zip is built for that call and never stored. The result carries the zip as an embedded resource when it is at most 48 KiB, because a model client reads a tool result as text and caps how much of it it takes in. A larger zip is not returned: the result carries the manifest and a note naming the other ways to take it (`kmctl conversation export`, or the operator endpoint). The chart sets `LIAISON_OPERATOR_REPORT_URL` to the operator's report service; without it the tool answers that export is not configured.
 
 `ask` takes the crew and the question, and these optional arguments: `namespace` (when the crew name is not unique), `waitSeconds`, `ticket` (a retry rejoins its discussion), and `timeZone`, the asker's IANA time zone such as `America/New_York`. The liaison forwards the zone with the question and keeps it nowhere; the crew states the asker's date in it. A zone that is not in the IANA time zone database is dropped, and the crew uses its default zone. A client that knows where its person is (a chat client with the person's locale, a script) should send it.
 
@@ -61,6 +61,17 @@ Two details make it forgiving:
 Clients that support long-running calls get the same behaviour for free. Claude Code
 moves any tool call past two minutes into a background task, so a chain of 45-second
 polls simply runs in the background until the answer is in.
+
+## Knowing who is asking
+
+By default the liaison accepts every caller that presents the shared token (or any caller, when no token is set) and every ticket is readable by whoever holds its id, as before. With `liaison.auth.kubernetesTokens: true` in the chart, the liaison also checks Kubernetes bearer tokens with a TokenReview, so a caller is a principal and not just a holder of the shared secret:
+
+- The caller's token is passed to the crew's discussion gateway on the question and on the stream, so the gateway, not the liaison, decides what that caller may see. The liaison's shared token is never passed on, and a caller who presents it is anonymous.
+- A ticket belongs to the caller who asked. `get_answer` and a retry through `ask` answer only for the same principal; another caller gets "unknown or expired ticket".
+- A caller with no token is refused, unless `liaison.auth.allowAnonymous` is `true`. A token that is present and not valid is always refused, and when a shared token is also configured a request that presents nothing is refused even with `allowAnonymous`.
+- The caller's token is held in memory for the life of the discussion the liaison follows for it (at most thirty minutes) and is never stored.
+
+The liaison and the gateway are two doors to one crew and share one definition of who is asking (see [Who is asking](../../concepts/who-is-asking/)). Turn on `spec.discussion.access` on the crew as well: a crew that verifies callers refuses the liaison's questions when the liaison sends no token.
 
 ## Watching the moot from the dashboard
 

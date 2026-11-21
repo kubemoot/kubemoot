@@ -9,18 +9,18 @@ import (
 
 func TestGatewayEnvSetsNoOriginsByDefault(t *testing.T) {
 	t.Setenv(gatewayAllowedOriginsEnv, "")
-	if _, found := envValue(gatewayEnv("nats://n:4222"), "ALLOWED_ORIGINS"); found {
+	if _, found := envValue(gatewayEnv("nats://n:4222", nil), "ALLOWED_ORIGINS"); found {
 		t.Fatal("ALLOWED_ORIGINS must be absent when no origin is configured")
 	}
 	t.Setenv(gatewayAllowedOriginsEnv, "  ")
-	if _, found := envValue(gatewayEnv("nats://n:4222"), "ALLOWED_ORIGINS"); found {
+	if _, found := envValue(gatewayEnv("nats://n:4222", nil), "ALLOWED_ORIGINS"); found {
 		t.Fatal("a blank list must set nothing")
 	}
 }
 
 func TestGatewayEnvPassesConfiguredOrigins(t *testing.T) {
 	t.Setenv(gatewayAllowedOriginsEnv, "https://a.example.com,https://b.example.com")
-	env := gatewayEnv("nats://n:4222")
+	env := gatewayEnv("nats://n:4222", nil)
 	if got, _ := envValue(env, "ALLOWED_ORIGINS"); got != "https://a.example.com,https://b.example.com" {
 		t.Fatalf("ALLOWED_ORIGINS = %q", got)
 	}
@@ -31,11 +31,11 @@ func TestGatewayEnvPassesConfiguredOrigins(t *testing.T) {
 
 func TestGatewayEnvDropsBadOriginsAndBlanks(t *testing.T) {
 	t.Setenv(gatewayAllowedOriginsEnv, "https://a.example.com, ,*,https://b.example.com/x,https://a.example.com")
-	if got, _ := envValue(gatewayEnv("nats://n:4222"), "ALLOWED_ORIGINS"); got != "https://a.example.com" {
+	if got, _ := envValue(gatewayEnv("nats://n:4222", nil), "ALLOWED_ORIGINS"); got != "https://a.example.com" {
 		t.Fatalf("ALLOWED_ORIGINS = %q", got)
 	}
 	t.Setenv(gatewayAllowedOriginsEnv, "*")
-	if _, found := envValue(gatewayEnv("nats://n:4222"), "ALLOWED_ORIGINS"); found {
+	if _, found := envValue(gatewayEnv("nats://n:4222", nil), "ALLOWED_ORIGINS"); found {
 		t.Fatal("only invalid entries must set nothing")
 	}
 }

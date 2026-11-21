@@ -19,6 +19,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	opscope "github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 	"github.com/kubemoot/kubemoot/operator/pkg/httporigin"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -48,6 +49,9 @@ type Handler struct {
 	streamsEnd context.Context
 	// allowedOrigins are the browser origins the stream's CORS headers admit; empty sends none.
 	allowedOrigins map[string]struct{}
+	// auth and authz verify callers; nil means every caller is anonymous and nothing is checked.
+	auth  *identity.Authenticator
+	authz identity.Authorizer
 	// deprecatedRoute logs the first call of a deprecated route once.
 	deprecatedRoute sync.Once
 }
@@ -97,11 +101,11 @@ func (h *Handler) scopeFor(w http.ResponseWriter, crew string) (crewscope.Scope,
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.healthHandler)
 	mux.HandleFunc("GET /ready", h.readyHandler)
-	mux.HandleFunc("POST /api/v1/discussions/{crew}", h.postDiscussion)
-	mux.HandleFunc("GET /api/v1/discussions/{crew}", h.listConversationsHandler)
-	mux.HandleFunc("GET /api/v1/discussions/{crew}/workspace", h.getWorkspace)
-	mux.HandleFunc("GET /api/v1/discussions/{crew}/artifact", h.getArtifactDeprecated)
-	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conversationId}/stream", h.streamDiscussion)
+	mux.HandleFunc("POST /api/v1/discussions/{crew}", h.guard(h.postDiscussion))
+	mux.HandleFunc("GET /api/v1/discussions/{crew}", h.guard(h.listConversationsHandler))
+	mux.HandleFunc("GET /api/v1/discussions/{crew}/workspace", h.guard(h.getWorkspace))
+	mux.HandleFunc("GET /api/v1/discussions/{crew}/artifact", h.guard(h.getArtifactDeprecated))
+	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conversationId}/stream", h.guard(h.streamDiscussion))
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -228,6 +232,7 @@ func (h *Handler) postDiscussion(w http.ResponseWriter, r *http.Request) {
 		UseTools:       true,
 		TimeZone:       askerZone(req.TimeZone),
 		LocalDateTime:  req.LocalDateTime,
+		Principal:      h.principalOf(r),
 	})
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)

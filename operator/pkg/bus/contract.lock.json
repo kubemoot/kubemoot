@@ -1,5 +1,5 @@
 {
-  "version": "2.4.0",
+  "version": "2.5.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -196,6 +196,9 @@
     "conversation-list.json#/definitions/ConversationSummary/lastTurnAt": {
       "type": "string",
       "required": true
+    },
+    "conversation-list.json#/definitions/ConversationSummary/owner": {
+      "type": "string"
     },
     "conversation-list.json#/definitions/ConversationSummary/question": {
       "type": "string"
@@ -1208,6 +1211,9 @@
       "type": "string",
       "required": true
     },
+    "discussion-request.json#/principal": {
+      "ref": "principal.json"
+    },
     "discussion-request.json#/timeZone": {
       "type": "string"
     },
@@ -1595,6 +1601,26 @@
     },
     "post-discussion-response.json#/requestedAt": {
       "type": "string",
+      "required": true
+    },
+    "principal.json#": {
+      "type": "object"
+    },
+    "principal.json#/displayName": {
+      "type": "string"
+    },
+    "principal.json#/id": {
+      "type": "string"
+    },
+    "principal.json#/issuer": {
+      "type": "string"
+    },
+    "principal.json#/kind": {
+      "type": "string",
+      "enum": [
+        "anonymous",
+        "kubernetes"
+      ],
       "required": true
     },
     "scheduled-record.json#": {

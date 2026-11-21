@@ -25,6 +25,7 @@ import (
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 const sampleToken = "tkn"
@@ -98,8 +99,8 @@ func TestBearerToken(t *testing.T) {
 		if header != "" {
 			r.Header.Set(headerAuthorization, header)
 		}
-		if got := bearerToken(r); got != want {
-			t.Errorf("bearerToken(%q) = %q, want %q", header, got, want)
+		if got := identity.BearerToken(r); got != want {
+			t.Errorf("BearerToken(%q) = %q, want %q", header, got, want)
 		}
 	}
 }

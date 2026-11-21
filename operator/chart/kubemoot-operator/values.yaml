@@ -465,6 +465,13 @@ liaison:
     token: ""
     existingSecret: ""
     key: token
+    # Check Kubernetes bearer tokens (TokenReview) so the liaison knows who is asking: a
+    # caller's token is passed to the crew's gateway, and a ticket can be read only by the
+    # caller who asked. A shared token above still works and acts as an anonymous caller.
+    # Off, the liaison behaves as it always has.
+    kubernetesTokens: false
+    # With kubernetesTokens on, accept a caller that sends no token as anonymous.
+    allowAnonymous: false
   # Public route through the Gateway API listener configured under `gateway` above.
   # Path /mcp on the hostname; the hostname defaults to gateway.hostname.
   expose:
