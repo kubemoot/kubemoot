@@ -1442,6 +1442,9 @@ func (r *MCPGatewayReconciler) findGatewaysForSecret(ctx context.Context, obj cl
 func (r *MCPGatewayReconciler) findGatewaysInNamespace(ctx context.Context, obj client.Object) []reconcile.Request {
 	list := &kubemootv1alpha1.MCPGatewayList{}
 	if err := r.List(ctx, list, client.InNamespace(obj.GetNamespace())); err != nil {
+		// A map function cannot retry; the gateways pick the change up on their next reconcile.
+		logf.FromContext(ctx).Error(err, "listing the gateways of a namespace to reconcile after a change",
+			"namespace", obj.GetNamespace(), "object", obj.GetName())
 		return nil
 	}
 	requests := make([]reconcile.Request, 0, len(list.Items))
