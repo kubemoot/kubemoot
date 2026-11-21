@@ -16,6 +16,9 @@ spec:
   capabilities: [tool-calling, reasoning]
   discussChannels: [general, topic-1]
   promptRefs: [advisory-prompt, coordinator-decision-logic, synthesis-prompt]
+  # The quickstart runs a very small CPU model; at the engine's default sampling it answers
+  # its checkable question wrongly, so these agents set a low temperature.
+  temperature: "0.1"
   maxTokens: 1024
   deployment:
     replicas: 1
@@ -42,6 +45,9 @@ spec:
   capabilities: [tool-calling]
   discussChannels: [topic-1]
   promptRefs: [discussion-protocol, response-style, hello-facts-system]
+  # The quickstart runs a very small CPU model; at the engine's default sampling it answers
+  # its checkable question wrongly, so these agents set a low temperature.
+  temperature: "0.3"
   maxTokens: 1024
   deployment:
     replicas: 1
