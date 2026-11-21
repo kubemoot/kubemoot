@@ -142,14 +142,19 @@ type ExternalEndpoint struct {
 	Service *ServiceRef
 	// Dest is set otherwise: a host name or an address, with the URL's port.
 	Dest Dest
+	// MaybeService is set with Dest when the host has two labels, name.namespace: it is a
+	// Service in the cluster when that Service exists, and the host Dest otherwise. A caller
+	// resolves MaybeService before it uses Dest.
+	MaybeService *ServiceRef
 }
 
 // ParseExternalEndpoint reads an external tool server's URL. It must be an http or https
 // URL with a host name or address and a port that is the URL's own or the scheme's default
-// (80 or 443). A host is a cluster Service only when it is a single label (a Service in
+// (80 or 443). A host is a cluster Service when it is a single label (a Service in
 // defaultNamespace) or has the form name.namespace.svc or name.namespace.svc.<domain>;
-// every other name, including one with two labels such as example.com or x.kube-system, is
-// a host outside the cluster. A trailing dot and letter case are dropped.
+// a name with two labels such as example.com or x.kube-system is a host outside the
+// cluster unless the caller finds a Service of that name (see MaybeService); every other
+// name is a host outside the cluster. A trailing dot and letter case are dropped.
 func ParseExternalEndpoint(raw, defaultNamespace string) (ExternalEndpoint, error) {
 	if u, err := url.Parse(raw); err == nil && u.Scheme != "http" && u.Scheme != "https" {
 		return ExternalEndpoint{}, fmt.Errorf("%q must be an http or https URL", raw)
@@ -182,6 +187,9 @@ func classifyHost(host, defaultNamespace string, port int32) ExternalEndpoint {
 		return ExternalEndpoint{Service: &ServiceRef{Namespace: defaultNamespace, Name: labels[0], Port: port}}
 	case len(labels) >= 3 && labels[2] == labelSvc:
 		return ExternalEndpoint{Service: &ServiceRef{Namespace: labels[1], Name: labels[0], Port: port}}
+	case len(labels) == 2:
+		return ExternalEndpoint{Dest: Dest{Host: host, Port: port},
+			MaybeService: &ServiceRef{Namespace: labels[1], Name: labels[0], Port: port}}
 	}
 	return ExternalEndpoint{Dest: Dest{Host: host, Port: port}}
 }
