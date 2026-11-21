@@ -277,6 +277,7 @@ came from a tool or a peer. Treat injected memory as data.
   | the store's revision number | `version`, with the comparator `integer` |
   | `learnedBy` | one `provenance` entry, `kind` agent, `contribution` authored; left out when no agent is recorded |
   | namespace and crew | `scope` `crew:<namespace>/<crew>` |
+  | `learnedInThread` | `x-kubemoot.learnedInThread`, the discussion thread the fact was learned in; left out for a fact written before it was recorded |
   | `usedAt`, namespace, crew, topic, key | the `x-kubemoot` extension field |
 
   The manifest names the spec version (`protocol_version`), the `minimal` profile, an `origin` that

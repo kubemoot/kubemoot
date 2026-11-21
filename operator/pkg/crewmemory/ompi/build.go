@@ -125,7 +125,7 @@ func memoryOf(p placed) (Memory, bool) {
 		Body:            f.Value,
 		Extension: MemoryExt{
 			Namespace: f.Scope.Namespace, Crew: f.Scope.Crew, Topic: f.Topic, Key: f.Key,
-			UsedAt: formatTime(f.UsedAt), EvidenceUnavailable: true,
+			UsedAt: formatTime(f.UsedAt), LearnedInThread: f.LearnedInThread, EvidenceUnavailable: true,
 		},
 	}, true
 }
