@@ -18,9 +18,18 @@ const secretPayload = "kubemoot-plaintext-marker-7f3a"
 // variable (a Secret in the pod), never from the file.
 func encryptionConfig(t *testing.T, dir string, encrypted bool) string {
 	t.Helper()
+	return encryptionConfigWith(t, dir, encrypted, "")
+}
+
+// encryptionConfigWith adds a prev_encryption_key line when prevKey names an environment variable.
+func encryptionConfigWith(t *testing.T, dir string, encrypted bool, prevKey string) string {
+	t.Helper()
 	conf := fmt.Sprintf("host: 127.0.0.1\nport: -1\njetstream {\n  store_dir: %q\n", filepath.Join(dir, "js"))
 	if encrypted {
-		conf += "  cipher: chachapoly\n  encryption_key: $JS_ENCRYPTION_KEY\n"
+		conf += "  cipher: chachapoly\n  key: $JS_ENCRYPTION_KEY\n"
+		if prevKey != "" {
+			conf += "  prev_encryption_key: $" + prevKey + "\n"
+		}
 	}
 	conf += "}\n"
 	p := filepath.Join(dir, "nats.conf")
@@ -122,7 +131,6 @@ func TestKeyOnOverAnExistingStoreEncryptsItAndTheKeyIsThenRequired(t *testing.T)
 
 	s3, stop3 := runServer(t, encryptionConfig(t, dir, false))
 	defer stop3()
-	t.Logf("messages readable after dropping the key: %d", messages(t, s3))
 	if n := messages(t, s3); n != 0 {
 		t.Fatalf("an encrypted store must not be readable without its key, got %d messages", n)
 	}
@@ -136,9 +144,36 @@ func messages(t *testing.T, s *server.Server) uint64 {
 	}
 	defer nc.Close()
 	js, _ := nc.JetStream()
-	info, err := js.StreamInfo("S")
-	if err != nil {
-		return 0
+	// Recovery of an existing store finishes just after the server accepts connections.
+	for range 15 {
+		if info, err := js.StreamInfo("S"); err == nil {
+			return info.State.Msgs
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	return info.State.Msgs
+	return 0
+}
+
+// The rotation the install guide describes: restart once with the new key as key and the old one
+// as prev_encryption_key, then drop it.
+func TestKeyRotationWithPrevKeyKeepsTheStreamReadable(t *testing.T) {
+	t.Setenv("JS_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef-old1")
+	dir := t.TempDir()
+	s, stop := runServer(t, encryptionConfig(t, dir, true))
+	publishOne(t, s)
+	stop()
+
+	t.Setenv("JS_PREVIOUS_KEY", "0123456789abcdef0123456789abcdef-old1")
+	t.Setenv("JS_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef-new2")
+	s2, stop2 := runServer(t, encryptionConfigWith(t, dir, true, "JS_PREVIOUS_KEY"))
+	if n := messages(t, s2); n != 1 {
+		t.Fatalf("with prev_encryption_key the stream must stay readable after the key changes, got %d", n)
+	}
+	stop2()
+
+	s3, stop3 := runServer(t, encryptionConfig(t, dir, true))
+	defer stop3()
+	if n := messages(t, s3); n != 1 {
+		t.Fatalf("after the rotation the new key alone must read the stream, got %d", n)
+	}
 }
