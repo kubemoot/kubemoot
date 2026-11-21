@@ -32,6 +32,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/natskv"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory/ompi"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 )
 
 type options struct {
@@ -119,11 +120,13 @@ func export(reader crewmemory.EntryReader, scope crewscope.Scope, o options, now
 // purpose: the Publisher treats an unreachable server as an empty bucket, and an
 // export that silently finds no facts is worse than one that fails.
 func connect(o options) (crewmemory.EntryReader, func(), error) {
-	var opts []nats.Option
+	conf := natsconn.FromEnv(os.Getenv)
+	conf.URL = o.natsURL
 	if o.creds != "" {
-		opts = append(opts, nats.UserCredentials(o.creds))
+		conf.ClearAuth()
+		conf.CredsFile = o.creds
 	}
-	nc, err := nats.Connect(o.natsURL, opts...)
+	nc, err := conf.Connect()
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect %s: %w", o.natsURL, err)
 	}

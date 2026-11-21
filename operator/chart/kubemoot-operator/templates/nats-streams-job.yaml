@@ -49,11 +49,33 @@ spec:
       containers:
         - name: nats-bootstrap
           image: natsio/nats-box:0.20.2@sha256:5162fca0f56ebe6f78e612e1ded143ce978e088393476033020e6251358dba6f
+          {{- $connEnv := include "kubemoot-operator.natsConnEnv" (dict "root" .) | trim }}
+          {{- if $connEnv }}
+          env:
+            {{- $connEnv | nindent 12 }}
+          {{- end }}
+          {{- $connMounts := include "kubemoot-operator.natsConnMounts" . | trim }}
+          {{- if $connMounts }}
+          volumeMounts:
+            {{- $connMounts | nindent 12 }}
+          {{- end }}
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -e
               NATS_URL="{{ .Values.nats.url }}"
+
+              # The connection options (nats.tls, nats.auth) arrive as the NATS_* names every
+              # Kubemoot component reads; the nats CLI reads NATS_CA, NATS_CERT, NATS_KEY and
+              # NATS_CREDS, and NATS_USER and NATS_PASSWORD as they are. It has no token flag.
+              [ -z "${NATS_CA_FILE:-}" ] || export NATS_CA="$NATS_CA_FILE"
+              if [ -n "${NATS_CLIENT_CERT_FILE:-}" ]; then
+                export NATS_CERT="$NATS_CLIENT_CERT_FILE" NATS_KEY="$NATS_CLIENT_KEY_FILE"
+              fi
+              [ -z "${NATS_CREDS_FILE:-}" ] || export NATS_CREDS="$NATS_CREDS_FILE"
+              if [ -n "${NATS_TOKEN:-}" ]; then
+                NATS_URL="${NATS_URL%%://*}://${NATS_TOKEN}@${NATS_URL#*://}"
+              fi
 
               echo "Waiting for NATS to be ready..."
               until nats server check connection -s "$NATS_URL" 2>/dev/null; do
@@ -208,4 +230,9 @@ spec:
             limits:
               cpu: 100m
               memory: 64Mi
+      {{- $connVolumes := include "kubemoot-operator.natsConnVolumes" . | trim }}
+      {{- if $connVolumes }}
+      volumes:
+        {{- $connVolumes | nindent 8 }}
+      {{- end }}
 {{- end }}

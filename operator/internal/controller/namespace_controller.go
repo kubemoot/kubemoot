@@ -67,6 +67,7 @@ func (r *NamespaceReconciler) replicateSecrets(ctx context.Context, ns *corev1.N
 	for _, ref := range r.ConfigCache.GetImagePullSecrets() {
 		replicateSecret(ctx, r.Client, ref.Name, ns.Name)
 	}
+	replicateNATSSecrets(ctx, r.Client, ns.Name)
 
 	// Replicate additional secrets listed in the annotation.
 	// Each entry is either "<name>" (sourced from operator namespace)

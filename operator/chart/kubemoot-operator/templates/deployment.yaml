@@ -87,6 +87,7 @@ spec:
             {{- if .Values.nats.enabled }}
             - name: NATS_URL
               value: {{ .Values.nats.url | quote }}
+            {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnEnv" "ctx" (dict "root" . "operator" true) "indent" 12) }}
             {{- end }}
             {{- with .Values.placementService.url }}
             # The placement service the Moot Mesh sidecars call for every model call. Empty
@@ -164,6 +165,7 @@ spec:
               mountPath: /tmp/k8s-webhook-server/serving-certs
               readOnly: true
             {{- end }}
+            {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnMounts" "ctx" . "indent" 12) }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -172,6 +174,7 @@ spec:
           secret:
             secretName: {{ include "kubemoot-operator.fullname" . }}-webhook-cert
         {{- end }}
+        {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnVolumes" "ctx" . "indent" 8) }}
       terminationGracePeriodSeconds: 10
       {{- with .Values.nodeSelector }}
       nodeSelector:

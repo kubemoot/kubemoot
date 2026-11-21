@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -13,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/natspod"
 )
 
 // sourceSecretPredicate passes events for Secrets in an allowed source namespace whose
@@ -37,9 +39,10 @@ func secretContentChanged(oldObj, newObj client.Object) bool {
 	return o.Type != n.Type || !secretDataEqual(o.Data, n.Data)
 }
 
-// secretIsImagePullSource reports whether the Secret is a configured image pull secret
-// in the operator namespace, the only source the Crew and Namespace reconcilers pull from.
-func secretIsImagePullSource(cache *ConfigCache, s client.Object) bool {
+// secretIsConfiguredSource reports whether the Secret is a configured image pull secret or one
+// behind the NATS connection options, in the operator namespace: the sources the Crew and
+// Namespace reconcilers copy from.
+func secretIsConfiguredSource(cache *ConfigCache, s client.Object) bool {
 	if s.GetNamespace() != operatorNamespace() {
 		return false
 	}
@@ -48,7 +51,7 @@ func secretIsImagePullSource(cache *ConfigCache, s client.Object) bool {
 			return true
 		}
 	}
-	return false
+	return slices.Contains(natspod.FromEnv().SecretNames(), s.GetName())
 }
 
 // namespaceReplicates reports whether the namespace's replicate-secrets annotation names the Secret.
@@ -78,7 +81,7 @@ func secretToNamespaceRequests(ctx context.Context, cli client.Reader, cache *Co
 		logf.FromContext(ctx).Error(err, "Failed to list crew namespaces for secret change")
 		return nil
 	}
-	pull := secretIsImagePullSource(cache, obj)
+	pull := secretIsConfiguredSource(cache, obj)
 	var reqs []reconcile.Request
 	for i := range list.Items {
 		if pull || namespaceReplicates(&list.Items[i], obj) {
@@ -97,7 +100,7 @@ func enqueueCrewsForSecret(cli client.Reader, cache *ConfigCache) handler.EventH
 }
 
 func secretToCrewRequests(ctx context.Context, cli client.Reader, cache *ConfigCache, obj client.Object) []reconcile.Request {
-	if !secretIsImagePullSource(cache, obj) {
+	if !secretIsConfiguredSource(cache, obj) {
 		return nil
 	}
 	var crews kubemootv1alpha1.CrewList

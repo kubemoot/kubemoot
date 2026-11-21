@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/kubemoot/kubemoot/operator/internal/coordchaos"
+	"github.com/kubemoot/kubemoot/operator/pkg/natsconn"
 )
 
 type options struct {
@@ -200,7 +201,12 @@ func execute(ctx context.Context, o options, k coordchaos.Kubectl, cluster *coor
 		defer pf.Close()
 		url = pf.URL
 	}
-	bus, err := coordchaos.DialBus(ctx, url, o.namespace, o.crew, time.Time{})
+	natsOpts, err := natsconn.FromEnv(os.Getenv).Options()
+	if err != nil {
+		logf("%v", err)
+		return coordchaos.ExitRefused
+	}
+	bus, err := coordchaos.DialBus(ctx, url, o.namespace, o.crew, time.Time{}, natsOpts...)
 	if err != nil {
 		logf("%v", err)
 		return coordchaos.ExitRefused

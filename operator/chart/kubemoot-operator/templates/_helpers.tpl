@@ -211,3 +211,164 @@ write or readWrite fails the render.
 {{- end -}}
 {{- $access -}}
 {{- end }}
+
+{{/*
+The NATS connection options (nats.tls and nats.auth), checked. A credential Secret needs
+exactly one kind of credential: a creds key, a user key with a password key, or a token key.
+Renders nothing; fails the render on a combination that cannot work.
+*/}}
+{{- define "kubemoot-operator.natsConnCheck" -}}
+{{- $a := (.Values.nats.auth | default dict) -}}
+{{- $kinds := 0 -}}
+{{- if $a.credsKey }}{{ $kinds = add1 $kinds }}{{ end -}}
+{{- if or $a.userKey $a.passwordKey }}{{ $kinds = add1 $kinds }}{{ end -}}
+{{- if $a.tokenKey }}{{ $kinds = add1 $kinds }}{{ end -}}
+{{- if and $a.secret (ne (int $kinds) 1) -}}
+{{- fail "nats.auth.secret needs exactly one of nats.auth.credsKey, nats.auth.userKey with nats.auth.passwordKey, or nats.auth.tokenKey" -}}
+{{- end -}}
+{{- if and (not $a.secret) (gt (int $kinds) 0) -}}
+{{- fail "nats.auth.credsKey, userKey, passwordKey and tokenKey need nats.auth.secret" -}}
+{{- end -}}
+{{- if and $a.userKey (not $a.passwordKey) -}}
+{{- fail "nats.auth.userKey needs nats.auth.passwordKey" -}}
+{{- end -}}
+{{- if and $a.passwordKey (not $a.userKey) -}}
+{{- fail "nats.auth.passwordKey needs nats.auth.userKey" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Environment of a workload that dials NATS: the names every Kubemoot component reads the same
+way (docs/operating/nats-connection.md). Pass the root context as "root"; pass "operator" true
+for the operator, which also gets the names it hands on to the workloads it creates.
+*/}}
+{{- define "kubemoot-operator.natsConnEnv" -}}
+{{- include "kubemoot-operator.natsConnCheck" .root -}}
+{{- $tls := (.root.Values.nats.tls | default dict) -}}
+{{- $a := (.root.Values.nats.auth | default dict) -}}
+{{- if $tls.caSecret }}
+- name: NATS_CA_FILE
+  value: /etc/kubemoot/nats-conn/ca/ca.crt
+{{- end }}
+{{- if $tls.clientSecret }}
+- name: NATS_CLIENT_CERT_FILE
+  value: /etc/kubemoot/nats-conn/client/tls.crt
+- name: NATS_CLIENT_KEY_FILE
+  value: /etc/kubemoot/nats-conn/client/tls.key
+{{- end }}
+{{- if and $a.secret (not .skipAuth) }}
+{{- if $a.credsKey }}
+- name: NATS_CREDS_FILE
+  value: /etc/kubemoot/nats-conn/auth/nats.creds
+{{- else if $a.userKey }}
+- name: NATS_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ $a.secret | quote }}
+      key: {{ $a.userKey | quote }}
+- name: NATS_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $a.secret | quote }}
+      key: {{ $a.passwordKey | quote }}
+{{- else if $a.tokenKey }}
+- name: NATS_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ $a.secret | quote }}
+      key: {{ $a.tokenKey | quote }}
+{{- end }}
+{{- end }}
+{{- if .operator }}
+{{- if $tls.caSecret }}
+- name: KUBEMOOT_NATS_CA_SECRET
+  value: {{ $tls.caSecret | quote }}
+- name: KUBEMOOT_NATS_CA_KEY
+  value: {{ $tls.caKey | default "ca.crt" | quote }}
+{{- end }}
+{{- if $tls.clientSecret }}
+- name: KUBEMOOT_NATS_CLIENT_SECRET
+  value: {{ $tls.clientSecret | quote }}
+{{- end }}
+{{- if $a.secret }}
+- name: KUBEMOOT_NATS_AUTH_SECRET
+  value: {{ $a.secret | quote }}
+{{- with $a.credsKey }}
+- name: KUBEMOOT_NATS_AUTH_CREDS_KEY
+  value: {{ . | quote }}
+{{- end }}
+{{- with $a.userKey }}
+- name: KUBEMOOT_NATS_AUTH_USER_KEY
+  value: {{ . | quote }}
+{{- end }}
+{{- with $a.passwordKey }}
+- name: KUBEMOOT_NATS_AUTH_PASSWORD_KEY
+  value: {{ . | quote }}
+{{- end }}
+{{- with $a.tokenKey }}
+- name: KUBEMOOT_NATS_AUTH_TOKEN_KEY
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/* The volume mounts of a container that dials NATS; pair with natsConnVolumes. */}}
+{{- define "kubemoot-operator.natsConnMounts" -}}
+{{- $tls := (.Values.nats.tls | default dict) -}}
+{{- $a := (.Values.nats.auth | default dict) -}}
+{{- if $tls.caSecret }}
+- name: nats-conn-ca
+  mountPath: /etc/kubemoot/nats-conn/ca
+  readOnly: true
+{{- end }}
+{{- if $tls.clientSecret }}
+- name: nats-conn-client
+  mountPath: /etc/kubemoot/nats-conn/client
+  readOnly: true
+{{- end }}
+{{- if and $a.secret $a.credsKey }}
+- name: nats-conn-auth
+  mountPath: /etc/kubemoot/nats-conn/auth
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{/* The pod volumes behind natsConnMounts: the CA bundle, the client certificate, the creds file. */}}
+{{- define "kubemoot-operator.natsConnVolumes" -}}
+{{- $tls := (.Values.nats.tls | default dict) -}}
+{{- $a := (.Values.nats.auth | default dict) -}}
+{{- if $tls.caSecret }}
+- name: nats-conn-ca
+  secret:
+    secretName: {{ $tls.caSecret | quote }}
+    items:
+      - key: {{ $tls.caKey | default "ca.crt" | quote }}
+        path: ca.crt
+{{- end }}
+{{- if $tls.clientSecret }}
+- name: nats-conn-client
+  secret:
+    secretName: {{ $tls.clientSecret | quote }}
+{{- end }}
+{{- if and $a.secret $a.credsKey }}
+- name: nats-conn-auth
+  secret:
+    secretName: {{ $a.secret | quote }}
+    items:
+      - key: {{ $a.credsKey | quote }}
+        path: nats.creds
+{{- end }}
+{{- end }}
+
+{{/*
+Renders a natsConn* helper's output indented for a list under a container or pod key, or
+nothing when the helper rendered nothing. Pass "name" (the helper), "ctx" (what to pass it) and
+"indent".
+*/}}
+{{- define "kubemoot-operator.natsConnBlock" -}}
+{{- $out := include .name .ctx | trim -}}
+{{- if $out }}
+{{ $out | nindent (int .indent) }}
+{{- end }}
+{{- end }}

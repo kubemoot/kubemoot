@@ -216,6 +216,7 @@ func (r *CrewReconciler) replicateImagePullSecrets(ctx context.Context, crew *ku
 	for _, ref := range r.ConfigCache.GetImagePullSecrets() {
 		replicateSecret(ctx, r.Client, ref.Name, crew.Namespace)
 	}
+	replicateNATSSecrets(ctx, r.Client, crew.Namespace)
 }
 
 // discoverAgents lists agents belonging to this crew and identifies the coordinator.
@@ -565,7 +566,7 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 	noEscalation := false
 	user := int64(65534)
 
-	return &appsv1.Deployment{
+	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: crew.Namespace,
@@ -627,6 +628,8 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 			},
 		},
 	}
+	applyNATSOptions(&d.Spec.Template.Spec, "discussion-gateway")
+	return d
 }
 
 func (r *CrewReconciler) reconcileService(ctx context.Context, crew *kubemootv1alpha1.Crew) error {

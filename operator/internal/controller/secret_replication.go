@@ -13,6 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/kubemoot/kubemoot/operator/internal/natspod"
 )
 
 // replicateSecret copies a Secret from the operator's namespace into the target namespace
@@ -206,3 +208,23 @@ func operatorNamespace() string {
 	}
 	return ns
 }
+
+// applyNATSOptions gives the named containers of a pod the NATS connection options the
+// installer set on the chart: a CA bundle, a client certificate and a credential. It changes
+// nothing when none are set.
+func applyNATSOptions(spec *corev1.PodSpec, containers ...string) {
+	natspod.FromEnv().Apply(spec, containers...)
+}
+
+// replicateNATSSecrets copies the Secrets behind those options into a namespace that runs
+// workloads which dial NATS.
+func replicateNATSSecrets(ctx context.Context, c client.Client, targetNamespace string) {
+	for _, name := range natspod.FromEnv().SecretNames() {
+		replicateSecret(ctx, c, name, targetNamespace)
+	}
+}
+
+// AnnotationNATSConnection on an MCPServer asks the operator to give its pod the NATS
+// connection options (CA bundle, client certificate, credential) the chart sets. Only a
+// server that dials NATS needs it.
+const AnnotationNATSConnection = "kubemoot.ai/nats-connection"
