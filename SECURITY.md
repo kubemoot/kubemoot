@@ -29,15 +29,24 @@ bearer token the operator generates per MCPGateway, and a NetworkPolicy the oper
 creates admits only the operator to that port. Agents keep the tool port and the
 read-only tool list.
 
-### NATS has no authentication
+### NATS has no authentication unless you configure it
 
 The NATS bus that carries discussions, memory, and scheduler state runs without
-authentication in this release. Namespaces separate subject and key names (discussion,
-request, artifact, and memory subjects and keys carry the namespace and crew name after a
-fixed prefix; some operator subjects carry no namespace at all), but a client that can
-reach NATS can read and write any of them. Namespaces are naming separation, not a security boundary today.
-Per-crew NATS accounts and a NetworkPolicy that limits ingress to NATS are directions,
-not shipped features. What NATS keeps, for how long, and how to encrypt it is in
+authentication and without TLS in a default install. Namespaces separate subject and key
+names (discussion, request, artifact, and memory subjects and keys carry the namespace and
+crew name after a fixed prefix; some operator subjects carry no namespace at all), but a
+client that can reach NATS can read and write any of them. Namespaces are naming separation,
+not a security boundary.
+
+Kubemoot does not install NATS. If your NATS server demands TLS or credentials, the
+operator chart values `nats.tls` and `nats.auth` give every component that dials NATS the
+CA bundle, an optional client certificate and a credential, and the operator passes them to
+the workloads it creates; see
+[Connecting to NATS with TLS and credentials](https://github.com/kubemoot/kubemoot/blob/main/docs/operating/nats-connection.md).
+The credential is shared: every crew presents the same one, so a shared account gives each
+crew the same view. Per-crew NATS accounts and a NetworkPolicy that limits ingress to NATS
+are directions, not shipped features. What NATS keeps, for how long, and how to encrypt it
+is in
 [Data ownership](https://github.com/kubemoot/kubemoot/blob/main/docs/operating/data-ownership.md).
 
 ### Creating Kubemoot resources is equivalent to creating pods

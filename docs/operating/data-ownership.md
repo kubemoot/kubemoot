@@ -127,19 +127,26 @@ jetstream {
 }
 ```
 
-Set `JS_KEY` on the NATS pod from a Secret. It applies to the whole server, not to a single crew or stream, and it is separate from TLS. Enable it on a fresh store: switching it on for a store that already holds data, or changing the cipher later, is a change to plan and test first. To rotate the key, restart once with the new key as `key` and the old one as `prev_key`, then remove `prev_key`. A wrong key hides the streams until the right key returns. Read the NATS documentation on [encryption at rest](https://docs.nats.io/running-a-nats-service/nats_admin/jetstream_admin/encryption_at_rest) before you enable it.
+Kubemoot's chart does not deploy NATS, it points at the NATS you installed (`nats.url`), so this is set on your NATS install and not on the Kubemoot chart. With the upstream NATS Helm chart, put the `jetstream` block in its configuration and take `JS_KEY` from a Secret through its environment values; follow that chart's documentation for where each goes. The recipe is tested: Kubemoot's tests start a NATS server with exactly this block, store a message, and confirm the text is not readable in the file store (and is readable in a control store with no key).
 
-**Today the Kubemoot chart exposes neither option.** The chart has no value for the NATS server's cipher, key, volume or file-store limit: set them on the NATS install the operator points at (`nats.url`). With the upstream NATS Helm chart that means its own values for the `jetstream` configuration and for an environment variable taken from a Secret; follow that chart's documentation. A chart option in Kubemoot for these is a known gap.
+It applies to the whole server, not to a single crew or stream, and it is separate from TLS. What the tests observed, with the NATS server release Kubemoot builds against:
+
+- Enable it on a fresh store when you can. Turning it on over a store that already holds data worked: the server read the existing streams and rewrote them encrypted. Take a backup first, and check that your stream still holds its messages afterward.
+- The key is then required. Restarting without it, or with another key, leaves the streams unreadable (they are not found) until the right key returns. Keep the key where you keep the volume's backups.
+- To rotate the key, restart once with the new key as `key` and the old one as `prev_key` (`prev_encryption_key` is the same option), then remove `prev_key` on the next restart. The tests rotate this way and read the stream with the new key alone afterward.
+
+Read the NATS documentation on [encryption at rest](https://docs.nats.io/running-a-nats-service/nats_admin/jetstream_admin/encryption_at_rest) before you enable it.
 
 Whichever you choose, encrypt before the install keeps people's data, and treat the NATS volume's snapshots and backups as holding the same data.
 
 ## In transit
 
-NATS traffic between the operator, agents, gateways and the dashboard is plain by default: the quickstart and chart point at `nats://nats.nats.svc.cluster.local:4222`, and every client connects without authentication. [SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md) states this. Anyone who can reach the NATS port can read and write every subject and key, so namespaces separate names and do not protect data.
+NATS traffic between the operator, agents, gateways and the dashboard is plain by default: the quickstart and chart point at `nats://nats.nats.svc.cluster.local:4222`, and every component connects without authentication. [SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md) states this. Anyone who can reach the NATS port can read and write every subject and key, so namespaces separate names and do not protect data.
 
+- **TLS and credentials.** Configure TLS and an account on your NATS server, then set `nats.url` to a `tls://` address and the chart values `nats.tls` (a CA bundle, and a client certificate for mutual TLS) and `nats.auth` (a creds file, a user and password, or a token), each from a Secret. Every Kubemoot component that dials NATS reads them, and the operator passes them to the agents, gateways and jobs it creates. The options, the components they cover and the ones they do not are in [Connecting to NATS with TLS and credentials](../nats-connection/).
 - **Limit who reaches NATS** with a NetworkPolicy on the NATS namespace that admits only the Kubemoot namespaces and the crews' namespaces.
-- **TLS and a service mesh.** The chart has no setting for a NATS CA bundle or client certificate on the Kubemoot components. Encrypt the pod-to-pod path with your cluster's network layer (for example a mesh or CNI-level encryption) until the components take a NATS TLS configuration. That is a known gap.
-- **Per-crew accounts** that would give each crew its own view of NATS are a direction, not a shipped feature.
+- **A service mesh or CNI-level encryption** also encrypts the pod-to-pod path, with no change to Kubemoot.
+- **Per-crew accounts** that would give each crew its own view of NATS are a direction, not a shipped feature. One shared credential gives every crew the same view.
 
 ## Other places data appears
 
