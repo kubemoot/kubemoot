@@ -214,6 +214,12 @@ if helm template kubemoot-operator "$chart" --namespace kubemoot --set workspace
   fail "workspace.defaultAccess=all should fail the render"
 fi
 
+# The agent runtime class reaches KubemootConfig only when set.
+rc="$(helm template kubemoot-operator "$chart" --namespace kubemoot | yq -N 'select(.kind == "KubemootConfig") | .spec.defaults.agentRuntimeClassName')"
+case "$rc" in ""|null) ;; *) fail "KubemootConfig sets agentRuntimeClassName by default: $rc" ;; esac
+rc="$(helm template kubemoot-operator "$chart" --namespace kubemoot --set kubemootConfig.defaults.agentRuntimeClassName=gvisor | yq -N 'select(.kind == "KubemootConfig") | .spec.defaults.agentRuntimeClassName')"
+[ "$rc" = gvisor ] || fail "kubemootConfig.defaults.agentRuntimeClassName=gvisor does not reach KubemootConfig: $rc"
+
 # The install notes name an old value a values file still sets, and stay quiet without one.
 notes() { helm install --dry-run --generate-name "$chart" "$@" 2>&1; }
 notes --set artifacts.queryEngine=duckdb | grep -q "artifacts.queryEngine is workspace.queryEngine" \

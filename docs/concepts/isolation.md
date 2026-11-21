@@ -41,6 +41,9 @@ spec:
     agentRuntimeClassName: gvisor
 ```
 
+With the operator chart, set the value `kubemootConfig.defaults.agentRuntimeClassName: gvisor`;
+the chart writes it into KubemootConfig.
+
 An Agent can override it with `spec.deployment.runtimeClassName`. A value there wins over the
 realm default, and an empty string (`""`) runs that one Agent under the node's default
 runtime. Both fields are described in the [Agent reference](../../reference/agent/#specdeployment)

@@ -561,6 +561,9 @@ kubemootConfig:
   defaults:
     vectorStoreType: pgvector
     embeddingModel: nomic-embed
+    # RuntimeClass for the pods of every Agent, for example gvisor (see docs/concepts/isolation.md).
+    # Empty: agent pods set no runtimeClassName. An Agent's spec.deployment.runtimeClassName wins.
+    agentRuntimeClassName: ""
 
 # Crews — named agent teams with optional discussion gateways
 # Each crew groups agents via the kubemoot.ai/crew label and deploys
