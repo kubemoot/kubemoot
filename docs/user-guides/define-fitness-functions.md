@@ -66,8 +66,8 @@ To measure stability rather than a single pass, a `CrewFitnessSuite` runs a scen
 (or several) many times and writes a spreadsheet of results - pass rates and p50/p90
 timings per scenario - so you can see a crew hold steady or drift across releases.
 
-A long suite can be paused, resumed, or stopped while it runs, with `kubectl patch`
-(the dashboard Fitness page shows the commands):
+A long suite can be paused, resumed, or stopped while it runs, with `kmctl fitness pause`,
+`resume` and `stop` (or `kubectl patch`, which the dashboard Fitness page shows):
 
 - **Pause** (`spec.suspend: true`): the iteration in flight finishes and is kept, no new one
   starts, and the suite reads `Paused` once nothing is running.
@@ -77,6 +77,9 @@ A long suite can be paused, resumed, or stopped while it runs, with `kubectl pat
   suite is not quality-judged.
 
 ```bash
+kmctl fitness pause my-baseline -n crew-my-crew
+
+# The same with kubectl
 kubectl patch crewfitnesssuite my-baseline -n crew-my-crew --type merge -p '{"spec":{"suspend":true}}'
 ```
 

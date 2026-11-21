@@ -535,8 +535,10 @@ status:
   failureCount: 1
 ```
 
-Admin override example:
+Admin override example, with `kmctl` and with `kubectl` (`kmctl mcp report unpin kafka-mcp-report` removes it):
 ```bash
+kmctl mcp report pin kafka-mcp-report --verdict avoid --notes "Crashes under load" --author ops-team
+
 kubectl patch mcprpt kafka-mcp-report --type=merge -p \
   '{"spec":{"adminVerdict":"avoid","adminNotes":"Crashes under load","adminAuthor":"ops-team"}}'
 ```

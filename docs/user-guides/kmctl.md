@@ -208,6 +208,10 @@ kmctl crew get demo -n crew-demo
 kmctl agent list -n crew-demo
 ```
 
+To block until the crew can answer, run `kmctl crew wait demo -n crew-demo`. While no model in
+the cluster catalog can run the crew's agents, it says it is waiting for an accelerator and
+keeps waiting; the `Capacity` column of `kmctl crew list` shows the same state.
+
 ### 6. Ask the crew
 
 ```bash

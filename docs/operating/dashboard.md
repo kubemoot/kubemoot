@@ -123,7 +123,7 @@ When the coordinator closes a thread, a **Placement** panel follows the summary.
 
 Select **alternatives considered** on a row to see the other placements the scheduler weighed, each with its predicted total split into waiting, loading, reading the prompt and generating, and whether it was warm and could start at once. A thread whose receipt carries no placement calls shows no panel.
 
-The thread toolbar copies the discussion as Markdown, copies its thread ID, and shows or hides the span graph and the debug layer. It cannot start, answer, pause, stop, replay, pin or delete a discussion. Below the timeline the page shows the `kmctl conversation ask` command that asks a follow-up in the same conversation (find the conversation ID with `kmctl conversation list CREW`), and an empty list shows the command that starts one.
+The thread toolbar copies the discussion as Markdown, copies its thread ID, and shows or hides the span graph and the debug layer. It cannot start, answer, pause, stop, replay or delete a discussion. Below the timeline the page shows the `kmctl conversation ask` command that asks a follow-up in the same conversation (find the conversation ID with `kmctl conversation list CREW`), and an empty list shows the command that starts one.
 
 The span graph draws one bar per agent from its first to its last message. Each bar names the ModelServer that ran the agent's latest call, taken from the placement the messages carry. A server the scheduler weighed but did not choose is not named, and the label of an agent's static endpoint, which a message sent without a placed call carries, is not shown as a server. A thread started straight on the bus, such as a smoke test, may carry messages with no timestamp. The graph draws the agents whose start and end are known and labels each of the others "no timing recorded" instead of drawing a bar.
 
@@ -147,7 +147,7 @@ On an unscoped dashboard the store figures are cluster-wide totals and the tile 
 
 ### Memory
 
-Shows the working memory of the crew selected in the top bar, the same crew picker the Discussions page uses. Working memory is what a crew has learned about the cluster and keeps between discussions, stored as facts with a topic, a key and a value; the least recently used are dropped over time. With All crews selected the page asks you to pick a crew. A crew with no facts shows an empty state that explains this. The page only reads: facts are written by the crew's agents, and the page shows the `kmctl memory export` command that takes a copy.
+Shows the working memory of the crew selected in the top bar, the same crew picker the Discussions page uses. Working memory is what a crew has learned about the cluster and keeps between discussions, stored as facts with a topic, a key and a value; the least recently used are dropped over time. With All crews selected the page asks you to pick a crew. A crew with no facts shows an empty state that explains this. The page only reads: facts are written by the crew's agents or with `kmctl memory add`, and the page shows the `kmctl memory export` command that takes a copy.
 
 **Export** (shown whenever a crew is selected) opens a panel that downloads the crew's memory as a zip in the OMPI (Open Memory Protocol Initiative) interchange format, working spec v0.6: a manifest and one memory object per fact. The operator builds the file with the same code as `ompi-export`; the dashboard only relays it and never maps facts to the format itself. The export is always screened: a fact whose topic, key or value holds a credential is left out. Before you download, the panel shows what the export holds and a table of what it left out, each entry named by its key (an opaque id such as `<namespace>.<crew>.#1a2b3c4d` when the key itself held the credential) and the reason, for example the shape of the credential. It never shows a fact's text. The dashboard has no unscreened export: it calls the operator with its own service account, not your identity, so it cannot decide what you may see beyond the namespace scope. To export facts that hold a credential, use `kmctl memory export --allow-unscreened`, which runs with your own credentials. The same namespace scope as the rest of the page applies; a crew outside it answers 404. The dashboard sends its service account token to the operator, which checks it with a TokenReview and allows the export only when that identity may `get` the Crew (a SubjectAccessReview); the dashboard's ClusterRole already grants read on every Kubemoot kind. A caller without a valid token is refused (401) and one without that access is refused (403), so a pod that can reach the operator's report port cannot read a crew's memory. Every other report endpoint is checked the same way; see [The operator report service](#the-operator-report-service).
 
@@ -163,28 +163,33 @@ One card per crew, linking to the crew's detail page. The dashboard does not add
 
 ### Reports
 
-MCPServerReport quality verdicts (`use`, `caution`, `avoid`) with the evaluation history, and any verdict an administrator pinned. The page shows the `kubectl patch mcpserverreport` command that pins one; it runs with your credentials, so it needs `patch` on `mcpserverreports`.
+MCPServerReport quality verdicts (`use`, `caution`, `avoid`) with the evaluation history, and any verdict an administrator pinned. The page shows the `kubectl patch mcpserverreport` command that pins one; `kmctl mcp report pin` does the same, and either runs with your credentials, so it needs `patch` on `mcpserverreports`.
 
 ### Fitness
 
-CrewFitnessSuite runs and their scores. Opening a run shows the commands that control it: `kubectl patch` to set `spec.suspend` (pause and resume) or `spec.cancel` (stop; see the [CrewFitnessSuite reference](../../reference/crewfitnesssuite/)), and `kmctl delete crewfitnesssuite` to remove the run with its owned CrewFitness resources. The status badge reads `Pausing` while a paused suite's last iteration finishes and `Stopping` until the operator applies a stop.
+CrewFitnessSuite runs and their scores. Opening a run shows the commands that control it: `kubectl patch` to set `spec.suspend` (pause and resume) or `spec.cancel` (stop), which `kmctl fitness pause`, `resume` and `stop` do for you (see the [CrewFitnessSuite reference](../../reference/crewfitnesssuite/#pause-resume-and-stop)), and `kmctl delete crewfitnesssuite` to remove the run with its owned CrewFitness resources. The status badge reads `Pausing` while a paused suite's last iteration finishes and `Stopping` until the operator applies a stop.
 
 ### Models
 
-The Models and Model servers pages show state only. Loading, unloading and deleting a model on a model server are not available from the dashboard.
+The Models and Model servers pages show state only. Removing a model from the catalog is `kmctl delete model NAME`; the dashboard changes nothing. See [Where changes are made](#where-changes-are-made).
 
 ## Where changes are made
 
-| What the dashboard once did | Where to do it now |
-|-----------------------------|--------------------|
+| What you want to do | Where to do it |
+|---------------------|----------------|
 | Ask a crew a question, or answer in a discussion | `kmctl conversation ask CREW "question" [--conversation-id ID]`, or **Ask** in CrewForge |
-| Delete a discussion, pause, stop or replay one, pin one | Removed from the dashboard; no kmctl or CrewForge command yet |
-| Add, edit, delete or clear a crew memory fact | Removed from the dashboard; no kmctl or CrewForge command yet. Read memory with `kmctl memory export CREW` |
+| Ask a past conversation's first question again | `kmctl conversation replay CREW ID` |
+| Delete, pause, resume or stop a discussion | No command yet. Each needs a gateway endpoint that does not exist |
+| Add, edit, delete or clear a crew memory fact | `kmctl memory add\|edit\|delete\|clear CREW ...`. Read memory with `kmctl memory export CREW` |
 | Remove a crew | `kmctl delete crew NAME -n NAMESPACE` |
-| Pause, resume or stop a fitness suite | `kubectl patch crewfitnesssuite NAME --type=merge -p '{"spec":{"suspend":true}}'` (`"cancel":true` to stop), or the fitness controls in CrewForge |
+| Pause, resume or stop a fitness suite | `kmctl fitness pause\|resume\|stop SUITE`, or the fitness controls in CrewForge |
 | Delete a fitness suite run | `kmctl delete crewfitnesssuite NAME -n NAMESPACE` |
-| Pin an MCP server report verdict | `kubectl patch mcpserverreport NAME --type=merge -p '{"spec":{"adminVerdict":"use","adminNotes":"why","adminAuthor":"you"}}'` |
-| Load, unload or delete a model on a model server | Removed from the dashboard; no kmctl or CrewForge command yet |
+| Pin or unpin an MCP server report verdict | `kmctl mcp report pin REPORT --verdict use\|caution\|avoid` and `kmctl mcp report unpin REPORT`; read reports with `kmctl mcp report list` and `kmctl mcp report get` |
+| Delete a model from the catalog | `kmctl delete model NAME` |
+| Load a model | Not offered. A model loads on demand when a crew needs it |
+| Unload a model | No command yet |
+
+Every command that changes something runs with your own credentials and accepts `--dry-run`, which has the API server check the change and your access and store nothing.
 
 A later release signs in the person and makes every dashboard call with their own token, which would let the dashboard offer these again under the caller's rights.
 

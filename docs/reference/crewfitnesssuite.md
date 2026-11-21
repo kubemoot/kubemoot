@@ -313,7 +313,7 @@ Status is stored in etcd with the rest of the object, so both lists are capped a
 
 ## Pause, resume and stop
 
-Two spec fields control a running suite. Edit them with `kubectl patch`; the dashboard Fitness page shows the command for each action, and CrewForge has the same controls.
+Two spec fields control a running suite. `kmctl fitness pause SUITE`, `kmctl fitness resume SUITE` and `kmctl fitness stop SUITE` set them with your own credentials (each needs `patch` on `crewfitnesssuites`, and `stop` asks first unless you pass `--yes`); `kubectl patch` sets the same fields, the dashboard Fitness page shows the `kubectl patch` command for each action, and CrewForge has the same controls.
 
 **Pause** sets `spec.suspend: true`. The iteration in flight finishes and its result is kept; no new iteration starts. The phase stays `Running` until that iteration finishes, then becomes `Paused`. A `Paused` suite puts no load on the crew, which makes it safe to change the crew or the cluster between iterations.
 
@@ -322,7 +322,12 @@ Two spec fields control a running suite. Edit them with `kubectl patch`; the das
 **Stop** sets `spec.cancel: true`. The operator deletes any iteration in flight (its Job and pod follow through owner references), starts no new iteration, sets `completedAt`, and moves the suite to `Cancelled`. Stop works from `Pending`, `Running`, or `Paused`, takes precedence over `suspend`, and cannot be undone: clearing `cancel` afterwards does not restart the suite. Both fields are ignored once the suite is terminal.
 
 ```bash
-# Pause
+# Pause, resume and stop with kmctl
+kmctl fitness pause homelab-baseline -n crew-homelab-pilot
+kmctl fitness resume homelab-baseline -n crew-homelab-pilot
+kmctl fitness stop homelab-baseline -n crew-homelab-pilot
+
+# The same with kubectl: pause
 kubectl patch crewfitnesssuite homelab-baseline -n crew-homelab-pilot \
   --type merge -p '{"spec":{"suspend":true}}'
 
