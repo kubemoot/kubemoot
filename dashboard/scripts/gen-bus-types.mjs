@@ -44,13 +44,28 @@ export function rootSchema(names) {
 }
 
 /**
- * A schema file without the goJSONSchema keywords, which only steer the Go generator.
+ * A schema file without the goJSONSchema keywords, which only steer the Go generator, and
+ * with every $ref stripped to the reference alone (see refOnly).
  * @param {Buffer | string} data
  */
 export function withoutGoHints(data) {
-	return JSON.stringify(JSON.parse(String(data)), (key, value) =>
-		key === 'goJSONSchema' ? undefined : value
-	);
+	return JSON.stringify(JSON.parse(String(data)), (key, value) => {
+		if (key === 'goJSONSchema') return undefined;
+		return refOnly(value);
+	});
+}
+
+/**
+ * A $ref with sibling keywords (a description beside it) makes json-schema-to-typescript
+ * emit a numbered copy of the referenced type (Principal1, Principal2) instead of the type
+ * itself, so a $ref keeps only the reference here. The schema files keep their descriptions.
+ * @param {unknown} value
+ */
+function refOnly(value) {
+	if (value && typeof value === 'object' && !Array.isArray(value) && '$ref' in value) {
+		return { $ref: /** @type {{ $ref: string }} */ (value).$ref };
+	}
+	return value;
 }
 
 /**
