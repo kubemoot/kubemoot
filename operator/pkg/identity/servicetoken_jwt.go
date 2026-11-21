@@ -117,3 +117,14 @@ func (c tokenClaims) isKubernetes() bool {
 	sub, _ := c.payload["sub"].(string)
 	return strings.HasPrefix(sub, "system:")
 }
+
+// TokenExpiry is the exp claim of a JWT bearer token, read without verifying a signature:
+// use it only on a token a verifier already accepted, to bound how long it is kept. It
+// reports false for a token that is not a JWT or has no usable exp.
+func TokenExpiry(token string) (time.Time, bool) {
+	claims, ok := parseTokenClaims(token)
+	if !ok {
+		return time.Time{}, false
+	}
+	return claims.Expiry()
+}
