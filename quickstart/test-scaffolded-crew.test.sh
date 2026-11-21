@@ -58,5 +58,12 @@ check "the crew's name alone is not a pod" fail "$(status check_answer "$work/a.
 : > "$work/none.txt"; answer "starter-guide-coordinator-5d8f7c9b6-x2k4p"
 check "no ground truth fails, never passes vacuously" fail "$(status check_answer "$work/a.txt" "$work/none.txt")"
 
+# The work directory outlives main: exiting after main returns succeeds under set -u and
+# removes the directory.
+dir="$(bash -euo pipefail -c 'source "$1"; f() { make_workdir; }; f; echo "$work"' _ "$here/test-scaffolded-crew.sh")"
+check "exiting after the work directory is made succeeds" 0 "$?"
+check "the work directory is removed at exit" no "$([ -e "$dir" ] && echo yes || echo no)"
+check "the work directory was made" yes "$([ -n "$dir" ] && echo yes || echo no)"
+
 [ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
 echo "all passed"
