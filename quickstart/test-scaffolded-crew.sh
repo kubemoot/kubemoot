@@ -91,10 +91,18 @@ check_answer() {
   [ -n "$named" ] && [ -z "$invented" ]
 }
 
+# make_workdir sets the script-wide work directory and removes it when the script exits.
+# It is not local to main: the EXIT trap runs after main returns, under set -u.
+work=""
+make_workdir() {
+  work="$(mktemp -d)"
+  trap 'rm -rf "$work"' EXIT
+}
+
 main() {
   need kubectl; need "$KMCTL"
-  local work answer_file
-  work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+  local answer_file
+  make_workdir
 
   step "1/4 Scaffold the crew with $("$KMCTL" version 2>&1 | head -n 1)"
   "$KMCTL" create "$CREW" --members "$MEMBERS" --no-input -n "$NS" -o "$work"
