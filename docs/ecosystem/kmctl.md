@@ -45,8 +45,10 @@ the client version.
 **Crew and agent inspection.** `kmctl crew list`, `kmctl crew get <name>`,
 `kmctl agent list`, and `kmctl agent get <name>` give a typed, readable view of what
 is running, equivalent to `kubectl get` but without needing to know the CRD group and
-version. Columns: Ready, Phase, Coordinator, Agents, Age (crew); Type, Ready, Phase,
-Endpoint, Age (agent).
+version. Columns: Ready, Phase, Capacity, Coordinator, Agents, Age (crew); Type, Ready,
+Phase, Endpoint, Age (agent). Capacity says whether a model in the cluster catalog can run the
+crew's agents. `kmctl crew wait <name>` waits until the crew is reconciled and can answer;
+while no model is available it says it is waiting for an accelerator and keeps waiting.
 
 **Crew scaffolding.** `kmctl create <name>` scaffolds a complete, working crew: a
 Crew manifest, a coordinator and 1 to 5 specialist Agents with PromptModules in ADL, a
@@ -67,7 +69,7 @@ catalog with `kmctl model add`. `kmctl model server list` and `kmctl model serve
 show the model servers and what calibration measured. `kmctl model footprint` lists the
 Model objects and their state on their model servers.
 
-**Manifest management.** `kmctl apply -f` and `kmctl delete` are CRD-only
+**Manifest management.** `kmctl apply -f` and `kmctl delete` (which also removes a catalog model with `kmctl delete model NAME`) are CRD-only
 server-side-apply wrappers. They accept Crew, Agent, PromptModule, and the rest of
 the Kubemoot API, and explicitly refuse non-kubemoot.ai resources, directing you to
 `kubectl apply` for those. The operator's finalizers handle cascading cleanup on
@@ -79,7 +81,8 @@ specialist's evaluation and the coordinator's synthesis. Pass `--quiet` to print
 the final answer. Pass `--conversation-id` to continue an existing thread.
 `kmctl conversation watch` live-tails an in-flight conversation by ID or a unique
 prefix of one, `kmctl conversation list` lists a crew's recent conversations, and
-`kmctl conversation workspace` fetches an object from the discussion's workspace. The command
+`kmctl conversation workspace` fetches an object from the discussion's workspace, and
+`kmctl conversation replay` asks a past conversation's first question again in a new one. The command
 reaches the crew's discussion gateway through a port-forward to a ready pod behind its
 Service, through the kubelet as `kubectl port-forward` does, using your kubeconfig
 credentials. It needs no extra networking setup and works under a default-deny network
@@ -89,15 +92,21 @@ policy.
 existing `CrewFitnessSuite` until every iteration has run, printing progress as it
 goes; `-f FILE` applies a suite manifest first. Quality scores land after the
 deferred judge pass, and the exit code reflects timeouts and API errors only. `kmctl fitness list` and `kmctl fitness get <suite>` inspect
-suite status. `kmctl fitness scenarios <suite>` lists the scenarios in a suite.
+suite status. `kmctl fitness scenarios <suite>` lists the scenarios in a suite. `kmctl fitness pause`,
+`resume` and `stop` control a suite while it runs.
 Pass `--scenario` to run a single scenario in isolation as a quick smoke test.
 `kmctl fitness download <suite>` retrieves the XLSX artifact for a completed suite
 through a port-forward to a ready dashboard pod; use `-o FILE` to control the
 output path.
 
-**Crew memory export.** `kmctl memory export <crew>` writes the crew's long-term memory
+**Crew memory.** `kmctl memory export <crew>` writes the crew's long-term memory
 in the Open Memory Protocol Initiative (OMPI) interchange format, read-only, so you can
-take a crew's memory out with a command and no operator source.
+take a crew's memory out with a command and no operator source. `kmctl memory add`,
+`edit`, `delete` and `clear` change the facts a crew keeps.
+
+**MCP server reports.** `kmctl mcp report list` and `get` show the verdict Kubemoot
+computed for each MCP server. `kmctl mcp report pin REPORT --verdict use|caution|avoid`
+pins a verdict of your own, and `unpin` hands it back to the computed one.
 
 **Shell completion.** `kmctl completion bash|zsh|fish|powershell` generates
 completion scripts for all major shells. Resource names complete in `get` commands.

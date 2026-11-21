@@ -358,14 +358,17 @@ kmctl crew list [-n <namespace>] [-A] [-o <format>]
 ```
 
 List all `Crew` resources. Default table columns: Name, Namespace, Ready, Phase,
-Coordinator, Agents, Age.
+Capacity, Coordinator, Agents, Age. `Capacity` is the status of the crew's
+`CapacityAvailable` condition: `True` when a model in the cluster catalog can run
+the crew's agents, `False` while none can, and `<none>` on a Kubemoot that does not
+report the condition. `-o wide` adds `CAPACITY-REASON`, the condition's reason.
 
 **Example:**
 
 ```bash
 kmctl crew list -A
-# NAME   NAMESPACE  READY  PHASE    COORDINATOR           AGENTS  AGE
-# demo   kubemoot   true   Running  demo-coordinator      3       2d
+# NAME   NAMESPACE  READY  PHASE    CAPACITY  COORDINATOR       AGENTS  AGE
+# demo   kubemoot   true   Running  True      demo-coordinator  3       2d
 ```
 
 ### kmctl crew get
@@ -375,12 +378,40 @@ kmctl crew get <name> [-n <namespace>] [-o <format>]
 ```
 
 Show details of a single Crew. With `-o yaml`, prints the full CR including status.
+The table view adds a `Capacity` section with the condition's reason and the
+scheduler's message when the crew reports one, and the crew's last retention cleanup.
 
 **Example:**
 
 ```bash
 kmctl crew get demo
 kmctl crew get demo -o yaml
+```
+
+### kmctl crew wait
+
+```
+kmctl crew wait <name> [-n <namespace>] [--for answer|reconciled] [--timeout <duration>]
+```
+
+Wait until a crew can answer a question. By default (`--for answer`) the crew must be
+reconciled as declared, in phase `Ready`, and have its `CapacityAvailable` condition
+`True`. While no model in the cluster catalog can run the crew's agents, `kmctl`
+prints `waiting for an accelerator` with the scheduler's reason and keeps waiting.
+The crew answers once a model is available again; nothing needs to be applied
+again. On a Kubemoot that does not report `CapacityAvailable`, the crew can answer
+when it is reconciled and `Ready`.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--for` | `answer` | `answer` waits until the crew can answer. `reconciled` waits only until the crew is reconciled as declared, whether or not a model is available now: use it to check that a change reached the crew |
+| `--timeout` | `10m` | Stop waiting after this long. It is a safety net, not the pace of the wait; the error names what the crew was still waiting for |
+
+**Examples:**
+
+```bash
+kmctl crew wait demo -n crew-demo
+kmctl crew wait demo -n crew-demo --for reconciled --timeout 2m
 ```
 
 ---
@@ -584,6 +615,50 @@ kmctl model footprint -A
 
 ---
 
+## kmctl mcp
+
+```
+kmctl mcp report list [-n <namespace>] [-A] [-o <format>]
+kmctl mcp report get <report> [-n <namespace>] [-o <format>]
+kmctl mcp report pin <report> --verdict use|caution|avoid [--notes TEXT] [--author NAME] [--dry-run]
+kmctl mcp report unpin <report> [--dry-run]
+```
+
+Read and curate what Kubemoot learned about MCP servers. An `MCPServerReport` holds the
+verdict the MCP gateway computed from its trials: `use`, `caution`, or `avoid`. `report`
+also answers to `reports`, and `list` to `ls`.
+
+### kmctl mcp report list and get
+
+`list` shows the reports with the columns Name, Verdict (the computed verdict),
+Pinned (the verdict an administrator pinned, if any), and Age. `get` shows one report.
+`-o` takes `yaml`, `json`, `kyaml`, or `wide` for more table columns; `-A` lists across
+namespaces.
+
+### kmctl mcp report pin
+
+Pin an administrator verdict on a report. The controller keeps a pinned verdict
+whatever the trials find. `--notes` records why, and `--author` who pinned it (default:
+the user of your kubeconfig context). The command sets `spec.adminVerdict`,
+`spec.adminNotes` and `spec.adminAuthor` with your own credentials, so it needs `patch`
+on `mcpserverreports` in the report's namespace. With `--dry-run` the API server checks
+the change and your access and stores nothing.
+
+### kmctl mcp report unpin
+
+Remove the pinned verdict, notes and author, so the controller computes the verdict from
+the trials again. It needs the same `patch` access and accepts `--dry-run`.
+
+**Examples:**
+
+```bash
+kmctl mcp report list -n kubemoot
+kmctl mcp report pin kubernetes-mcp-server --verdict avoid --notes "crashes under load" -n kubemoot
+kmctl mcp report unpin kubernetes-mcp-server -n kubemoot
+```
+
+---
+
 ## kmctl apply
 
 ```
@@ -627,6 +702,7 @@ lifecycle logic.
 
 ```bash
 kmctl delete crew demo -n kubemoot
+kmctl delete model qwen3:14b
 kmctl delete -f demo/
 ```
 
@@ -675,6 +751,7 @@ Alias: `conv`
 kmctl conversation ask <crew> "<message>" [-n <namespace>] [-o full|plain|json|quiet] [-q] [--conversation-id <id>]
 kmctl conversation watch <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
 kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml]
+kmctl conversation replay <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
 kmctl conversation placements <crew> <conversation-id> [-n <namespace>] [-o table|yaml|json|kyaml] [--timeout <duration>]
 kmctl conversation workspace <crew> <key> [-n <namespace>] [-f <file>]
 ```
@@ -823,6 +900,26 @@ kmctl conversation list homelab-pilot -n crew-homelab-pilot
 # 6733c361-aa0c-4bde-85c6-e143af23b251   2026-10-15T09:12:40Z   2       Describe the proxmox nodes.
 ```
 
+### kmctl conversation replay
+
+```
+kmctl conversation replay <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
+                          [--idle-timeout <duration>] [--timeout <duration>]
+```
+
+Ask a past conversation's first question again, in a new conversation. `replay` reads
+the question from the crew's gateway and streams the new discussion as
+`kmctl conversation ask` does, with the same output modes, wait flags and reattach
+behavior. The original conversation is left as it is, and the new one is not marked as
+a replay. Use it to see whether a crew answers the same question the same way after a
+change. The conversation ID may be a unique prefix. The gateway keeps about a day of
+conversations, so an older one cannot be replayed.
+
+```bash
+kmctl conversation replay homelab-pilot 6733c361 -n crew-homelab-pilot
+kmctl conv replay homelab-pilot 6733c -o plain
+```
+
 ### kmctl conversation placements
 
 ```
@@ -900,6 +997,9 @@ kmctl fitness get <suite> [-n <namespace>]
 kmctl fitness scenarios <suite> [-n <namespace>]
 kmctl fitness run <suite> [-n <namespace>] [--scenario <name>] [--timeout <duration>]
 kmctl fitness download <suite> [-n <namespace>] [-o FILE]
+kmctl fitness pause <suite> [-n <namespace>] [--dry-run]
+kmctl fitness resume <suite> [-n <namespace>] [--dry-run]
+kmctl fitness stop <suite> [-n <namespace>] [--dry-run] [-y]
 ```
 
 Inspect and run `CrewFitnessSuite` resources. `kmctl fitness run` polls to
@@ -1050,6 +1150,34 @@ kmctl fitness download demo-starter -o results.xlsx -n kubemoot
 # Downloads to results.xlsx
 ```
 
+### kmctl fitness pause, resume and stop
+
+```
+kmctl fitness pause <suite> [-n <namespace>] [--dry-run]
+kmctl fitness resume <suite> [-n <namespace>] [--dry-run]
+kmctl fitness stop <suite> [-n <namespace>] [--dry-run] [-y]
+```
+
+Control a suite while it runs. Each command changes the suite with your own
+credentials, so it needs `patch` on `crewfitnesssuites` in the suite's namespace. With
+`--dry-run` the API server checks the change and your access and stores nothing.
+
+- `pause` sets `spec.suspend`. The iteration that is running finishes, no new one starts,
+  and the phase becomes `Paused`.
+- `resume` clears `spec.suspend`, and the operator starts the next iteration.
+- `stop` sets `spec.cancel`. The operator deletes the iteration in flight, the phase
+  becomes `Cancelled`, and a partial XLSX report is written. A stopped suite cannot be
+  resumed: run it again, or delete it with `kmctl delete crewfitnesssuite`. `stop`
+  asks first unless you pass `-y` (`--yes`).
+
+See [Pause, resume and stop](../crewfitnesssuite/#pause-resume-and-stop) for the phases.
+
+```bash
+kmctl fitness pause demo-starter -n crew-demo
+kmctl fitness resume demo-starter -n crew-demo
+kmctl fitness stop demo-starter -n crew-demo --yes
+```
+
 ### Re-judging a run
 
 `kmctl` has no re-judge command. A `CrewFitnessSuite` with a `spec.rejudge` block scores an
@@ -1065,8 +1193,20 @@ through an operator-owned API instead is planned.
 
 ## kmctl memory
 
+```
+kmctl memory export <crew> [flags]
+kmctl memory add <crew> <topic> <key> [value] [flags]
+kmctl memory edit <crew> <topic> <key> [value] [flags]
+kmctl memory delete <crew> <topic> <key> [flags]
+kmctl memory clear <crew> [flags]
+```
+
 Commands for a crew's long-term memory (the facts it learned, see
-[Agent context](../../concepts/agent-context/#memory)).
+[Agent context](../../concepts/agent-context/#memory)): export them, or add, edit,
+delete and clear them. Memory lives in a NATS key-value bucket, so every command opens a
+port-forward to the NATS Service with your kubeconfig credentials (it needs `create` on
+`pods/portforward` in the NATS namespace), or connects to the server you name with
+`--nats-url`.
 
 ### kmctl memory export
 
@@ -1082,7 +1222,7 @@ a Markdown file under `markdown/`. The mapping is the one the operator's `ompi-e
 uses; see [Agent context](../../concepts/agent-context/#memory) for what maps and what
 does not.
 
-The command only reads. Crew memory lives in a NATS key-value bucket, and the NATS
+`export` only reads. Crew memory lives in a NATS key-value bucket, and the NATS
 server is not an HTTP service the Kubernetes API server can proxy, so kmctl opens a
 port-forward to a ready pod of the NATS Service with your kubeconfig credentials, lists
 the bucket's keys and gets the values it needs, and closes the forward. It never writes,
@@ -1126,6 +1266,49 @@ kmctl memory export homelab-pilot -n crew-homelab-pilot -o ./pilot-memory --mark
 
 kmctl memory export homelab-pilot -n crew-homelab-pilot -o ./pilot-raw --allow-unscreened
 # wrote 12 memory object(s) of crew-homelab-pilot/homelab-pilot to ./pilot-raw
+```
+
+### kmctl memory add and edit
+
+```
+kmctl memory add <crew> <topic> <key> [value] [-n <namespace>] [--from-file FILE] [--allow-unscreened] [--dry-run]
+kmctl memory edit <crew> <topic> <key> [value] [-n <namespace>] [--from-file FILE] [--allow-unscreened] [--dry-run]
+```
+
+`add` stores a fact the crew will remember under a topic and a key. It fails when that
+fact already exists. `edit` replaces the value of a fact the crew already holds, keeps
+the time it was first learned, and fails when the fact does not exist. The value is the
+`value` argument, or the content of `--from-file` (`-` reads stdin). Topic and key keep
+letters, digits, underscore, equals and hyphen; any other character becomes an
+underscore, and the command says so.
+
+Agents read and trust facts, so a value that holds a credential (a bearer token, an API
+key, a password in a URL, a private key header) is refused. `--allow-unscreened` stores
+it anyway; use it only when you accept that. `--dry-run` writes nothing. The NATS flags
+are those of `export`: `--nats-namespace`, `--nats-service`, `--nats-url` and `--creds`.
+
+```bash
+kmctl memory add homelab-pilot hardware gpu0 "RTX 5090, 32 GiB" -n crew-homelab-pilot
+kmctl memory edit homelab-pilot hardware gpu0 "RTX 5090, 32 GiB, water cooled" -n crew-homelab-pilot
+echo "new text" | kmctl memory edit homelab-pilot notes rack --from-file - -n crew-homelab-pilot
+```
+
+### kmctl memory delete and clear
+
+```
+kmctl memory delete <crew> <topic> <key> [-n <namespace>] [--dry-run] [-y]
+kmctl memory clear <crew> [-n <namespace>] [--dry-run] [-y]
+```
+
+`delete` removes the fact a crew holds under a topic and a key, and fails when there is
+none. `clear` removes every fact one crew holds in the namespace in effect; a crew of the
+same name in another namespace, and a crew whose name only starts with this one, keep
+their facts. Both ask first unless you pass `-y` (`--yes`), and remove nothing with
+`--dry-run`. `clear` cannot be undone: export the memory first to keep a copy.
+
+```bash
+kmctl memory export homelab-pilot -n crew-homelab-pilot && kmctl memory clear homelab-pilot -n crew-homelab-pilot
+kmctl memory delete homelab-pilot hardware gpu0 --yes -n crew-homelab-pilot
 ```
 
 ---
