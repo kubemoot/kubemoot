@@ -1,5 +1,5 @@
 {
-  "version": "2.5.0",
+  "version": "2.6.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -210,6 +210,13 @@
     "conversation-list.json#/definitions/ConversationSummary/turns": {
       "type": "integer",
       "required": true
+    },
+    "conversation-owner.json#": {
+      "type": "object"
+    },
+    "conversation-owner.json#/owner": {
+      "required": true,
+      "ref": "principal.json"
     },
     "coordinator-event.json#": {
       "type": "object"

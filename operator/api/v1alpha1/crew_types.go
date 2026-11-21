@@ -37,14 +37,16 @@ type DiscussionConfig struct {
 	// Access declares who may call the gateway. Unset, the gateway accepts every caller
 	// as anonymous, as it always has, and the Crew reports Authentication=False with reason
 	// Anonymous. Set, the gateway verifies each caller's Kubernetes token, requires get on
-	// the Crew, and passes the verified caller with each question.
+	// the Crew, records the caller as the owner of the conversations they start, and shows
+	// each caller only their own.
 	// +optional
 	Access *DiscussionAccess `json:"access,omitempty"`
 }
 
 // DiscussionAccess is how a crew's discussion gateway knows who is asking. Setting it turns
 // verification on; a caller then sends their Kubernetes token as "Authorization: Bearer".
-// A caller needs get on the Crew to use it.
+// A caller needs get on the Crew to use it, and get or list on crews/conversations (the
+// ClusterRole kubemoot-conversation-reader) to read other callers' conversations.
 type DiscussionAccess struct {
 	// TokenReview makes the gateway check Kubernetes bearer tokens with a TokenReview and
 	// a SubjectAccessReview.

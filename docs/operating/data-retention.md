@@ -20,6 +20,7 @@ A crew that declares nothing still has the defaults the Crew schema carries. Rea
 | Data | Store | Who decides how long | Size limit |
 |------|-------|----------------------|------------|
 | Conversations (earlier turns) | KV `kubemoot_conversations`, key `conv.<namespace>.<crew>.<id>` | the crew: `retention.conversations.window` and `retention.purgeUnused`; the bucket's own expiry is only a backstop at the longest window a crew may declare | yes |
+| Conversation owners | KV `kubemoot_conversations`, key `own.<namespace>.<crew>.<id>`, only on a crew that verifies callers | the crew, with its conversations: removed by the same cleanup and window as the history; holds the owner's pseudonymous id only | yes |
 | Crew memory (facts) | KV `kubemoot_crew_memory`, key `<namespace>.<crew>.<topic>.<key>` | the crew: `retention.memory.purgeUnused`, which may be `never`; the bucket has no expiry | yes, plus `memory.maxFacts` per crew |
 | Discussion messages | stream `KUBEMOOT_DISCUSS`, subject `kubemoot.discuss.<namespace>.<crew>.>` | the stream's age (chart `nats.streams.discuss`), and the crew may shorten it with `retention.other.window` | yes |
 | Coordinator logs | stream `KUBEMOOT_COORDINATOR` | the stream's age; `retention.other.window` may shorten it | yes |

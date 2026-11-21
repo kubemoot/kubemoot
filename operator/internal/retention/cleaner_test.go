@@ -194,3 +194,26 @@ func TestCleanKeepsGoingAfterAFailureAndReportsIt(t *testing.T) {
 		t.Errorf("memory still cleaned, removed %d", got.Memory)
 	}
 }
+
+// An owner record expires with the history of its conversation, by the same window, and
+// only the crew's own records are touched.
+func TestCleanRemovesExpiredOwnerRecordsOfTheCrewOnly(t *testing.T) {
+	s := newFakeStore()
+	s.kv[ConversationsBucket] = []KVEntry{
+		{"own.ns.crew.old", ago(31 * day)},
+		{"own.ns.crew.new", ago(day)},
+		{"own.ns.other.old", ago(400 * day)},
+		{"own.ns2.crew.old", ago(400 * day)},
+	}
+	got, err := cleaner(s).Run(scope, Policy{Conversations: 30 * day})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Conversations != 0 {
+		t.Errorf("an owner record is not a conversation: counted %d", got.Conversations)
+	}
+	want := "own.ns.crew.new,own.ns.other.old,own.ns2.crew.old"
+	if g := strings.Join(s.keys(ConversationsBucket), ","); g != want {
+		t.Errorf("left %s, want %s", g, want)
+	}
+}

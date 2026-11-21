@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: Kubemoot bus contract
-  version: 2.5.0
+  version: 2.6.0
   description: |
     The messages agents and Kubemoot exchange over NATS, the key-value entries they
     share, and the event stream the discussion gateway serves. Payloads are JSON
@@ -316,6 +316,26 @@ channels:
       conversationHistory:
         $ref: '#/components/messages/ConversationHistory'
 
+  conversationOwners:
+    address: $KV.kubemoot_conversations.own.{namespace}.{crew}.{conversationId}
+    title: KV kubemoot_conversations, owner records
+    description: |
+      The owner of each conversation on a crew that verifies callers. Written by the
+      discussion gateway with every accepted question; removed with the conversation's
+      history by the crew's retention cleanup.
+    servers:
+      - $ref: '#/servers/nats'
+    parameters:
+      namespace:
+        description: The crew's namespace.
+      crew:
+        description: The crew.
+      conversationId:
+        description: The conversation.
+    messages:
+      conversationOwner:
+        $ref: '#/components/messages/ConversationOwner'
+
   crewResumes:
     address: $KV.kubemoot_crew_resumes.{namespace}.{crew}
     title: KV kubemoot_crew_resumes
@@ -521,6 +541,11 @@ components:
       title: Conversation history
       payload:
         $ref: './conversation-history.json'
+    ConversationOwner:
+      name: ConversationOwner
+      title: Conversation owner
+      payload:
+        $ref: './conversation-owner.json'
     CrewResumes:
       name: CrewResumes
       title: Crew resumes

@@ -114,3 +114,19 @@ func audienceAccepted(wanted, granted []string) bool {
 	}
 	return false
 }
+
+// ConversationsSubresource is the crews subresource whose get and list verbs let an
+// operator read other callers' conversations.
+const ConversationsSubresource = "conversations"
+
+// ConversationsAccess is the access of reading other callers' conversations of a crew: get
+// to read one, list to list them all, on crews/conversations. The resource is virtual: RBAC
+// rules may name a subresource the API server does not serve, so no aggregated API is needed.
+// Nobody holds it unless a binding to the ClusterRole kubemoot-conversation-reader, or a
+// rule of the installer's own, grants it.
+func ConversationsAccess(namespace, crew, verb string) authorizationv1.ResourceAttributes {
+	return authorizationv1.ResourceAttributes{
+		Namespace: namespace, Verb: verb, Group: kubemootv1alpha1.GroupVersion.Group,
+		Resource: "crews", Subresource: ConversationsSubresource, Name: crew,
+	}
+}

@@ -15,13 +15,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
 // The shared stores a crew's data lives in.
 const (
-	ConversationsBucket = "kubemoot_conversations"
+	ConversationsBucket = bus.ConversationsBucket
 	MemoryBucket        = crewmemory.Bucket
 	DiscussStream       = "KUBEMOOT_DISCUSS"
 	CoordinatorStream   = "KUBEMOOT_COORDINATOR"
@@ -68,7 +69,12 @@ func (c *Cleaner) Run(scope crewscope.Scope, p Policy) (Removed, error) {
 	now := c.Now()
 
 	if p.Conversations > 0 {
-		out.Conversations, err = c.expireKV(ConversationsBucket, scope.ConversationPrefix(), now.Add(-p.Conversations))
+		cutoff := now.Add(-p.Conversations)
+		out.Conversations, err = c.expireKV(ConversationsBucket, scope.ConversationPrefix(), cutoff)
+		errs = appendErr(errs, err)
+		// A conversation's owner record expires with its history; its removal is not counted
+		// as a conversation, since it is the same one.
+		_, err = c.expireKV(ConversationsBucket, bus.ConversationOwnerPrefix(scope.Namespace, scope.Crew), cutoff)
 		errs = appendErr(errs, err)
 	}
 	if !p.Memory.IsNever() && p.Memory.IsSet() {

@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConversationOwner",
+  "description": "Who owns a conversation, in the kubemoot_conversations bucket, key own.<namespace>.<crew>.<conversationId>. The discussion gateway writes it when it accepts the first question of a conversation on a crew that verifies callers, and rewrites it with every later question so it lives exactly as long as the conversation's history. It holds the principal's pseudonymous id only, never a subject or a token. A conversation with no record is owned by no one: only an operator may read it.",
+  "type": "object",
+  "required": ["owner"],
+  "properties": {
+    "owner": {
+      "$ref": "principal.json",
+      "description": "The principal that started the conversation. An anonymous owner is the anonymous caller of a crew that accepts them."
+    }
+  }
+}

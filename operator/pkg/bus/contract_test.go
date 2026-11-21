@@ -232,6 +232,7 @@ var goTypes = map[string]func() any{
 	"latency-samples.json":       func() any { return &bus.LatencySamples{} },
 	"scheduler-performance.json": func() any { return &bus.SchedulerPerformance{} },
 	"conversation-history.json":  func() any { return &bus.ConversationHistory{} },
+	"conversation-owner.json":    func() any { return &bus.ConversationOwner{} },
 	"crew-resumes.json":          func() any { return &bus.CrewResumes{} },
 	"conversation-list.json":     func() any { return &bus.ConversationList{} },
 	"stream-event.json":          func() any { return &streamEvent{} },

@@ -113,6 +113,9 @@ func (h *Handler) getStoredResult(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.mayReadKey(w, r, js, scope, key) {
+		return
+	}
 	obj, err := openArtifact(r.Context(), js, key)
 	if errors.Is(err, errArtifactGone) {
 		httpError(w, http.StatusNotFound, err.Error())
@@ -138,4 +141,39 @@ func writeArtifact(w http.ResponseWriter, obj jetstream.ObjectResult) {
 	if _, err := io.Copy(w, obj); err != nil {
 		handlerLog.V(1).Info("Could not send the artifact", keyError, err.Error())
 	}
+}
+
+// mayReadKey lets the caller read a stored result when its thread belongs to a conversation
+// they may read. A thread whose conversation cannot be found, because its messages are gone,
+// belongs to no one a gateway that verifies callers can name, so it is not served.
+func (h *Handler) mayReadKey(
+	w http.ResponseWriter, r *http.Request, js jetstream.JetStream, scope crewscope.Scope, key string,
+) bool {
+	if !h.enforcing() {
+		return true
+	}
+	thread := strings.Split(strings.TrimPrefix(key, scope.Namespace+"/"+scope.Crew+"/"), "/")[0]
+	conversation, found, err := conversationOfThread(r.Context(), js, scope, thread)
+	if err != nil {
+		h.failedCheck(w, scope, err)
+		return false
+	}
+	if !found {
+		httpError(w, http.StatusNotFound, errArtifactGone.Error())
+		return false
+	}
+	return h.mayRead(w, r, scope, conversation, opWorkspace)
+}
+
+// conversationOfThread is the conversation the thread's thread_start names.
+func conversationOfThread(
+	ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, thread string,
+) (string, bool, error) {
+	conversation := ""
+	err := readSubject(ctx, js, scope.DiscussSubject("*", thread), func(m discussMsg) {
+		if m.data.MessageType == msgThreadStart && conversation == "" {
+			conversation = conversationOf(m.data)
+		}
+	})
+	return conversation, conversation != "", err
 }
