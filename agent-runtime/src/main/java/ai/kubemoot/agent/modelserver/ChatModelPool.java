@@ -5,6 +5,7 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import ai.kubemoot.agent.tracing.ChatSpans;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +60,7 @@ public class ChatModelPool {
                     .maxRetries(1)
                     // Per-agent thinking control, in the engine's own request fields.
                     .customParameters(engine.thinkingFields(think))
+                    .listeners(java.util.List.of(new ChatSpans()))
                     .build();
         });
     }
@@ -80,6 +82,7 @@ public class ChatModelPool {
                 .maxTokens(maxTokens)
                 .timeout(timeout)
                 .customParameters(engine.thinkingFields(think))
+                .listeners(java.util.List.of(new ChatSpans()))
                 .build());
     }
 

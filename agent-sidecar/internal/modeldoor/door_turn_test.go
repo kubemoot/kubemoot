@@ -10,6 +10,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -168,4 +169,61 @@ func TestTheTraceContinuesFromTheHarnessToTheModelServer(t *testing.T) {
 	if len(names) < 2 {
 		t.Errorf("want a server span and a client span in the harness's trace, got %v", names)
 	}
+}
+
+func TestAModelCallIsAChatSpanWithTheGenAIAttributes(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":30}}`))
+	}))
+	t.Cleanup(upstream.Close)
+	door := httptest.NewServer(obs.Handler(New(Config{Crew: "c", Agent: "a",
+		Aliases: map[string][]string{aliasDefault: {"m"}}}, &fakePlacer{endpoint: upstream.URL}, turn.NewRegistry(), nil), "model-door"))
+	t.Cleanup(door.Close)
+
+	resp, err := http.Post(door.URL+"/v1/chat/completions", "application/json", strings.NewReader(completions))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	got := chatAttributes(t, rec)
+	for key, want := range map[string]string{"gen_ai.operation.name": "chat", "gen_ai.provider.name": "openai"} {
+		if got[key].AsString() != want {
+			t.Errorf("%s = %q, want %q", key, got[key].AsString(), want)
+		}
+	}
+	if got["gen_ai.request.model"].AsString() == "" {
+		t.Error("the chat span must name the model")
+	}
+	if got["gen_ai.usage.input_tokens"].AsInt64() != 120 || got["gen_ai.usage.output_tokens"].AsInt64() != 30 {
+		t.Errorf("token counts = %v/%v, want 120/30", got["gen_ai.usage.input_tokens"], got["gen_ai.usage.output_tokens"])
+	}
+	for key := range got {
+		if strings.Contains(key, "messages") || strings.Contains(key, "prompt") {
+			t.Errorf("the sidecar must carry no content, found %s", key)
+		}
+	}
+}
+
+// chatAttributes waits for the call's chat span and returns its attributes by name.
+func chatAttributes(t *testing.T, rec *tracetest.SpanRecorder) map[string]attribute.Value {
+	t.Helper()
+	got := map[string]attribute.Value{}
+	for deadline := time.Now().Add(5 * time.Second); len(got) == 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for _, s := range rec.Ended() {
+			if !strings.HasPrefix(s.Name(), "chat ") {
+				continue
+			}
+			for _, kv := range s.Attributes() {
+				got[string(kv.Key)] = kv.Value
+			}
+		}
+	}
+	if len(got) == 0 {
+		t.Fatal("want a chat span for the model call")
+	}
+	return got
 }

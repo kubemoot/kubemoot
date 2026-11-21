@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.tracing.AgentTrace;
 import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.config.AgentProperties;
@@ -293,8 +294,12 @@ public class RequestQueueConsumer {
             // so the consumer thread can never block here indefinitely.
             // The request's stream sequence ties it to the thread it starts, so a request handed
             // again after a restart finds that thread instead of starting another.
-            var result = orchestrator.orchestrate(request.message(), request.conversationId(), request.crew(),
-                    arrivedRequester(request), streamSequence(msg));
+            // The question's trace context, from the request message, parents the discussion's spans.
+            DiscussionOrchestrator.OrchestrateResult result;
+            try (var ignored = AgentTrace.extract(msg.getHeaders()).makeCurrent()) {
+                result = orchestrator.orchestrate(request.message(), request.conversationId(), request.crew(),
+                        arrivedRequester(request), streamSequence(msg));
+            }
             // An interrupted orchestrate() returns null; one that finished returns a result
             // and is acked even when shutdown began meanwhile, so it is not answered twice.
             if (result == null && stopping()) {

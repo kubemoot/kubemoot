@@ -11,6 +11,7 @@ import ai.kubemoot.agent.mcp.WorkspaceScope;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
 import ai.kubemoot.agent.modelserver.ChatModelPool;
+import ai.kubemoot.agent.tracing.AgentTrace;
 import ai.kubemoot.agent.modelserver.OllamaDirectProber;
 import ai.kubemoot.agent.modelserver.CallObservation;
 import ai.kubemoot.agent.modelserver.CallPlacement;
@@ -1321,7 +1322,7 @@ public class ChatService {
         Instant started = Instant.now();
         long startNanos = System.nanoTime();
         String raw = executor != null
-                ? executor.execute(toolRequest, null)
+                ? tracedToolCall(executor, toolRequest)
                 : ToolResultBudget.errorJson("Unknown tool: " + toolRequest.name());
         String artifactKey = storeCall(state, toolRequest, started, (System.nanoTime() - startNanos) / 1_000_000, raw);
         var admitted = budget.admit(toolRequest.name(), raw, toolerRawOutput, artifactKey);
@@ -1347,6 +1348,22 @@ public class ChatService {
         appendToolOutput(state, toolRequest.name(), kept);
         state.recordGatherResult(toolRequest.name(), raw);
         recordToolFailure(toolRequest.name(), toolRequest.arguments(), raw, false, state);
+    }
+
+    /** Runs one tool call inside an {@code execute_tool <name>} span, a child of the turn's span. */
+    private static String tracedToolCall(ToolExecutor executor, dev.langchain4j.agent.tool.ToolExecutionRequest request) {
+        var span = AgentTrace.startToolCall(request.name(), request.id(), request.arguments());
+        String result = null;
+        Throwable failure = null;
+        try (var ignored = span.makeCurrent()) {
+            result = executor.execute(request, null);
+            return result;
+        } catch (RuntimeException e) {
+            failure = e;
+            throw e;
+        } finally {
+            AgentTrace.endToolCall(span, result, failure);
+        }
     }
 
     /**

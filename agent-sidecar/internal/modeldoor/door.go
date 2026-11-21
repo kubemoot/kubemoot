@@ -191,7 +191,10 @@ func (d *Door) count(result string) {
 
 func (d *Door) forward(w http.ResponseWriter, r *http.Request, c *call, placed placement.Reply) {
 	started := time.Now()
-	status, u, err := d.send(w, r, c, placed)
+	ctx, span := obs.StartChat(r.Context(), placed.Model)
+	status, u, err := d.send(w, r.WithContext(ctx), c, placed)
+	obs.EndChat(span, obs.ChatResult{Model: placed.Model, Server: placed.Server,
+		InputTokens: u.prompt, OutputTokens: u.completion, Err: err})
 	took := time.Since(started)
 	ok := err == nil && status < http.StatusBadRequest
 	if c.meter != nil {

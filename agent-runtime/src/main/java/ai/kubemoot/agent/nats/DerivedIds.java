@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.tracing.AgentTrace;
 import io.nats.client.Connection;
 import io.nats.client.JetStream;
 import io.nats.client.JetStreamApiException;
@@ -41,11 +42,8 @@ final class DerivedIds {
 
     /** Publishes {@code payload}; with a derived id it carries {@code Nats-Msg-Id}. */
     static void publish(Connection conn, String subject, byte[] payload, String derived) {
-        if (derived == null) {
-            conn.publish(subject, payload);
-            return;
-        }
-        conn.publish(subject, new Headers().put(MSG_ID_HEADER, streamId(derived, subject)), payload);
+        Headers base = derived == null ? null : new Headers().put(MSG_ID_HEADER, streamId(derived, subject));
+        AgentTrace.publish(conn, subject, base, payload);
     }
 
     /**
@@ -58,6 +56,6 @@ final class DerivedIds {
         if (derived != null) {
             options.messageId(streamId(derived, subject));
         }
-        js.publish(subject, payload, options.build());
+        AgentTrace.publishAcked(js, subject, null, payload, options.build());
     }
 }

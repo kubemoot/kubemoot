@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.tracing.AgentTrace;
 import ai.kubemoot.agent.logging.LogContent;
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
@@ -58,7 +59,8 @@ final class DiscussionFeed {
     }
 
     private static void deliver(Message msg, Handler handler) {
-        try {
+        // The message's trace context is current while the coordinator applies it.
+        try (var ignored = AgentTrace.extract(msg.getHeaders()).makeCurrent()) {
             handler.accept(new String(msg.getData(), StandardCharsets.UTF_8), sequenceOf(msg));
         } catch (RuntimeException e) {
             log.debug("Error handling orchestrator message: {}", LogContent.reason(e));
