@@ -77,6 +77,27 @@ With no settings changed:
 
 To keep nothing of a person's conversation beyond the thread, set `memory.enabled: false` on the crew, give `retention.conversations.window` a short value, and shorten the streams as above. Each store still holds data for its own age before it expires.
 
+## Taking a conversation away
+
+A person can take away everything Kubemoot still holds about a conversation as one zip. The operator builds it on request from the stores, sends it as it builds it, and keeps no copy. It follows the same pattern as the crew memory export: the operator's report service answers `GET /conversation-export/{namespace}/{crew}?id=<conversationId>`, behind the same bearer token check (a TokenReview, then a SubjectAccessReview that the caller may `get` the Crew). The file is named `<crew>-conversation-<id>.zip`.
+
+| Part | What it holds |
+|---|---|
+| `conversation.md` | The turns, questions and answers, readable, with times in the asker's zone when the request names one (`timeZone=America/New_York`), else UTC |
+| `conversation.json` | The same, structured: ids, the crew, each time in the asker's zone and in UTC |
+| `receipts/` | The receipt of each answer, as the stream held it, for the threads whose closing message is still stored |
+| `artifacts/` | The workspace files of the conversation's threads that are still stored |
+| `memory/` | The crew memory facts learned in this conversation, in the same OMPI files `kmctl memory export` writes, screened the same way: a fact that holds a credential is left out and listed by key or opaque id, never by its text. Facts from other conversations are never included, and neither is a fact whose thread was not recorded |
+| `manifest.json` | What is included, what had expired or is not kept, what the screening left out, the time zone and the export's time |
+
+Each part that is not in the zip is listed in the manifest with its status: `expired` (the workspace of a thread is deleted when the thread closes), `not-kept` (receipts the stream no longer holds), `empty` (no memory fact records this conversation as where it was learned) or `unavailable` (a store could not be read). A conversation whose history has expired answers 404.
+
+Repeat `id` to export several conversations. The answer is then a zip of zips named `<crew>-conversations.zip`: one conversation zip per conversation, each exactly the zip a single export returns, plus a top-level `manifest.json` that lists every id asked for as `included`, `refused`, `expired` or `failed`. An id is never dropped silently. At most 50 ids are accepted, and an id is 1 to 128 letters, digits, `-` or `_`. Add `report=true` for the manifest as JSON without the zip.
+
+Who may export: a conversation has no recorded owner yet, so the rule is the access the report service already checks for the crew, `get` on the Crew in that namespace. Whoever holds that access can export any conversation of the crew, as they could already read any of them. When conversations have owners, the check moves to the conversation's owner and the endpoint stays the same. The crew liaison's `export_conversation` tool calls the same endpoint with the liaison's own service account, and `kmctl conversation export` is planned to match `kmctl memory export`.
+
+Memory facts are tied to a conversation by the thread each was learned in, which the agent runtime records on every fact it writes. A fact written before that was recorded is not attributable to any conversation, so it is never in a conversation export; take those with `kmctl memory export`.
+
 ## Answering an erasure request
 
 A person's data has no account key in NATS; it is keyed by namespace, crew, and conversation or thread. To erase it:
@@ -142,6 +163,7 @@ Question text still passes through NATS while a thread runs: a crew cannot answe
 
 ## Related
 
+- [Dashboard](../dashboard/#the-operator-report-service) - the operator report service that serves the conversation export.
 - [Data retention and limits](../data-retention/) - how retention policies and store limits work.
 - [Installation](../../introduction/installation/) - installing the operator and NATS.
 - [Observability](../observability/) - logs, metrics and traces.

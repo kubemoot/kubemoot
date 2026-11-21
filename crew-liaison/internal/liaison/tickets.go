@@ -62,6 +62,7 @@ type TicketView struct {
 	ID            string    `json:"ticket"`
 	Crew          string    `json:"crew"`
 	Namespace     string    `json:"namespace"`
+	Conversation  string    `json:"conversationId,omitempty"`
 	State         State     `json:"status"`
 	Contributions int       `json:"contributions"`
 	Answer        string    `json:"answer,omitempty"`
@@ -112,6 +113,7 @@ func (t *Ticket) Snapshot() TicketView {
 		ID:            t.ID,
 		Crew:          t.Crew,
 		Namespace:     t.Namespace,
+		Conversation:  t.Conversation,
 		State:         t.state,
 		Contributions: t.contributions,
 		Answer:        t.answer,

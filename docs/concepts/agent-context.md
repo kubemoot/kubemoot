@@ -216,7 +216,9 @@ facts about users. It belongs to the **crew**, not to a single agent, and is con
   is never changed.
 - **Storage.** Facts live in the NATS KV bucket `kubemoot_crew_memory` under the key
   `<namespace>.<crew>.<topic>.<key>`. Each value is a JSON record with `value`,
-  `learnedBy`, `learnedAt` and `usedAt`.
+  `learnedBy`, `learnedInThread` (the thread it was learned in, which ties it to a
+  conversation for the [conversation export](../../operating/data-ownership/#taking-a-conversation-away)),
+  `learnedAt` and `usedAt`.
 - **Read.** Before each discussion query, the runtime injects the crew's relevant facts
   into the agent's system prompt under a "Crew Working Memory" heading. Facts that share
   words with the question rank first, then the most recently used. The agent does not

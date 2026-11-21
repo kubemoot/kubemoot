@@ -17,6 +17,7 @@ import (
 	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/pkg/askerzone"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	opscope "github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 	"github.com/kubemoot/kubemoot/operator/pkg/httporigin"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -127,22 +128,16 @@ const (
 	localDateTimeLayout    = "2006-01-02T15:04:05"
 )
 
-// maxConversationIDLength bounds a conversation id.
-const maxConversationIDLength = 128
-
 var (
-	// conversationIDShape is the character set of a conversation id. A dot would let an id
-	// spell another crew's storage key, so ids carry no dots or wildcards.
-	conversationIDShape = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	// localDateTimeShape is an ISO local date-time with a four-digit year and no offset.
 	localDateTimeShape = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?$`)
 )
 
-const errInvalidConversationID = "invalid conversationId: use 1 to 128 letters, digits, '-' or '_'"
+const errInvalidConversationID = opscope.ErrInvalidConversationID
 
 // validConversationID reports whether id is 1 to 128 letters, digits, '-' or '_'.
 func validConversationID(id string) bool {
-	return len(id) <= maxConversationIDLength && conversationIDShape.MatchString(id)
+	return opscope.ValidConversationID(id)
 }
 
 // askerZone returns the asker's zone when it names a zone of the IANA database. Any other value is

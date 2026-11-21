@@ -35,6 +35,10 @@ type Fact struct {
 	Key       string
 	Value     string
 	LearnedBy string
+	// LearnedInThread is the discussion thread the fact was learned in, empty for a
+	// fact written before the runtime recorded it. It is what ties a fact to the
+	// conversation that taught it.
+	LearnedInThread string
 	// LearnedAt and UsedAt are zero when the stored text is missing or not RFC 3339.
 	LearnedAt time.Time
 	UsedAt    time.Time
@@ -71,8 +75,10 @@ type EntryReader interface {
 type storedFact struct {
 	Value     string `json:"value"`
 	LearnedBy string `json:"learnedBy"`
-	LearnedAt string `json:"learnedAt"`
-	UsedAt    string `json:"usedAt"`
+	// LearnedInThread is optional: absent on facts written before it was recorded.
+	LearnedInThread string `json:"learnedInThread"`
+	LearnedAt       string `json:"learnedAt"`
+	UsedAt          string `json:"usedAt"`
 }
 
 // Skipped names an entry that was read but could not be turned into a fact,
@@ -160,12 +166,13 @@ func ParseFact(scope crewscope.Scope, key string, entry Entry) (Fact, error) {
 		return Fact{}, errors.New("value is not the expected JSON")
 	}
 	return Fact{
-		Scope:     scope,
-		Topic:     topic,
-		Key:       name,
-		Value:     s.Value,
-		LearnedBy: s.LearnedBy,
-		LearnedAt: parseTime(s.LearnedAt),
+		Scope:           scope,
+		Topic:           topic,
+		Key:             name,
+		Value:           s.Value,
+		LearnedBy:       s.LearnedBy,
+		LearnedInThread: s.LearnedInThread,
+		LearnedAt:       parseTime(s.LearnedAt),
 		// usedAt defaults to learnedAt for entries written before touch-on-read.
 		UsedAt:   parseTime(firstNonEmpty(s.UsedAt, s.LearnedAt)),
 		Revision: entry.Revision,
@@ -186,4 +193,17 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// LearnedInThreads keeps the facts learned in one of threads. A fact with no
+// recorded thread is never kept: nothing says which conversation taught it. The
+// entries that could not be read are dropped too, as nothing says whose they were.
+func LearnedInThreads(res ReadResult, threads map[string]struct{}) ReadResult {
+	var out ReadResult
+	for _, f := range res.Facts {
+		if _, ok := threads[f.LearnedInThread]; ok && f.LearnedInThread != "" {
+			out.Facts = append(out.Facts, f)
+		}
+	}
+	return out
 }

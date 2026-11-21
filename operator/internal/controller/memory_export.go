@@ -77,12 +77,12 @@ func (s *ReportServer) serveMemoryExport(w http.ResponseWriter, r *http.Request)
 	}
 	reader, err := s.Memory.OpenCrewMemory()
 	if err != nil {
-		failMemoryExport(w, scope, err, "crew memory is not reachable", http.StatusBadGateway)
+		failExport(w, scope, err, "crew memory is not reachable", http.StatusBadGateway)
 		return
 	}
 	exp, files, err := ompi.ExportFiles(reader, scope, false, ompi.Options{ExportedAt: time.Now()})
 	if err != nil {
-		failMemoryExport(w, scope, err, "crew memory export failed", http.StatusInternalServerError)
+		failExport(w, scope, err, "crew memory export failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -98,7 +98,7 @@ func (s *ReportServer) serveMemoryExport(w http.ResponseWriter, r *http.Request)
 func writeMemoryExportZip(w http.ResponseWriter, scope crewscope.Scope, files map[string][]byte) {
 	archive, err := ompi.Archive(files)
 	if err != nil {
-		failMemoryExport(w, scope, err, "crew memory export failed", http.StatusInternalServerError)
+		failExport(w, scope, err, "crew memory export failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")
@@ -106,15 +106,15 @@ func writeMemoryExportZip(w http.ResponseWriter, scope crewscope.Scope, files ma
 	_, _ = w.Write(archive)
 }
 
-// memoryExportLog is the log of memory export failures.
-var memoryExportLog = reportLog
+// exportLog is the log of export failures, memory and conversation.
+var exportLog = reportLog
 
-// failMemoryExport answers with a fixed message and logs the cause redacted. An error
-// from the store can carry a store key, and a key that holds a credential is exactly
-// what the export hides behind an opaque id, so the cause reaches neither the client
-// nor the log as it is.
-func failMemoryExport(w http.ResponseWriter, scope crewscope.Scope, cause error, message string, status int) {
-	memoryExportLog.Error(errors.New(secretscreen.Redact(cause.Error())), message,
+// failExport answers with a fixed message and logs the cause redacted, for a memory or a
+// conversation export. An error from the store can carry a store key, and a key that holds
+// a credential is exactly what the export hides behind an opaque id, so the cause reaches
+// neither the client nor the log as it is.
+func failExport(w http.ResponseWriter, scope crewscope.Scope, cause error, message string, status int) {
+	exportLog.Error(errors.New(secretscreen.Redact(cause.Error())), message,
 		"namespace", scope.Namespace, "crew", scope.Crew)
 	http.Error(w, message, status)
 }

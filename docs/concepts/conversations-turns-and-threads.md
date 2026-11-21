@@ -225,6 +225,8 @@ event does not name them.
 
 ### Listing conversations
 
+A conversation can be taken away as one zip; see [Taking a conversation away](../../operating/data-ownership/#taking-a-conversation-away). The discussion gateway does not serve it: the operator does, beside the memory export, because it checks the caller's Kubernetes access.
+
 `GET /api/v1/discussions/{crew}` lists the crew's recent conversations, newest first by
 their latest turn, at most `limit` (default 20, at most 100):
 

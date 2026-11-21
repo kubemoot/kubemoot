@@ -22,6 +22,7 @@ package crewscope
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
@@ -200,3 +201,19 @@ func underscore(s string) string {
 
 // validToken rejects a value that is empty or would not be exactly one NATS token.
 func validToken(what, v string) error { return mesh.ValidToken(what, v) }
+
+// MaxConversationIDLength bounds a conversation id.
+const MaxConversationIDLength = 128
+
+// conversationIDShape is the character set of a conversation id. A dot would let an id
+// spell another crew's storage key, so ids carry no dots or wildcards.
+var conversationIDShape = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// ValidConversationID reports whether id is 1 to MaxConversationIDLength letters, digits,
+// '-' or '_'. Every door that takes a conversation id checks it with this one rule.
+func ValidConversationID(id string) bool {
+	return len(id) <= MaxConversationIDLength && conversationIDShape.MatchString(id)
+}
+
+// ErrInvalidConversationID is the message for an id that ValidConversationID refuses.
+const ErrInvalidConversationID = "invalid conversationId: use 1 to 128 letters, digits, '-' or '_'"

@@ -88,6 +88,10 @@ spec:
           env:
             - name: PORT
               value: "8080"
+            # The operator's report service, which builds conversation exports and checks the
+            # liaison's service account token and its get access to the Crew.
+            - name: LIAISON_OPERATOR_REPORT_URL
+              value: {{ printf "http://%s-report.%s.svc:8082" (include "kubemoot-operator.fullname" .) .Release.Namespace | quote }}
             - name: LIAISON_MAX_INFLIGHT
               value: {{ .Values.liaison.maxInflight | quote }}
             - name: LIAISON_TICKET_TTL_MINUTES

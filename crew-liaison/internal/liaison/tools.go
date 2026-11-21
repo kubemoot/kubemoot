@@ -36,6 +36,7 @@ type Service struct {
 	crews    Lister
 	gateway  *Gateway
 	tickets  *Store
+	exporter *Exporter
 	inflight chan struct{}
 	now      func() time.Time
 }
@@ -53,6 +54,12 @@ func NewService(crews Lister, gateway *Gateway, tickets *Store, maxInflight int)
 		inflight: make(chan struct{}, maxInflight),
 		now:      time.Now,
 	}
+}
+
+// WithExporter lets the service export conversations through exporter, and returns it.
+func (s *Service) WithExporter(exporter *Exporter) *Service {
+	s.exporter = exporter
+	return s
 }
 
 // ListCrewsInput has no fields; the tool takes no arguments.

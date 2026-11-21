@@ -25,11 +25,17 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
+const (
+	tenantNS      = "tenant"
+	resourceCrews = "crews"
+)
+
 // guardedPaths are the report service endpoints and the access each equals.
 var guardedPaths = map[string]authorizationv1.ResourceAttributes{
-	"/componentstatuses":        {Verb: "list", Group: kubemootv1alpha1.GroupVersion.Group, Resource: "modelservers"},
-	"/report/tenant/nightly":    {Namespace: "tenant", Verb: verbGet, Group: kubemootv1alpha1.GroupVersion.Group, Resource: "crewfitnesssuites", Name: "nightly"},
-	"/memory-export/tenant/pgm": {Namespace: "tenant", Verb: verbGet, Group: kubemootv1alpha1.GroupVersion.Group, Resource: "crews", Name: "pgm"},
+	"/componentstatuses":              {Verb: "list", Group: kubemootv1alpha1.GroupVersion.Group, Resource: "modelservers"},
+	"/report/tenant/nightly":          {Namespace: "tenant", Verb: verbGet, Group: kubemootv1alpha1.GroupVersion.Group, Resource: "crewfitnesssuites", Name: "nightly"},
+	"/conversation-export/tenant/pgm": {Namespace: tenantNS, Verb: verbGet, Group: kubemootv1alpha1.GroupVersion.Group, Resource: resourceCrews, Name: "pgm"},
+	"/memory-export/tenant/pgm":       {Namespace: tenantNS, Verb: verbGet, Group: kubemootv1alpha1.GroupVersion.Group, Resource: resourceCrews, Name: "pgm"},
 }
 
 func routesWithReviews(authenticated, allowed bool) (*ReportServer, *authorizationv1.SubjectAccessReview) {

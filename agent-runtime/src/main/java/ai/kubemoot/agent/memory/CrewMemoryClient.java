@@ -58,6 +58,7 @@ public class CrewMemoryClient {
     // JSON field names for the stored fact value {value, learnedBy, learnedAt, usedAt}.
     private static final String F_VALUE = "value";
     private static final String F_LEARNED_BY = "learnedBy";
+    private static final String F_LEARNED_IN_THREAD = "learnedInThread";
     private static final String F_LEARNED_AT = "learnedAt";
     private static final String F_USED_AT = "usedAt";
 
@@ -200,13 +201,22 @@ public class CrewMemoryClient {
      * crew memory. Returns the number stored; no-op when memory is disabled.
      */
     public int persistDirectives(String agentText, String learnedBy) {
+        return persistDirectives(agentText, learnedBy, null);
+    }
+
+    /**
+     * As {@link #persistDirectives(String, String)}, and records the discussion thread
+     * the facts were learned in, so a person can take away the facts a conversation
+     * taught the crew. A blank thread records none.
+     */
+    public int persistDirectives(String agentText, String learnedBy, String learnedInThread) {
         if (!enabled || agentText == null || !agentText.contains("REMEMBER:")) {
             return 0;
         }
         Matcher m = REMEMBER_LINE.matcher(agentText);
         int count = 0;
         while (m.find()) {
-            remember(m.group(1), m.group(2), m.group(3), learnedBy);
+            remember(m.group(1), m.group(2), m.group(3), learnedBy, learnedInThread);
             count++;
         }
         if (count > 0) {
@@ -232,6 +242,11 @@ public class CrewMemoryClient {
      * the LLM, which sees relevant memory via injection.
      */
     public void remember(String topic, String key, String value, String learnedBy) {
+        remember(topic, key, value, learnedBy, null);
+    }
+
+    /** As {@link #remember(String, String, String, String)}, with the thread the fact was learned in. */
+    public void remember(String topic, String key, String value, String learnedBy, String learnedInThread) {
         if (!enabled) return;
         KeyValue kv = bucket();
         if (kv == null) return;
@@ -246,7 +261,8 @@ public class CrewMemoryClient {
                     if (prevVal.equals(newVal)) {
                         // Duplicate — just refresh usage, don't rewrite.
                         touch(kv, new Fact(nk, topic, key, newVal,
-                                prev.path(F_LEARNED_BY).asText(""), prev.path(F_LEARNED_AT).asText(""), 0L));
+                                prev.path(F_LEARNED_BY).asText(""), prev.path(F_LEARNED_IN_THREAD).asText(""),
+                                prev.path(F_LEARNED_AT).asText(""), 0L));
                         return;
                     }
                     log.info("Crew-memory conflict on {}: superseding {} -> {} (fresh discovery wins)",
@@ -257,6 +273,9 @@ public class CrewMemoryClient {
             ObjectNode v = objectMapper.createObjectNode();
             v.put(F_VALUE, newVal);
             v.put(F_LEARNED_BY, learnedBy == null ? "" : learnedBy);
+            if (learnedInThread != null && !learnedInThread.isBlank()) {
+                v.put(F_LEARNED_IN_THREAD, learnedInThread);
+            }
             v.put(F_LEARNED_AT, now);
             v.put(F_USED_AT, now);
             kv.put(nk, objectMapper.writeValueAsBytes(v));
@@ -280,6 +299,9 @@ public class CrewMemoryClient {
             ObjectNode v = objectMapper.createObjectNode();
             v.put(F_VALUE, f.value);
             v.put(F_LEARNED_BY, f.learnedBy);
+            if (!f.learnedInThread.isEmpty()) {
+                v.put(F_LEARNED_IN_THREAD, f.learnedInThread);
+            }
             v.put(F_LEARNED_AT, f.learnedAt);
             v.put(F_USED_AT, Instant.now().toString());
             kv.put(f.natsKey, objectMapper.writeValueAsBytes(v));
@@ -353,7 +375,7 @@ public class CrewMemoryClient {
                 return null;
             }
             return new Fact(k, topic, key, n.path(F_VALUE).asText(""),
-                    n.path(F_LEARNED_BY).asText(""), learnedAt, usedMillis);
+                    n.path(F_LEARNED_BY).asText(""), n.path(F_LEARNED_IN_THREAD).asText(""), learnedAt, usedMillis);
         } catch (Exception e) {
             log.debug("Skipping unreadable crew-memory key {}: {}", k, LogContent.reason(e));
             return null;
@@ -395,5 +417,5 @@ public class CrewMemoryClient {
     }
 
     private record Fact(String natsKey, String topic, String key, String value,
-                        String learnedBy, String learnedAt, long usedAtMillis) {}
+                        String learnedBy, String learnedInThread, String learnedAt, long usedAtMillis) {}
 }
