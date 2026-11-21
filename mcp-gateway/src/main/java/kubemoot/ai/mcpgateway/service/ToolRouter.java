@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import kubemoot.ai.mcpgateway.model.CallerIdentity;
 import kubemoot.ai.mcpgateway.model.McpMessage;
 import kubemoot.ai.mcpgateway.model.ToolInfo;
 
@@ -130,7 +131,7 @@ public class ToolRouter {
         McpMessage forwardRequest = McpMessage.toolsCall(request.id(), toolName, arguments,
             params.get(FIELD_META));
 
-        return clientManager.forwardRequest(serverId, forwardRequest);
+        return clientManager.forwardRequest(serverId, forwardRequest, CallerIdentity.from(params.get(FIELD_META)));
     }
 
     private Mono<McpMessage> handleResourcesList(McpMessage request) {

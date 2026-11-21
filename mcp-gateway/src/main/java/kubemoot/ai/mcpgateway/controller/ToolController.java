@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
+import kubemoot.ai.mcpgateway.model.CallerIdentity;
 import kubemoot.ai.mcpgateway.model.McpMessage;
 import kubemoot.ai.mcpgateway.model.ToolInfo;
 import kubemoot.ai.mcpgateway.service.McpClientManager;
@@ -135,7 +136,8 @@ public class ToolController {
                                                    Map<String, Object> meta) {
         McpMessage mcpRequest = McpMessage.toolsCall(System.currentTimeMillis(), toolName, arguments, meta);
 
-        return clientManager.forwardRequest(serverId, mcpRequest)
+        // The ids come from _meta only; toolsCall drops them from what is forwarded.
+        return clientManager.forwardRequest(serverId, mcpRequest, CallerIdentity.from(meta))
             .map(ToolController::toToolCallResponse)
             .onErrorResume(e -> {
                 log.error("Tool call failed: {}", LogContent.reason(e));

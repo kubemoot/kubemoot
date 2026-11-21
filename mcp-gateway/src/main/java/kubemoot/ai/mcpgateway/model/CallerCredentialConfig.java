@@ -1,0 +1,99 @@
+package kubemoot.ai.mcpgateway.model;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.net.URI;
+import java.util.List;
+import java.util.regex.Pattern;
+
+/**
+ * How one server gets the credential for a {@code tools/call}. In mode {@code Off} (the
+ * default) the call carries the server's own registered credential, as before. In mode
+ * {@code Required} the call carries the token of the person who asked, leased from the
+ * credential broker for that one call; the server's registered credential is then used only
+ * to list tools, never on a call.
+ *
+ * @param mode         {@code Off} or {@code Required}
+ * @param leaseUrl     the broker's lease endpoint for this server; empty means the gateway-wide
+ *                     broker address plus {@code /internal/v1/lease}
+ * @param verifier     the name of the verifier that vouched for the person, sent with the lease request
+ * @param accountName  how a refusal names the account to connect; the verifier name when empty
+ * @param onForbidden  endpoints tried in order, with the same token, when the server's own endpoint
+ *                     answers 403 to the asker
+ * @param relayContext keep {@code conversationId} and {@code principalId} in the forwarded
+ *                     {@code _meta}, for a tool server that calls back through the gateway
+ */
+public record CallerCredentialConfig(
+    Mode mode,
+    String leaseUrl,
+    String verifier,
+    String accountName,
+    List<String> onForbidden,
+    boolean relayContext
+) {
+    public enum Mode { Off, Required }
+
+    /** The default: the server's own credential, nothing per person. */
+    public static final CallerCredentialConfig OFF =
+        new CallerCredentialConfig(Mode.Off, null, null, null, List.of(), false);
+
+    private static final Pattern VERIFIER = Pattern.compile("[a-z0-9]([-a-z0-9]*[a-z0-9])?");
+    private static final int MAX_FALLBACKS = 4;
+
+    @JsonCreator
+    public CallerCredentialConfig(
+            @JsonProperty("mode") Mode mode,
+            @JsonProperty("leaseUrl") String leaseUrl,
+            @JsonProperty("verifier") String verifier,
+            @JsonProperty("accountName") String accountName,
+            @JsonProperty("onForbidden") List<String> onForbidden,
+            @JsonProperty("relayContext") Boolean relayContext) {
+        this(mode, leaseUrl, verifier, accountName, onForbidden, Boolean.TRUE.equals(relayContext));
+    }
+
+    public CallerCredentialConfig {
+        mode = mode == null ? Mode.Off : mode;
+        onForbidden = onForbidden == null ? List.of() : List.copyOf(onForbidden);
+        leaseUrl = blankToNull(leaseUrl);
+        verifier = blankToNull(verifier);
+        accountName = blankToNull(accountName);
+        if (mode == Mode.Required) {
+            if (verifier == null || !VERIFIER.matcher(verifier).matches()) {
+                throw new IllegalArgumentException("callerCredential.verifier must be a DNS label in mode Required");
+            }
+            if (leaseUrl != null) {
+                requireHttp("callerCredential.leaseUrl", leaseUrl);
+            }
+            if (onForbidden.size() > MAX_FALLBACKS) {
+                throw new IllegalArgumentException("callerCredential.onForbidden holds at most " + MAX_FALLBACKS);
+            }
+            onForbidden.forEach(url -> requireHttp("callerCredential.onForbidden", url));
+        }
+    }
+
+    public boolean required() {
+        return mode == Mode.Required;
+    }
+
+    /** What a refusal calls the account to connect. */
+    public String account() {
+        return accountName != null ? accountName : verifier;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static void requireHttp(String field, String value) {
+        try {
+            URI uri = URI.create(value);
+            boolean web = "https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme());
+            if (!web || uri.getHost() == null) {
+                throw new IllegalArgumentException(field + " must be an http or https URL");
+            }
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(field + " must be an http or https URL", e);
+        }
+    }
+}

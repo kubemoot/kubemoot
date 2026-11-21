@@ -24,14 +24,14 @@ class ToolRouterMetaTest {
 
     private McpMessage forwardedFor(Object meta) {
         when(manager.findServerForTool("t")).thenReturn("s1");
-        when(manager.forwardRequest(any(), any())).thenReturn(Mono.just(McpMessage.response(1, Map.of())));
+        when(manager.forwardRequest(any(), any(), any())).thenReturn(Mono.just(McpMessage.response(1, Map.of())));
         var params = new LinkedHashMap<String, Object>();
         params.put("name", "t");
         params.put("arguments", Map.of());
         params.put("_meta", meta);
         router.handleRequest(McpMessage.request(1, "tools/call", params)).block();
         var captor = ArgumentCaptor.forClass(McpMessage.class);
-        verify(manager).forwardRequest(eq("s1"), captor.capture());
+        verify(manager).forwardRequest(eq("s1"), captor.capture(), any());
         return captor.getValue();
     }
 

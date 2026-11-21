@@ -20,6 +20,11 @@ mcp:
     admin:
       port: ${MCP_GATEWAY_ADMIN_PORT:0}
       token: ${MCP_GATEWAY_ADMIN_TOKEN:}
+    # Leases a person's token for servers registered with callerCredential mode Required. The
+    # operator sets the address and projects the ServiceAccount token the gateway presents.
+    credential-broker:
+      url: ${CREDENTIAL_BROKER_URL:}
+      token-file: ${CREDENTIAL_BROKER_TOKEN_FILE:/var/run/secrets/kubemoot/credential-broker/token}
     # Pre-configured backend MCP servers (optional)
     # Add servers here or register dynamically via REST API
     servers: []
