@@ -109,7 +109,12 @@ type visibility func(conversationID string) (owner string, listed bool)
 // newestFirstWhere is newestFirst over the conversations visible lists, so the limit counts
 // only what the caller may see.
 func (idx conversationIndex) newestFirstWhere(limit int, visible visibility) []bus.ConversationSummary {
-	limit = max(0, min(limit, maxConversationLimit))
+	if limit < 0 {
+		limit = 0
+	}
+	if limit > maxConversationLimit {
+		limit = maxConversationLimit
+	}
 	accs := make([]*conversationAcc, 0, len(idx))
 	for _, acc := range idx {
 		accs = append(accs, acc)
@@ -120,7 +125,11 @@ func (idx conversationIndex) newestFirstWhere(limit int, visible visibility) []b
 		}
 		return accs[i].last.After(accs[j].last)
 	})
-	out := make([]bus.ConversationSummary, 0, min(len(accs), limit))
+	capacity := limit
+	if len(accs) < capacity {
+		capacity = len(accs)
+	}
+	out := make([]bus.ConversationSummary, 0, capacity)
 	for _, acc := range accs {
 		if len(out) == limit {
 			break
