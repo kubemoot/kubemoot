@@ -106,9 +106,26 @@ sealed value has expired (a code lasts 60 seconds, a sign-in in progress 10 minu
 client registration until you remove its key, so apps register again after a removal).
 Generate a key with `openssl rand -base64 32`.
 
-What is not built yet: the liaison does not yet verify the token the app sends and hand
-it to a crew's tools, so the front alone does not make a crew use the asking person's
-own account. That is the per-person work that follows.
+The door accepts the token the front hands the app. With service token verifiers set
+(`ACCESS_SERVICE_TOKENS` and `ACCESS_HASH_KEY`, the same settings as the crew's gateway),
+the liaison checks a person's own token by asking the service that issued it, names the
+person by a hashed id, and makes them the owner of their tickets. A token that is missing or
+refused gets a 401 whose challenge points at the front's metadata at
+`https://<liaison-host>/.well-known/oauth-protected-resource/mcp`, so the app knows where to
+sign in.
+
+What the liaison does with the person's token:
+
+- It sends it to the crew's gateway on the question and on the stream, nowhere else.
+- The follower that watches the discussion uses it only to open the stream, then holds none.
+- When the app sends a fresher token on a later `get_answer`, the liaison passes it to the
+  gateway so a long question keeps its credential. It sends a token only when it changed, and
+  only for the person who owns the ticket.
+- It never stores, logs or traces a token. A ticket keeps a keyed fingerprint of the last
+  token sent, which cannot be turned back into the token.
+
+Whether a crew's tools then use the person's own account is up to the crew's gateway; see
+below.
 
 ## What a crew's tools sign in to
 

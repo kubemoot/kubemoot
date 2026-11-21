@@ -59,6 +59,13 @@ type Ticket struct {
 	created       time.Time
 	updated       time.Time
 	done          chan struct{}
+	// sent is the fingerprint of the last token sent to the gateway for this ticket; the
+	// token itself is never kept.
+	sent    fingerprint
+	sentSet bool
+	// renewMu serialises renewals of this ticket, so one fresh token is sent once and an
+	// older token never overtakes a newer one.
+	renewMu sync.Mutex
 }
 
 // TicketView is a point-in-time copy of a ticket, safe to return to callers.
@@ -139,11 +146,13 @@ type Store struct {
 	tickets map[string]*Ticket
 	ttl     time.Duration
 	now     func() time.Time
+	// fingerprints makes the fingerprints tickets remember instead of tokens.
+	fingerprints fingerprinter
 }
 
 // NewStore returns an empty store whose tickets expire after ttl.
 func NewStore(ttl time.Duration) *Store {
-	return &Store{tickets: make(map[string]*Ticket), ttl: ttl, now: time.Now}
+	return &Store{tickets: make(map[string]*Ticket), ttl: ttl, now: time.Now, fingerprints: newFingerprinter()}
 }
 
 // Create registers a pending ticket for a started discussion.

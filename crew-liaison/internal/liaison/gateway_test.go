@@ -19,6 +19,13 @@ type fakeGateway struct {
 	events    []string // raw SSE lines to stream
 	startCode int
 	srv       *httptest.Server
+	// hold, when set, keeps each stream open after its events until it is closed.
+	hold chan struct{}
+	// opened gets a value each time a stream has sent its headers, when set.
+	opened      chan struct{}
+	renewals    []string // the Authorization header of each credential renewal, in order
+	renewCode   int
+	renewalPath []string
 }
 
 // Fixture names shared by the liaison tests.
@@ -29,8 +36,16 @@ const (
 )
 
 func newFakeGateway(events ...string) *fakeGateway {
-	f := &fakeGateway{events: events, startCode: http.StatusOK}
+	f := &fakeGateway{events: events, startCode: http.StatusOK, renewCode: http.StatusOK}
 	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /api/v1/discussions/{crew}/{conv}/credential", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.renewals = append(f.renewals, r.Header.Get("Authorization"))
+		f.renewalPath = append(f.renewalPath, r.URL.Path)
+		code := f.renewCode
+		f.mu.Unlock()
+		w.WriteHeader(code)
+	})
 	mux.HandleFunc("POST /api/v1/discussions/{crew}", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Message  string `json:"message"`
@@ -59,6 +74,16 @@ func newFakeGateway(events ...string) *fakeGateway {
 		for _, ev := range events {
 			_, _ = fmt.Fprintf(w, "data: %s\n\n", ev)
 		}
+		if f.hold != nil {
+			w.(http.Flusher).Flush()
+			if f.opened != nil {
+				f.opened <- struct{}{}
+			}
+			select {
+			case <-f.hold:
+			case <-r.Context().Done():
+			}
+		}
 	})
 	f.srv = httptest.NewServer(mux)
 	return f
@@ -78,6 +103,12 @@ func (f *fakeGateway) authorizations() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.auths...)
+}
+
+func (f *fakeGateway) renewed() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.renewals...)
 }
 
 func (f *fakeGateway) askedZones() []string {
@@ -110,7 +141,7 @@ func TestGatewayStartAndFollow(t *testing.T) {
 	}
 
 	var seen []Event
-	err = g.Follow(context.Background(), testCrew, testCrew, conv, func(ev Event) bool {
+	err = g.Follow(context.Background(), testCrew, testCrew, conv, nil, func(ev Event) bool {
 		seen = append(seen, ev)
 		return ev.Type != EventSynthesis
 	})
