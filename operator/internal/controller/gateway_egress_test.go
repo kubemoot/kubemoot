@@ -12,12 +12,15 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr/funcr"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -25,6 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
@@ -508,5 +513,69 @@ func TestGatewayEgressGivesAMissingQueryServiceNoRuleAndReportsIt(t *testing.T) 
 	e.reconcile()
 	if n := queryPodRules(e.policy()); n != 1 {
 		t.Errorf("the rule appears once the Service does: %d", n)
+	}
+}
+
+func TestFindGatewaysInNamespaceLogsAFailedListAndReturnsNothing(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), false)
+	scheme := gatewayScheme(t)
+	failing := interceptor.Funcs{List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+		return errors.New("list refused")
+	}}
+	e.r.Client = fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(failing).Build()
+	var logged []string
+	sink := funcr.New(func(_, args string) { logged = append(logged, args) }, funcr.Options{})
+	ctx := logf.IntoContext(context.Background(), sink)
+	if got := e.r.findGatewaysInNamespace(ctx, gwQueryService()); len(got) != 0 {
+		t.Errorf("a failed list maps to no requests: %v", got)
+	}
+	if len(logged) != 1 || !strings.Contains(logged[0], "list refused") {
+		t.Errorf("the failed list is logged: %v", logged)
+	}
+}
+
+func TestGatewayEgressReturnsAServiceLookupErrorAndWritesNoRule(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), false,
+		gwEgressServer("helm-reference-search", "http://helm-reference-query."+gwEgressNS+":8000/mcp"))
+	base, ok := e.cli.(client.WithWatch)
+	if !ok {
+		t.Fatal("the fake client supports watches")
+	}
+	e.r.NetPol.Client = interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*corev1.Service); ok {
+				return apierrors.NewServiceUnavailable("apiserver down")
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	if err := e.r.reconcileEgress(context.Background(), e.gw); err == nil || !strings.Contains(err.Error(), "apiserver down") {
+		t.Fatalf("a Service lookup failure other than NotFound is returned to be retried: %v", err)
+	}
+	if e.policy() != nil {
+		t.Error("no partial egress policy is written when the lookup fails")
+	}
+	if c := e.condition(); c != nil {
+		t.Errorf("no condition is recorded for a failed lookup: %+v", c)
+	}
+}
+
+func TestGatewayEgressReadsATwoLabelHostAsAHostOnceItsServiceIsDeleted(t *testing.T) {
+	e := newGwEgressEnv(t, gwEgressConfig(netpol.EgressDeclared), true,
+		gwEgressServer("helm-reference-search", "http://helm-reference-query."+gwEgressNS+":8000/mcp"), gwQueryService())
+	e.reconcile()
+	if n := queryPodRules(e.policy()); n != 1 {
+		t.Fatalf("the Service's pods are admitted while it exists: %d", n)
+	}
+	if err := e.cli.Delete(context.Background(), gwQueryService()); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcile()
+	if n := queryPodRules(e.policy()); n != 0 {
+		t.Errorf("the pod rule goes away with the Service: %d", n)
+	}
+	assertHostPorts(t, fqdnRule(t, e.cli), map[string]string{"helm-reference-query." + gwEgressNS: "8000"})
+	if c := e.condition(); c == nil || c.Status != metav1.ConditionTrue {
+		t.Errorf("the host is enforced as a host outside the cluster: %+v", c)
 	}
 }

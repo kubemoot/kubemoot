@@ -217,9 +217,10 @@ fronts:
   namespace, and gets a rule for that Service's pods; otherwise (`example.com`,
   `x.kube-system`) it is a host outside the cluster and gets a host rule. Every other name is a
   host outside the cluster. A named Service that does not exist gets no rule, is logged and
-  reported in the EgressEnforced condition, and the rule appears when the Service is created. An address literal is allowed as a
-  single address, a trailing dot and letter case in the host are ignored, and a URL with no
-  port uses the scheme's port.
+  reported in the EgressEnforced condition, and the rule appears when the Service is created.
+  When a Service named by a two-label host is deleted, the rule goes away and the host is read
+  as a host outside the cluster. An address literal is allowed as a single address, a trailing
+  dot and letter case in the host are ignored, and a URL with no port uses the scheme's port.
 
 A gateway that fronts no external server declares nothing and is not restricted, as for any
 workload without `spec.egress`. A gateway that does front one is restricted to the list
