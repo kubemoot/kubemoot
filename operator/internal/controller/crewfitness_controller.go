@@ -528,7 +528,7 @@ func (r *CrewFitnessReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// without per-CR annotation. See kubemootconfig_propagation.go.
 		Watches(
 			&kubemootv1alpha1.KubemootConfig{},
-			enqueueAllOnKubemootConfigChange(mgr.GetClient(),
+			enqueueAllOnKubemootConfigChange(mgr.GetClient(), r.ConfigCache,
 				func() client.ObjectList { return &kubemootv1alpha1.CrewFitnessList{} },
 				"crewfitness"),
 		).
