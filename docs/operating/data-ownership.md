@@ -127,13 +127,13 @@ jetstream {
 }
 ```
 
-Kubemoot's chart does not deploy NATS, it points at the NATS you installed (`nats.url`), so this is set on your NATS install and not on the Kubemoot chart. With the upstream NATS Helm chart, put the `jetstream` block in its configuration and take `JS_KEY` from a Secret through its environment values; follow that chart's documentation for where each goes. The recipe is tested: Kubemoot's tests start a NATS server with exactly this block, store a message, and confirm the text is not readable in the file store (and is readable in a control store with no key).
+Kubemoot's chart does not deploy NATS, it points at the NATS you installed (`nats.url`), so this is set on your NATS install and not on the Kubemoot chart. With the upstream NATS Helm chart, put the `jetstream` block in its configuration and take `JS_KEY` from a Secret through its environment values; follow that chart's documentation for where each goes.
 
-It applies to the whole server, not to a single crew or stream, and it is separate from TLS. What the tests observed, with the NATS server release Kubemoot builds against:
+It applies to the whole server, not to a single crew or stream, and it is separate from TLS. Behavior of the server:
 
-- Enable it on a fresh store when you can. Turning it on over a store that already holds data worked: the server read the existing streams and rewrote them encrypted. Take a backup first, and check that your stream still holds its messages afterward.
+- Enable it on a fresh store when you can. Turning it on over a store that already holds data makes the server read the existing streams and rewrite them encrypted. Take a backup first, and check that your stream still holds its messages afterward.
 - The key is then required. Restarting without it, or with another key, leaves the streams unreadable (they are not found) until the right key returns. Keep the key where you keep the volume's backups.
-- To rotate the key, restart once with the new key as `key` and the old one as `prev_key` (`prev_encryption_key` is the same option), then remove `prev_key` on the next restart. The tests rotate this way and read the stream with the new key alone afterward.
+- To rotate the key, restart once with the new key as `key` and the old one as `prev_key` (`prev_encryption_key` is the same option), then remove `prev_key` on the next restart.
 
 Read the NATS documentation on [encryption at rest](https://docs.nats.io/running-a-nats-service/nats_admin/jetstream_admin/encryption_at_rest) before you enable it.
 

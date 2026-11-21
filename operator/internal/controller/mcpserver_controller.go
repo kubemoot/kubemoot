@@ -1299,3 +1299,8 @@ func (r *MCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		Complete(r)
 }
+
+// AnnotationNATSConnection on an MCPServer asks the operator to give its pod the NATS
+// connection options (CA bundle, client certificate, credential) the chart sets. Only a
+// server that dials NATS needs it.
+const AnnotationNATSConnection = "kubemoot.ai/nats-connection"

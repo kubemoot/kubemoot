@@ -129,6 +129,13 @@ app.kubernetes.io/component: dashboard-workshop
 {{- end }}
 
 {{/*
+The NATS helpers below are a copy of the operator chart's natsConn* helpers: a subchart cannot call
+its parent's templates. Keep the mount paths, volume names and variables in step with them; a Go test
+in the operator (internal/natspod/chart_contract_test.go) fails when either drifts from the operator
+package that builds the same pods.
+*/}}
+
+{{/*
 The NATS connection options (nats.tls, nats.auth), checked: a credential Secret needs exactly one
 kind of credential (a creds key, a user key with a password key, or a token key).
 */}}

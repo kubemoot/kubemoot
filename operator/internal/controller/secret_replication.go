@@ -226,11 +226,6 @@ func replicateNATSSecrets(ctx context.Context, c client.Client, targetNamespace 
 	}
 }
 
-// AnnotationNATSConnection on an MCPServer asks the operator to give its pod the NATS
-// connection options (CA bundle, client certificate, credential) the chart sets. Only a
-// server that dials NATS needs it.
-const AnnotationNATSConnection = "kubemoot.ai/nats-connection"
-
 // applyIndexerNATSOptions gives an indexing Job the NATS options when its source is a NATS KV
 // key; no other source dials NATS.
 func applyIndexerNATSOptions(rs *kubemootv1alpha1.RAGSource, spec *corev1.PodSpec) {

@@ -95,50 +95,61 @@ func (s Source) Apply(spec *corev1.PodSpec, containers ...string) {
 
 func (s Source) hasEnv() bool { return len(s.env()) > 0 }
 
-func (s Source) volumes() []corev1.Volume {
-	var out []corev1.Volume
+// fileMount is one Secret mounted as files, and the variables that name them.
+type fileMount struct {
+	volume, secret, dir string
+	items               map[string]string // key to file name; nil mounts every key
+	env                 [][2]string       // variable and the file it names
+}
+
+// fileMounts is the one list volumes, mounts and variables are all built from.
+func (s Source) fileMounts() []fileMount {
+	var out []fileMount
 	if s.CASecret != "" {
-		out = append(out, secretVolume(volumeCA, s.CASecret, map[string]string{s.CAKey: defaultCAKey}))
+		out = append(out, fileMount{volume: volumeCA, secret: s.CASecret, dir: dirCA,
+			items: map[string]string{s.CAKey: defaultCAKey},
+			env:   [][2]string{{natsconn.EnvCAFile, dirCA + "/" + defaultCAKey}}})
 	}
 	if s.ClientSecret != "" {
-		out = append(out, secretVolume(volumeClient, s.ClientSecret, nil))
+		out = append(out, fileMount{volume: volumeClient, secret: s.ClientSecret, dir: dirClient,
+			env: [][2]string{{natsconn.EnvClientCertFile, dirClient + "/" + clientCertKey},
+				{natsconn.EnvClientKeyFile, dirClient + "/" + clientKeyKey}}})
 	}
 	if s.AuthSecret != "" && s.CredsKey != "" {
-		out = append(out, secretVolume(volumeAuth, s.AuthSecret, map[string]string{s.CredsKey: credsFileName}))
+		out = append(out, fileMount{volume: volumeAuth, secret: s.AuthSecret, dir: dirAuth,
+			items: map[string]string{s.CredsKey: credsFileName},
+			env:   [][2]string{{natsconn.EnvCredsFile, dirAuth + "/" + credsFileName}}})
+	}
+	return out
+}
+
+func (s Source) volumes() []corev1.Volume {
+	var out []corev1.Volume
+	for _, m := range s.fileMounts() {
+		out = append(out, secretVolume(m.volume, m.secret, m.items))
 	}
 	return out
 }
 
 func (s Source) mounts() []corev1.VolumeMount {
 	var out []corev1.VolumeMount
-	if s.CASecret != "" {
-		out = append(out, corev1.VolumeMount{Name: volumeCA, MountPath: dirCA, ReadOnly: true})
-	}
-	if s.ClientSecret != "" {
-		out = append(out, corev1.VolumeMount{Name: volumeClient, MountPath: dirClient, ReadOnly: true})
-	}
-	if s.AuthSecret != "" && s.CredsKey != "" {
-		out = append(out, corev1.VolumeMount{Name: volumeAuth, MountPath: dirAuth, ReadOnly: true})
+	for _, m := range s.fileMounts() {
+		out = append(out, corev1.VolumeMount{Name: m.volume, MountPath: m.dir, ReadOnly: true})
 	}
 	return out
 }
 
 func (s Source) env() []corev1.EnvVar {
 	var out []corev1.EnvVar
-	if s.CASecret != "" {
-		out = append(out, corev1.EnvVar{Name: natsconn.EnvCAFile, Value: dirCA + "/" + defaultCAKey})
+	for _, m := range s.fileMounts() {
+		for _, e := range m.env {
+			out = append(out, corev1.EnvVar{Name: e[0], Value: e[1]})
+		}
 	}
-	if s.ClientSecret != "" {
-		out = append(out,
-			corev1.EnvVar{Name: natsconn.EnvClientCertFile, Value: dirClient + "/" + clientCertKey},
-			corev1.EnvVar{Name: natsconn.EnvClientKeyFile, Value: dirClient + "/" + clientKeyKey})
-	}
-	if s.AuthSecret == "" {
+	if s.AuthSecret == "" || s.CredsKey != "" {
 		return out
 	}
 	switch {
-	case s.CredsKey != "":
-		out = append(out, corev1.EnvVar{Name: natsconn.EnvCredsFile, Value: dirAuth + "/" + credsFileName})
 	case s.UserKey != "" && s.PasswordKey != "":
 		out = append(out, s.secretEnv(natsconn.EnvUser, s.UserKey), s.secretEnv(natsconn.EnvPassword, s.PasswordKey))
 	case s.TokenKey != "":

@@ -21,7 +21,7 @@ Every component reads the same eight names. Files are paths where a Secret or Co
 | `NATS_USER`, `NATS_PASSWORD` | A user and password. Set together. |
 | `NATS_TOKEN` | A token. |
 
-Set at most one kind of credential: a creds file, a user with a password, or a token. A client certificate without its key, a user without a password, or two kinds of credential is refused when the component starts, naming the variables. A file that is missing, empty, or not PEM stops the component at startup naming its variable, not as a handshake error later.
+Set at most one kind of credential: a creds file, a user with a password, or a token. A client certificate without its key, a user without a password, or two kinds of credential is refused when the component starts, naming the variables. A file that is missing or empty stops the component at startup naming its variable, not as a handshake error later. The Go and Java components also check that the CA bundle and the client certificate and key are PEM that loads; the dashboard reads them when it connects.
 
 ## Set it once on the chart
 
@@ -42,11 +42,11 @@ nats:
     # tokenKey: token          #   a token
 ```
 
-Create the Secrets in the operator's namespace. The chart mounts them into the operator, the placement service, the accelerator MCP server and the stream bootstrap job. The operator copies them into the namespace of every crew and gives them to the pods it creates there: agents (the runtime and the Moot Mesh sidecar), each crew's discussion gateway, fitness runners that write transcripts, and indexing jobs that read a NATS key. Rotating a Secret is a change to its content; the operator refreshes its copies, and a pod reads the files when it starts, so restart the workloads to pick it up.
+Create the Secrets in the operator's namespace. The chart mounts them into the operator, the placement service, the accelerator MCP server and the stream bootstrap job. The operator copies them into the namespace of every crew and gives them to the pods it creates there: agents (the runtime and the Moot Mesh sidecar), each crew's discussion gateway, fitness runners that write transcripts, and indexing jobs that read a NATS key. The CA, the client certificate with its private key and the credential are copied into every crew namespace, so anyone who can read Secrets in a crew namespace can read them; give that access accordingly. The operator never overwrites a Secret of the same name it did not create, so a Secret named like one of yours in a crew namespace is used instead of the copy. Rotating a Secret is a change to its content; the operator refreshes its copies, and a pod reads the files when it starts, so restart the workloads to pick it up.
 
 The dashboard subchart takes the same shape under `dashboard.nats` (`url`, `tls`, `auth`), and its Secrets are in the dashboard's namespace.
 
-A Moot Mesh sidecar whose agent has its own Secret `<agent>-nats` (the per-agent credentials of the identity work) uses that credential and CA in place of the shared ones. The harness container never sees either.
+A Moot Mesh sidecar whose agent has its own Secret `<agent>-nats` uses that credential and CA in place of the shared ones. The harness container never sees either.
 
 ## What is covered
 
@@ -62,7 +62,7 @@ A Moot Mesh sidecar whose agent has its own Secret `<agent>-nats` (the per-agent
 | Fitness runner | Yes | Transcript and evidence writes. |
 | Indexer (Java) | Yes | Reads NATS KV for a `natsKV` RAG source. |
 | Dashboard server | Yes | Not its NATS monitoring page request (see below). |
-| Stream bootstrap job | Yes | The `nats` command line reads them; a token is placed in the URL. |
+| Stream bootstrap job | Yes | The `nats` command line reads them. It has no token option, so a token is placed in the URL it is given and shows in the job's process arguments; prefer a creds file or a user and password for this job. |
 | MCP gateway, crew liaison, query service | Do not dial NATS | Nothing to set. |
 | `nats-mcp` (sinadarbouy/mcp-nats) | No | A third-party image the chart runs with `NATS_NO_AUTHENTICATION`. Against a NATS that demands credentials, run it yourself with the options its own documentation names. |
 
