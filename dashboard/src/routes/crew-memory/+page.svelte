@@ -4,7 +4,7 @@
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry } from '#lib/crew-display-name.js';
 	import { CommandHint } from '#lib/components/common/index.js';
-	import { memoryExportCommand } from '#lib/cli-commands.js';
+	import { memoryAddCommand, memoryClearCommand, memoryDeleteCommand, memoryEditCommand, memoryExportCommand } from '#lib/cli-commands.js';
 	import MemoryExportPanel from '#lib/components/memory/MemoryExportPanel.svelte';
 
 	interface Fact {
@@ -106,8 +106,12 @@
 			{/if}
 		</div>
 
-		<p class="hint">This page only reads. Facts are written by the crew's agents; to take a copy, run:</p>
-		<CommandHint label="Export this crew's memory:" command={memoryExportCommand(scope.crew, scope.namespace)} />
+		<p class="hint">This page only reads. Facts are written by the crew's agents, or by you with kmctl:</p>
+		<CommandHint label="Add a fact:" command={memoryAddCommand(scope.crew, scope.namespace)} />
+		<CommandHint label="Change a fact:" command={memoryEditCommand(scope.crew, scope.namespace)} />
+		<CommandHint label="Delete a fact:" command={memoryDeleteCommand(scope.crew, scope.namespace)} />
+		<CommandHint label="Clear all facts (export first):" command={memoryClearCommand(scope.crew, scope.namespace)} />
+		<CommandHint label="Export this crew's memory with kmctl:" command={memoryExportCommand(scope.crew, scope.namespace)} />
 	{/if}
 </div>
 

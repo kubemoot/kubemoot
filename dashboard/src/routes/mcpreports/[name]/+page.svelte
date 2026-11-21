@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { reportVerdictCommand } from '#lib/cli-commands.js';
+	import { reportUnpinCommand, reportVerdictCommand } from '#lib/cli-commands.js';
 	import { namespace as nsStore, refreshTrigger } from '#lib/stores/index.js';
 	import type { MCPServerReport } from '#lib/types/kubemoot.js';
 
@@ -143,6 +143,7 @@
 						<div class="muted">No admin override. Verdict is auto-computed from trial history.</div>
 					{/if}
 					<CommandHint label="Pin a verdict (use, caution or avoid):" command={reportVerdictCommand(name, namespace)} />
+					{#if report.spec?.adminVerdict}<CommandHint label="Remove the pinned verdict:" command={reportUnpinCommand(name, namespace)} />{/if}
 				</div>
 			</div>
 

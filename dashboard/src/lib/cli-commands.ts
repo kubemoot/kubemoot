@@ -1,6 +1,6 @@
 // The commands that replace the dashboard's former write controls. The dashboard only
-// reads; a change is made with kmctl, CrewForge or kubectl under the caller's own
-// kubeconfig identity. Each builder returns text the page shows and offers to copy.
+// reads; a change is made with kmctl or CrewForge under the caller's own
+// kubeconfig identity. kubectl remains only where kmctl has no command. Each builder returns text the page shows and offers to copy.
 
 import type { SuiteAction } from '#lib/fitness-suite-controls.js';
 
@@ -38,21 +38,44 @@ export function deleteSuiteCommand(suite: string, namespace?: string | null): st
 	return `kmctl delete crewfitnesssuite ${shellQuote(suite)}${inNamespace(namespace)}`;
 }
 
-const SUITE_PATCH: Record<SuiteAction, string> = {
-	pause: '{"spec":{"suspend":true}}',
-	resume: '{"spec":{"suspend":false}}',
-	stop: '{"spec":{"cancel":true}}'
-};
-
-/** Pause, resume or stop a suite by setting spec.suspend or spec.cancel. */
+/** Pause, resume or stop a suite. */
 export function suiteControlCommand(control: SuiteAction, suite: string, namespace?: string | null): string {
-	return `kubectl patch crewfitnesssuite ${shellQuote(suite)} --type=merge -p '${SUITE_PATCH[control]}'${inNamespace(namespace)}`;
+	return `kmctl fitness ${control} ${shellQuote(suite)}${inNamespace(namespace)}`;
 }
 
-/** Pin or clear an administrator verdict on an MCPServerReport. */
+/** Pin an administrator verdict on an MCPServerReport; change `use` to `caution` or `avoid`. */
 export function reportVerdictCommand(report: string, namespace?: string | null): string {
-	const patch = '{"spec":{"adminVerdict":"use","adminNotes":"why","adminAuthor":"you"}}';
-	return `kubectl patch mcpserverreport ${shellQuote(report)} --type=merge -p '${patch}'${inNamespace(namespace)}`;
+	return `kmctl mcp report pin ${shellQuote(report)} --verdict use${inNamespace(namespace)}`;
+}
+
+/** Clear the pinned verdict of an MCPServerReport, so the controller's own verdict shows again. */
+export function reportUnpinCommand(report: string, namespace?: string | null): string {
+	return `kmctl mcp report unpin ${shellQuote(report)}${inNamespace(namespace)}`;
+}
+
+/** Ask a past conversation's first question again. */
+export function replayConversationCommand(crew: string, conversationId: string, namespace?: string | null): string {
+	return `kmctl conversation replay ${shellQuote(crew)} ${shellQuote(conversationId)}${inNamespace(namespace)}`;
+}
+
+/** Add a fact to a crew's memory. */
+export function memoryAddCommand(crew: string, namespace?: string | null): string {
+	return `kmctl memory add ${shellQuote(crew)} TOPIC KEY "value"${inNamespace(namespace)}`;
+}
+
+/** Replace the value of a fact the crew already holds. */
+export function memoryEditCommand(crew: string, namespace?: string | null): string {
+	return `kmctl memory edit ${shellQuote(crew)} TOPIC KEY "new value"${inNamespace(namespace)}`;
+}
+
+/** Delete one fact. */
+export function memoryDeleteCommand(crew: string, namespace?: string | null): string {
+	return `kmctl memory delete ${shellQuote(crew)} TOPIC KEY${inNamespace(namespace)}`;
+}
+
+/** Delete every fact of a crew. */
+export function memoryClearCommand(crew: string, namespace?: string | null): string {
+	return `kmctl memory clear ${shellQuote(crew)}${inNamespace(namespace)}`;
 }
 
 /** Export a crew's memory (read only). */
