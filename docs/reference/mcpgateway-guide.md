@@ -276,7 +276,7 @@ The gateway reads the registration field on `POST /admin/servers`; the operator'
 | `mode` | `Off` | `Off` uses the server's registered credential. `Required` calls the server with the asking person's token |
 | `verifier` | | Required in mode `Required`. The name of the verifier that vouched for the person, sent with the lease request. A DNS label |
 | `leaseUrl` | | The broker's lease endpoint for this server. It must have the same scheme, host and port as `mcp.gateway.credential-broker.url` (environment `CREDENTIAL_BROKER_URL`), because the gateway's own token goes only to that broker; any other address is refused as "sign-in unavailable". Empty uses that broker plus `/internal/v1/lease` |
-| `onForbidden` | none | Endpoints tried in order, with the same token, when the server's own endpoint answers 403 to the asker. At most four, http or https |
+| `onForbidden` | none | Endpoints tried in order, with the same token, when the server's own endpoint answers 403 to the asker. At most four. Each must be https, because it receives the person's token; plain http is accepted only for `localhost`, `127.0.0.0/8` and `::1`, and any other registration is refused |
 | `relayContext` | `false` | Keep `conversationId` and `principalId` in the `_meta` forwarded to the server, for a tool server that calls back through the gateway. Off removes them |
 | `accountName` | the verifier name | How a refusal names the account to connect |
 

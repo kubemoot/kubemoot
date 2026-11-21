@@ -68,7 +68,7 @@ public record CallerCredentialConfig(
             if (onForbidden.size() > MAX_FALLBACKS) {
                 throw new IllegalArgumentException("callerCredential.onForbidden holds at most " + MAX_FALLBACKS);
             }
-            onForbidden.forEach(url -> requireHttp("callerCredential.onForbidden", url));
+            onForbidden.forEach(CallerCredentialConfig::requireHttpsOrLoopback);
         }
     }
 
@@ -83,6 +83,21 @@ public record CallerCredentialConfig(
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /** A fallback endpoint receives the person's token: https, or plain http only to a loopback host. */
+    private static void requireHttpsOrLoopback(String value) {
+        requireHttp("callerCredential.onForbidden", value);
+        URI uri = URI.create(value);
+        if (!"https".equalsIgnoreCase(uri.getScheme()) && !isLoopback(uri.getHost())) {
+            throw new IllegalArgumentException("callerCredential.onForbidden must be https (plain http is allowed"
+                + " only for localhost, 127.0.0.0/8 and ::1) because the endpoint receives the person's token");
+        }
+    }
+
+    private static boolean isLoopback(String host) {
+        String bare = host.startsWith("[") ? host.substring(1, host.length() - 1) : host;
+        return "localhost".equalsIgnoreCase(bare) || "::1".equals(bare) || bare.matches("127(\\.\\d{1,3}){3}");
     }
 
     private static void requireHttp(String field, String value) {
