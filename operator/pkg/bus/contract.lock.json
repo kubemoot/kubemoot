@@ -1,5 +1,5 @@
 {
-  "version": "2.6.0",
+  "version": "2.7.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -141,6 +141,35 @@
     },
     "chat-event.json#/userMessage": {
       "type": "string",
+      "required": true
+    },
+    "conversation-event.json#": {
+      "type": "object"
+    },
+    "conversation-event.json#/at": {
+      "type": "string"
+    },
+    "conversation-event.json#/conversationId": {
+      "type": "string"
+    },
+    "conversation-event.json#/reason": {
+      "type": "string",
+      "enum": [
+        "answer",
+        "followup",
+        "reminder"
+      ]
+    },
+    "conversation-event.json#/threadId": {
+      "type": "string"
+    },
+    "conversation-event.json#/type": {
+      "type": "string",
+      "enum": [
+        "connected",
+        "conversation_updated",
+        "heartbeat"
+      ],
       "required": true
     },
     "conversation-history.json#": {

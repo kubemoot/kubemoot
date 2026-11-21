@@ -110,8 +110,8 @@ for the request and response shapes, and [Dashboard](../../operating/dashboard/)
 the live `/discussions` view that renders each thread. Every event of the stream, and
 the request and response bodies of these endpoints, are defined in the
 [bus contract](../signals-and-protocol/#the-bus-contract): `StreamEvent`,
-`PostDiscussionRequest`, `PostDiscussionResponse`, `ConversationList` and
-`ErrorResponse`.
+`PostDiscussionRequest`, `PostDiscussionResponse`, `ConversationList`,
+`ConversationEvent` and `ErrorResponse`.
 
 The stream survives restarts. The POST reply also carries `requestedAt`; pass it as
 `?since=` on the stream so any gateway replica can tell this turn's thread from an
@@ -246,6 +246,23 @@ question the coordinator started again counts twice. A thread a person starts wi
 conversation (the dashboard does) lists as a one-turn conversation whose ID is the thread's
 ID, and streaming that ID follows the thread.
 
+### Hearing that a conversation has something new
+
+A conversation that has gone quiet can come back: a scheduled reminder fires, a follow-up the crew scheduled reopens it, or an answer arrives after a client stopped waiting. `GET /api/v1/discussions/{crew}/events` is one event stream for all of a caller's conversations, so a web client subscribes once and fetches the conversation named by each event, instead of polling each one. No client subscribes to NATS: the gateway reads the discussion stream and tells each caller only what concerns them.
+
+Each event is a `ConversationEvent`, sent as the data of a server-sent event:
+
+```
+id: 4182
+data: {"type":"conversation_updated","conversationId":"6733c361-aa0c-4bde-85c6-e143af23b251","reason":"reminder","threadId":"9f3e...","at":"2026-10-15T10:30:00Z"}
+```
+
+`reason` is `answer` (a synthesis, so a late answer), `reminder` (a scheduled reminder fired) or `followup` (a scheduled follow-up reopened the conversation or started a turn). An event carries no content, only which conversation to fetch and why; a reply a person typed is not an event, since that person is already looking. `connected` is sent once the stream is open and `heartbeat` every 30 seconds. The `id` of an event is the sequence of the discussion stream message it came from: reconnect with it as `Last-Event-ID` (or `lastEventId`) and the stream continues after it, as far back as the discussion stream still holds.
+
+Who hears what follows [who owns a conversation](#who-owns-a-conversation): a caller receives events for the conversations they own and no others, and an operator who may `list` `crews/conversations` receives every conversation's with `?all=true` and a `Kubemoot-Access-Reason` header (audited once, when the stream opens). On a crew that verifies no one there are no owners, so the stream carries every conversation's events, as the list shows every conversation. A conversation with no owner record is heard of by an operator only, so a scheduled thread that began on its own (a reminder whose source thread had expired) reaches no owner. If the owner of an event cannot be checked, the stream ends and the client reconnects with its last `id`; the event is sent again, never dropped. A conversation whose `thread_start` the discussion stream no longer holds cannot be matched to its conversation, so its events are not sent. An operator's right is checked when the stream opens, so a revoked right takes effect when the stream reconnects. An `answer` event also fires for the answer of a turn the client is following on `/{conversationId}/stream`; treat an event as "fetch the conversation", which is safe to repeat.
+
+Each open event stream holds one consumer on the crew's discussion subjects and reads every message of the crew; plan for as many streams as there are open browser tabs.
+
 ### Fetching a stored result
 
 `GET /api/v1/discussions/{crew}/workspace?key=<key>` returns a stored result's bytes as text,
@@ -271,6 +288,7 @@ A crew whose gateway [verifies callers](../who-is-asking/) (`spec.discussion.acc
 | Ask on the conversation | yes | no: an operator reads other callers' conversations and does not add turns to them | `404` |
 | List | their own | `?all=true` lists every conversation of the crew, with each `owner` id | their own |
 | Stream or resume | yes | yes | `404` |
+| Events (`/events`) | their own conversations' | every conversation's with `?all=true` and a reason | their own |
 | Fetch a stored result (`/workspace`) | results of threads in their conversations | yes | `404` |
 | Export the conversation (the operator's report service, with the caller's own token) | yes | yes, with a reason | refused (`403`) |
 

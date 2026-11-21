@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConversationEvent",
+  "description": "One event of the discussion gateway's conversation event stream, GET /api/v1/discussions/{crew}/events, sent as the data of a server-sent event. A conversation_updated event says a conversation has something new (a late answer, a scheduled reminder or follow-up); it carries no content, and the client fetches the conversation to read it. A caller receives events only for conversations they own. Each conversation_updated event carries an SSE id, the sequence of the discussion stream message it came from, that a client sends back as Last-Event-ID to resume.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["connected", "heartbeat", "conversation_updated"],
+      "description": "connected is sent once the stream is open; heartbeat keeps an idle connection alive."
+    },
+    "conversationId": { "type": "string", "description": "The conversation that has something new, on conversation_updated." },
+    "reason": {
+      "type": "string",
+      "enum": ["answer", "reminder", "followup"],
+      "description": "What is new, on conversation_updated: answer is a synthesis (a late answer), reminder is a scheduled reminder that fired, followup is a scheduled follow-up that reopened the conversation or started a turn."
+    },
+    "threadId": { "type": "string", "description": "The thread the news came on, on conversation_updated." },
+    "at": { "type": "string", "description": "When the message was published, RFC 3339 in UTC, on conversation_updated." }
+  }
+}

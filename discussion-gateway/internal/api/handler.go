@@ -103,6 +103,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ready", h.readyHandler)
 	mux.HandleFunc("POST /api/v1/discussions/{crew}", h.guard(h.postDiscussion))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}", h.guard(h.listConversationsHandler))
+	mux.HandleFunc("GET /api/v1/discussions/{crew}/events", h.guard(h.streamConversationEvents))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/workspace", h.guard(h.getWorkspace))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/artifact", h.guard(h.getArtifactDeprecated))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conversationId}/stream", h.guard(h.streamDiscussion))
@@ -307,9 +308,9 @@ func (h *Handler) streamDiscussion(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// sseEmitter sets the SSE response headers and returns a function that writes and
-// flushes one event, or false after answering 500 when w cannot stream.
-func (h *Handler) sseEmitter(w http.ResponseWriter, r *http.Request) (func(SSEEvent), bool) {
+// sseHeaders sets the SSE response headers and returns the flusher, or false after
+// answering 500 when w cannot stream.
+func (h *Handler) sseHeaders(w http.ResponseWriter, r *http.Request) (http.Flusher, bool) {
 	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -320,6 +321,16 @@ func (h *Handler) sseEmitter(w http.ResponseWriter, r *http.Request) (func(SSEEv
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		httpError(w, http.StatusInternalServerError, "streaming not supported")
+		return nil, false
+	}
+	return flusher, true
+}
+
+// sseEmitter sets the SSE response headers and returns a function that writes and
+// flushes one event, or false after answering 500 when w cannot stream.
+func (h *Handler) sseEmitter(w http.ResponseWriter, r *http.Request) (func(SSEEvent), bool) {
+	flusher, ok := h.sseHeaders(w, r)
+	if !ok {
 		return nil, false
 	}
 	return func(event SSEEvent) {
@@ -345,12 +356,17 @@ func (h *Handler) writeCORS(w http.ResponseWriter, r *http.Request) {
 
 // writeSSE writes one event, with its id field when it has one.
 func writeSSE(w io.Writer, event SSEEvent) error {
-	data, err := json.Marshal(event)
+	return writeSSEData(w, event.ID, event)
+}
+
+// writeSSEData writes v as one event's data, with an id field when id is not empty.
+func writeSSEData(w io.Writer, id string, v any) error {
+	data, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	if event.ID != "" {
-		if _, err := fmt.Fprintf(w, "id: %s\n", event.ID); err != nil {
+	if id != "" {
+		if _, err := fmt.Fprintf(w, "id: %s\n", id); err != nil {
 			return err
 		}
 	}
