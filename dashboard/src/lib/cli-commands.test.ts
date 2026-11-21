@@ -4,7 +4,13 @@ import {
 	deleteCrewCommand,
 	deleteSuiteCommand,
 	listConversationsCommand,
+	memoryAddCommand,
+	memoryClearCommand,
+	memoryDeleteCommand,
+	memoryEditCommand,
 	memoryExportCommand,
+	replayConversationCommand,
+	reportUnpinCommand,
 	reportVerdictCommand,
 	shellQuote,
 	suiteControlCommand
@@ -44,17 +50,37 @@ describe('commands', () => {
 		expect(deleteSuiteCommand('s1', 'ns')).toBe('kmctl delete crewfitnesssuite s1 -n ns');
 	});
 
-	it('sets the suite control field for each action', () => {
-		expect(suiteControlCommand('pause', 's1', 'ns')).toBe(
-			`kubectl patch crewfitnesssuite s1 --type=merge -p '{"spec":{"suspend":true}}' -n ns`
-		);
-		expect(suiteControlCommand('resume', 's1')).toContain('"suspend":false');
-		expect(suiteControlCommand('stop', 's1')).toContain('"cancel":true');
+	it('controls a suite with kmctl fitness, one verb for each action', () => {
+		expect(suiteControlCommand('pause', 's1', 'ns')).toBe('kmctl fitness pause s1 -n ns');
+		expect(suiteControlCommand('resume', 's1')).toBe('kmctl fitness resume s1');
+		expect(suiteControlCommand('stop', 's1', 'ns')).toBe('kmctl fitness stop s1 -n ns');
 	});
 
-	it('patches the admin verdict of a report', () => {
-		expect(reportVerdictCommand('r1', 'ns')).toContain('kubectl patch mcpserverreport r1 --type=merge');
-		expect(reportVerdictCommand('r1', 'ns')).toContain('"adminVerdict"');
+	it('pins and unpins the verdict of a report with kmctl mcp report', () => {
+		expect(reportVerdictCommand('r1', 'ns')).toBe('kmctl mcp report pin r1 --verdict use -n ns');
+		expect(reportUnpinCommand('r1', 'ns')).toBe('kmctl mcp report unpin r1 -n ns');
+	});
+
+	it('replays a conversation by crew and id', () => {
+		expect(replayConversationCommand('demo', 'abc123', 'crew-demo')).toBe('kmctl conversation replay demo abc123 -n crew-demo');
+	});
+
+	it('writes crew memory with kmctl memory', () => {
+		expect(memoryAddCommand('demo', 'ns')).toBe('kmctl memory add demo TOPIC KEY "value" -n ns');
+		expect(memoryEditCommand('demo', 'ns')).toBe('kmctl memory edit demo TOPIC KEY "new value" -n ns');
+		expect(memoryDeleteCommand('demo', 'ns')).toBe('kmctl memory delete demo TOPIC KEY -n ns');
+		expect(memoryClearCommand('demo', 'ns')).toBe('kmctl memory clear demo -n ns');
+	});
+
+	it('never offers a kubectl patch', () => {
+		const all = [
+			suiteControlCommand('stop', 's'),
+			reportVerdictCommand('r'),
+			reportUnpinCommand('r'),
+			memoryAddCommand('c'),
+			replayConversationCommand('c', 'i')
+		];
+		for (const command of all) expect(command).toMatch(/^kmctl /);
 	});
 
 	it('exports a crew memory', () => {

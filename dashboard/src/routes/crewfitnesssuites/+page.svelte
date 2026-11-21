@@ -115,7 +115,7 @@
 {:else if live.items.length === 0}
 	<p class="status-msg">
 		No CrewFitnessSuite CRs found in namespace <code>{$namespace || 'all'}</code>.
-		Apply one with <code>kubectl apply -f &lt;suite.yaml&gt;</code> to start a baseline sweep.
+		Apply one with <code>kmctl apply -f &lt;suite.yaml&gt; -n &lt;namespace&gt;</code> to start a baseline sweep.
 	</p>
 {:else}
 	<table class="suites-table">

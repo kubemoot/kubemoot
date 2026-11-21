@@ -14,8 +14,9 @@
 	import { crewEntry, crewLabel } from '#lib/crew-display-name.js';
 	import { chatAsText, chatTurns, crewThreads, detailsLine } from '#lib/chat-view.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
-	import { CommandHint } from '#lib/components/common/index.js';
-	import { askCommand, listConversationsCommand } from '#lib/cli-commands.js';
+	import { CommandHint, ConversationDownload } from '#lib/components/common/index.js';
+	import { askCommand, listConversationsCommand, replayConversationCommand } from '#lib/cli-commands.js';
+	import { conversationIds, threadConversationId } from '#lib/conversation-export.js';
 
 	marked.setOptions({ breaks: true, gfm: true });
 
@@ -32,6 +33,18 @@
 	const turns = $derived(selected ? chatTurns(selected.messages) : []);
 
 	let copied = $state(false);
+
+	// The conversation of the open thread, and the ones ticked in the list. A download is for
+	// one crew, so ticking is offered when a crew is selected.
+	const selectedScopeOfThread = $derived(selected ? tryCrewScope(selected.namespace, selected.crew) : null);
+	const selectedConversationId = $derived(selected ? threadConversationId(selected) : undefined);
+	let ticked = $state<Record<string, boolean>>({});
+	const tickedIds = $derived(conversationIds(chats.filter((t) => ticked[t.threadId])));
+	const exportEndpoint = resolve('/api/kubemoot/conversation-export');
+
+	function tick(threadId: string, on: boolean) {
+		ticked = { ...ticked, [threadId]: on };
+	}
 
 	function selectChat(threadId: string | null) {
 		selectedThreadId = threadId;
@@ -60,11 +73,18 @@
 	<div class="sidebar-panel">
 		<div class="panel-header">
 			<h2>Conversations</h2>
+			{#if selectedScope && tickedIds.length > 0}
+				<ConversationDownload scope={selectedScope} ids={tickedIds} endpoint={exportEndpoint} />
+			{/if}
 		</div>
 		{#if chats.length === 0}
 			<p class="hint">No conversations{selectedScope ? ' with this crew' : ''} yet.</p>
 		{/if}
 		{#each chats as t (t.threadId)}
+			<div class="chat-item">
+			{#if selectedScope && threadConversationId(t)}
+				<input type="checkbox" class="chat-tick" aria-label="Select this conversation for download" checked={!!ticked[t.threadId]} onchange={(e) => tick(t.threadId, e.currentTarget.checked)} />
+			{/if}
 			<button class="chat-row" class:active={t.threadId === selectedThreadId} onclick={() => selectChat(t.threadId)}>
 				<span class="chat-preview">{preview(t.threadId, t.userQuery)}</span>
 				<span class="chat-meta">
@@ -72,6 +92,7 @@
 					<span>{formatTimestamp(t.startedAt)}</span>
 				</span>
 			</button>
+			</div>
 		{/each}
 	</div>
 
@@ -85,6 +106,9 @@
 				</label>
 				{#if selected}
 					<a class="action-btn" href="{resolve('/discussions')}?thread={selected.threadId}" title="Open this thread in Discussions to see the agents' internal discussion">Discussion</a>
+					{#if selectedConversationId}
+						<ConversationDownload scope={selectedScopeOfThread} ids={[selectedConversationId]} endpoint={exportEndpoint} label="Download" />
+					{/if}
 					<button class="action-btn" onclick={copyChat} title="Copy this conversation to the clipboard">{copied ? '✓' : '📋'}</button>
 				{/if}
 			</div>
@@ -124,6 +148,9 @@
 					label="Reply from a terminal (find the id with {listConversationsCommand(selected.crew ?? 'CREW', selected.namespace)}):"
 					command={askCommand(selected.crew ?? 'CREW', selected.namespace, 'CONVERSATION_ID')}
 				/>
+				{#if selectedConversationId}
+					<CommandHint label="Ask this conversation's first question again, in a new conversation:" command={replayConversationCommand(selected.crew ?? 'CREW', selectedConversationId, selected.namespace)} />
+				{/if}
 			{:else}
 				<CommandHint label="Ask a crew from a terminal:" command={askCommand(selectedScope?.crew ?? 'CREW', selectedScope?.namespace ?? 'NAMESPACE')} />
 			{/if}
@@ -163,6 +190,10 @@
 		padding: 0.15rem 0.5rem; cursor: pointer; color: var(--color-text-muted); font-size: 0.8rem; text-decoration: none;
 	}
 	.action-btn:hover { border-color: var(--color-primary); text-decoration: none; }
+
+	.chat-item { display: flex; align-items: center; }
+	.chat-item .chat-row { flex: 1; min-width: 0; }
+	.chat-tick { margin: 0 0.25rem 0 0.5rem; }
 
 	.chat-timeline { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
 	.empty-state { margin: auto; color: var(--color-text-muted); }

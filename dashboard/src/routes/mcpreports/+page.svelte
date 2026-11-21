@@ -6,7 +6,7 @@
 	import { refreshTrigger } from '#lib/stores/index.js';
 	import { ResourceList } from '#lib/components/layout/index.js';
 	import { CommandHint, HelpTooltip } from '#lib/components/common/index.js';
-	import { reportVerdictCommand } from '#lib/cli-commands.js';
+	import { reportUnpinCommand, reportVerdictCommand } from '#lib/cli-commands.js';
 	import type { MCPServerReport } from '#lib/types/kubemoot.js';
 
 	let reports = $state<MCPServerReport[]>([]);
@@ -188,6 +188,7 @@
 											<div class="muted">No admin override. Verdict is auto-computed from trial history.</div>
 										{/if}
 										<CommandHint label="Pin a verdict (use, caution or avoid):" command={reportVerdictCommand(report.metadata.name, report.metadata.namespace)} />
+					{#if report.spec?.adminVerdict}<CommandHint label="Remove the pinned verdict:" command={reportUnpinCommand(report.metadata.name, report.metadata.namespace)} />{/if}
 									</div>
 								</div>
 
