@@ -3,6 +3,8 @@ package ai.kubemoot.agent.mcp;
 import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.gateway.GatewayClient;
+import ai.kubemoot.agent.requester.Caller;
+import ai.kubemoot.agent.requester.CallerScope;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.RequesterScope;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -249,7 +251,7 @@ public class McpClientService {
         log.debug("Calling tool {} on server {}", actualToolName, serverName);
         var request = McpSchema.CallToolRequest.builder(actualToolName)
                 .arguments(WorkspaceScope.argumentsFor(actualToolName, arguments));
-        var meta = mergeRequesterMeta(null, callMeta(actualToolName));
+        var meta = mergeMeta(null, callMeta(actualToolName));
         if (!meta.isEmpty()) {
             request.meta(meta);
         }
@@ -273,11 +275,21 @@ public class McpClientService {
     }
 
     /**
-     * The MCP {@code _meta} of a call to {@code toolName}: the requester of the running turn and,
-     * for a tool that reads stored tool results, the thread's key prefix.
+     * The MCP {@code _meta} of a call to {@code toolName}: the requester of the running turn, for a
+     * tool that reads stored tool results the thread's key prefix, and the turn's conversation and
+     * principal ids. The runtime sets every entry; the caller's keys win, and the model's
+     * arguments never reach {@code _meta}.
      */
     private static Map<String, Object> callMeta(String toolName) {
-        return mergeRequesterMeta(requesterMeta(), WorkspaceScope.metaFor(toolName));
+        var meta = mergeMeta(requesterMeta(), WorkspaceScope.metaFor(toolName));
+        return mergeMeta(meta, callerMeta());
+    }
+
+    /** The conversation and principal ids of the running turn, empty when it has no caller. */
+    private static Map<String, Object> callerMeta() {
+        return CallerScope.current()
+                .<Map<String, Object>>map(Caller::toolMeta)
+                .orElse(Map.of());
     }
 
     /** The MCP {@code _meta} of a tool call: the requester of the running turn, empty when it has none. */
@@ -288,7 +300,7 @@ public class McpClientService {
     }
 
     /** {@code existing} {@code _meta} entries with the requester's added; the requester's keys win. */
-    static Map<String, Object> mergeRequesterMeta(Map<String, Object> existing, Map<String, Object> requester) {
+    static Map<String, Object> mergeMeta(Map<String, Object> existing, Map<String, Object> requester) {
         var merged = new LinkedHashMap<String, Object>();
         if (existing != null) {
             merged.putAll(existing);

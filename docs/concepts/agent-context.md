@@ -372,6 +372,10 @@ writing them, and only these:
 - **Where and when the requester is, for tools.** The same date and zone are handed to
   tools as MCP metadata, so a tool that needs "today" uses the requester's date rather
   than the server's clock.
+- **Who is asking, for tools.** When the crew verifies callers, every tool call also
+  carries the conversation id and the asking principal's id in its MCP metadata, set by
+  the runtime and never by the model. See
+  [From the question to the tools](../who-is-asking/#from-the-question-to-the-tools).
 
 ### The turn context line
 

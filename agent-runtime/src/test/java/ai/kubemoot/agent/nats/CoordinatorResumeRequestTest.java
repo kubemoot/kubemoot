@@ -146,6 +146,33 @@ class CoordinatorResumeRequestTest extends ResumeRestartHarness {
     }
 
     @Test
+    void theRequestsPrincipalIsOnTheThreadStartTheCoordinatorPublishes() throws Exception {
+        build(false);
+        published.clear();
+        var principal = new ai.kubemoot.agent.requester.Principal("subscriber", "oreilly", "abc123", null);
+
+        callers.submit(() -> orchestrator.orchestrate(QUESTION, CONVERSATION, "crew", null, principal, REQUEST_SEQ));
+        await(() -> publishedOfType("thread_start").size() == 1, "the thread was started");
+
+        var metadata = publishedOfType("thread_start").get(0).body().path("metadata");
+        assertEquals("subscriber", metadata.path("principal").path("kind").asText());
+        assertEquals("oreilly", metadata.path("principal").path("issuer").asText());
+        assertEquals("abc123", metadata.path("principal").path("id").asText());
+        assertEquals(CONVERSATION, metadata.path("conversationId").asText());
+    }
+
+    @Test
+    void aRequestWithoutAPrincipalGivesAThreadStartWithout() throws Exception {
+        build(false);
+        published.clear();
+
+        ask(REQUEST_SEQ);
+        await(() -> publishedOfType("thread_start").size() == 1, "the thread was started");
+
+        assertFalse(publishedOfType("thread_start").get(0).body().path("metadata").has("principal"));
+    }
+
+    @Test
     void withTheLogOnAndResumeOffTheQuestionAndTheOpeningAreAsTheyWereBeforeResume() throws Exception {
         build(false);
         published.clear();

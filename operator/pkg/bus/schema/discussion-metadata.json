@@ -147,6 +147,10 @@
       "$ref": "#/definitions/Requester",
       "description": "Who is asking, as the coordinator fixed it when the question arrived, on thread_start and advisory_ready. Every agent's turn context names its date and zone, and agents pass it to every tool call of the thread as the MCP request's _meta. Absent only on messages from before the field existed."
     },
+    "principal": {
+      "$ref": "principal.json",
+      "description": "Who asked, as the gateway verified it, copied by the coordinator from the request onto thread_start so every agent keeps it for the thread. Agents bind it for their turn and pass its id and the conversationId in the MCP _meta of every tool call, set by the runtime and never by the model. Absent for a question that arrived without one and on messages from before the field existed. It carries a pseudonymous id and never a token, an email address or a name."
+    },
     "primaryChannel": {
       "type": "string",
       "description": "The channel the thread is answered on."

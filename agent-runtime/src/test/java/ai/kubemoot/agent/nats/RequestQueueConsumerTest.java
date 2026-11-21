@@ -15,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 class RequestQueueConsumerTest {
@@ -193,7 +194,7 @@ class RequestQueueConsumerTest {
 
         // the asker is always stated: no zone from the client and none from the crew means UTC
         var arrived = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.requester.Requester.class);
-        verify(orch, times(1)).orchestrate(eq("hi"), eq("c1"), eq("demo"), arrived.capture(), eq(0L));
+        verify(orch, times(1)).orchestrate(eq("hi"), eq("c1"), eq("demo"), arrived.capture(), isNull(), eq(0L));
         assertEquals("UTC", arrived.getValue().timeZone());
         verify(msg, times(1)).ackSync(any(Duration.class));
         verify(msg, never()).term();
@@ -205,7 +206,7 @@ class RequestQueueConsumerTest {
     @Test
     void processMessageReturnsTheRequestWhenShutdownInterruptsIt() throws Exception {
         var orch = mock(DiscussionOrchestrator.class);
-        when(orch.orchestrate(anyString(), anyString(), anyString(), any(), anyLong())).thenAnswer(inv -> {
+        when(orch.orchestrate(anyString(), anyString(), anyString(), any(), any(), anyLong())).thenAnswer(inv -> {
             Thread.currentThread().interrupt();
             return null;
         });
@@ -241,7 +242,7 @@ class RequestQueueConsumerTest {
     @Test
     void processMessageAcksADiscussionThatFinishedAsShutdownBegan() throws Exception {
         var orch = mock(DiscussionOrchestrator.class);
-        when(orch.orchestrate(anyString(), anyString(), anyString(), any(), anyLong()))
+        when(orch.orchestrate(anyString(), anyString(), anyString(), any(), any(), anyLong()))
                 .thenReturn(new DiscussionOrchestrator.OrchestrateResult("t1", "answer"));
         var consumer = coordinatorConsumer(orch);
         consumer.onShutdown(null);
@@ -255,7 +256,7 @@ class RequestQueueConsumerTest {
 
     private static DiscussionOrchestrator orchestratorThatThrows() {
         var orch = mock(DiscussionOrchestrator.class);
-        when(orch.orchestrate(anyString(), anyString(), anyString(), any(), anyLong()))
+        when(orch.orchestrate(anyString(), anyString(), anyString(), any(), any(), anyLong()))
                 .thenThrow(new RuntimeException("orchestrate boom"));
         return orch;
     }

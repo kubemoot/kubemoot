@@ -4,6 +4,7 @@ import ai.kubemoot.agent.tracing.AgentTrace;
 import ai.kubemoot.agent.tracing.DiscussionSpans;
 import io.opentelemetry.context.Context;
 import ai.kubemoot.agent.logging.LogContent;
+import ai.kubemoot.agent.requester.Principal;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.TurnContext;
 import ai.kubemoot.agent.chat.ChatService;
@@ -571,7 +572,17 @@ public class DiscussionOrchestrator {
      */
     public OrchestrateResult orchestrate(String userQuery, String conversationId, String crew,
                                          Requester requester, long requestSeq) {
-        return orchestrate(userQuery, conversationId, crew, requester, requestSeq, 0);
+        return orchestrate(userQuery, conversationId, crew, requester, null, requestSeq);
+    }
+
+    /**
+     * {@link #orchestrate(String, String, String, Requester, long)} for a question the gateway
+     * verified a principal for: it is copied onto the thread's thread_start the way the requester
+     * is, so every agent keeps it for the thread. null when the request carried none.
+     */
+    public OrchestrateResult orchestrate(String userQuery, String conversationId, String crew,
+                                         Requester requester, Principal principal, long requestSeq) {
+        return orchestrate(userQuery, conversationId, crew, new Asker(requester, principal), requestSeq, 0);
     }
 
     /**
@@ -581,25 +592,25 @@ public class DiscussionOrchestrator {
      * a request whose answer nobody here is writing.
      */
     private OrchestrateResult orchestrate(String userQuery, String conversationId, String crew,
-                                          Requester requester, long requestSeq, int followed) {
+                                          Asker asker, long requestSeq, int followed) {
         try {
-            return attempt(userQuery, conversationId, crew, requester, requestSeq);
+            return attempt(userQuery, conversationId, crew, asker, requestSeq);
         } catch (ThreadLostException lost) {
             if (requestSeq <= 0 || followed >= MAX_FOLLOWS) {
                 log.warn("Thread {} is owned by another coordinator and is not followed", LogContent.reason(lost));
                 return null;
             }
             log.info("Thread {} is owned by another coordinator now; following it", LogContent.reason(lost));
-            return orchestrate(userQuery, conversationId, crew, requester, requestSeq, followed + 1);
+            return orchestrate(userQuery, conversationId, crew, asker, requestSeq, followed + 1);
         }
     }
 
-    private OrchestrateResult attempt(String userQuery, String conversationId, String crew, Requester requester,
+    private OrchestrateResult attempt(String userQuery, String conversationId, String crew, Asker asker,
                                       long requestSeq) {
         Connection conn = isEnabled() ? natsProvider.getConnection() : null;
         if (conn == null) return null;
 
-        var request = new ThreadStart(userQuery, conversationId, crew, requester);
+        var request = new ThreadStart(userQuery, conversationId, crew, asker);
         var match = resume.matchRequest(requestSeq);
         if (match != null && match.closed()) {
             return answerFromClosedThread(match, request);
@@ -647,7 +658,12 @@ public class DiscussionOrchestrator {
      * The question a thread is started for, as the request carried it. A restarted
      * coordinator needs it again to publish the question of a thread that never got that far.
      */
-    private record ThreadStart(String userQuery, String conversationId, String crew, Requester requester) {}
+    private record ThreadStart(String userQuery, String conversationId, String crew, Asker asker) {}
+
+    /** Who asked: the client's time and the principal the gateway verified; either may be null. */
+    record Asker(Requester requester, Principal principal) {
+        static final Asker NONE = new Asker(null, null);
+    }
 
     /**
      * The watchdog (forceCloseIfOverCeiling) completes the future at the hard ceiling, so the
@@ -723,7 +739,7 @@ public class DiscussionOrchestrator {
         state.primaryChannel = primaryChannel;
         state.conversationId = request.conversationId();
         state.crew = request.crew();
-        state.requester = request.requester();
+        state.requester = request.asker().requester();
         // Tied to a request only when a restarted coordinator can use it to find the thread again.
         state.requestSeq = resume.enabled() ? requestSeq : 0;
         if (!leases.acquire(threadId)) {
@@ -741,13 +757,21 @@ public class DiscussionOrchestrator {
                                                           String conversationId, List<?> conversationContext,
                                                           String crew, String threadId) {
         return buildThreadStartMetadata(userQuery, primaryChannel, conversationId, conversationContext, crew,
-                threadId, null);
+                threadId, Asker.NONE);
     }
 
     // Visible for testing
     Map<String, Object> buildThreadStartMetadata(String userQuery, String primaryChannel,
                                                           String conversationId, List<?> conversationContext,
                                                           String crew, String threadId, Requester requester) {
+        return buildThreadStartMetadata(userQuery, primaryChannel, conversationId, conversationContext, crew,
+                threadId, new Asker(requester, null));
+    }
+
+    // Visible for testing
+    Map<String, Object> buildThreadStartMetadata(String userQuery, String primaryChannel,
+                                                          String conversationId, List<?> conversationContext,
+                                                          String crew, String threadId, Asker asker) {
         var metadata = new HashMap<String, Object>();
         metadata.put(FIELD_USER_QUERY, userQuery);
         metadata.put(FIELD_PRIMARY_CHANNEL, primaryChannel);
@@ -762,8 +786,11 @@ public class DiscussionOrchestrator {
         if (crew != null && !crew.isEmpty()) {
             metadata.put(FIELD_CREW, crew);
         }
-        if (requester != null) {
-            metadata.put(Requester.METADATA_KEY, requester.toBusMetadata());
+        if (asker.requester() != null) {
+            metadata.put(Requester.METADATA_KEY, asker.requester().toBusMetadata());
+        }
+        if (asker.principal() != null) {
+            metadata.put(Principal.METADATA_KEY, asker.principal().toBusMetadata());
         }
         // Crew chart version (provenance): which crew VERSION produced this thread.
         // Absent for hand-applied crews with no chart version.
@@ -783,7 +810,7 @@ public class DiscussionOrchestrator {
         String derivedId = resume.enabled() ? events.openMessageId(state) : null;
         var conversationContext = buildConversationContext(request.conversationId());
         var metadata = buildThreadStartMetadata(request.userQuery(), state.primaryChannel, request.conversationId(),
-                conversationContext, request.crew(), threadId, request.requester());
+                conversationContext, request.crew(), threadId, request.asker());
         var payload = mapper.writeValueAsBytes(Map.of(
                 FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                 FIELD_THREAD_ID, threadId,
