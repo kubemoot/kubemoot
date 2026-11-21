@@ -78,4 +78,24 @@ class RequestQueueConsumerRequesterTest {
         assertEquals("UTC", requester.timeZone());
         assertEquals(java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString(), requester.requestDate());
     }
+
+    @Test
+    void aRequestCarriesThePrincipalTheGatewayVerified() throws IOException {
+        var request = parse(",\"principal\":{\"kind\":\"subscriber\",\"issuer\":\"oreilly\",\"id\":\"abc123\"}");
+        assertEquals("subscriber", request.principal().kind());
+        assertEquals("oreilly", request.principal().issuer());
+        assertEquals("abc123", request.principal().id());
+    }
+
+    @Test
+    void aRequestWithoutAPrincipalHasNone() throws IOException {
+        assertNull(parse("").principal());
+    }
+
+    @Test
+    void aMalformedPrincipalGivesNone() throws IOException {
+        assertNull(parse(",\"principal\":\"subscriber\"").principal());
+        assertNull(parse(",\"principal\":{\"id\":\"abc\"}").principal());
+        assertNull(parse(",\"principal\":null").principal());
+    }
 }

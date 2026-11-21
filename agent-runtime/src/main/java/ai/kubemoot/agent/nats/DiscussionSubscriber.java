@@ -3,6 +3,8 @@ package ai.kubemoot.agent.nats;
 import ai.kubemoot.agent.tracing.AgentTrace;
 import io.opentelemetry.context.Context;
 import ai.kubemoot.agent.logging.LogContent;
+import ai.kubemoot.agent.requester.Caller;
+import ai.kubemoot.agent.requester.Principal;
 import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.TurnContext;
 import ai.kubemoot.agent.chat.CallManifest;
@@ -153,6 +155,8 @@ public class DiscussionSubscriber {
     private final ConcurrentHashMap<String, String> threadQuestions = new ConcurrentHashMap<>();
     // The requester's time zone and local date-time per thread, from its thread_start, for tool calls.
     private final ConcurrentHashMap<String, Requester> threadRequesters = new ConcurrentHashMap<>();
+    // The conversation and the asking principal per thread, from its thread_start only, for tool calls.
+    private final ConcurrentHashMap<String, Caller> threadCallers = new ConcurrentHashMap<>();
     /** Selected skill names broadcast by the coordinator in advisory_ready, keyed by threadId. */
     private final ConcurrentHashMap<String, List<String>> threadSelectedSkills = new ConcurrentHashMap<>();
     private final Set<String> processedMessages = ConcurrentHashMap.newKeySet();
@@ -550,6 +554,9 @@ public class DiscussionSubscriber {
             extractConversationContext(meta, threadId);
             extractSelectedSkills(meta, threadId);
             extractRequester(meta, threadId);
+            if (MSG_THREAD_START.equals(messageType)) {
+                extractCaller(meta, threadId);
+            }
         } catch (Exception ignored) {
             // Metadata is best-effort enrichment; a malformed message must not
             // abort message handling, so parse failures are silently skipped.
@@ -560,6 +567,26 @@ public class DiscussionSubscriber {
     private void extractRequester(JsonNode meta, String threadId) {
         Requester.fromJson(meta.get(Requester.METADATA_KEY))
                 .ifPresent(requester -> threadRequesters.putIfAbsent(threadId, requester));
+    }
+
+    /**
+     * Keeps the thread's conversation and principal from its thread_start. The first one wins, so a
+     * later message cannot rebind the thread to another person. A principal that is not well formed
+     * reads as none; a thread_start with neither a conversation nor a usable principal keeps nothing.
+     */
+    private void extractCaller(JsonNode meta, String threadId) {
+        JsonNode conversation = meta.get(Caller.META_CONVERSATION_ID);
+        String conversationId = conversation != null && conversation.isTextual() ? conversation.asText() : null;
+        var principal = Principal.fromJson(meta.get(Principal.METADATA_KEY)).orElse(null);
+        var caller = new Caller(conversationId, principal);
+        if (!caller.isEmpty()) {
+            threadCallers.putIfAbsent(threadId, caller);
+        }
+    }
+
+    /** The conversation and principal of the thread, or null when its thread_start named none. Visible for testing. */
+    Caller callerFor(String threadId) {
+        return threadCallers.get(threadId);
     }
 
     /** The requester of the thread, or null when its client sent none. Visible for testing. */
@@ -1139,7 +1166,7 @@ public class DiscussionSubscriber {
         String skillContext = skillBodyLoader.load(threadSelectedSkills.get(threadId));
         String message = skillContext.isEmpty() ? conversation : skillContext + conversation;
         var request = new ChatService.ChatRequest(threadId, message, null, threadId, retrievalQueryFor(threadId),
-                requesterFor(threadId));
+                requesterFor(threadId), callerFor(threadId));
         return chatService.directChat(request, false, wait);
     }
 
@@ -1508,6 +1535,7 @@ public class DiscussionSubscriber {
             threadSelectedSkills.clear();
             threadQuestions.clear();
             threadRequesters.clear();
+            threadCallers.clear();
             threadEndWakers.clear();
         }
     }

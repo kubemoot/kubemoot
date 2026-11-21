@@ -536,6 +536,81 @@ class ChatServiceToolLoopTest {
                 system.text());
     }
 
+    // The turn's caller is bound for the tool loop and only for it, also when the loop fails.
+    private ToolExecutor callerRecordingExecutor(java.util.concurrent.atomic.AtomicReference<
+            java.util.Optional<ai.kubemoot.agent.requester.Caller>> seen, boolean fail) {
+        var executor = mock(ToolExecutor.class);
+        when(executor.execute(any(), any())).thenAnswer(inv -> {
+            seen.set(ai.kubemoot.agent.requester.CallerScope.current());
+            if (fail) {
+                throw new IllegalStateException("tool failed");
+            }
+            return "{\"ok\": true}";
+        });
+        return executor;
+    }
+
+    private ChatService serviceCallingOneTool(ToolExecutor executor) {
+        var spec = ToolSpecification.builder().name("tool_a").description("A").build();
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(spec, executor));
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+        var call = ToolExecutionRequest.builder().id("c1").name("tool_a").arguments("{}").build();
+        var first = mock(ChatResponse.class);
+        when(first.aiMessage()).thenReturn(AiMessage.from(List.of(call)));
+        when(first.tokenUsage()).thenReturn(new TokenUsage(10, 5));
+        var last = mock(ChatResponse.class);
+        when(last.aiMessage()).thenReturn(new AiMessage("done"));
+        when(last.tokenUsage()).thenReturn(new TokenUsage(20, 4));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first, last);
+        return createService(5);
+    }
+
+    private static ChatService.ChatRequest askedBy(ai.kubemoot.agent.requester.Caller caller) {
+        return new ChatService.ChatRequest("conv-caller", "q", null, "t-1", null, null, caller);
+    }
+
+    @Test
+    void directChat_bindsTheCallerForTheToolLoopAndUnbindsItAfter() {
+        var seen = new java.util.concurrent.atomic.AtomicReference<
+                java.util.Optional<ai.kubemoot.agent.requester.Caller>>();
+        var service = serviceCallingOneTool(callerRecordingExecutor(seen, false));
+        var caller = new ai.kubemoot.agent.requester.Caller("conv-9",
+                new ai.kubemoot.agent.requester.Principal("subscriber", "oreilly", "abc123", null));
+
+        service.directChat(askedBy(caller), true);
+
+        org.junit.jupiter.api.Assertions.assertEquals(caller, seen.get().orElseThrow());
+        org.junit.jupiter.api.Assertions.assertTrue(ai.kubemoot.agent.requester.CallerScope.current().isEmpty());
+    }
+
+    @Test
+    void directChat_withoutACallerBindsNone() {
+        var seen = new java.util.concurrent.atomic.AtomicReference<
+                java.util.Optional<ai.kubemoot.agent.requester.Caller>>();
+        var service = serviceCallingOneTool(callerRecordingExecutor(seen, false));
+
+        service.directChat(askedBy(null), true);
+
+        org.junit.jupiter.api.Assertions.assertTrue(seen.get().isEmpty());
+    }
+
+    @Test
+    void directChat_unbindsTheCallerWhenTheToolLoopFails() {
+        var seen = new java.util.concurrent.atomic.AtomicReference<
+                java.util.Optional<ai.kubemoot.agent.requester.Caller>>();
+        var service = serviceCallingOneTool(callerRecordingExecutor(seen, true));
+        var caller = new ai.kubemoot.agent.requester.Caller("conv-9", null);
+
+        try {
+            service.directChat(askedBy(caller), true);
+        } catch (RuntimeException expected) {
+            // the failure is the point; the binding must not outlive it
+        }
+
+        org.junit.jupiter.api.Assertions.assertTrue(seen.get().isPresent(), "the tool ran inside the binding");
+        org.junit.jupiter.api.Assertions.assertTrue(ai.kubemoot.agent.requester.CallerScope.current().isEmpty());
+    }
+
     @Test
     void multipleToolCalls_inSingleResponse_allExecuted() {
         // Setup: two tools
