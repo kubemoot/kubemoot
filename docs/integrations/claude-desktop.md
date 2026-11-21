@@ -8,7 +8,9 @@ Claude Desktop connects to remote MCP servers through its connector settings, wi
 OAuth or no authentication, and cannot add custom headers. The crew liaison is
 usually behind a bearer token or an access gateway, so Desktop reaches it through
 `mcp-remote`, a small bridge that runs locally, speaks stdio to Desktop, and
-forwards to the liaison with whatever headers it needs.
+forwards to the liaison with whatever headers it needs. See
+[Signing in](../signing-in/) for what the liaison expects, and
+[the shared limits](/docs/integrations/#limits-that-apply-to-every-app) for what every chat app shares.
 
 ## Configuration
 
