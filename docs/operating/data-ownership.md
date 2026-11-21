@@ -102,10 +102,23 @@ Memory facts are tied to a conversation by the thread each was learned in, which
 
 ## Answering an erasure request
 
-A person's data has no account key in NATS; it is keyed by namespace, crew, and conversation or thread. To erase it:
+A person's data has no account key in NATS; it is keyed by namespace, crew, and conversation or thread. The discussion gateway erases one conversation from every store that holds it: `DELETE /api/v1/discussions/{crew}/{conversationId}` ([the endpoint](../../concepts/conversations-turns-and-threads/#stopping-pausing-resuming-and-deleting-a-conversation)). The conversation's owner may call it; so may an operator who holds `delete` on `crews/conversations` (the ClusterRole `kubemoot-conversation-controller`), with a reason, and the use is audited. It finds the conversation's threads from the discussion stream and the history's turns, then removes:
+
+| Store | What is removed |
+|-------|-----------------|
+| `kubemoot_conversations` | The history, `conv.<namespace>.<crew>.<id>`, and the owner record, `own.<namespace>.<crew>.<id>`, every revision of each |
+| `KUBEMOOT_DISCUSS` | Every message of each thread, `kubemoot.discuss.<namespace>.<crew>.*.<threadId>` |
+| `KUBEMOOT_COORDINATOR` | The coordinator's decision log of each thread, `kubemoot.coordinator.<namespace>.<crew>.<threadId>` |
+| `kubemoot_workspace` (and the bucket it replaced) | Each thread's objects, `<namespace>/<crew>/<threadId>/...` |
+| `kubemoot_scheduled` | Reminders and follow-ups scheduled from the conversation's threads, so none fires into a deleted conversation |
+| `kubemoot_crew_memory` | The facts learned in the conversation's threads, as the conversation export attributes them |
+
+The answer lists the threads found and how many entries each store gave up, so you can show the person what was removed. It also lists what it cannot remove for one conversation: a question still waiting in `KUBEMOOT_REQUEST` (it expires within its stream's age) and your logs and backups. A conversation still running is refused until it is stopped (or `force=true`), since the coordinator would write its answer again. Facts written before the agent runtime recorded the thread cannot be tied to a conversation; find them with `kmctl memory export <crew>`. A thread whose messages the stream has already expired is still found through the history, but one that is in neither is not.
+
+When the person asks for everything about them across conversations, or the endpoint is not reachable, remove the stores by hand:
 
 1. Find the crew and the time window of the person's questions.
-2. Remove the conversation keys from `kubemoot_conversations` (`conv.<namespace>.<crew>.<id>`) and the facts from `kubemoot_crew_memory` (`<namespace>.<crew>.<topic>.<key>`) with the `nats kv` command line. `kmctl memory export <crew>` lists a crew's facts so you can find those that mention the person.
+2. Remove the conversation keys from `kubemoot_conversations` (`conv.<namespace>.<crew>.<id>`, and the owner record `own.<namespace>.<crew>.<id>`) and the facts from `kubemoot_crew_memory` (`<namespace>.<crew>.<topic>.<key>`) with the `nats kv` command line. `kmctl memory export <crew>` lists a crew's facts so you can find those that mention the person.
 3. Messages in the streams cannot be edited. They expire with the stream's age. If the request cannot wait, purge the stream by subject (`nats stream purge KUBEMOOT_DISCUSS --subject 'kubemoot.discuss.<namespace>.<crew>.>'`), which removes that crew's messages for everyone.
 4. Check your backups of the NATS volumes and your log backend: erasing from NATS does not erase from them.
 

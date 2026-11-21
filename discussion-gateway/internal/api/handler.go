@@ -106,6 +106,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/events", h.guard(h.streamConversationEvents))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/workspace", h.guard(h.getWorkspace))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/artifact", h.guard(h.getArtifactDeprecated))
+	mux.HandleFunc("POST /api/v1/discussions/{crew}/{conversationId}/stop", h.guard(h.controlHandler(stopControl)))
+	mux.HandleFunc("POST /api/v1/discussions/{crew}/{conversationId}/pause", h.guard(h.controlHandler(pauseControl)))
+	mux.HandleFunc("POST /api/v1/discussions/{crew}/{conversationId}/resume", h.guard(h.controlHandler(resumeControl)))
+	mux.HandleFunc("DELETE /api/v1/discussions/{crew}/{conversationId}", h.guard(h.deleteConversation))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conversationId}/stream", h.guard(h.streamDiscussion))
 }
 
@@ -119,7 +123,7 @@ func (h *Handler) readyHandler(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case !h.natsClient.IsConfigured():
 		writeJSON(w, http.StatusServiceUnavailable,
-			map[string]string{keyStatus: statusNotReady, "reason": errNATSNotConfigured})
+			map[string]string{keyStatus: statusNotReady, metaReason: errNATSNotConfigured})
 	case !h.natsClient.Connected():
 		writeJSON(w, http.StatusServiceUnavailable,
 			map[string]string{keyStatus: statusNotReady, "reason": "not connected to NATS"})

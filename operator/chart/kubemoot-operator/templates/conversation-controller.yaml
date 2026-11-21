@@ -1,0 +1,17 @@
+# The role that lets an operator stop, pause, resume and delete another caller's conversations
+# of a crew whose gateway verifies callers (spec.discussion.access). The resource is virtual,
+# as for kubemoot-conversation-reader: the gateway asks the API server whether the caller may
+# update (stop, pause, resume) or delete crews/conversations, and RBAC answers. It does not
+# include get or list; bind kubemoot-conversation-reader too when the operator should read.
+# Nobody is bound to it by default; bind it deliberately. Every use is audited and needs a
+# stated reason.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubemoot-conversation-controller
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["crews/conversations"]
+    verbs: ["update", "delete"]

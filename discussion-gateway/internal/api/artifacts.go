@@ -86,7 +86,7 @@ func (h *Handler) getWorkspace(w http.ResponseWriter, r *http.Request) {
 // getWorkspace does and says so: a Deprecation header and a Link to the new route on every
 // answer, and one log line for the life of the process. The route is removed in the next release.
 func (h *Handler) getArtifactDeprecated(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Deprecation", "true")
+	w.Header().Set("Deprecation", valueTrue)
 	w.Header().Set("Link", "</api/v1/discussions/"+r.PathValue("crew")+"/workspace>; rel=\"successor-version\"")
 	h.deprecatedRoute.Do(func() {
 		handlerLog.Info("The /artifact route is deprecated and is removed in the next release; use /workspace")

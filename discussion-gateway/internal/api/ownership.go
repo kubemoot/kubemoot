@@ -33,7 +33,22 @@ const (
 	opStream    = "stream"
 	opWorkspace = "workspace"
 	opList      = "list"
+	opStop      = "stop"
+	opPause     = "pause"
+	opResume    = "resume"
+	opDelete    = "delete"
 )
+
+// The verbs an operator needs on crews/conversations: get reads, update controls a running
+// conversation, delete erases it.
+const (
+	verbGet    = "get"
+	verbUpdate = "update"
+	verbDelete = "delete"
+)
+
+// valueTrue is the query or header value that turns an option on.
+const valueTrue = "true"
 
 // auditLog receives the audit records; a test replaces it.
 var auditLog logr.Logger = logf.Log.WithName("audit")
@@ -162,6 +177,14 @@ func (h *Handler) mayAsk(w http.ResponseWriter, r *http.Request, scope crewscope
 // mayRead lets the owner, or an operator with a reason, read a conversation, and answers the
 // refusal itself.
 func (h *Handler) mayRead(w http.ResponseWriter, r *http.Request, scope crewscope.Scope, id, op string) bool {
+	return h.mayUse(w, r, scope, id, op, verbGet)
+}
+
+// mayUse lets the owner, or an operator who may use verb on the crew's conversations and gives
+// a reason, act on a conversation, and answers the refusal itself. It is the one owner rule:
+// reading asks for get, stopping and pausing for update, deleting for delete, so the role that
+// reads conversations does not change them.
+func (h *Handler) mayUse(w http.ResponseWriter, r *http.Request, scope crewscope.Scope, id, op, verb string) bool {
 	if !h.enforcing() {
 		return true
 	}
@@ -180,7 +203,7 @@ func (h *Handler) mayRead(w http.ResponseWriter, r *http.Request, scope crewscop
 	if found && sameOwner(owner, caller.Principal) {
 		return true
 	}
-	return h.operatorAccess(w, r, scope, "get", op, id, owner.ID)
+	return h.operatorAccess(w, r, scope, verb, op, id, owner.ID)
 }
 
 // operatorAccess admits a caller who may use verb on the crew's conversations, when they give
@@ -206,7 +229,7 @@ func (h *Handler) operatorAccess(
 	reason, ok := identity.ValidateAccessReason(r.Header.Get(identity.HeaderAccessReason))
 	if !ok {
 		httpError(w, http.StatusBadRequest,
-			"reading another caller's conversations needs a reason of 1 to 200 characters in the "+
+			"acting on another caller's conversations needs a reason of 1 to 200 characters in the "+
 				identity.HeaderAccessReason+" header")
 		return false
 	}
@@ -233,7 +256,7 @@ func (h *Handler) listVisibility(
 		return nil, func() error { return nil }, true
 	}
 	want := func(owner bus.Principal) bool { return sameOwner(owner, callerOf(r).Principal) }
-	if r.URL.Query().Get("all") == "true" {
+	if r.URL.Query().Get("all") == valueTrue {
 		if !h.operatorAccess(w, r, scope, "list", opList, "", "") {
 			return nil, nil, false
 		}

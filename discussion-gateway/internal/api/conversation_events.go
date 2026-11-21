@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
@@ -89,7 +88,7 @@ func (h *Handler) eventAudience(w http.ResponseWriter, r *http.Request, scope cr
 	if !h.enforcing() {
 		return everyConversation, true
 	}
-	if r.URL.Query().Get("all") == "true" {
+	if r.URL.Query().Get("all") == valueTrue {
 		return everyConversation, h.operatorAccess(w, r, scope, "list", opEvents, "", "")
 	}
 	store, ok := h.ownerStore(w, scope)
@@ -381,7 +380,7 @@ func (f *newsFollower) conversationOf(ctx context.Context, m discussMsg) (id str
 	if id, ok := f.threads.conversation[thread]; ok {
 		return id, true, nil
 	}
-	if _, gone := f.threads.unknown[thread]; gone || thread == "" || strings.ContainsAny(thread, ".*> \t\r\n") {
+	if _, gone := f.threads.unknown[thread]; gone || !threadToken(thread) {
 		return "", false, nil
 	}
 	if err := readSubject(ctx, f.js, f.scope.DiscussSubject("*", thread), f.threads.observe); err != nil {

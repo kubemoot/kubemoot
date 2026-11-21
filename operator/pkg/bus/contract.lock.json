@@ -1,5 +1,5 @@
 {
-  "version": "2.7.0",
+  "version": "2.8.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -142,6 +142,87 @@
     "chat-event.json#/userMessage": {
       "type": "string",
       "required": true
+    },
+    "conversation-control.json#": {
+      "type": "object"
+    },
+    "conversation-control.json#/action": {
+      "type": "string",
+      "enum": [
+        "pause",
+        "resume",
+        "stop"
+      ],
+      "required": true
+    },
+    "conversation-control.json#/conversationId": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-control.json#/threads": {
+      "type": "array",
+      "required": true
+    },
+    "conversation-control.json#/threads[]": {
+      "type": "string"
+    },
+    "conversation-erasure.json#": {
+      "type": "object"
+    },
+    "conversation-erasure.json#/conversationId": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-erasure.json#/deleted": {
+      "type": "object",
+      "required": true
+    },
+    "conversation-erasure.json#/deleted/coordinatorEvents": {
+      "type": "integer",
+      "required": true
+    },
+    "conversation-erasure.json#/deleted/discussionMessages": {
+      "type": "integer",
+      "required": true
+    },
+    "conversation-erasure.json#/deleted/history": {
+      "type": "integer",
+      "required": true
+    },
+    "conversation-erasure.json#/deleted/memoryFacts": {
+      "type": "integer",
+      "required": true
+    },
+    "conversation-erasure.json#/deleted/owner": {
+      "type": "integer",
+      "required": true
+    },
+    "conversation-erasure.json#/deleted/scheduled": {
+      "type": "integer",
+      "required": true
+    },
+    "conversation-erasure.json#/deleted/workspaceObjects": {
+      "type": "integer",
+      "required": true
+    },
+    "conversation-erasure.json#/failed": {
+      "type": "array"
+    },
+    "conversation-erasure.json#/failed[]": {
+      "type": "string"
+    },
+    "conversation-erasure.json#/kept": {
+      "type": "array",
+      "required": true
+    },
+    "conversation-erasure.json#/kept[]": {
+      "type": "string"
+    },
+    "conversation-erasure.json#/threads": {
+      "type": "array"
+    },
+    "conversation-erasure.json#/threads[]": {
+      "type": "string"
     },
     "conversation-event.json#": {
       "type": "object"

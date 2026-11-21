@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConversationErasure",
+  "description": "The answer to DELETE /api/v1/discussions/{crew}/{conversationId}: what the gateway removed from each store that held the conversation, and what it cannot remove per conversation. On a 500 answer the same body says which stores failed; the erasure is repeatable.",
+  "type": "object",
+  "required": [
+    "conversationId",
+    "deleted",
+    "kept"
+  ],
+  "properties": {
+    "conversationId": {
+      "type": "string",
+      "description": "The conversation."
+    },
+    "threads": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The threads of the conversation the gateway found."
+    },
+    "deleted": {
+      "type": "object",
+      "required": [
+        "history",
+        "owner",
+        "discussionMessages",
+        "workspaceObjects",
+        "coordinatorEvents",
+        "scheduled",
+        "memoryFacts"
+      ],
+      "properties": {
+        "history": {
+          "type": "integer",
+          "description": "Conversation history entries removed from kubemoot_conversations: 1, or 0 when there was none."
+        },
+        "owner": {
+          "type": "integer",
+          "description": "Owner records removed from kubemoot_conversations: 1, or 0 when there was none."
+        },
+        "discussionMessages": {
+          "type": "integer",
+          "description": "Messages removed from the KUBEMOOT_DISCUSS stream, over every thread of the conversation."
+        },
+        "workspaceObjects": {
+          "type": "integer",
+          "description": "Objects removed from the workspace stores."
+        },
+        "coordinatorEvents": {
+          "type": "integer",
+          "description": "Events removed from the KUBEMOOT_COORDINATOR log."
+        },
+        "scheduled": {
+          "type": "integer",
+          "description": "Reminders and follow-ups scheduled from the conversation's threads, removed from kubemoot_scheduled."
+        },
+        "memoryFacts": {
+          "type": "integer",
+          "description": "Crew memory facts learned in the conversation's threads, removed from kubemoot_crew_memory."
+        }
+      }
+    },
+    "kept": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "What the gateway cannot remove for one conversation, each with why."
+    },
+    "failed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The stores that could not be cleared, on a 500 answer; repeat the request, which removes what is left."
+    }
+  }
+}

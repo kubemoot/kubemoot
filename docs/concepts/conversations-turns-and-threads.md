@@ -111,7 +111,7 @@ the live `/discussions` view that renders each thread. Every event of the stream
 the request and response bodies of these endpoints, are defined in the
 [bus contract](../signals-and-protocol/#the-bus-contract): `StreamEvent`,
 `PostDiscussionRequest`, `PostDiscussionResponse`, `ConversationList`,
-`ConversationEvent` and `ErrorResponse`.
+`ConversationEvent`, `ConversationControl`, `ConversationErasure` and `ErrorResponse`.
 
 The stream survives restarts. The POST reply also carries `requestedAt`; pass it as
 `?since=` on the stream so any gateway replica can tell this turn's thread from an
@@ -263,6 +263,23 @@ Who hears what follows [who owns a conversation](#who-owns-a-conversation): a ca
 
 Each open event stream holds one consumer on the crew's discussion subjects and reads every message of the crew; plan for as many streams as there are open browser tabs.
 
+### Stopping, pausing, resuming and deleting a conversation
+
+Four authenticated endpoints act on a conversation by its id, each checked by the [owner rule](#who-owns-a-conversation):
+
+| Endpoint | What it does |
+|----------|--------------|
+| `POST /api/v1/discussions/{crew}/{conversationId}/stop` | Makes each running discussion of the conversation synthesize now, from the signals it has |
+| `POST /api/v1/discussions/{crew}/{conversationId}/pause` | Pauses each running discussion |
+| `POST /api/v1/discussions/{crew}/{conversationId}/resume` | Resumes each paused discussion |
+| `DELETE /api/v1/discussions/{crew}/{conversationId}` | Erases the conversation from every store that holds it |
+
+Stop, pause and resume find the conversation's threads in the discussion stream and publish the message the coordinator already understands (`stop_requested`, `thread_pause`, `thread_resume`) on each running thread's own subject. The gateway sends it as itself, `discussion-gateway`, never as a person, and the coordinator handles it exactly as it handled the dashboard's old controls. The answer is a `ConversationControl`: the action and the threads it was sent to. A conversation with no thread the stream holds is `404`; one with nothing running is `409`. A control only asks: a thread already past synthesis ignores a stop, and the coordinator decides.
+
+Delete answers a `ConversationErasure`, which says what it removed from each store and what it cannot remove. It refuses with `409` while a discussion runs, because the coordinator would write its answer into the history again; stop it first, or pass `?force=true`, which stops each running discussion before it erases and leaves nothing to write the answer again unless the stop is ignored (a discussion already past synthesis); delete again once it has closed if the history reappears. A delete that could not clear a store answers `500` with the same body and the stores in `failed`; the owner record is removed last, so the owner can repeat it. A second delete of a deleted conversation is `404`. The stores, and what is kept, are listed in [Answering an erasure request](../../operating/data-ownership/#answering-an-erasure-request).
+
+On a crew that verifies no one there are no owners, so any caller who can reach the gateway can stop, pause, resume or delete any conversation, as any caller can read any of them; put the gateway behind your own access control, or turn on `spec.discussion.access`.
+
 ### Fetching a stored result
 
 `GET /api/v1/discussions/{crew}/workspace?key=<key>` returns a stored result's bytes as text,
@@ -288,13 +305,15 @@ A crew whose gateway [verifies callers](../who-is-asking/) (`spec.discussion.acc
 | Ask on the conversation | yes | no: an operator reads other callers' conversations and does not add turns to them | `404` |
 | List | their own | `?all=true` lists every conversation of the crew, with each `owner` id | their own |
 | Stream or resume | yes | yes | `404` |
+| Stop, pause or resume | yes | yes, with a reason and the update right | `404` |
+| Delete | yes | yes, with a reason and the delete right | `404` |
 | Events (`/events`) | their own conversations' | every conversation's with `?all=true` and a reason | their own |
 | Fetch a stored result (`/workspace`) | results of threads in their conversations | yes | `404` |
 | Export the conversation (the operator's report service, with the caller's own token) | yes | yes, with a reason | refused (`403`) |
 
 A conversation that is not yours is answered exactly as one that does not exist, so an id cannot be probed. An id you choose that nobody owns starts a new conversation owned by you; an id whose history is still held but whose owner record is gone cannot be claimed. A conversation with no record is listed to no one and is readable only by an operator. That includes conversations that began before a crew turned on `access`: their owners cannot read them, so turn `access` on when no conversation of value is in flight, or expect an operator to read what is left. The owner record is rewritten when a question is accepted and the history when its turn completes, so for the length of one turn the record is slightly older than the history; set the conversation window well above the longest turn.
 
-**The operator role** is an ordinary RBAC right on a virtual resource: `get` (to read one conversation) or `list` (for `?all=true`) on `crews/conversations` in the crew's namespace. The chart ships the ClusterRole `kubemoot-conversation-reader`; nobody is bound to it by default. An operator who uses it must say why, in the `Kubemoot-Access-Reason` header (1 to 200 characters), and every such access is written to the gateway's log as an audit record with the fixed event name `kubemoot.conversation.access`: the operator, the operation, the conversation, the owner's id and the reason. Kubemoot builds no audit store; route the log to the backend the installer keeps audit records in.
+**The operator role** is an ordinary RBAC right on a virtual resource: `get` (to read one conversation) or `list` (for `?all=true`) on `crews/conversations` in the crew's namespace. The chart ships the ClusterRole `kubemoot-conversation-reader`; nobody is bound to it by default. Stopping, pausing and resuming another caller's conversation is `update` on the same resource, and deleting it is `delete`; the chart ships these as the separate ClusterRole `kubemoot-conversation-controller`, so the role that reads conversations does not change them. An operator who uses it must say why, in the `Kubemoot-Access-Reason` header (1 to 200 characters), and every such access is written to the gateway's log as an audit record with the fixed event name `kubemoot.conversation.access`: the operator, the operation, the conversation, the owner's id and the reason. Kubemoot builds no audit store; route the log to the backend the installer keeps audit records in.
 
 Anonymous callers of a crew that accepts them share one anonymous principal: they see and continue anonymous conversations and never another principal's. A crew with no `access` has no owners, so nothing here applies and every conversation is open as before.
 
