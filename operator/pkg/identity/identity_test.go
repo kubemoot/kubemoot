@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr/funcr"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -284,5 +285,49 @@ func TestRefusal(t *testing.T) {
 	code, msg, challenge = Refusal(errors.New("api server at 10.0.0.1 refused"), "r")
 	if code != http.StatusServiceUnavailable || challenge != "" || strings.Contains(msg, "10.0.0.1") {
 		t.Errorf("the cause of a failed check must not be sent: %d %q %q", code, msg, challenge)
+	}
+}
+
+func TestPrincipalOfAndSamePrincipal(t *testing.T) {
+	sa := PrincipalOf(Hasher{}, &Identity{Issuer: IssuerKubernetes, Subject: saUser})
+	if sa.DisplayName != saUser || sa.ID == "" {
+		t.Fatalf("%+v", sa)
+	}
+	if PrincipalOf(Hasher{}, &Identity{Issuer: IssuerKubernetes, Subject: humanUser}).DisplayName != "" {
+		t.Error("a person's name must not travel")
+	}
+	other := PrincipalOf(Hasher{}, &Identity{Issuer: "https://idp.example", Subject: saUser})
+	if SamePrincipal(sa, other) {
+		t.Error("the same subject from another issuer is another principal")
+	}
+	if !SamePrincipal(sa, PrincipalOf(Hasher{}, &Identity{Issuer: IssuerKubernetes, Subject: saUser})) {
+		t.Error("the same identity is the same principal")
+	}
+	anon := AnonymousCaller().Principal
+	if SamePrincipal(sa, anon) || !SamePrincipal(anon, anon) {
+		t.Error("anonymous callers share one principal, and no other")
+	}
+}
+
+func TestValidateAccessReasonCountsCharacters(t *testing.T) {
+	for header, ok := range map[string]bool{
+		"": false, "   ": false, " why ": true, strings.Repeat("é", MaxAccessReason): true,
+		strings.Repeat("é", MaxAccessReason+1): false,
+	} {
+		if reason, got := ValidateAccessReason(header); got != ok || (ok && reason != strings.TrimSpace(header)) {
+			t.Errorf("%q: %q %v", header, reason, got)
+		}
+	}
+}
+
+func TestOperatorAccessAuditHasOneShape(t *testing.T) {
+	var line string
+	log := funcr.New(func(prefix, args string) { line = prefix + args }, funcr.Options{})
+	OperatorAccess{Operator: &Identity{Issuer: IssuerKubernetes, Subject: "admin"}, Operation: "stream", Namespace: "ns",
+		Crew: "c", ConversationID: "conv", OwnerID: "own", Reason: "why"}.Audit(log)
+	for _, want := range []string{AuditEvent, `"operator"="admin"`, `"operation"="stream"`, `"owner"="own"`, `"reason"="why"`, `"conversationId"="conv"`} {
+		if !strings.Contains(line, want) {
+			t.Errorf("missing %s: %s", want, line)
+		}
 	}
 }

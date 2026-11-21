@@ -27,13 +27,6 @@ type conversationOpener interface {
 	OpenConversationExport() (*conversationexport.Builder, error)
 }
 
-// mayExportConversation is the one place that decides whether the caller may export a
-// conversation. A conversation has no owner yet, so the rule is the access the route already
-// checked: the caller's token may get the Crew, as for a memory export. Identity phase 1
-// replaces this function with a check of the conversation's owner, and the export builder
-// and the route do not change.
-func mayExportConversation(context.Context, crewscope.Scope, string) error { return nil }
-
 // downloadWriter sends the download headers with the first byte, so an export that is
 // refused or fails before it writes can still answer with a plain error.
 type downloadWriter struct {
@@ -71,7 +64,7 @@ func (s *ReportServer) serveConversationExport(w http.ResponseWriter, r *http.Re
 	}
 	b.Allow = s.AllowConversation
 	if b.Allow == nil {
-		b.Allow = mayExportConversation
+		b.Allow = s.mayExportConversation
 	}
 	opts := conversationexport.Options{TimeZone: r.URL.Query().Get("timeZone")}
 	w.Header().Set("Cache-Control", "no-store")

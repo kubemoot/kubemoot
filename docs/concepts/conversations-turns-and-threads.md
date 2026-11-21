@@ -272,6 +272,7 @@ A crew whose gateway [verifies callers](../who-is-asking/) (`spec.discussion.acc
 | List | their own | `?all=true` lists every conversation of the crew, with each `owner` id | their own |
 | Stream or resume | yes | yes | `404` |
 | Fetch a stored result (`/workspace`) | results of threads in their conversations | yes | `404` |
+| Export the conversation (the operator's report service, with the caller's own token) | yes | yes, with a reason | refused (`403`) |
 
 A conversation that is not yours is answered exactly as one that does not exist, so an id cannot be probed. An id you choose that nobody owns starts a new conversation owned by you; an id whose history is still held but whose owner record is gone cannot be claimed. A conversation with no record is listed to no one and is readable only by an operator. That includes conversations that began before a crew turned on `access`: their owners cannot read them, so turn `access` on when no conversation of value is in flight, or expect an operator to read what is left. The owner record is rewritten when a question is accepted and the history when its turn completes, so for the length of one turn the record is slightly older than the history; set the conversation window well above the longest turn.
 

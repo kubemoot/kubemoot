@@ -11,6 +11,7 @@ You may obtain a copy of the License at
 package bus
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf16"
@@ -41,6 +42,17 @@ func ConversationOwnerKey(namespace, crew, conversationID string) string {
 // ConversationOwnerPrefix starts the key of every owner record of a crew.
 func ConversationOwnerPrefix(namespace, crew string) string {
 	return "own." + namespace + "." + crew + "."
+}
+
+// DecodeConversationOwner reads an owner record's value. ok is false when the value cannot
+// be read: such a record owns nothing, so the conversation is the operator's. Every reader
+// of owner records decodes through here.
+func DecodeConversationOwner(value []byte) (owner Principal, ok bool) {
+	var rec ConversationOwner
+	if err := json.Unmarshal(value, &rec); err != nil || rec.Owner.Kind == "" {
+		return Principal{}, false
+	}
+	return rec.Owner, true
 }
 
 // ConversationHistoryKey is the key of a conversation's history in ConversationsBucket.

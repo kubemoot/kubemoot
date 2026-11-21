@@ -148,6 +148,7 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 			Publisher:     natsPublisher,
 			Memory:        natsPublisher,
 			Conversations: natsPublisher,
+			Owners:        natsPublisher,
 			// The report service is reachable by any pod; every endpoint checks the
 			// caller's token and RBAC before it answers.
 			Auth: controller.NewReviewAuthorizer(kube),

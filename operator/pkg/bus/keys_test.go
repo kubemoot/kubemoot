@@ -61,3 +61,18 @@ func TestConversationKeys(t *testing.T) {
 		t.Error("an owner key starts with its crew's prefix")
 	}
 }
+
+func TestDecodeConversationOwner(t *testing.T) {
+	owner, ok := DecodeConversationOwner([]byte(`{"owner":{"kind":"kubernetes","issuer":"kubernetes","id":"abc"}}`))
+	if !ok || owner.ID != "abc" || owner.Kind != PrincipalKindKubernetes {
+		t.Fatalf("%+v %v", owner, ok)
+	}
+	if o, ok := DecodeConversationOwner([]byte(`{"owner":{"kind":"anonymous"}}`)); !ok || o.Kind != PrincipalKindAnonymous {
+		t.Fatalf("an anonymous owner is an owner: %+v %v", o, ok)
+	}
+	for _, bad := range []string{"", "{not json", "{}", `{"owner":{}}`, `[]`} {
+		if _, ok := DecodeConversationOwner([]byte(bad)); ok {
+			t.Errorf("%q must own nothing", bad)
+		}
+	}
+}

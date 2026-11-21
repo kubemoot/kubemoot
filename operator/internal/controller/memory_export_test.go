@@ -27,6 +27,7 @@ import (
 	authorizationv1 "k8s.io/api/authorization/v1"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 const credentialValue = "Authorization: Bearer abcdefgh12345678"
@@ -67,18 +68,29 @@ func crewFacts() memReader {
 type fakeAuth struct {
 	allowed string
 	err     error
+	// operator is whether the caller may read other callers' conversations.
+	operator bool
+	// allowedErr fails Allowed only.
+	allowedErr error
 }
 
-func (f fakeAuth) Authorize(_ context.Context, token string, _ authorizationv1.ResourceAttributes) error {
+func (f fakeAuth) Authorize(_ context.Context, token string, _ authorizationv1.ResourceAttributes) (*identity.Identity, error) {
 	switch {
 	case f.err != nil:
-		return f.err
+		return nil, f.err
 	case token == "":
-		return errUnauthenticated
+		return nil, errUnauthenticated
 	case token != f.allowed:
-		return errForbidden
+		return nil, errForbidden
 	}
-	return nil
+	return &identity.Identity{Issuer: identity.IssuerKubernetes, Subject: "dashboard"}, nil
+}
+
+func (f fakeAuth) Allowed(context.Context, *identity.Identity, authorizationv1.ResourceAttributes) (bool, error) {
+	if f.allowedErr != nil {
+		return false, f.allowedErr
+	}
+	return f.operator, f.err
 }
 
 const goodToken = "dashboard-token"
