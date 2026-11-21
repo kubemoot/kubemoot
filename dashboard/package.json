@@ -50,6 +50,11 @@
     "nats": "^2.29.3"
   },
   "type": "module",
+  "overrides": {
+    "eslint-plugin-sonarjs": {
+      "minimatch": "^11.0.9"
+    }
+  },
   "engines": {
     "node": ">=26"
   },
