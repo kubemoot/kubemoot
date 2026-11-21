@@ -49,3 +49,10 @@ func (l *requestLog) notBefore(conversationID string) time.Time {
 	}
 	return t.Add(-clockSkew)
 }
+
+// forget drops what the log noted of a conversation, such as one that was deleted.
+func (l *requestLog) forget(conversationID string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.queued, conversationID)
+}

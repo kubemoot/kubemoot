@@ -27,20 +27,25 @@ const (
 	tokenBob    = "bob-token"
 	tokenAdmin  = "admin-token"
 	tokenNoRole = "norole-token"
+	tokenReader = "reader-token"
 	userAlice   = "alice"
 	userBob     = "bob"
 	userAdmin   = "admin"
 	userNoRole  = "norole"
+	userReader  = "reader"
 	postPath    = "/api/v1/discussions/pilot"
 )
 
 // cluster is a fake API server: tokens map to users, and rbac maps "user verb resource[/sub]"
 // to allowed. Every user but userNoRole may get crews; only userAdmin may read conversations.
 func cluster() *fake.Clientset {
-	users := map[string]string{tokenAlice: userAlice, tokenBob: userBob, tokenAdmin: userAdmin, tokenNoRole: userNoRole}
+	users := map[string]string{tokenAlice: userAlice, tokenBob: userBob, tokenAdmin: userAdmin, tokenNoRole: userNoRole, tokenReader: userReader}
 	rbac := map[string]bool{
 		userAlice + " get crews": true, userBob + " get crews": true, userAdmin + " get crews": true,
 		userAdmin + " get crews/conversations": true, userAdmin + " list crews/conversations": true,
+		userAdmin + " update crews/conversations": true, userAdmin + " delete crews/conversations": true,
+		userReader + " get crews": true, userReader + " get crews/conversations": true,
+		userReader + " list crews/conversations": true,
 	}
 	c := fake.NewSimpleClientset()
 	c.PrependReactor("create", "tokenreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {

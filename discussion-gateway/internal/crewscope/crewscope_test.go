@@ -27,11 +27,13 @@ func TestSubjectsCarryNamespaceBeforeCrew(t *testing.T) {
 		"request": s.RequestSubject(),
 		"discuss": s.DiscussSubject("broadcast", "t-1"),
 		"filter":  s.DiscussFilter(),
+		"log":     s.CoordinatorSubject("t-1"),
 	}
 	want := map[string]string{
 		"request": "kubemoot.request.team-a.pilot",
 		"discuss": "kubemoot.discuss.team-a.pilot.broadcast.t-1",
 		"filter":  "kubemoot.discuss.team-a.pilot.>",
+		"log":     "kubemoot.coordinator.team-a.pilot.t-1",
 	}
 	for k, got := range cases {
 		if got != want[k] {

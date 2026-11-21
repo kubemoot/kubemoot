@@ -22,8 +22,9 @@ const NamespaceEnv = "KUBEMOOT_NAMESPACE"
 const ServiceAccountNamespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 
 const (
-	subjectRequest = "kubemoot.request"
-	subjectDiscuss = "kubemoot.discuss"
+	subjectRequest     = "kubemoot.request"
+	subjectDiscuss     = "kubemoot.discuss"
+	subjectCoordinator = "kubemoot.coordinator"
 )
 
 // ErrNoNamespace means neither KUBEMOOT_NAMESPACE nor the service-account file
@@ -56,6 +57,12 @@ func (s Scope) RequestSubject() string {
 // DiscussSubject is kubemoot.discuss.<ns>.<crew>.<channel>.<thread>.
 func (s Scope) DiscussSubject(channel, thread string) string {
 	return fmt.Sprintf("%s.%s.%s.%s.%s", subjectDiscuss, s.Namespace, s.Crew, channel, thread)
+}
+
+// CoordinatorSubject is kubemoot.coordinator.<ns>.<crew>.<thread>, the log of one thread's
+// coordinator decisions.
+func (s Scope) CoordinatorSubject(thread string) string {
+	return fmt.Sprintf("%s.%s.%s.%s", subjectCoordinator, s.Namespace, s.Crew, thread)
 }
 
 // DiscussFilter is kubemoot.discuss.<ns>.<crew>.>, every discussion message of the crew.

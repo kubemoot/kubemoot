@@ -40,7 +40,7 @@ A gateway that verifies callers stamps the principal on every request it queues,
 
 ## What a caller may do
 
-A Kubernetes caller needs `get` on the Crew to use it at all, checked with a SubjectAccessReview on every request. A review that cannot be made refuses the request (503) and never allows it. Reading other callers' conversations is a separate right, `get` or `list` on the virtual resource `crews/conversations`, which the chart's ClusterRole `kubemoot-conversation-reader` grants and nobody is bound to by default; see [who owns a conversation](../conversations-turns-and-threads/#who-owns-a-conversation).
+A Kubernetes caller needs `get` on the Crew to use it at all, checked with a SubjectAccessReview on every request. A review that cannot be made refuses the request (503) and never allows it. Reading other callers' conversations is a separate right, `get` or `list` on the virtual resource `crews/conversations`, which the chart's ClusterRole `kubemoot-conversation-reader` grants and nobody is bound to by default. Stopping, pausing, resuming or deleting another caller's conversation is `update` or `delete` on it, granted by `kubemoot-conversation-controller`; see [who owns a conversation](../conversations-turns-and-threads/#who-owns-a-conversation).
 
 ## Not claimed yet
 
