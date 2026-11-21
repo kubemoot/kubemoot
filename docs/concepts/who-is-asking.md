@@ -47,7 +47,7 @@ Everything a verifier does is bounded:
 
 - **A cheap check first.** Before any request goes out, the token must be a JWT with a subject at the configured claim path, a future `exp`, and one of the configured audiences when you list any. A Kubernetes token (a `kubernetes.io` claim, or a subject starting `system:`), a personal access token and garbage fail here and are never sent to the service.
 - **One request per token.** An accepted token is remembered for its own remaining life, at most 5 minutes by default (`maxCacheSeconds`, up to 900). A refused token is remembered for 30 seconds, so garbage cannot make the door call the service in a loop. The memory holds a keyed hash of the token and the subject, never the token.
-- **The token stays out of sight.** The verifier does not log it, trace it, put it in an error, or send it on the bus. The verified identity holds it in memory with a redacting type, so printing or marshalling the identity shows `[redacted]`. A tool that must call the service as the person receives it from the door that verified it, for the length of the turn only.
+- **The token stays out of sight.** The verifier does not log it, trace it, put it in an error, or send it on the bus. The verified identity holds it in memory with a redacting type, so printing or marshalling the identity shows `[redacted]`. A tool that must call the service as the person receives it from the door that verified it, for the length of the turn only: the discussion gateway keeps it in memory and lends it to the crew's MCP gateway ([how](../conversations-turns-and-threads/#keeping-a-persons-own-token-for-the-turn)).
 - **A claim that is not there refuses.** The subject comes from a payload claim you name (for example `upstream_claims.sub`). If the claim is missing, not a string, empty or longer than 256 bytes, the token is refused.
 
 The configuration is two environment variables on a crew's discussion gateway and on the liaison. Both are off until set; a door with neither behaves exactly as before.
@@ -84,6 +84,8 @@ The configuration is two environment variables on a crew's discussion gateway an
 | `subjects` | The raw subjects allowed when `authorize` is `Subjects` |
 
 A person's token is checked after the Kubernetes verifier. A Kubernetes token the API server accepts is resolved there with no request to any service; a token the API server does not know is tried against the service verifiers; if none accepts it, the answer is 401 and the caller never becomes anonymous.
+
+The gateway reads three more variables for `passToTools`, all off by default and set by the installer on the gateway's Deployment today: `ACCESS_BROKER_SUBJECT` (the full user name of the MCP gateway's ServiceAccount, such as `system:serviceaccount:<namespace>:<name>`; without it no lease is served), `INTERNAL_PORT` (the lease port, default `8081`) and `ACCESS_MAX_GRANTS` (how many conversations may hold a token, default 1000).
 
 Keep the hash key secret and stable. Changing it changes every subscriber's id, so conversations recorded under the old ids are no longer theirs.
 

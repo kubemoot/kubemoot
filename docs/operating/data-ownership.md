@@ -163,6 +163,17 @@ NATS traffic between the operator, agents, gateways and the dashboard is plain b
 - **A service mesh or CNI-level encryption** also encrypts the pod-to-pod path, with no change to Kubemoot.
 - **Per-crew accounts** that would give each crew its own view of NATS are a direction, not a shipped feature. One shared credential gives every crew the same view.
 
+## A person's own token during a turn
+
+A crew can call a service as the person who asked, using that person's own token for it. This is off unless you configure a service token verifier with `passToTools: true` ([Who is asking](../../concepts/who-is-asking/#subscribers)). When it is on:
+
+- **What is held.** The bearer token the person asked with, together with the conversation id, the person's pseudonymous principal id and the name of the verifier. Never the refresh token, never the person's name or account id.
+- **Where.** In the memory of the crew's discussion gateway, in a map of at most 1000 conversations (`ACCESS_MAX_GRANTS`). It is not written to a disk, a Secret, a log, a trace, the bus or any NATS store, and it is in no response except the lease the crew's MCP gateway asks for.
+- **For how long.** Until the earliest of the token's own expiry and 30 minutes after it was written or renewed. It is dropped sooner when the conversation's answer is delivered on a stream, or the conversation is stopped or deleted. A gateway restart loses every grant; the person's next question or credential renewal restores it.
+- **Who can read it.** The one ServiceAccount of the crew's MCP gateway, over a separate internal port, for a named conversation and the principal it was started for. Operators who read conversations get no lease.
+- **A memory dump.** Go cannot wipe a string from memory, so the defense is the short life above. Do not enable heap or core dumps on the gateway, and encrypt the traffic between pods (your CNI or a mesh), because the token crosses the cluster network in plain HTTP between the liaison, the gateway and the MCP gateway.
+- **Persistence is yours.** The store is an interface. Kubemoot ships only the in-memory one. A store that survives restarts would hold a refresh token under your key, retention and erasure; it is an opt-in you would install, and nothing in this install keeps one.
+
 ## Other places data appears
 
 - **Logs** carry no content by default: no question, answer, prompt, tool argument or tool result, at any log level. `KUBEMOOT_LOG_CONTENT=true` on the agent runtime, the MCP gateway or the operator, with debug logging, writes content for a debugging session. Leave it unset on any cluster whose logs go to a shared backend, and your log backend then holds no question text. See [Observability](../observability/#2-logs-content-free-structured-stdout-aggregation-is-yours).
@@ -187,6 +198,7 @@ Question text still passes through NATS while a thread runs: a crew cannot answe
 
 ## Related
 
+- [Who is asking](../../concepts/who-is-asking/#subscribers) - the verifier that passes a person's token to tools.
 - [Dashboard](../dashboard/#the-operator-report-service) - the operator report service that serves the conversation export.
 - [Data retention and limits](../data-retention/) - how retention policies and store limits work.
 - [Installation](../../introduction/installation/) - installing the operator and NATS.
