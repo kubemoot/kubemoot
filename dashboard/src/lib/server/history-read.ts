@@ -2,7 +2,7 @@
 import { DeliverPolicy } from 'nats';
 import { DISCUSS_ALL } from '#lib/crewScope.js';
 
-const MAX_LIMIT = 2000;
+export const MAX_LIMIT = 2000;
 
 /** True for a subject filter that names one subject (a thread), not a pattern. */
 export function isLiteralSubject(subject: string): boolean {

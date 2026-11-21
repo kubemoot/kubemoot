@@ -1,5 +1,5 @@
 {
-	"$comment": "The one definition of every NATS store Kubemoot creates: what it holds, whether it can hold people's data, who owns the data, and where a crew's share of it lives. The dashboard's NATS page reads this file. nats-stores.test.ts fails when docs/operating/data-ownership.md or the operator chart's nats-streams-job.yaml disagrees with it, so the three cannot drift. peoplesData: yes, derived (written by a model from people's data), maybe (only if someone replays real questions), no. owner: crew (keyed by the crew's namespace and name), system-learning (state about models, servers and tools, no question text), kubemoot (the platform's own working state). crewKey: where a crew's share lives; {ns} and {crew} are the crew's namespace and name. A store with no crewKey is not keyed by crew. defaultMaxBytes is the bootstrap job's size limit in bytes, or null when a chart value sets it.",
+	"$comment": "The one definition of every NATS store Kubemoot creates: what it holds, whether it can hold people's data, who owns the data, and where a crew's share of it lives. The dashboard's NATS page reads this file. nats-stores.test.ts fails when docs/operating/data-ownership.md or the operator chart's nats-streams-job.yaml disagrees with it, so the three cannot drift. peoplesData: yes, derived (written by a model from people's data), maybe (only if someone replays real questions), no. owner: crew (keyed by the crew's namespace and name), system-learning (state about models, servers and tools, no question text), kubemoot (the platform's own working state). crewKey: where a crew's share lives; {ns} and {crew} are the crew's namespace and name. A store with no crewKey is not keyed by crew. defaultMaxBytes is the bootstrap job's size limit in bytes, or null when a chart value sets it. namespaceKey, on the stores a namespace-scoped dashboard serves, is the key pattern of one namespace's share, so a scoped dashboard shows its namespaces' share of the store and not the cluster-wide totals.",
 	"stores": [
 		{
 			"name": "KUBEMOOT_DISCUSS",
@@ -9,7 +9,8 @@
 			"owner": "crew",
 			"crewKey": "kubemoot.discuss.{ns}.{crew}.>",
 			"crewPolicy": "retention.other.window",
-			"defaultMaxBytes": null
+			"defaultMaxBytes": null,
+			"namespaceKey": "kubemoot.discuss.{ns}.>"
 		},
 		{
 			"name": "KUBEMOOT_COORDINATOR",
@@ -169,7 +170,8 @@
 			"owner": "kubemoot",
 			"crewKey": null,
 			"crewPolicy": null,
-			"defaultMaxBytes": 8388608
+			"defaultMaxBytes": 8388608,
+			"namespaceKey": "{ns}.>"
 		},
 		{
 			"name": "kubemoot_coordinator_leases",

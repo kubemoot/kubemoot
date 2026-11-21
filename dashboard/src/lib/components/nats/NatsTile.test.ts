@@ -42,6 +42,17 @@ describe('NatsTile', () => {
 		expect(queryByTestId('nats-warnings')).toBeNull();
 	});
 
+	it('labels the totals cluster-wide when unscoped, and as the namespaces\' share when scoped', () => {
+		const open = render(NatsTile, { status: connected, href: '/dashboard/nats' });
+		expect(open.getByText('Stored, cluster-wide')).toBeTruthy();
+		expect(open.getByTestId('nats-totals').textContent).not.toContain('about');
+		open.unmount();
+		const scoped = render(NatsTile, { status: { ...connected, scoped: true }, href: '/dashboard/nats' });
+		expect(scoped.getByText('Your namespaces')).toBeTruthy();
+		expect(scoped.queryByText('Stored, cluster-wide')).toBeNull();
+		expect(scoped.getByTestId('nats-totals').textContent).toContain('about');
+	});
+
 	it('says so and gives the reason when NATS is not connected', () => {
 		const { getByText, queryByTestId } = render(NatsTile, {
 			status: { connected: false, error: 'connection refused', checkedAt: 'now', stores: [], absent: [] },

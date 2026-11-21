@@ -1,7 +1,8 @@
 /* eslint-disable sonarjs/no-clear-text-protocols -- fixtures: the NATS monitoring port is an in-cluster plain HTTP endpoint */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ getNatsConnection: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getNatsConnection: vi.fn(), listNamespace: vi.fn() }));
+vi.mock('./k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
 vi.mock('./nats-client.js', () => ({
 	getNatsConnection: mocks.getNatsConnection,
 	sc: { encode: (s: string) => new TextEncoder().encode(s), decode: (b: Uint8Array) => new TextDecoder().decode(b) }
@@ -18,6 +19,7 @@ import {
 	storeStatusOf,
 	storeVisible
 } from './nats-status';
+import { resetScopeCache } from './scope';
 import { CREW_ENTRY_CAP } from '#lib/nats/crew-usage.js';
 import { STORES } from '#lib/nats/stores.js';
 
@@ -236,5 +238,58 @@ describe('readCrewUsage', () => {
 		mocks.getNatsConnection.mockResolvedValue(nc);
 		const [usage] = await readCrewUsage([{ namespace: 'ns', crew: 'pilot' }]);
 		expect(usage.stores[0]).toMatchObject({ store: 'kubemoot_workspace', messages: 2, bytes: 30, bytesEstimated: false });
+	});
+});
+
+describe('KUBEMOOT_DISCUSS totals', () => {
+	const discuss = streamInfo('KUBEMOOT_DISCUSS', {}, { messages: 1000, bytes: 100_000, consumer_count: 3 });
+	const connection = () =>
+		fakeConnection({ streams: [discuss], subjects: { 'kubemoot.discuss.team.pilot.general.t1': 30, 'kubemoot.discuss.team.pilot.general.t2': 20 } });
+
+	it('are cluster-wide on an unscoped dashboard', async () => {
+		const { nc, request } = connection();
+		mocks.getNatsConnection.mockResolvedValue(nc);
+		const status = await readNatsStatus();
+		const store = status.stores[0];
+		expect(status.scoped).toBe(false);
+		expect(store.share).toBeUndefined();
+		expect([store.usage.messages, store.usage.bytes, store.usage.firstSeq, store.usage.consumers]).toEqual([1000, 100_000, 1, 3]);
+		expect(request).not.toHaveBeenCalled();
+	});
+
+	describe('on a scoped dashboard', () => {
+		beforeEach(() => {
+			vi.stubEnv('KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR', 'kubemoot.ai/workshop-team=true');
+			mocks.listNamespace.mockResolvedValue({ items: [{ metadata: { name: 'team' } }] });
+			resetScopeCache();
+		});
+		afterEach(() => vi.unstubAllEnvs());
+
+		it('are only the allowed namespaces\' share, asked for by their subjects', async () => {
+			const { nc, request } = connection();
+			mocks.getNatsConnection.mockResolvedValue(nc);
+			const status = await readNatsStatus();
+			const store = status.stores[0];
+			expect(status.scoped).toBe(true);
+			expect(store.share).toBe('namespaces');
+			expect(store.usage.messages).toBe(50);
+			expect(store.usage.bytes).toBe(5000);
+			const calls = request.mock.calls as unknown as [string, Uint8Array][];
+			expect(JSON.parse(new TextDecoder().decode(calls[0][1]))).toEqual({ subjects_filter: 'kubemoot.discuss.team.>' });
+		});
+
+		it('do not reveal the whole stream\'s sequences or consumers', async () => {
+			const { nc } = connection();
+			mocks.getNatsConnection.mockResolvedValue(nc);
+			const { usage } = (await readNatsStatus()).stores[0];
+			expect([usage.firstSeq, usage.lastSeq, usage.consumers]).toEqual([0, 0, 0]);
+		});
+
+		it('keep crew bytes a share of the whole store, not of the scoped share', async () => {
+			const { nc } = connection();
+			mocks.getNatsConnection.mockResolvedValue(nc);
+			const [usage] = await readCrewUsage([{ namespace: 'team', crew: 'pilot' }]);
+			expect(usage.stores[0]).toMatchObject({ messages: 50, bytes: 5000 });
+		});
 	});
 });
