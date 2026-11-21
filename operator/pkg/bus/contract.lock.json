@@ -1736,7 +1736,8 @@
       "type": "string",
       "enum": [
         "anonymous",
-        "kubernetes"
+        "kubernetes",
+        "subscriber"
       ],
       "required": true
     },

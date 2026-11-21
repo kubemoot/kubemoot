@@ -39,23 +39,68 @@ type Settings struct {
 // FromEnv reads the access settings. newClient is called only when tokens are to be checked,
 // so a door that enforces nothing needs no Kubernetes credentials. An error means the door
 // must not start: serving open while verification was asked for would be the wrong failure.
+// ACCESS_SERVICE_TOKENS (a JSON list, see ServiceTokenConfig) adds a verifier per service,
+// after the Kubernetes one so a Kubernetes token never goes to a service; it needs
+// ACCESS_HASH_KEY, because a subscriber is never named without the install key.
 func FromEnv(getenv func(string) string, newClient func() (kubernetes.Interface, error)) (Settings, error) {
 	if getenv(EnvEnforce) != EnvTrue {
 		return Settings{Authenticator: AnonymousAuthenticator()}, nil
 	}
 	allowAnonymous := getenv(EnvAllowAnonymous) == EnvTrue
-	if getenv(EnvTokenReview) != EnvTrue {
-		return Settings{Authenticator: NewAuthenticator(Hasher{}, allowAnonymous)}, nil
+	var verifiers []Verifier
+	routed := RoutedAuthorizer{}
+	if getenv(EnvTokenReview) == EnvTrue {
+		client, err := newClient()
+		if err != nil {
+			return Settings{}, fmt.Errorf("token review needs a Kubernetes client: %w", err)
+		}
+		reviewer := Reviewer{Client: client, Audiences: splitList(getenv(EnvTokenAudiences))}
+		verifiers = append(verifiers, TokenReviewVerifier{Reviewer: reviewer})
+		routed.Kubernetes = reviewer
 	}
-	client, err := newClient()
+	hasher, serviceVerifiers, subscribers, err := serviceTokensFromEnv(getenv)
 	if err != nil {
-		return Settings{}, fmt.Errorf("token review needs a Kubernetes client: %w", err)
+		return Settings{}, err
 	}
-	reviewer := Reviewer{Client: client, Audiences: splitList(getenv(EnvTokenAudiences))}
-	return Settings{
-		Authenticator: NewAuthenticator(Hasher{}, allowAnonymous, TokenReviewVerifier{Reviewer: reviewer}),
-		Authorizer:    reviewer,
-	}, nil
+	verifiers = append(verifiers, serviceVerifiers...)
+	routed.Subscribers = subscribers
+	auth := NewAuthenticator(hasher, allowAnonymous, verifiers...)
+	return Settings{Authenticator: auth, Authorizer: authorizerOf(routed)}, nil
+}
+
+// authorizerOf is the authorizer of what FromEnv configured: nil when nothing is checked,
+// the Kubernetes authorizer alone when there are no subscribers, as before they existed.
+func authorizerOf(r RoutedAuthorizer) Authorizer {
+	switch {
+	case r.Subscribers == nil && r.Kubernetes == nil:
+		return nil
+	case r.Subscribers == nil:
+		return r.Kubernetes
+	}
+	return r
+}
+
+// serviceTokensFromEnv builds the service token verifiers, the hasher for subscriber ids
+// and the subscriber authorizer. With no service tokens configured it returns the plain
+// hasher and nothing else.
+func serviceTokensFromEnv(getenv func(string) string) (Hasher, []Verifier, Authorizer, error) {
+	configs, err := ParseServiceTokens(getenv(EnvServiceTokens))
+	if err != nil || len(configs) == 0 {
+		return Hasher{}, nil, nil, err
+	}
+	key := []byte(getenv(EnvHashKey))
+	if len(key) == 0 {
+		return Hasher{}, nil, nil, fmt.Errorf("%s is set and %s is not: %w", EnvServiceTokens, EnvHashKey, ErrNoHashKey)
+	}
+	verifiers := make([]Verifier, 0, len(configs))
+	for _, c := range configs {
+		v, err := NewServiceTokenVerifier(c, key, nil)
+		if err != nil {
+			return Hasher{}, nil, nil, err
+		}
+		verifiers = append(verifiers, v)
+	}
+	return Hasher{Key: key}, verifiers, NewSubscriberAuthorizer(configs), nil
 }
 
 // splitList splits a comma separated list, dropping blanks.

@@ -174,7 +174,7 @@ func TestVerifiersAreTriedInOrderAndANoCredentialFallsThrough(t *testing.T) {
 	second := verifierFunc(func(*http.Request) (*Identity, error) {
 		return &Identity{Issuer: otherIssuer, Subject: "u1"}, nil
 	})
-	c, err := NewAuthenticator(Hasher{}, false, first, second).Authenticate(request(""))
+	c, err := NewAuthenticator(Hasher{Key: testKey}, false, first, second).Authenticate(request(""))
 	if err != nil || c.Principal.Issuer != otherIssuer {
 		t.Fatalf("%+v, %v", c, err)
 	}
@@ -297,7 +297,7 @@ func TestPrincipalOfAndSamePrincipal(t *testing.T) {
 	if PrincipalOf(Hasher{}, &Identity{Issuer: IssuerKubernetes, Subject: humanUser}).DisplayName != "" {
 		t.Error("a person's name must not travel")
 	}
-	other := PrincipalOf(Hasher{}, &Identity{Issuer: otherIssuer, Subject: saUser})
+	other := PrincipalOf(Hasher{Key: testKey}, &Identity{Issuer: otherIssuer, Subject: saUser})
 	if SamePrincipal(sa, other) {
 		t.Error("the same subject from another issuer is another principal")
 	}

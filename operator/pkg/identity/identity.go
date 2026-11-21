@@ -37,6 +37,9 @@ import (
 const (
 	KindAnonymous  = "anonymous"
 	KindKubernetes = "kubernetes"
+	// KindSubscriber is a person a service the crew trusts vouched for; its issuer is the
+	// name of the verifier that asked that service.
+	KindSubscriber = "subscriber"
 	// IssuerKubernetes is the issuer of a principal the Kubernetes API server vouched for.
 	IssuerKubernetes = "kubernetes"
 )
@@ -51,6 +54,9 @@ var (
 	ErrInvalid = errors.New("a valid bearer token is required")
 	// ErrRequired means the crew accepts no anonymous caller and the request had no credential.
 	ErrRequired = errors.New("this crew requires a credential: send a Kubernetes token as 'Authorization: Bearer <token>'")
+	// ErrNoHashKey means a subscriber was verified on a door that has no install hash key.
+	// A subscriber's subject is not public, so it is never named without the key.
+	ErrNoHashKey = errors.New("subscriber ids need the install hash key")
 	// ErrForbidden means the caller is known and may not make the access.
 	ErrForbidden = errors.New("the caller may not make this request")
 )
@@ -64,7 +70,17 @@ type Identity struct {
 	UID     string
 	Groups  []string
 	Extra   map[string][]string
+	// Credential is the token the verifier accepted, kept for a door that hands it to a
+	// tool for the length of one turn. Only a service token verifier sets it. It prints and
+	// marshals redacted, so logging an Identity cannot expose it.
+	Credential Credential
 }
+
+// String names the identity without its subject or credential.
+func (i Identity) String() string { return "identity{issuer: " + i.Issuer + ", credential: redacted}" }
+
+// GoString is String, so %#v is as safe as %v.
+func (i Identity) GoString() string { return i.String() }
 
 // IsWorkload reports whether the subject is a ServiceAccount, whose name is safe to show.
 func (i *Identity) IsWorkload() bool {
@@ -115,18 +131,27 @@ func AnonymousAuthenticator() *Authenticator {
 func (a *Authenticator) Enforcing() bool { return len(a.verifiers) > 0 || !a.allowAnonymous }
 
 // Authenticate returns the caller of r. A credential that is present and not valid is
-// ErrInvalid even when anonymous callers are allowed.
+// ErrInvalid even when anonymous callers are allowed. A verifier that finds the credential
+// invalid does not end the chain: a later verifier may know it (a token the API server does
+// not know may be a person's token a service accepts), and when none does the answer stays
+// ErrInvalid. A check that could not be made ends the chain at once.
 func (a *Authenticator) Authenticate(r *http.Request) (Caller, error) {
+	invalid := false
 	for _, v := range a.verifiers {
 		id, err := v.Verify(r)
 		switch {
 		case err == nil:
-			return a.callerOf(id), nil
+			return a.callerOf(id)
 		case errors.Is(err, ErrNoCredential):
 			continue
+		case errors.Is(err, ErrInvalid):
+			invalid = true
 		default:
 			return Caller{}, err
 		}
+	}
+	if invalid {
+		return Caller{}, ErrInvalid
 	}
 	if !a.allowAnonymous {
 		return Caller{}, ErrRequired
@@ -135,15 +160,28 @@ func (a *Authenticator) Authenticate(r *http.Request) (Caller, error) {
 }
 
 // callerOf builds the caller of a verified identity: the principal carries the hashed
-// subject, and a display name only for a workload.
-func (a *Authenticator) callerOf(id *Identity) Caller {
-	return Caller{Principal: PrincipalOf(a.hasher, id), Identity: id}
+// subject, and a display name only for a workload. A subscriber on a door with no hash key
+// is refused, never named with a guessable id.
+func (a *Authenticator) callerOf(id *Identity) (Caller, error) {
+	if id.Issuer != IssuerKubernetes && !a.hasher.Keyed() {
+		return Caller{}, ErrNoHashKey
+	}
+	return Caller{Principal: PrincipalOf(a.hasher, id), Identity: id}, nil
 }
 
 // PrincipalOf is the principal of a verified identity. Every place that compares a caller
-// with an owner builds it here, so the id is computed one way.
+// with an owner builds it here, so the id is computed one way. A Kubernetes caller's id
+// is always the unkeyed hash, so ids already recorded as owners keep matching; a subscriber's
+// id is keyed, and without a key it has no id (SamePrincipal never matches it).
 func PrincipalOf(h Hasher, id *Identity) bus.Principal {
-	p := bus.Principal{Kind: bus.PrincipalKindKubernetes, Issuer: id.Issuer, ID: h.ID(id.Issuer, id.Subject)}
+	if id.Issuer != IssuerKubernetes {
+		p := bus.Principal{Kind: bus.PrincipalKindSubscriber, Issuer: id.Issuer}
+		if h.Keyed() {
+			p.ID = h.ID(id.Issuer, id.Subject)
+		}
+		return p
+	}
+	p := bus.Principal{Kind: bus.PrincipalKindKubernetes, Issuer: id.Issuer, ID: Hasher{}.ID(id.Issuer, id.Subject)}
 	if id.IsWorkload() {
 		p.DisplayName = id.Subject
 	}
@@ -151,8 +189,11 @@ func PrincipalOf(h Hasher, id *Identity) bus.Principal {
 }
 
 // SamePrincipal reports whether two principals are the same caller: the same kind and id.
-// Anonymous callers share the one anonymous principal.
-func SamePrincipal(a, b bus.Principal) bool { return a.Kind == b.Kind && a.ID == b.ID }
+// Anonymous callers share the one anonymous principal; a principal with no id is no one in
+// particular and matches nothing else.
+func SamePrincipal(a, b bus.Principal) bool {
+	return a.Kind == b.Kind && a.ID == b.ID && (a.ID != "" || a.Kind == bus.PrincipalKindAnonymous)
+}
 
 // Status is the HTTP status a door answers for an authentication or authorization error,
 // and whether the answer carries a WWW-Authenticate challenge.
@@ -178,6 +219,9 @@ const hashLabel = "kubemoot-principal-v1"
 
 // idLength is the hex digits of an id: 128 bits.
 const idLength = 32
+
+// Keyed reports whether the hasher has an install key.
+func (h Hasher) Keyed() bool { return len(h.Key) > 0 }
 
 // ID returns the id of subject as issued by issuer.
 func (h Hasher) ID(issuer, subject string) string {
