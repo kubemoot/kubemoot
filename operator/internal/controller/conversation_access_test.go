@@ -195,7 +195,7 @@ func TestRequireAccessPutsTheVerifiedCallerAndReasonInTheContext(t *testing.T) {
 
 func TestReviewAuthorizerAllowedAsksTheAPIServer(t *testing.T) {
 	c, asked := reviewClient(true, true)
-	id := &identity.Identity{Subject: "system:serviceaccount:kubemoot:dashboard"}
+	id := &identity.Identity{Subject: dashboardUser}
 	ok, err := NewReviewAuthorizer(c).Allowed(context.Background(), id, identity.ConversationsAccess("ns", "c", verbGet))
 	if err != nil || !ok {
 		t.Fatalf("%v %v", ok, err)
@@ -204,3 +204,5 @@ func TestReviewAuthorizerAllowedAsksTheAPIServer(t *testing.T) {
 		t.Errorf("%+v", attrs)
 	}
 }
+
+const dashboardUser = "system:serviceaccount:kubemoot:dashboard"

@@ -37,7 +37,7 @@ func reviewClient(authenticated, allowed bool) (*fake.Clientset, *authorizationv
 	c.PrependReactor("create", "tokenreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, &authenticationv1.TokenReview{Status: authenticationv1.TokenReviewStatus{
 			Authenticated: authenticated,
-			User:          authenticationv1.UserInfo{Username: "system:serviceaccount:kubemoot:dashboard", Groups: []string{"g"}},
+			User:          authenticationv1.UserInfo{Username: dashboardUser, Groups: []string{"g"}},
 		}}, nil
 	})
 	c.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
@@ -54,7 +54,7 @@ func TestReviewAuthorizerAdmitsAnIdentityThatMayGetTheCrew(t *testing.T) {
 		t.Fatal(err)
 	}
 	attrs := asked.Spec.ResourceAttributes
-	if asked.Spec.User != "system:serviceaccount:kubemoot:dashboard" || attrs.Verb != verbGet || attrs.Group != kubemootv1alpha1.GroupVersion.Group ||
+	if asked.Spec.User != dashboardUser || attrs.Verb != verbGet || attrs.Group != kubemootv1alpha1.GroupVersion.Group ||
 		attrs.Resource != "crews" || attrs.Namespace != "ns" || attrs.Name != "c" {
 		t.Errorf("access review = %+v / %+v", asked.Spec, attrs)
 	}
