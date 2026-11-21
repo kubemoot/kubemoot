@@ -1358,7 +1358,7 @@ func (r *RAGSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// See kubemootconfig_propagation.go.
 		Watches(
 			&kubemootv1alpha1.KubemootConfig{},
-			enqueueAllOnKubemootConfigChange(mgr.GetClient(),
+			enqueueAllOnKubemootConfigChange(mgr.GetClient(), r.ConfigCache,
 				func() client.ObjectList { return &kubemootv1alpha1.RAGSourceList{} },
 				"ragsource"),
 		).

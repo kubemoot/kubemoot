@@ -812,7 +812,7 @@ func (r *CrewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// spec without per-CR annotation. See kubemootconfig_propagation.go.
 		Watches(
 			&kubemootv1alpha1.KubemootConfig{},
-			enqueueAllOnKubemootConfigChange(mgr.GetClient(),
+			enqueueAllOnKubemootConfigChange(mgr.GetClient(), r.ConfigCache,
 				func() client.ObjectList { return &kubemootv1alpha1.CrewList{} },
 				"crew"),
 		).

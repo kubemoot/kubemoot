@@ -188,15 +188,13 @@ func (c *ConfigCache) GetFitnessRunnerImage() string {
 	return FallbackFitnessRunnerImage
 }
 
-// Prime loads the "default" KubemootConfig once, before the manager's controllers
-// start, so the first reconciles of Agents, Crews, and RAGSources already see the
-// configured images and pull secrets rather than the fallbacks. A missing config is
-// not an error: the cache stays on fallbacks until the KubemootConfig controller
-// sees one.
-func (c *ConfigCache) Prime(ctx context.Context, reader client.Reader) error {
+// Refresh loads the "default" KubemootConfig from the reader into the cache, and clears the
+// cache when it does not exist. On a read error the cache is left as it was.
+func (c *ConfigCache) Refresh(ctx context.Context, reader client.Reader) error {
 	config := &kubemootv1alpha1.KubemootConfig{}
 	err := reader.Get(ctx, client.ObjectKey{Name: DefaultKubemootConfigName}, config)
 	if apierrors.IsNotFound(err) {
+		c.Clear()
 		return nil
 	}
 	if err != nil {
@@ -204,6 +202,15 @@ func (c *ConfigCache) Prime(ctx context.Context, reader client.Reader) error {
 	}
 	c.Update(config)
 	return nil
+}
+
+// Prime loads the "default" KubemootConfig once, before the manager's controllers
+// start, so the first reconciles of Agents, Crews, and RAGSources already see the
+// configured images and pull secrets rather than the fallbacks. A missing config is
+// not an error: the cache stays on fallbacks until the KubemootConfig controller
+// sees one.
+func (c *ConfigCache) Prime(ctx context.Context, reader client.Reader) error {
+	return c.Refresh(ctx, reader)
 }
 
 // GetImagePullSecrets returns the image pull secrets from config or default

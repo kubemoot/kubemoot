@@ -184,6 +184,12 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 
+	started := time.Now()
+	log.V(1).Info("Reconciling Agent", "generation", agent.Generation, "runtimeClass", r.agentRuntimeClassName(agent))
+	defer func() {
+		log.V(1).Info("Reconciled Agent", "duration", time.Since(started).Round(time.Millisecond).String())
+	}()
+
 	// Resolve the workspace access once; the env, the contract and the status all read this answer.
 	ctx = r.withWorkspace(ctx, agent)
 
@@ -1338,7 +1344,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// KubemootConfig Image Bumps]] gap. See kubemootconfig_propagation.go.
 		Watches(
 			&kubemootv1alpha1.KubemootConfig{},
-			enqueueAllOnKubemootConfigChange(mgr.GetClient(),
+			enqueueAllOnKubemootConfigChange(mgr.GetClient(), r.ConfigCache,
 				func() client.ObjectList { return &kubemootv1alpha1.AgentList{} },
 				"agent"),
 		).

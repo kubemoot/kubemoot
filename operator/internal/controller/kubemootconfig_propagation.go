@@ -31,7 +31,7 @@ limitations under the License.
 //
 //	.Watches(
 //	    &kubemootv1alpha1.KubemootConfig{},
-//	    enqueueAllOnKubemootConfigChange(mgr.GetClient(),
+//	    enqueueAllOnKubemootConfigChange(mgr.GetClient(), r.ConfigCache,
 //	        func() client.ObjectList { return &kubemootv1alpha1.AgentList{} },
 //	        "agent"),
 //	)
@@ -98,15 +98,34 @@ func mapKubemootConfigToRequests(
 	return reqs
 }
 
+// refreshConfigCache loads the KubemootConfig singleton into the cache before the
+// reconciles it triggers run. The KubemootConfigReconciler fills the cache too, but it
+// runs on its own queue: an Agent reconciled first would read the previous value, find
+// nothing to change, and nothing would reconcile it again. The client reads the same
+// informer that raised the event, so the value read here is the one that changed.
+func refreshConfigCache(ctx context.Context, cli client.Reader, cache *ConfigCache, obj client.Object) {
+	if cache == nil {
+		return
+	}
+	if cfg, ok := obj.(*kubemootv1alpha1.KubemootConfig); !ok || cfg.Name != DefaultKubemootConfigName {
+		return
+	}
+	if err := cache.Refresh(ctx, cli); err != nil {
+		logf.FromContext(ctx).Error(err, "KubemootConfig propagation: reading the config failed; reconciles may see the previous values")
+	}
+}
+
 // enqueueAllOnKubemootConfigChange returns a handler.EventHandler that
-// wraps {@link mapKubemootConfigToRequests} for use in a controller's
-// SetupWithManager Watches() chain.
+// refreshes the config cache, then wraps {@link mapKubemootConfigToRequests}
+// for use in a controller's SetupWithManager Watches() chain. cache may be nil.
 func enqueueAllOnKubemootConfigChange(
 	cli client.Client,
+	cache *ConfigCache,
 	listFactory func() client.ObjectList,
 	controllerName string,
 ) handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+		refreshConfigCache(ctx, cli, cache, obj)
 		return mapKubemootConfigToRequests(ctx, cli, listFactory, controllerName, obj)
 	})
 }
