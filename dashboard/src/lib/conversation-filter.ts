@@ -75,14 +75,14 @@ export interface Chip {
 	label: string;
 }
 
-/** The chip for the time range, when one is set. */
+/** The chip for the time range, only when the person changed it from the default: the dropdown already says the default. */
 function rangeChip(filter: ListFilter): Chip[] {
-	if (filter.range === 'any') return [];
+	if (filter.range === 'any' || filter.range === DEFAULT_RANGE) return [];
 	if (filter.range === 'custom') return filter.from || filter.to ? [{ key: 'range', label: customLabel(filter.from, filter.to) }] : [];
 	return [{ key: 'range', label: rangeLabel(filter.range) }];
 }
 
-/** One removable chip for each filter that is set. */
+/** One removable chip for each filter changed from its default. */
 export function chipsOf(filter: ListFilter): Chip[] {
 	const chips: Chip[] = [];
 	if (filter.status) chips.push({ key: 'status', label: `Status: ${filter.status}` });

@@ -91,8 +91,9 @@ describe('chips', () => {
 		expect(chipsOf(custom)[0].label).toMatch(/^From /);
 	});
 
-	it('shows the default range as a chip, so what hides older conversations can be removed', () => {
-		expect(chipsOf(DEFAULT_FILTER).map((c) => c.label)).toEqual(['Last 24 hours']);
+	it('shows no chip for a filter at its default, and one once the range is changed', () => {
+		expect(chipsOf(DEFAULT_FILTER)).toEqual([]);
+		expect(chipsOf({ ...DEFAULT_FILTER, range: '3d' }).map((c) => c.label)).toEqual(['Last 3 days']);
 	});
 });
 
