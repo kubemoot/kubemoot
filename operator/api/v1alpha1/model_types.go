@@ -26,6 +26,7 @@ import (
 // ModelSpec defines the desired state of Model.
 // +kubebuilder:validation:XValidation:rule="(has(self.source) == has(oldSelf.source) && (!has(self.source) || self.source == oldSelf.source)) || (!has(oldSelf.source) && has(self.source) && has(self.source.ollama))",message="spec.source is immutable except for adding an ollama source to a Model that has none: delete and recreate the Model to change where its weights come from"
 // +kubebuilder:validation:XValidation:rule="!has(self.source) || !has(self.source.ollama) || self.source.ollama.tag == self.model",message="source.ollama.tag must equal spec.model: Ollama serves a model only under its tag"
+// +kubebuilder:validation:XValidation:rule="!has(self.vramMib) || !has(self.acceleratorMemoryMiB) || self.vramMib == self.acceleratorMemoryMiB",message="spec.vramMib is the old name of spec.acceleratorMemoryMiB: set only acceleratorMemoryMiB, or give both the same value"
 type ModelSpec struct {
 	// ServerRef references the parent ModelServer
 	// +kubebuilder:validation:Required
@@ -64,15 +65,23 @@ type ModelSpec struct {
 	// +optional
 	Quantization string `json:"quantization,omitempty"`
 
-	// VRAMMib declares the VRAM footprint (in MiB) this Model needs when
-	// loaded on a Server. Used by the Scheduler v2 filter step to enforce
-	// capacity: a Model is feasible on a Server only when
-	// VRAMMib <= ModelServer.status.capacity.vramTotalMiB after eviction
-	// of any displaceable resident models. Required for CrewSchedulingPolicy
-	// matching; if unset, the Model is treated as best-fit-unknown and may
-	// be filtered out under strict policies.
+	// AcceleratorMemoryMiB declares the accelerator memory footprint (in MiB)
+	// this Model needs when loaded on a Server. Used by the Scheduler v2 filter
+	// step to enforce capacity: a Model is feasible on a Server only when
+	// AcceleratorMemoryMiB <= ModelServer.status.capacity.acceleratorMemoryTotalMiB
+	// after eviction of any displaceable resident models. Required for
+	// CrewSchedulingPolicy matching; if unset, the Model is treated as
+	// best-fit-unknown and may be filtered out under strict policies.
 	//
 	// See kubemoot/docs/scheduler-v2.md for the scheduling algorithm.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	AcceleratorMemoryMiB int32 `json:"acceleratorMemoryMiB,omitempty"`
+
+	// VRAMMib is the old name of acceleratorMemoryMiB. This field is deprecated:
+	// it is still accepted in this release and removed in the next. Set it only
+	// when acceleratorMemoryMiB is not set, or to the same value; two different
+	// values are rejected.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	VRAMMib int32 `json:"vramMib,omitempty"`
@@ -271,4 +280,10 @@ type ModelList struct {
 
 func init() {
 	registerTypes(&Model{}, &ModelList{})
+}
+
+// AcceleratorMemory returns the accelerator memory in MiB the Model declares: the
+// new field, or the deprecated vramMib when only that is set. Zero when neither is.
+func (s ModelSpec) AcceleratorMemory() int32 {
+	return preferNew(s.AcceleratorMemoryMiB, s.VRAMMib)
 }

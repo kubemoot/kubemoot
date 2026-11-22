@@ -162,10 +162,10 @@ func catalogEntryModel(p *aiv1alpha1.ModelServer, e aiv1alpha1.CatalogModel) aiv
 			Labels:    lbls,
 		},
 		Spec: aiv1alpha1.ModelSpec{
-			ServerRef:     p.Name,
-			Model:         e.Name,
-			ContextLength: e.ContextLength,
-			VRAMMib:       e.VRAMMib,
+			ServerRef:            p.Name,
+			Model:                e.Name,
+			ContextLength:        e.ContextLength,
+			AcceleratorMemoryMiB: e.AcceleratorMemory(),
 		},
 		Status: aiv1alpha1.ModelStatus{Ready: true},
 	}

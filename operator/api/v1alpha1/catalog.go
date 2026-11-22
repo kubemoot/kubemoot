@@ -148,8 +148,13 @@ type CatalogModel struct {
 	// +optional
 	Capabilities []string `json:"capabilities,omitempty"`
 
-	// VRAMMib is the accelerator memory in MiB the Model object declares the model
-	// needs, 0 when none does.
+	// AcceleratorMemoryMiB is the accelerator memory in MiB the Model object declares
+	// the model needs, 0 when none does.
+	// +optional
+	AcceleratorMemoryMiB int32 `json:"acceleratorMemoryMiB,omitempty"`
+
+	// VRAMMib is the old name of acceleratorMemoryMiB. This field is deprecated: the
+	// operator writes both in this release and removes this one in the next.
 	// +optional
 	VRAMMib int32 `json:"vramMib,omitempty"`
 
@@ -175,4 +180,10 @@ type EmbeddingCatalogModel struct {
 	// Dimensions is the vector size the engine reports, 0 when it does not.
 	// +optional
 	Dimensions int32 `json:"dimensions,omitempty"`
+}
+
+// AcceleratorMemory returns the accelerator memory in MiB the entry records: the
+// new field, or the old name when only an older operator wrote the status.
+func (e CatalogModel) AcceleratorMemory() int32 {
+	return preferNew(e.AcceleratorMemoryMiB, e.VRAMMib)
 }

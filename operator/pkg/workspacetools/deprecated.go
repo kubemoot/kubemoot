@@ -32,7 +32,8 @@ type Deprecated struct {
 	Mount string
 	// ImageRepo is the old image repository name; the current one is workspace-access.
 	ImageRepo string
-	// Fields lists the old API fields and values (spec.artifacts, artifactAccess, artifactReadOps).
+	// Fields lists the old API fields and values (spec.artifacts, artifactAccess, artifactReadOps,
+	// and Model spec.vramMib, now acceleratorMemoryMiB).
 	Fields []string
 	// Markers lists the old finding markers; the current ones start [WORKSPACE.
 	Markers []string
@@ -56,7 +57,7 @@ func DeprecatedNames() Deprecated {
 		EnvPrefix: "ARTIFACT_",
 		Mount:     "/artifacts",
 		ImageRepo: "artifact-access",
-		Fields:    []string{"artifactAccess", "artifactReadOps", "spec.artifacts"},
+		Fields:    []string{"artifactAccess", "artifactReadOps", "spec.artifacts", "vramMib"},
 		Markers:   []string{"[ARTIFACT"},
 	}
 }

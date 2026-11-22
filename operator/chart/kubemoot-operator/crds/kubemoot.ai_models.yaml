@@ -60,6 +60,20 @@ spec:
           spec:
             description: ModelSpec defines the desired state of Model.
             properties:
+              acceleratorMemoryMiB:
+                description: |-
+                  AcceleratorMemoryMiB declares the accelerator memory footprint (in MiB)
+                  this Model needs when loaded on a Server. Used by the Scheduler v2 filter
+                  step to enforce capacity: a Model is feasible on a Server only when
+                  AcceleratorMemoryMiB <= ModelServer.status.capacity.acceleratorMemoryTotalMiB
+                  after eviction of any displaceable resident models. Required for
+                  CrewSchedulingPolicy matching; if unset, the Model is treated as
+                  best-fit-unknown and may be filtered out under strict policies.
+
+                  See kubemoot/docs/scheduler-v2.md for the scheduling algorithm.
+                format: int32
+                minimum: 0
+                type: integer
               capabilities:
                 description: |-
                   Capabilities are abilities the engine cannot report: tool-calling,
@@ -164,15 +178,10 @@ spec:
                     0) == 1'
               vramMib:
                 description: |-
-                  VRAMMib declares the VRAM footprint (in MiB) this Model needs when
-                  loaded on a Server. Used by the Scheduler v2 filter step to enforce
-                  capacity: a Model is feasible on a Server only when
-                  VRAMMib <= ModelServer.status.capacity.vramTotalMiB after eviction
-                  of any displaceable resident models. Required for CrewSchedulingPolicy
-                  matching; if unset, the Model is treated as best-fit-unknown and may
-                  be filtered out under strict policies.
-
-                  See kubemoot/docs/scheduler-v2.md for the scheduling algorithm.
+                  VRAMMib is the old name of acceleratorMemoryMiB. This field is deprecated:
+                  it is still accepted in this release and removed in the next. Set it only
+                  when acceleratorMemoryMiB is not set, or to the same value; two different
+                  values are rejected.
                 format: int32
                 minimum: 0
                 type: integer
@@ -191,6 +200,10 @@ spec:
                 only under its tag'
               rule: '!has(self.source) || !has(self.source.ollama) || self.source.ollama.tag
                 == self.model'
+            - message: 'spec.vramMib is the old name of spec.acceleratorMemoryMiB:
+                set only acceleratorMemoryMiB, or give both the same value'
+              rule: '!has(self.vramMib) || !has(self.acceleratorMemoryMiB) || self.vramMib
+                == self.acceleratorMemoryMiB'
           status:
             description: ModelStatus defines the observed state of Model.
             properties:

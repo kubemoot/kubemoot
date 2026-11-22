@@ -149,7 +149,8 @@ func mergeEntry(server *aiv1alpha1.ModelServer, f catalogFacts, m *aiv1alpha1.Mo
 // overlayModel applies what a Model object declares onto an entry.
 func overlayModel(e *aiv1alpha1.CatalogModel, m *aiv1alpha1.Model) {
 	e.ModelRef = m.Namespace + "/" + m.Name
-	e.VRAMMib = m.Spec.VRAMMib
+	e.AcceleratorMemoryMiB = m.Spec.AcceleratorMemory()
+	e.VRAMMib = e.AcceleratorMemoryMiB // deprecated name, kept for one release
 	if n, ok := aiv1alpha1.ParseParameterCount(m.Spec.Parameters); ok {
 		e.ParameterCount, e.Source = n, aiv1alpha1.CatalogSourceModel
 	}

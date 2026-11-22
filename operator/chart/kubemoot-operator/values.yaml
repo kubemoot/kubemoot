@@ -642,7 +642,7 @@ webhook:
 # spec as they are. An ollama server sets endpoint.
 # models (optional): the cluster's model catalog entries for the server, each rendered as
 # a Model in the server's namespace: {model, parameters, capabilities, contextLength,
-# vramMib, labels, disabled}. An Ollama server downloads each model that is missing. Only
+# acceleratorMemoryMiB (vramMib is the deprecated old name), labels, disabled}. An Ollama server downloads each model that is missing. Only
 # `model` is needed for Ollama: Kubemoot reads the size, context and abilities from the
 # server. Every chat model a server reports joins the catalog without an entry; add one to
 # have the model downloaded, to declare what the server cannot report, to add labels, or

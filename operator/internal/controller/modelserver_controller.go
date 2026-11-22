@@ -212,6 +212,7 @@ type prometheusQueryResponse struct {
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=agents,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
@@ -321,14 +322,20 @@ func (r *ModelServerReconciler) discoverCapacity(ctx context.Context, server *ai
 	// 5. Ask the server's engine adapter for loaded and available models
 	r.probeEngine(ctx, server, httpClient)
 
+	// 5b. Name the accelerator from the node's labels when neither the engine
+	// nor the accelerator metrics did.
+	r.fillAcceleratorModelFromNode(ctx, server)
+	server.Status.Capacity.MirrorDeprecatedFields()
+
 	// 6. Count agents assigned to this server
 	r.countAssignedAgents(ctx, server)
 
 	log.Info("Discovered server capacity",
 		"server", server.Name,
 		"maxParallel", server.Status.Capacity.MaxParallel,
-		"vramTotalMiB", server.Status.Capacity.VRAMTotalMiB,
-		"vramUsedMiB", server.Status.Capacity.VRAMUsedMiB,
+		"acceleratorMemoryTotalMiB", server.Status.Capacity.AcceleratorMemoryTotalMiB,
+		"acceleratorMemoryUsedMiB", server.Status.Capacity.AcceleratorMemoryUsedMiB,
+		"acceleratorModel", server.Status.Capacity.AcceleratorModel,
 		"agentCount", server.Status.Capacity.AgentCount,
 		"nodeName", server.Status.Capacity.NodeName,
 		"loadedModels", len(server.Status.Capacity.LoadedModels),
@@ -453,7 +460,7 @@ func (r *ModelServerReconciler) queryDCGMMetrics(ctx context.Context, httpClient
 		nodeName, nodeName, nodeName)
 	vramTotal := r.queryPrometheusScalar(ctx, httpClient, prometheusEndpoint, vramQuery)
 	if vramTotal > 0 {
-		server.Status.Capacity.VRAMTotalMiB = int64(vramTotal)
+		server.Status.Capacity.AcceleratorMemoryTotalMiB = int64(vramTotal)
 		log.V(1).Info("Discovered VRAM total from DCGM", "vramTotalMiB", vramTotal)
 	}
 
@@ -461,7 +468,7 @@ func (r *ModelServerReconciler) queryDCGMMetrics(ctx context.Context, httpClient
 	gpuModel := r.queryPrometheusLabel(ctx, httpClient, prometheusEndpoint,
 		fmt.Sprintf(`DCGM_FI_DEV_GPU_TEMP{Hostname="%s"}`, nodeName), "modelName")
 	if gpuModel != "" {
-		server.Status.Capacity.GPUModel = gpuModel
+		server.Status.Capacity.AcceleratorModel = gpuModel
 	}
 }
 
@@ -604,12 +611,16 @@ func applySnapshotToCapacity(capacity *aiv1alpha1.DiscoveredCapacity, snap engin
 	if snap.LoadedKnown {
 		capacity.LoadedModels = snap.Loaded
 		if snap.LoadedSizesKnown {
-			capacity.VRAMUsedMiB = snap.VRAMUsedMiB()
+			capacity.AcceleratorMemoryUsedMiB = snap.AcceleratorMemoryUsedMiB()
 		}
 	}
 	if snap.AvailableKnown {
 		capacity.AvailableModels = snap.Available
 	}
+	if snap.AcceleratorModel != "" {
+		capacity.AcceleratorModel = snap.AcceleratorModel
+	}
+	capacity.MirrorDeprecatedFields()
 }
 
 // countAssignedAgents counts how many agent deployments are currently
@@ -901,11 +912,12 @@ func applyCapacityToState(state *ServerState, cap *aiv1alpha1.DiscoveredCapacity
 	// footprints (from Ollama /api/ps size_vram). Agents combine
 	// these with in-flight ticket footprints to compute live
 	// headroom at the per-call decision boundary.
-	state.TotalVramMiB = cap.VRAMTotalMiB
+	total := cap.TotalMiB()
+	state.TotalVramMiB = total
 	if len(cap.LoadedModels) > 0 {
 		state.LoadedModelFootprintsMiB = make(map[string]int64, len(cap.LoadedModels))
 		for _, m := range cap.LoadedModels {
-			state.LoadedModelFootprintsMiB[m.Name] = residentFootprintMiB(m, cap.VRAMTotalMiB > 0)
+			state.LoadedModelFootprintsMiB[m.Name] = residentFootprintMiB(m, total > 0)
 		}
 	}
 	if avail := availableFootprints(state.LoadedModelFootprintsMiB, cap.AvailableModels); len(avail) > 0 {
@@ -921,7 +933,7 @@ func applyCapacityToState(state *ServerState, cap *aiv1alpha1.DiscoveredCapacity
 // declared spec.scheduling.memoryMiB, and a CPU server reports size_vram 0, so
 // there the model's whole size counts.
 func residentFootprintMiB(m aiv1alpha1.LoadedModel, vramDiscovered bool) int64 {
-	bytes := m.SizeVRAM
+	bytes := m.AcceleratorBytes()
 	if bytes <= 0 && !vramDiscovered {
 		bytes = m.Size
 	}

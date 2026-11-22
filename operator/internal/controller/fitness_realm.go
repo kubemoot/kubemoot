@@ -154,7 +154,7 @@ func realmServer(s *kubemootv1alpha1.ModelServer, models []kubemootv1alpha1.Mode
 func realmAccelerator(s *kubemootv1alpha1.ModelServer) *kubemootv1alpha1.RealmAccelerator {
 	acc := &kubemootv1alpha1.RealmAccelerator{}
 	if c := s.Status.Capacity; c != nil {
-		acc.MemoryMiB, acc.MemoryUsedMiB = c.VRAMTotalMiB, c.VRAMUsedMiB
+		acc.MemoryMiB, acc.MemoryUsedMiB = c.TotalMiB(), c.UsedMiB()
 		acc.MaxParallel, acc.ContextLength = int32(c.MaxParallel), int32(c.ContextLength)
 	}
 	if acc.MemoryMiB == 0 && s.Spec.Scheduling != nil {

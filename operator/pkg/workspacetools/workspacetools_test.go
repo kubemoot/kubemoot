@@ -112,7 +112,7 @@ func TestDeprecatedNamesCoverEveryOldName(t *testing.T) {
 
 func TestDeprecatedNamesListTheOldAPIFields(t *testing.T) {
 	d := DeprecatedNames()
-	for _, f := range []string{"spec.artifacts", "artifactAccess", "artifactReadOps"} {
+	for _, f := range []string{"spec.artifacts", "artifactAccess", "artifactReadOps", "vramMib"} {
 		if !slices.Contains(d.Fields, f) {
 			t.Errorf("fields %v miss %s", d.Fields, f)
 		}
@@ -153,6 +153,9 @@ func TestFindFlagsOldNamesAtTheStartOfAWordOnly(t *testing.T) {
 		{"mountPath: /artifacts", []string{"/artifacts"}},
 		{"mountPath: /kubemoot/workspace", nil},
 		{"[ARTIFACT x]", []string{"[ARTIFACT"}},
+		{"vramMib: 11000", []string{"vramMib"}},
+		{"acceleratorMemoryMiB: 11000", nil},
+		{"myvramMib: 1", nil},
 		{"", nil},
 	}
 	for _, tc := range cases {

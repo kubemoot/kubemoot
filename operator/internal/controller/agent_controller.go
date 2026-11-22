@@ -346,7 +346,7 @@ func candidateBefore(a, b scheduleCandidate) bool {
 	if a.score != b.score {
 		return a.score > b.score
 	}
-	av, bv := a.model.Spec.VRAMMib, b.model.Spec.VRAMMib
+	av, bv := a.model.Spec.AcceleratorMemory(), b.model.Spec.AcceleratorMemory()
 	if av != bv {
 		if av == 0 || bv == 0 {
 			return bv == 0
@@ -484,8 +484,8 @@ func (r *AgentReconciler) candidateFeasible(ctx context.Context, agent *kubemoot
 // total VRAM. Unknown VRAM on either side (0) is treated as a fit (not enough
 // information to exclude).
 func modelFitsServer(m *kubemootv1alpha1.Model, prov *kubemootv1alpha1.ModelServer) bool {
-	if m.Spec.VRAMMib > 0 && prov.Status.Capacity != nil && prov.Status.Capacity.VRAMTotalMiB > 0 {
-		return int64(m.Spec.VRAMMib) <= prov.Status.Capacity.VRAMTotalMiB
+	if need, total := m.Spec.AcceleratorMemory(), prov.Status.Capacity.TotalMiB(); need > 0 && total > 0 {
+		return int64(need) <= total
 	}
 	return true
 }

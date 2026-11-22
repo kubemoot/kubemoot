@@ -74,11 +74,11 @@ func TestQueryDCGMMetrics(t *testing.T) {
 	// does not panic outside the envtest suite (which calls SetLogger).
 	ctx := logf.IntoContext(context.Background(), logr.Discard())
 	r.queryDCGMMetrics(ctx, srv.Client(), srv.URL, "node-1", server)
-	if server.Status.Capacity.VRAMTotalMiB != 32768 {
-		t.Errorf("VRAMTotalMiB = %d, want 32768", server.Status.Capacity.VRAMTotalMiB)
+	if server.Status.Capacity.AcceleratorMemoryTotalMiB != 32768 {
+		t.Errorf("AcceleratorMemoryTotalMiB = %d, want 32768", server.Status.Capacity.AcceleratorMemoryTotalMiB)
 	}
-	if server.Status.Capacity.GPUModel != "RTX 5090" {
-		t.Errorf("GPUModel = %q, want RTX 5090", server.Status.Capacity.GPUModel)
+	if server.Status.Capacity.AcceleratorModel != "RTX 5090" {
+		t.Errorf("AcceleratorModel = %q, want RTX 5090", server.Status.Capacity.AcceleratorModel)
 	}
 }
 
@@ -98,8 +98,11 @@ func TestDiscoverLoadedModels(t *testing.T) {
 	if len(server.Status.Capacity.LoadedModels) != 1 || server.Status.Capacity.LoadedModels[0].Name != testModel32B {
 		t.Fatalf("LoadedModels not populated: %+v", server.Status.Capacity.LoadedModels)
 	}
-	if server.Status.Capacity.VRAMUsedMiB != 2048 {
-		t.Errorf("VRAMUsedMiB = %d, want 2048", server.Status.Capacity.VRAMUsedMiB)
+	if server.Status.Capacity.VRAMUsedMiB != 2048 || server.Status.Capacity.AcceleratorMemoryUsedMiB != 2048 { // the probe writes both names
+		t.Errorf("used = %d / %d, want 2048 under both names", server.Status.Capacity.VRAMUsedMiB, server.Status.Capacity.AcceleratorMemoryUsedMiB)
+	}
+	if got := server.Status.Capacity.LoadedModels[0]; got.AcceleratorMemory != 2147483648 || got.SizeVRAM != 2147483648 {
+		t.Errorf("loaded model memory = %d / %d, want 2 GiB under both names", got.AcceleratorMemory, got.SizeVRAM)
 	}
 }
 

@@ -55,16 +55,16 @@ func TestRegistryRefusesAnUnknownType(t *testing.T) {
 	}
 }
 
-func TestSnapshotVRAMUsedMiB(t *testing.T) {
+func TestSnapshotAcceleratorMemoryUsedMiB(t *testing.T) {
 	snap := Snapshot{Loaded: []aiv1alpha1.LoadedModel{
 		{Name: "a", SizeVRAM: 1 << 30},
 		{Name: "b", SizeVRAM: 1 << 30, Size: 5 << 30},
 		{Name: "cpu", Size: 3 << 30},
 	}}
-	if got := snap.VRAMUsedMiB(); got != 2048 {
-		t.Errorf("VRAMUsedMiB = %d, want 2048 (host residency is not counted)", got)
+	if got := snap.AcceleratorMemoryUsedMiB(); got != 2048 {
+		t.Errorf("AcceleratorMemoryUsedMiB = %d, want 2048 (host residency is not counted)", got)
 	}
-	if got := (Snapshot{}).VRAMUsedMiB(); got != 0 {
+	if got := (Snapshot{}).AcceleratorMemoryUsedMiB(); got != 0 {
 		t.Errorf("empty snapshot = %d, want 0", got)
 	}
 }

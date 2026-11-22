@@ -107,8 +107,8 @@ func TestProbeReportsLoadedAndAvailableModels(t *testing.T) {
 	if !snap.AvailableKnown || len(snap.Available) != 2 {
 		t.Errorf("Available = %+v", snap.Available)
 	}
-	if snap.VRAMUsedMiB() != 2048 {
-		t.Errorf("VRAMUsedMiB = %d, want 2048", snap.VRAMUsedMiB())
+	if snap.AcceleratorMemoryUsedMiB() != 2048 {
+		t.Errorf("AcceleratorMemoryUsedMiB = %d, want 2048", snap.AcceleratorMemoryUsedMiB())
 	}
 }
 
