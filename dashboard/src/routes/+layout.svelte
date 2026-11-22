@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import '../app.css';
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
+	import { identityTitle, shortIdentity } from '#lib/identity-label.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { showsCrewSelector } from '#lib/route-section.js';
@@ -72,7 +71,7 @@
 			</div>
 			<div class="topbar-right">
 				{#if data.user}
-					<span class="who" title="You are signed in with your own Kubernetes token">Signed in as <strong>{data.user.username}</strong></span>
+					<span class="who" title={identityTitle(data.user.username)}>Signed in as <strong>{shortIdentity(data.user.username)}</strong></span>
 					<form method="POST" action={resolve('/signout')}>
 						<button type="submit" class="signout" use:tooltip={ACTIONS.signOut}>Sign out</button>
 					</form>
@@ -108,22 +107,49 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: 1rem;
 		padding: 0.75rem 1.5rem;
 		background-color: var(--color-bg-secondary);
 		border-bottom: 1px solid var(--color-border);
 		flex-shrink: 0;
 	}
 
+	/* The name gives way before anything else moves: it truncates, Sign out stays in view. */
 	.who {
 		color: var(--color-text-muted);
 		font-size: 0.875rem;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.who strong {
 		color: var(--color-text);
 	}
 
+	.topbar-left {
+		flex: 0 1 auto;
+		gap: 0.5rem;
+	}
+
+	.topbar-left :global(.namespace-selector) {
+		min-width: 0;
+	}
+
+	.topbar-left :global(.namespace-selector select) {
+		min-width: 0;
+		width: 100%;
+		text-overflow: ellipsis;
+	}
+
+	.topbar-right form {
+		flex-shrink: 0;
+	}
+
 	.signout {
+		flex-shrink: 0;
+		white-space: nowrap;
 		background: transparent;
 		border: 1px solid var(--color-border);
 		border-radius: 6px;
@@ -140,6 +166,7 @@
 	.topbar-right {
 		display: flex;
 		align-items: center;
+		min-width: 0;
 		gap: 1rem;
 	}
 

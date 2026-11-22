@@ -306,7 +306,7 @@
 	});
 </script>
 
-<ListDetailLayout route="/moot" subtitle="The agents deliberating over each question. Read-only." onlistscroll={onListScroll} bind:detailEl>
+<ListDetailLayout route="/moot" subtitle="The agents deliberating over each question. Read-only." onlistscroll={onListScroll} bind:detailEl detailOpen={!!selectedThread}>
 	{#snippet actions()}
 		<div class="connection-status" class:connected={$discussionsConnected}>
 			<span class="status-dot"></span>

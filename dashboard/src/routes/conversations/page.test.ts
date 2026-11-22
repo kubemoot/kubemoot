@@ -3,11 +3,16 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleMessage } from '#lib/stores/discussions.js';
 import { crewDirectory } from '#lib/stores/crews.js';
 import { namespace } from '#lib/stores/namespace.js';
-import { setPage } from '../../../vitest-mocks/app-state';
-import { goto } from '../../../vitest-mocks/app-navigation';
+import { page, setPageData, setPageUrl } from '../../../vitest-mocks/app-state.svelte';
 import { get } from 'svelte/store';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import Page from './+page.svelte';
+
+
+function setPage(address: string, data: Record<string, unknown> = {}) {
+	setPageUrl(address);
+	setPageData(data);
+}
 
 let seq = 0;
 function msg(threadId: string, agentName: string, messageType: DiscussionMessage['messageType'], content: string, at: string, over: Partial<DiscussionMessage> = {}): DiscussionMessage {
@@ -177,13 +182,11 @@ describe('a conversation with a follow-up', () => {
 describe('the open conversation and the top-bar crew', () => {
 	it('leaves the top-bar crew exactly as the person set it, and writes the conversation into the address', async () => {
 		namespace.set('crew-demo');
-		goto.mockClear();
 		const { container } = render(Page);
 		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThan(2));
 		await fireEvent.click([...container.querySelectorAll<HTMLElement>('.card')].find((c) => c.textContent?.includes('namespace is the pod')) as HTMLElement);
 		expect(get(namespace)).toBe('crew-demo');
-		const address = goto.mock.calls.at(-1)?.[0] ?? '';
-		expect(address).toContain('conversation=c-t-ns');
+		expect(page.url.search).toContain('conversation=c-t-ns');
 	});
 
 	it('opens the conversation a link names, whatever crew the selector shows', async () => {

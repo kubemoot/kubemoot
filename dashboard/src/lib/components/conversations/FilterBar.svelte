@@ -29,9 +29,20 @@
 		const value = (event.currentTarget as HTMLSelectElement).value;
 		onchange({ ...filter, status: STATUSES.find((s): s is StatusFilter => s === value) ?? null });
 	};
+	let datesOpen = $state(false);
+	let datesRoot = $state<HTMLElement | null>(null);
+
+	/** What the date button says: Dates, or the range that is set. */
+	function datesLabel(f: ListFilter): string {
+		if (!f.from && !f.to) return 'Any date';
+		return `${f.from ?? '...'} to ${f.to ?? '...'}`;
+	}
+
 	const date = (key: 'from' | 'to') => (event: Event) =>
 		onchange({ ...filter, [key]: (event.currentTarget as HTMLInputElement).value || null });
 </script>
+
+<svelte:window onclick={(e) => { if (datesOpen && datesRoot && !datesRoot.contains(e.target as Node)) datesOpen = false; }} />
 
 <div class="bar">
 	<div class="search-row">
@@ -46,8 +57,15 @@
 		{#if signedIn}
 			<label class="mine"><input use:tooltip={ACTIONS.filterMine} type="checkbox" checked={filter.mine} onchange={(e) => onchange({ ...filter, mine: e.currentTarget.checked })} /> Mine</label>
 		{/if}
-		<input type="date" value={filter.from ?? ''} onchange={date('from')} aria-label="From date" use:tooltip={ACTIONS.filterFrom} />
-		<input type="date" value={filter.to ?? ''} onchange={date('to')} aria-label="To date" use:tooltip={ACTIONS.filterTo} />
+		<div class="dates" bind:this={datesRoot}>
+			<button type="button" class="dates-btn" class:set={!!filter.from || !!filter.to} aria-expanded={datesOpen} use:tooltip={ACTIONS.filterDates} onclick={() => (datesOpen = !datesOpen)}>{datesLabel(filter)}</button>
+			{#if datesOpen}
+				<div class="dates-panel">
+					<label>From <input type="date" value={filter.from ?? ''} onchange={date('from')} use:tooltip={ACTIONS.filterFrom} /></label>
+					<label>To <input type="date" value={filter.to ?? ''} onchange={date('to')} use:tooltip={ACTIONS.filterTo} /></label>
+				</div>
+			{/if}
+		</div>
 	</div>
 	{#if error}<p class="limit" role="alert">{error}</p>{/if}
 	{#if chips.length > 0}
@@ -76,7 +94,18 @@
 	.search-row { display: flex; align-items: center; gap: 0.4rem; }
 	.grow { flex: 1; min-width: 0; }
 	.row { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
-	input[type='date'] { width: 6.6rem; padding: 0.25rem 0.2rem; }
+	.dates { position: relative; }
+	.dates-btn {
+		padding: 0.25rem 0.5rem; border-radius: 0.3rem; border: 1px solid var(--color-border); background: var(--color-bg-secondary);
+		color: var(--color-text-muted); font-size: 0.75rem; cursor: pointer; white-space: nowrap;
+	}
+	.dates-btn.set { color: var(--color-text); border-color: var(--color-primary); }
+	.dates-panel {
+		position: absolute; left: 0; top: calc(100% + 0.25rem); z-index: 10; display: flex; flex-direction: column; gap: 0.4rem;
+		padding: 0.5rem 0.6rem; background: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 0.375rem;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); font-size: 0.75rem; color: var(--color-text-muted);
+	}
+	.dates-panel label { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 	.mine { display: flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; color: var(--color-text-muted); }
 	.chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 	.chip {

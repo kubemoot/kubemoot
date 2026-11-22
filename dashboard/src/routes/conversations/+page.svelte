@@ -212,7 +212,7 @@
 	});
 </script>
 
-<ListDetailLayout route="/conversations" subtitle="Your questions and the crew's answers.">
+<ListDetailLayout route="/conversations" subtitle="Your questions and the crew's answers." detailOpen={!!selected || starting || !!live || !!erasure}>
 	{#snippet list()}
 		<FilterBar {filter} {signedIn} loaded={$sortedThreads.length} hasOlder={$hasOlder} onchange={setFilter} onloadolder={() => void loadOlder()} error={mineError}>
 			{#snippet trailing()}
