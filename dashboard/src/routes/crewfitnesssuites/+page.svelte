@@ -156,7 +156,7 @@
 						</span>
 					</td>
 					<td class="mono">
-						{name}
+						<a href="{resolve('/crewfitnesssuites/[name]', { name })}?namespace={ns}" class="suite-link">{name}</a>
 						{#if suite.spec.description}
 							<div class="suite-desc">{suite.spec.description}</div>
 						{/if}
@@ -269,10 +269,10 @@
 	.failed { color: var(--color-error); font-weight: 600; }
 	.errored { color: var(--color-warning, #c66); font-weight: 600; }
 
-	.crew-link, .download-link {
+	.crew-link, .suite-link, .download-link {
 		color: var(--color-cyan); text-decoration: none;
 	}
-	.crew-link:hover, .download-link:hover { text-decoration: underline; }
+	.crew-link:hover, .suite-link:hover, .download-link:hover { text-decoration: underline; }
 	.download-link {
 		font-family: var(--font-mono); font-size: 0.85rem;
 		padding: 0.15rem 0.4rem; border: 1px solid var(--color-cyan);

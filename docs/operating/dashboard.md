@@ -81,13 +81,19 @@ The info icon next to the version opens the Kubemoot components panel. Its first
 
 Pages refresh on a timer. A page shows its loading indicator only until its first data arrives; a later refresh runs in the background and swaps the new values in place, and a refresh that fails keeps the last data on screen.
 
-Every page that shows one custom resource (a crew, agent, PromptModule, model server, MCP server, and so on) ends with a collapsed **YAML** section. It shows the resource read-only, without `managedFields`, with a **Copy** button.
-
 An MCP server's tile and detail page show its `spec.description`, a sentence on what the server is for, when the manifest sets one.
 
 An MCP server reached with a key shows **key from Secret `<name>`** (from `registry.authSecretRef`). The dashboard names the Secret and never reads or shows its value.
 
 The Kubemoot logo and **Powered by Kubemoot** open [kubemoot.org](https://kubemoot.org) in a new tab.
+
+### Overview and YAML tabs
+
+Every page that shows one Kubemoot resource (a crew, agent, PromptModule, model server, MCP server, fitness suite, the `KubemootConfig`, and so on) has two tabs under its title: **Overview**, the page as described above, and **YAML**. The tab is in the URL (`?tab=yaml`), so a link opens the YAML directly; the arrow keys, Home and End move between the tabs.
+
+The YAML tab shows the resource as Kubernetes returned it, read-only, in a monospace block with line numbers and syntax colors. Long lines scroll sideways rather than wrapping, and the block is reachable by keyboard. **Copy** puts exactly the text shown on the clipboard and reads **Copied** for a moment. `metadata.managedFields` is hidden; **Show managed fields** adds it back (the button appears only when the resource has any). Everything else, including `status`, is shown. The values are never changed, except that the contents of a Secret (`data` and `stringData`) are never shown; none of the Kubemoot kinds hold one.
+
+The fitness suite list links each suite's name to its own page with these two tabs. Kubernetes kinds that are not Kubemoot's, such as Nodes, have no YAML tab.
 
 ### Status colors
 
@@ -244,7 +250,7 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 | `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with GPU information |
 | `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelservers`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `crewfitnesses` |
 | `/api/kubemoot/config`, `/api/kubemoot/system-info`, `/api/kubemoot/topology` | GET | Configuration, system information, agent topology graph |
-| `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; sub-paths under `<namespace>/<name>/` serve `scores`, `iterations`, `transcript`, and `artifact` |
+| `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; `<namespace>/<name>` is one suite; sub-paths under it serve `scores`, `iterations`, `transcript`, and `artifact` |
 | `/api/kubemoot/crew-memory?crew=&namespace=` | GET | Crew memory facts |
 | `/api/kubemoot/crew-memory/export?namespace=&crew=` | GET | The crew's memory as an OMPI v0.6 zip, always screened (an `allowUnscreened` parameter is refused); `report=true` returns the selection report as JSON (left-out entries by key or opaque id and reason, never text) |
 | `/api/kubemoot/conversation-export?namespace=&crew=&id=` | GET | One conversation as a zip, or a zip of zips with a manifest when `id` is repeated (at most 50); `report=true` returns the manifest as JSON; `timeZone` sets the zone of the times. The operator names the file |

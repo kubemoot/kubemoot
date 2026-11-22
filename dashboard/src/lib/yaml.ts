@@ -58,10 +58,37 @@ export interface YamlResource {
 	metadata?: object;
 }
 
-/** A resource as it should be shown: without the bookkeeping fields that bury the spec. */
-export function displayResource<T extends YamlResource>(resource: T): T {
-	if (!resource.metadata || !('managedFields' in resource.metadata)) return resource;
-	const metadata: Record<string, unknown> = { ...resource.metadata };
+/** Fields that hold a Secret's contents; they are never shown. */
+const SECRET_FIELDS = ['data', 'stringData'];
+const LAST_APPLIED = 'kubectl.kubernetes.io/last-applied-configuration';
+
+function withoutSecretContents<T extends YamlResource>(resource: T): T {
+	if ((resource as { kind?: string }).kind !== 'Secret') return resource;
+	const copy = { ...resource } as Record<string, unknown>;
+	for (const field of SECRET_FIELDS) delete copy[field];
+	// kubectl apply keeps a full copy of the object, contents included, in this annotation.
+	const metadata = { ...(resource.metadata as { annotations?: Record<string, string> }) };
+	if (metadata.annotations && LAST_APPLIED in metadata.annotations) {
+		metadata.annotations = { ...metadata.annotations };
+		delete metadata.annotations[LAST_APPLIED];
+		copy.metadata = metadata;
+	}
+	return copy as T;
+}
+
+/** Whether the resource carries managedFields, so the show/hide choice means something. */
+export function hasManagedFields(resource: YamlResource): boolean {
+	return !!resource.metadata && 'managedFields' in resource.metadata;
+}
+
+/**
+ * A resource as it should be shown: without a Secret's contents and, unless asked
+ * for, without the bookkeeping fields that bury the spec.
+ */
+export function displayResource<T extends YamlResource>(resource: T, showManagedFields = false): T {
+	const safe = withoutSecretContents(resource);
+	if (showManagedFields || !hasManagedFields(safe)) return safe;
+	const metadata = { ...safe.metadata } as Record<string, unknown>;
 	delete metadata.managedFields;
-	return { ...resource, metadata };
+	return { ...safe, metadata };
 }

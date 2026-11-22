@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { YamlView, PageTitle } from '#lib/components/common/index.js';
+	import { ResourceTabs, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { yesNo } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
@@ -74,37 +74,38 @@
 {:else if error}
 	<p class="status-msg error">{error}</p>
 {:else if module}
-	<div class="meta-row">
-		<span><strong>Namespace:</strong> <code>{module.metadata.namespace}</code></span>
-		<span><strong>Size:</strong> {(module.spec?.content?.length ?? 0).toLocaleString()} chars</span>
-		<span><strong>Created:</strong> {module.metadata.creationTimestamp ? new Date(module.metadata.creationTimestamp).toLocaleString() : '-'}</span>
-	</div>
+	<ResourceTabs resource={module}>
+		<div class="meta-row">
+			<span><strong>Namespace:</strong> <code>{module.metadata.namespace}</code></span>
+			<span><strong>Size:</strong> {(module.spec?.content?.length ?? 0).toLocaleString()} chars</span>
+			<span><strong>Created:</strong> {module.metadata.creationTimestamp ? new Date(module.metadata.creationTimestamp).toLocaleString() : '-'}</span>
+		</div>
 
-	<h2>ADL Content</h2>
-	<pre class="adl-content">{module.spec?.content ?? ''}</pre>
+		<h2>ADL Content</h2>
+		<pre class="adl-content">{module.spec?.content ?? ''}</pre>
 
-	<h2>Referenced By {referencingAgents.length > 0 ? `(${referencingAgents.length})` : ''}</h2>
-	{#if referencingAgents.length === 0}
-		<p class="muted">No agents in namespace <code>{ns}</code> reference this module via <code>spec.prompt.promptRefs</code>.</p>
-	{:else}
-		<table class="refs-table">
-			<thead>
-				<tr><th>Agent</th><th>Role</th><th>Ready</th></tr>
-			</thead>
-			<tbody>
-				{#each referencingAgents as a (a.metadata.namespace + '/' + a.metadata.name)}
-					<tr>
-						<td><a class="mono link" href="{resolve('/agents/[name]', { name: a.metadata.name })}?namespace={a.metadata.namespace}">{a.metadata.name}</a></td>
-						<td>{a.metadata.labels?.['kubemoot.ai/role'] ?? a.spec.type ?? '-'}</td>
-						<td class:cond-true={a.status?.ready === true} class:cond-false={a.status?.ready === false}>
-							{yesNo(a.status?.ready)}
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	{/if}
-	<YamlView resource={module} />
+		<h2>Referenced By {referencingAgents.length > 0 ? `(${referencingAgents.length})` : ''}</h2>
+		{#if referencingAgents.length === 0}
+			<p class="muted">No agents in namespace <code>{ns}</code> reference this module via <code>spec.prompt.promptRefs</code>.</p>
+		{:else}
+			<table class="refs-table">
+				<thead>
+					<tr><th>Agent</th><th>Role</th><th>Ready</th></tr>
+				</thead>
+				<tbody>
+					{#each referencingAgents as a (a.metadata.namespace + '/' + a.metadata.name)}
+						<tr>
+							<td><a class="mono link" href="{resolve('/agents/[name]', { name: a.metadata.name })}?namespace={a.metadata.namespace}">{a.metadata.name}</a></td>
+							<td>{a.metadata.labels?.['kubemoot.ai/role'] ?? a.spec.type ?? '-'}</td>
+							<td class:cond-true={a.status?.ready === true} class:cond-false={a.status?.ready === false}>
+								{yesNo(a.status?.ready)}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		{/if}
+	</ResourceTabs>
 {/if}
 
 <style>

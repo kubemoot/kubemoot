@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import YamlView from '../common/YamlView.svelte';
+	import ResourceTabs from '../common/ResourceTabs.svelte';
 	import type { YamlResource } from '#lib/yaml.js';
 	import PageTitle from '../common/PageTitle.svelte';
 	import type { PageRoute } from '#lib/page-definitions.js';
@@ -12,7 +12,7 @@
 		subtitle?: string;
 		loading?: boolean;
 		error?: string | null;
-		/** The custom resource this page shows; adds the read-only YAML view. */
+		/** The custom resource this page shows; adds the Overview and YAML tabs. */
 		resource?: YamlResource | null;
 		children: Snippet;
 		header?: Snippet;
@@ -57,8 +57,11 @@
 				<span>{error}</span>
 			</div>
 		{:else}
-			{@render children()}
-			<YamlView {resource} />
+			{#if resource}
+				<ResourceTabs {resource}>{@render children()}</ResourceTabs>
+			{:else}
+				{@render children()}
+			{/if}
 		{/if}
 	</div>
 </div>

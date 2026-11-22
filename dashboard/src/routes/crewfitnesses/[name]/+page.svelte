@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { YamlView, PageTitle } from '#lib/components/common/index.js';
+	import { ResourceTabs, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -57,59 +57,60 @@
 {:else if error}
 	<p class="status-msg error">{error}</p>
 {:else if test}
-	{@const s = test.status}
-	<div class="detail-grid">
-		<div class="detail-section">
-			<h2>Spec</h2>
-			<table class="detail-table"><tbody>
-				<tr><th>Crew</th><td><a href="{resolve('/crews/[name]', { name: test.spec.crewRef })}?namespace={test.metadata.namespace}" class="link" title={crewTooltip($crewDirectory, test.metadata.namespace, test.spec.crewRef)}>{crewLabel($crewDirectory, test.metadata.namespace, test.spec.crewRef)}</a></td></tr>
-				<tr><th>Test Ref</th><td class="mono">{test.spec.testRef}</td></tr>
-				<tr><th>ConfigMap</th><td class="mono">{test.spec.configMapRef}</td></tr>
-				{#if test.spec.ttl}
-					<tr><th>TTL</th><td>{test.spec.ttl}</td></tr>
-				{/if}
-			</tbody></table>
+	<ResourceTabs resource={test}>
+		{@const s = test.status}
+		<div class="detail-grid">
+			<div class="detail-section">
+				<h2>Spec</h2>
+				<table class="detail-table"><tbody>
+					<tr><th>Crew</th><td><a href="{resolve('/crews/[name]', { name: test.spec.crewRef })}?namespace={test.metadata.namespace}" class="link" title={crewTooltip($crewDirectory, test.metadata.namespace, test.spec.crewRef)}>{crewLabel($crewDirectory, test.metadata.namespace, test.spec.crewRef)}</a></td></tr>
+					<tr><th>Test Ref</th><td class="mono">{test.spec.testRef}</td></tr>
+					<tr><th>ConfigMap</th><td class="mono">{test.spec.configMapRef}</td></tr>
+					{#if test.spec.ttl}
+						<tr><th>TTL</th><td>{test.spec.ttl}</td></tr>
+					{/if}
+				</tbody></table>
+			</div>
+
+			<div class="detail-section">
+				<h2>Status</h2>
+				<table class="detail-table"><tbody>
+					<tr><th>Phase</th><td>{s?.phase ?? '-'}</td></tr>
+					<tr><th>Duration</th><td class="mono">{formatDuration(s?.durationMs)}</td></tr>
+					{#if s?.jobRef}
+						<tr><th>Job</th><td class="mono">{s.jobRef}</td></tr>
+					{/if}
+					{#if s?.startedAt}
+						<tr><th>Started</th><td>{new Date(s.startedAt).toLocaleString()}</td></tr>
+					{/if}
+					{#if s?.completedAt}
+						<tr><th>Completed</th><td>{new Date(s.completedAt).toLocaleString()}</td></tr>
+					{/if}
+					{#if s?.error}
+						<tr><th>Error</th><td class="error-text">{s.error}</td></tr>
+					{/if}
+				</tbody></table>
+			</div>
 		</div>
 
-		<div class="detail-section">
-			<h2>Status</h2>
-			<table class="detail-table"><tbody>
-				<tr><th>Phase</th><td>{s?.phase ?? '-'}</td></tr>
-				<tr><th>Duration</th><td class="mono">{formatDuration(s?.durationMs)}</td></tr>
-				{#if s?.jobRef}
-					<tr><th>Job</th><td class="mono">{s.jobRef}</td></tr>
-				{/if}
-				{#if s?.startedAt}
-					<tr><th>Started</th><td>{new Date(s.startedAt).toLocaleString()}</td></tr>
-				{/if}
-				{#if s?.completedAt}
-					<tr><th>Completed</th><td>{new Date(s.completedAt).toLocaleString()}</td></tr>
-				{/if}
-				{#if s?.error}
-					<tr><th>Error</th><td class="error-text">{s.error}</td></tr>
-				{/if}
-			</tbody></table>
-		</div>
-	</div>
-
-	{#if s?.assertions && s.assertions.length > 0}
-		<div class="detail-section full">
-			<h2>Assertions ({s.assertions.filter(a => a.passed).length}/{s.assertions.length} passed)</h2>
-			<table class="assertions-table">
-				<thead><tr><th>Result</th><th>Assertion</th><th>Message</th></tr></thead>
-				<tbody>
-					{#each s.assertions as ar}
-						<tr class:passed={ar.passed} class:failed={!ar.passed}>
-							<td class="result-icon">{ar.passed ? '\u2713' : '\u2717'}</td>
-							<td class="mono">{ar.raw}</td>
-							<td>{ar.message}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
-	<YamlView resource={test} />
+		{#if s?.assertions && s.assertions.length > 0}
+			<div class="detail-section full">
+				<h2>Assertions ({s.assertions.filter(a => a.passed).length}/{s.assertions.length} passed)</h2>
+				<table class="assertions-table">
+					<thead><tr><th>Result</th><th>Assertion</th><th>Message</th></tr></thead>
+					<tbody>
+						{#each s.assertions as ar}
+							<tr class:passed={ar.passed} class:failed={!ar.passed}>
+								<td class="result-icon">{ar.passed ? '\u2713' : '\u2717'}</td>
+								<td class="mono">{ar.raw}</td>
+								<td>{ar.message}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</ResourceTabs>
 {/if}
 
 <style>

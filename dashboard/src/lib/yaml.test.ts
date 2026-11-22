@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayResource, toYaml } from './yaml.js';
+import { displayResource, hasManagedFields, toYaml } from './yaml.js';
 
 describe('toYaml', () => {
 	it('writes nested objects and scalars', () => {
@@ -40,5 +40,31 @@ describe('displayResource', () => {
 	it('returns the resource unchanged without managedFields', () => {
 		const r = { metadata: { name: 'a' } };
 		expect(displayResource(r)).toBe(r);
+	});
+	it('keeps managedFields when asked', () => {
+		const r = { metadata: { name: 'a', managedFields: [{}] } };
+		expect(displayResource(r, true)).toBe(r);
+	});
+	it('never shows a Secret\'s contents', () => {
+		const out = displayResource({ kind: 'Secret', metadata: { name: 's' }, data: { k: 'dg==' }, stringData: { p: 'x' }, type: 'Opaque' });
+		expect(out).toEqual({ kind: 'Secret', metadata: { name: 's' }, type: 'Opaque' });
+		expect(toYaml(out)).not.toContain('dg==');
+	});
+	it('drops the last-applied copy of a Secret too', () => {
+		const out = displayResource({ kind: 'Secret', metadata: { name: 's', annotations: { a: 'b', 'kubectl.kubernetes.io/last-applied-configuration': '{"data":{"k":"dg=="}}' } } });
+		expect(toYaml(out)).not.toContain('dg==');
+		expect(toYaml(out)).toContain('a: b');
+	});
+	it('leaves a non-Secret data field alone', () => {
+		const r = { kind: 'ConfigMap', metadata: {}, data: { k: 'v' } };
+		expect(displayResource(r)).toBe(r);
+	});
+});
+
+describe('hasManagedFields', () => {
+	it('is true only when the field is present', () => {
+		expect(hasManagedFields({ metadata: { managedFields: [] } })).toBe(true);
+		expect(hasManagedFields({ metadata: {} })).toBe(false);
+		expect(hasManagedFields({})).toBe(false);
 	});
 });

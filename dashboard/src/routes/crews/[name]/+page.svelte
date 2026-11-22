@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { YamlView, PageTitle } from '#lib/components/common/index.js';
+	import { ResourceTabs, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -135,121 +135,122 @@
 {:else if error}
 	<p class="status-msg error">{error}</p>
 {:else if crew}
-	<div class="detail-grid">
-		<div class="detail-section">
-			<h2>Spec</h2>
-			<table class="detail-table"><tbody>
-				<tr><th>Description</th><td>{crew.spec.description || '-'}</td></tr>
-				<tr><th>Discussion Enabled</th><td>{crew.spec.discussion?.enabled !== false ? 'Yes' : 'No'}</td></tr>
-			</tbody></table>
-		</div>
+	<ResourceTabs resource={crew}>
+		<div class="detail-grid">
+			<div class="detail-section">
+				<h2>Spec</h2>
+				<table class="detail-table"><tbody>
+					<tr><th>Description</th><td>{crew.spec.description || '-'}</td></tr>
+					<tr><th>Discussion Enabled</th><td>{crew.spec.discussion?.enabled !== false ? 'Yes' : 'No'}</td></tr>
+				</tbody></table>
+			</div>
 
-		<div class="detail-section">
-			<h2>Status</h2>
-			<table class="detail-table"><tbody>
-				<tr><th>Phase</th><td>{crew.status?.phase ? crewPhaseLabel(crew.status.phase) : '-'}</td></tr>
-				<tr><th>Reconciled</th><td>{crew.status?.ready ? 'Yes' : 'No'}</td></tr>
-				{#if capacity}
-					<tr><th>Capacity</th><td>{capacityLabel(capacity)}</td></tr>
+			<div class="detail-section">
+				<h2>Status</h2>
+				<table class="detail-table"><tbody>
+					<tr><th>Phase</th><td>{crew.status?.phase ? crewPhaseLabel(crew.status.phase) : '-'}</td></tr>
+					<tr><th>Reconciled</th><td>{crew.status?.ready ? 'Yes' : 'No'}</td></tr>
+					{#if capacity}
+						<tr><th>Capacity</th><td>{capacityLabel(capacity)}</td></tr>
+					{/if}
+					<tr><th>Can answer</th><td>{crewCanAnswer(crew.status?.phase, crew.status?.ready) ? 'Yes' : 'No'}</td></tr>
+					<tr><th>Agents</th><td>{crew.status?.agentCount ?? '-'}</td></tr>
+					<tr><th>Coordinator</th><td class="mono">{crew.status?.coordinatorRef || '-'}</td></tr>
+					<tr><th>Discussion Endpoint</th><td class="mono">{crew.status?.discussionEndpoint || '-'}</td></tr>
+					{#if crew.status?.message}
+						<tr><th>Message</th><td>{crew.status.message}</td></tr>
+					{/if}
+				</tbody></table>
+			</div>
+
+			<div class="detail-section full">
+				<h2>Resume Model</h2>
+				{#if resumeModel}
+					<table class="detail-table"><tbody>
+						<tr><th>Collection</th><td class="mono">{resumeModel.spec?.vectorStore?.collection ?? '-'}</td></tr>
+						<tr><th>Content Hash</th><td class="mono" title={resumeModel.spec?.source?.natsKV?.contentHash ?? ''}>{shortHash(resumeModel.spec?.source?.natsKV?.contentHash)}</td></tr>
+						<tr><th>Last Embedded</th><td>{fmtTimestamp(resumeModel.status?.indexingStats?.lastIndexed)}</td></tr>
+						<tr><th>Phase</th><td>{resumeModel.status?.phase ?? '-'}</td></tr>
+						<tr><th>Embedding Model</th><td class="mono">{resumeModel.spec?.embeddingModelRef ?? '-'}</td></tr>
+						<tr><th>Query Service</th><td class="mono">{resumeModel.status?.queryEndpoint ?? '-'}</td></tr>
+					</tbody></table>
+				{:else}
+					<p class="status-msg">No resume model - this crew has no coordinator-driven resume collection.</p>
 				{/if}
-				<tr><th>Can answer</th><td>{crewCanAnswer(crew.status?.phase, crew.status?.ready) ? 'Yes' : 'No'}</td></tr>
-				<tr><th>Agents</th><td>{crew.status?.agentCount ?? '-'}</td></tr>
-				<tr><th>Coordinator</th><td class="mono">{crew.status?.coordinatorRef || '-'}</td></tr>
-				<tr><th>Discussion Endpoint</th><td class="mono">{crew.status?.discussionEndpoint || '-'}</td></tr>
-				{#if crew.status?.message}
-					<tr><th>Message</th><td>{crew.status.message}</td></tr>
-				{/if}
-			</tbody></table>
+			</div>
+
+			<div class="detail-section full">
+				<h2>Helm Chart</h2>
+				<table class="detail-table"><tbody>
+					<tr><th>Chart</th><td class="mono">{chartName(crew.metadata.labels) ?? NO_VALUE}</td></tr>
+					<tr><th>Version</th><td class="mono">{chartVersion(crew.metadata.labels) ?? NO_VALUE}</td></tr>
+					<tr><th>Managed By</th><td class="mono">{crew.metadata.labels?.['app.kubernetes.io/managed-by'] ?? '-'}</td></tr>
+				</tbody></table>
+			</div>
+
+			<div class="detail-section full">
+				<h2>Metadata</h2>
+				<table class="detail-table"><tbody>
+					<tr><th>Namespace</th><td class="mono">{crew.metadata.namespace}</td></tr>
+					<tr><th>UID</th><td class="mono uid">{crew.metadata.uid}</td></tr>
+					<tr><th>Created</th><td>{crew.metadata.creationTimestamp ? new Date(crew.metadata.creationTimestamp).toLocaleString() : '-'}</td></tr>
+				</tbody></table>
+			</div>
 		</div>
 
 		<div class="detail-section full">
-			<h2>Resume Model</h2>
-			{#if resumeModel}
-				<table class="detail-table"><tbody>
-					<tr><th>Collection</th><td class="mono">{resumeModel.spec?.vectorStore?.collection ?? '-'}</td></tr>
-					<tr><th>Content Hash</th><td class="mono" title={resumeModel.spec?.source?.natsKV?.contentHash ?? ''}>{shortHash(resumeModel.spec?.source?.natsKV?.contentHash)}</td></tr>
-					<tr><th>Last Embedded</th><td>{fmtTimestamp(resumeModel.status?.indexingStats?.lastIndexed)}</td></tr>
-					<tr><th>Phase</th><td>{resumeModel.status?.phase ?? '-'}</td></tr>
-					<tr><th>Embedding Model</th><td class="mono">{resumeModel.spec?.embeddingModelRef ?? '-'}</td></tr>
-					<tr><th>Query Service</th><td class="mono">{resumeModel.status?.queryEndpoint ?? '-'}</td></tr>
-				</tbody></table>
+			<h2>Agents <span class="muted">({agents.length})</span></h2>
+			{#if agentsLoading}
+				<p class="muted small">Loading agents...</p>
+			{:else if agents.length === 0}
+				<p class="muted small">No agents found in <code class="mono">{crew.metadata.namespace}</code></p>
 			{:else}
-				<p class="status-msg">No resume model - this crew has no coordinator-driven resume collection.</p>
+				<table class="agents-table">
+					<thead>
+						<tr><th>Name</th><th>Role</th><th>Type</th><th>Phase</th><th>Ready</th><th>Endpoint</th></tr>
+					</thead>
+					<tbody>
+						{#each agents as a (a.metadata.namespace + '/' + a.metadata.name)}
+							<tr>
+								<td>
+									<a class="mono" href="{resolve('/agents/[name]', { name: a.metadata.name })}?namespace={a.metadata.namespace}">{a.metadata.name}</a>
+								</td>
+								<td>{agentRoleLabel(a)}</td>
+								<td>{a.spec.type ?? '-'}</td>
+								<td>{a.status?.phase ?? '-'}</td>
+								<td class:cond-true={a.status?.ready === true} class:cond-false={a.status?.ready === false}>
+									{yesNo(a.status?.ready)}
+								</td>
+								<td class="mono small">{a.status?.endpoint ?? '-'}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
 			{/if}
 		</div>
 
-		<div class="detail-section full">
-			<h2>Helm Chart</h2>
-			<table class="detail-table"><tbody>
-				<tr><th>Chart</th><td class="mono">{chartName(crew.metadata.labels) ?? NO_VALUE}</td></tr>
-				<tr><th>Version</th><td class="mono">{chartVersion(crew.metadata.labels) ?? NO_VALUE}</td></tr>
-				<tr><th>Managed By</th><td class="mono">{crew.metadata.labels?.['app.kubernetes.io/managed-by'] ?? '-'}</td></tr>
-			</tbody></table>
-		</div>
-
-		<div class="detail-section full">
-			<h2>Metadata</h2>
-			<table class="detail-table"><tbody>
-				<tr><th>Namespace</th><td class="mono">{crew.metadata.namespace}</td></tr>
-				<tr><th>UID</th><td class="mono uid">{crew.metadata.uid}</td></tr>
-				<tr><th>Created</th><td>{crew.metadata.creationTimestamp ? new Date(crew.metadata.creationTimestamp).toLocaleString() : '-'}</td></tr>
-			</tbody></table>
-		</div>
-	</div>
-
-	<div class="detail-section full">
-		<h2>Agents <span class="muted">({agents.length})</span></h2>
-		{#if agentsLoading}
-			<p class="muted small">Loading agents...</p>
-		{:else if agents.length === 0}
-			<p class="muted small">No agents found in <code class="mono">{crew.metadata.namespace}</code></p>
-		{:else}
-			<table class="agents-table">
-				<thead>
-					<tr><th>Name</th><th>Role</th><th>Type</th><th>Phase</th><th>Ready</th><th>Endpoint</th></tr>
-				</thead>
-				<tbody>
-					{#each agents as a (a.metadata.namespace + '/' + a.metadata.name)}
-						<tr>
-							<td>
-								<a class="mono" href="{resolve('/agents/[name]', { name: a.metadata.name })}?namespace={a.metadata.namespace}">{a.metadata.name}</a>
-							</td>
-							<td>{agentRoleLabel(a)}</td>
-							<td>{a.spec.type ?? '-'}</td>
-							<td>{a.status?.phase ?? '-'}</td>
-							<td class:cond-true={a.status?.ready === true} class:cond-false={a.status?.ready === false}>
-								{yesNo(a.status?.ready)}
-							</td>
-							<td class="mono small">{a.status?.endpoint ?? '-'}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
+		{#if crew.status?.conditions && crew.status.conditions.length > 0}
+			<div class="detail-section full">
+				<h2>Conditions</h2>
+				<table class="conditions-table">
+					<thead>
+						<tr><th>Type</th><th>Status</th><th>Reason</th><th>Message</th><th>Time</th></tr>
+					</thead>
+					<tbody>
+						{#each crew.status.conditions as cond}
+							<tr>
+								<td>{cond.type}</td>
+								<td class:cond-true={cond.status === 'True'} class:cond-false={cond.status === 'False'}>{cond.status}</td>
+								<td>{cond.reason}</td>
+								<td>{cond.message}</td>
+								<td>{cond.lastTransitionTime ? new Date(cond.lastTransitionTime).toLocaleString() : '-'}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		{/if}
-	</div>
-
-	{#if crew.status?.conditions && crew.status.conditions.length > 0}
-		<div class="detail-section full">
-			<h2>Conditions</h2>
-			<table class="conditions-table">
-				<thead>
-					<tr><th>Type</th><th>Status</th><th>Reason</th><th>Message</th><th>Time</th></tr>
-				</thead>
-				<tbody>
-					{#each crew.status.conditions as cond}
-						<tr>
-							<td>{cond.type}</td>
-							<td class:cond-true={cond.status === 'True'} class:cond-false={cond.status === 'False'}>{cond.status}</td>
-							<td>{cond.reason}</td>
-							<td>{cond.message}</td>
-							<td>{cond.lastTransitionTime ? new Date(cond.lastTransitionTime).toLocaleString() : '-'}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
-	<YamlView resource={crew} />
+	</ResourceTabs>
 {/if}
 
 <style>
