@@ -107,9 +107,14 @@ valid escapes reads as encoded, the one case where an old value is read differen
 ### What an agent posts: the descriptions of its files, and its small results
 
 A contribution is what the agent states, followed by the description of each file it
-produced, built in code from what was stored. A raw-output tooler (`discussRole: tooler`)
-states nothing: its contribution is the descriptions alone. Any other agent with tools posts
-its own words first, then the descriptions after a blank line. The descriptions stay under
+produced, built in code from what was stored. Every agent with tools, a Tooler
+(`discussRole: tooler`) included, posts its own words first, then the descriptions after a blank
+line. A Tooler's words are its final text after its calls: what it found in what it saw (the
+count and the exceptions, from the table preview below), not a restatement of the descriptions;
+the runtime posts that text as the statement and no prompt rule names a tool for it. A Tooler
+that wrote no final text, or that stores nothing, posts the descriptions (or its raw output)
+alone. What it states is checked: the agents on the ratification roster compare it
+with their results ([Ratification](../consensus-model/#ratification)). The descriptions stay under
 4,000 characters. A result small enough for the discussion follows its description whole,
 between `[RESULT]` and `[END RESULT]`; a larger result is only in its file, so nothing large
 goes through the bus. A successful call that returned nothing has an `[EMPTY RESULT]` block

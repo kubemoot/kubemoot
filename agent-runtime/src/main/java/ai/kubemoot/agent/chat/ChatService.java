@@ -459,8 +459,8 @@ public class ChatService {
 
     /**
      * The file descriptions that go with the agent's statement: the manifest of the files its tool
-     * calls produced. A tooler's text already is that manifest, so it adds nothing; an agent that
-     * made no tool call has no files.
+     * calls produced. A tooler that wrote a statement posts it before the manifest; one that wrote none posts
+     * the manifest as its text and adds nothing here; an agent that made no tool call has no files.
      */
     static String filesOf(ToolLoopResult loopResult, ToolCallLedger ledger) {
         boolean describes = ledger != null && ledger.holdsOutput() && !loopResult.contributionIsToolOutput();
@@ -990,7 +990,9 @@ public class ChatService {
     /**
      * The contribution of a tooler whose tools ran (raw-output contract). The
      * tooler's NO_DATA declaration raises GATHER_FAILED, a TOOL_GAP declaration is
-     * kept as the contribution, and anything else returns the raw tool output.
+     * kept as the contribution, and anything else leads with the tooler's own statement of what it
+     * found (when it stores its results and wrote one), then the descriptions of its files; without
+     * a statement, or without a store, it returns the raw tool output.
      */
     private ToolLoopResult toolerRawOutputResult(AiMessage aiMessage, ToolLoopState state,
                                                  String serverName, String pickReason) {
@@ -1003,7 +1005,8 @@ public class ChatService {
         //  - TOOL_GAP -> it lacks the needed tool TYPE: keep it as the
         //               contribution so the coordinator routes it to concern /
         //               gap detection / onboarding (load-bearing, do not reroute).
-        // Otherwise the raw tool output IS the contribution (the data path).
+        // Otherwise the tooler's statement of what it found leads, then the descriptions of its files;
+        // with no statement (or no store) the raw tool output IS the contribution (the data path).
         String finalText = aiMessage.text() == null ? "" : aiMessage.text().strip();
         if (declaresGatherFailed(finalText)) {
             throw new ToolCallFailure(ToolCallFailure.FailureType.GATHER_FAILED,
@@ -1017,6 +1020,12 @@ public class ChatService {
                     state.totalInput, state.totalOutput, serverName, pickReason);
         }
         throwIfEveryToolFailed(state);
+        if (state.ledger != null && !finalText.isEmpty() && !isInstructionEcho(finalText, loadSystemPrompt())) {
+            // The tooler saw its results (a table by its leading columns, see TablePreview) and wrote what
+            // it found: that statement leads, and the descriptions of its files follow (see filesOf).
+            return new ToolLoopResult(finalText, state.modelText(), false,
+                    state.totalInput, state.totalOutput, serverName, pickReason);
+        }
         return rawOutputResult(state, serverName, pickReason);
     }
 
@@ -2808,6 +2817,11 @@ public class ChatService {
             sb.append("Discussion context: threadId=").append(discussionThreadId).append("\n\n");
         }
         return sb.toString();
+    }
+
+    /** True when this agent's system prompt (its composed PromptModules) contains {@code text}. */
+    public boolean systemPromptMentions(String text) {
+        return loadSystemPrompt().contains(text);
     }
 
     private String loadSystemPrompt() {

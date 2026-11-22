@@ -279,6 +279,24 @@ describe('messageStats', () => {
 	});
 });
 
+describe('a reply to the coordinator draft', () => {
+	it('is a verdict, not a contribution, so it neither replaces the agent signal nor adds a count', () => {
+		const thread = [
+			msg('human', 'thread_start', 0),
+			msg('k8s-nodes', 'agree', 1000),
+			msg('k8s-nodes', 'block', 2000, { ratifies: 1 })
+		];
+		expect(isContribution(thread[2])).toBe(false);
+		expect(summarizeThread(thread).signals).toEqual([{ kind: 'agree', count: 1 }]);
+	});
+
+	it('leaves an ordinary signal, and one with a null or absent round, a contribution', () => {
+		expect(isContribution(msg('a', 'agree', 0))).toBe(true);
+		expect(isContribution(msg('a', 'agree', 0, {}))).toBe(true);
+		expect(isContribution(msg('a', 'agree', 0, { ratifies: null as unknown as number }))).toBe(true);
+	});
+});
+
 describe('summarizeThread', () => {
 	it('totals a recorded thread', () => {
 		expect(summarizeThread(recordedThread())).toEqual({

@@ -19,15 +19,24 @@ final class RatifyText {
     /** The metadata key that names a draft, on the draft and on every reply to it. */
     static final String FIELD_DRAFT_ID = "draftId";
 
-    private static final String RATIFIER_INSTRUCTION = String.join("\n",
-            "[RATIFY]",
-            "ASSERT the draft above is the crew's answer; you ratify it against what you found.",
-            "ASSERT check each name, count and status in the draft against your own results before you answer.",
-            "WHEN the draft states a name, count or status your results do not hold THEN reply CONCERN and name the statement.",
-            "WHEN the draft contradicts your results THEN reply BLOCK and say what your results show.",
-            "WHEN every statement of the draft that your results cover is right THEN reply AGREE.",
-            "ASSERT the first word of your reply is AGREE, CONCERN or BLOCK; the rest is your reason.",
-            "NEVER agree to a statement you have not checked against a result.");
+    /** The marker that ends the message a ratifier is asked, and that its ratify-prompt module speaks to. */
+    static final String RATIFY_MARKER = "[RATIFY]";
+
+    /** The name of the PromptModule that carries the ratifier's instructions in a crew's chart. */
+    static final String PROMPT_MODULE = "ratify-prompt";
+
+    /** The line a composed {@value #PROMPT_MODULE} module opens with: what the runtime looks for in an agent's prompt. */
+    static final String MODULE_SENTINEL = "DEFINE COMPONENT " + PROMPT_MODULE;
+
+    /**
+     * What a ratifier is told when its crew ships no {@value #PROMPT_MODULE} module: the least the
+     * protocol needs (the verdict word first, a check against its own results). The crew's module
+     * is the full instruction and the one to read.
+     */
+    private static final String DEFAULT_INSTRUCTION = String.join("\n",
+            RATIFY_MARKER,
+            "ASSERT check each name, count and status in the draft above against your own results before you answer.",
+            "ASSERT the first word of your reply is AGREE, CONCERN or BLOCK; the rest is your reason.");
 
     private static final String REVISION_RULES = String.join("\n",
             "ASSERT the objections come from agents that checked the draft against what they found.",
@@ -37,9 +46,13 @@ final class RatifyText {
 
     private RatifyText() {}
 
-    /** What a ratifier is asked after the thread, which already ends with the draft. */
-    static String ratifierInstruction() {
-        return RATIFIER_INSTRUCTION;
+    /**
+     * What a ratifier is asked after the thread, which already ends with the draft: the marker
+     * alone when its prompt carries the crew's {@value #PROMPT_MODULE} module (the crew's wording
+     * governs), else the built-in default.
+     */
+    static String ratifierInstruction(boolean promptHasModule) {
+        return promptHasModule ? RATIFY_MARKER : DEFAULT_INSTRUCTION;
     }
 
     /** The coordinator's revision prompt: the evidence, the draft, and the objections to it. */

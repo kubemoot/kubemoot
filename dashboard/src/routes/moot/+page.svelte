@@ -504,11 +504,6 @@
 								{#if rv}
 									<div class="ratify-result {rv.tone}">
 										{rv.text}
-										{#each rv.objections as o}
-											<div class="ratify-objection {o.verdict}">
-												<strong>{agentLabel(o.agent)}</strong> ({o.verdict}): {o.content || 'no reason given'}
-											</div>
-										{/each}
 										{#if rv.failures.length > 0}
 											<div class="ratify-objection failure">
 												Did not answer: {rv.failures.map(agentLabel).join(', ')}

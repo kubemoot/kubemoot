@@ -228,7 +228,7 @@ single tool call.
 
 | Role | What it does | Optimize for | Size class |
 |---|---|---|---|
-| Tooler | Calls MCP tools, returns raw output | Tool-call fidelity, latency | Smallest model that calls tools reliably |
+| Tooler | Calls MCP tools, states what it found, with the stored results | Tool-call fidelity, latency | Smallest model that calls tools reliably |
 | Analyst | Reasons over what the toolers gathered | Instruction following, arithmetic honesty | Middle of the range |
 | Coordinator | Selects the subcommittee, synthesizes the answer | Long-context reasoning, instruction adherence | Largest that fits |
 | Judge | Scores fitness runs | Consistency across repeated runs | Middle to large; steadiness beats peak ability |

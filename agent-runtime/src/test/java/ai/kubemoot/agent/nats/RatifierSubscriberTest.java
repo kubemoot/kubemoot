@@ -127,6 +127,20 @@ class RatifierSubscriberTest {
     }
 
     @Test
+    void aCrewThatShipsTheRatifyPromptModuleGetsOnlyTheMarker() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = chatReplying("AGREE");
+        when(chat.systemPromptMentions("DEFINE COMPONENT ratify-prompt")).thenReturn(true);
+        var sub = subscriber(conn, chat, "tooler");
+
+        sub.ratifyAndRespond(SUBJECT, "t1", "the thread", 1, "draft-1");
+
+        var request = ArgumentCaptor.forClass(ChatService.ChatRequest.class);
+        verify(chat).directChat(request.capture(), anyBoolean(), any());
+        assertEquals("the thread\n\n[RATIFY]", request.getValue().message());
+    }
+
+    @Test
     void aReplyWithNoVerdictIsAFailureNotAnAgreement() throws Exception {
         var conn = mock(Connection.class);
         var sub = subscriber(conn, chatReplying("Looks fine to me."), "tooler");

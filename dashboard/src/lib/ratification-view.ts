@@ -36,8 +36,6 @@ export type RatificationTone = 'ok' | 'warn' | 'alert';
 export interface RatificationView {
 	text: string;
 	tone: RatificationTone;
-	/** The objections that stand in the released answer. */
-	objections: RatificationObjection[];
 	/** The agents that did not answer, so the answer went out without their check. */
 	failures: string[];
 }
@@ -46,25 +44,26 @@ function roundsText(rounds: number): string {
 	return rounds === 1 ? '1 round' : `${rounds} rounds`;
 }
 
-/** How the table answered the draft, on the released answer; null when it was not ratified (off, direct, fallback). */
+function ratifiedText(r: Ratification): string {
+	const revised = r.rounds > 1 ? ' after a revision' : '';
+	return `Ratified by ${r.roster.length} in ${roundsText(r.rounds)}${revised}`;
+}
+
+function objectedText(r: Ratification): string {
+	const n = r.objections?.length ?? 0;
+	return `Released with ${n} objection${n === 1 ? '' : 's'} standing after ${roundsText(r.rounds)}`;
+}
+
+function absentText(r: Ratification): string {
+	return `Not ratified: ${(r.failures ?? []).join(', ')} did not answer`;
+}
+
+/** How the table answered the draft, on the released answer (the answer text itself lists the objections); null when it was not ratified (off, direct, fallback). */
 export function ratificationView(msg: DiscussionMessage): RatificationView | null {
-	if (msg.messageType !== 'synthesis') return null;
-	const r: Ratification | undefined = msg.metadata?.ratification;
+	const r: Ratification | undefined = msg.messageType === 'synthesis' ? msg.metadata?.ratification : undefined;
 	if (!r) return null;
-	const objections = r.objections ?? [];
 	const failures = r.failures ?? [];
-	if (r.state === 'ratified') {
-		const revised = r.rounds > 1 ? ' after a revision' : '';
-		return { text: `Ratified by ${r.roster.length} in ${roundsText(r.rounds)}${revised}`, tone: 'ok', objections, failures };
-	}
-	if (r.state === 'released_with_objections') {
-		const n = objections.length;
-		return {
-			text: `Released with ${n} objection${n === 1 ? '' : 's'} standing after ${roundsText(r.rounds)}`,
-			tone: 'alert',
-			objections,
-			failures
-		};
-	}
-	return { text: `Not ratified: ${failures.join(', ')} did not answer`, tone: 'warn', objections, failures };
+	if (r.state === 'ratified') return { text: ratifiedText(r), tone: 'ok', failures };
+	if (r.state === 'released_with_objections') return { text: objectedText(r), tone: 'alert', failures };
+	return { text: absentText(r), tone: 'warn', failures };
 }
