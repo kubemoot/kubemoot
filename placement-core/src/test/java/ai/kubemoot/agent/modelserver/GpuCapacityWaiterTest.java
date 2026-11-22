@@ -79,7 +79,7 @@ class GpuCapacityWaiterTest {
 
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    void threadEnd_givesUpWithGpuBusy() throws Exception {
+    void threadEnd_givesUpWithAcceleratorBusy() throws Exception {
         var signal = new FakeCapacitySignal();
         var wait = new RecordingCapacityWait();
         var waiter = new GpuCapacityWaiter(signal, 60, 90);
@@ -92,14 +92,14 @@ class GpuCapacityWaiterTest {
 
         var ex = assertThrows(java.util.concurrent.ExecutionException.class, () -> result.get(5, TimeUnit.SECONDS));
         var nfe = assertInstanceOf(NoFitException.class, ex.getCause());
-        assertEquals(NoFitException.REASON_GPU_BUSY, nfe.reason());
+        assertEquals(NoFitException.REASON_ACCELERATOR_BUSY, nfe.reason());
         assertEquals(MODEL, nfe.model());
         assertTrue(nfe.predictorReason().contains("discussion ended"));
     }
 
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    void safetyLimit_givesUpWithGpuBusy_afterOneLastAttempt() {
+    void safetyLimit_givesUpWithAcceleratorBusy_afterOneLastAttempt() {
         var signal = new FakeCapacitySignal();
         var calls = new AtomicInteger();
         var wait = new RecordingCapacityWait();
@@ -110,7 +110,7 @@ class GpuCapacityWaiterTest {
                 () -> waiter.await(MODEL, succeedsAfter(Integer.MAX_VALUE, calls), wait));
         long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
 
-        assertEquals(NoFitException.REASON_GPU_BUSY, nfe.reason());
+        assertEquals(NoFitException.REASON_ACCELERATOR_BUSY, nfe.reason());
         assertTrue(nfe.predictorReason().contains("wait limit"));
         assertTrue(elapsedMs >= 900, "the limit is the safety net: " + elapsedMs + "ms");
         assertEquals(2, calls.get(), "one attempt before blocking, one after the limit passed");
@@ -122,7 +122,7 @@ class GpuCapacityWaiterTest {
         var calls = new AtomicInteger();
         var nfe = assertThrows(NoFitException.class, () -> new GpuCapacityWaiter(new FakeCapacitySignal(), 60, 90)
                 .await(MODEL, succeedsAfter(0, calls), CapacityWait.NONE));
-        assertEquals(NoFitException.REASON_GPU_BUSY, nfe.reason());
+        assertEquals(NoFitException.REASON_ACCELERATOR_BUSY, nfe.reason());
         assertEquals(0, calls.get(), "NONE never retries");
     }
 
@@ -131,7 +131,7 @@ class GpuCapacityWaiterTest {
         var wait = new RecordingCapacityWait();
         var nfe = assertThrows(NoFitException.class, () -> new GpuCapacityWaiter(new FakeCapacitySignal(false), 60, 90)
                 .await(MODEL, Optional::<String>empty, wait));
-        assertEquals(NoFitException.REASON_GPU_BUSY, nfe.reason());
+        assertEquals(NoFitException.REASON_ACCELERATOR_BUSY, nfe.reason());
         assertTrue(wait.waiting.isEmpty());
     }
 

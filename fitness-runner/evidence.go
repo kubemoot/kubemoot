@@ -368,6 +368,7 @@ func allowedNames(outcome *RunOutcome) *evidencenames.Evidence {
 	}
 	for _, e := range outcome.Events {
 		ok.Add(e.Agent)
+		ok.Add(e.Accelerator)
 		ok.Add(e.GPU)
 	}
 	return ok

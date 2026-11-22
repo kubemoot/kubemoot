@@ -60,7 +60,7 @@
         "messageId": { "type": "string", "description": "The bus message that carried the signal; its content is read from the discussion stream." },
         "deadlineAt": { "type": "integer", "description": "The agent's deadline after the signal, in milliseconds since the epoch." },
         "researcher": { "type": "boolean", "description": "True when the agent contributes as a researcher, which does not count toward settling." },
-        "capacityReason": { "type": "string", "enum": ["gpu-busy", "model-too-large", "prompt-too-large"], "description": "Set on a stand_aside that was for want of an accelerator." },
+        "capacityReason": { "type": "string", "enum": ["accelerator-busy", "gpu-busy", "model-too-large", "prompt-too-large"], "description": "Set on a stand_aside that was for want of an accelerator." },
         "tooLargeModel": { "type": "string", "description": "The model no accelerator can hold, on a model-too-large stand_aside." },
         "model": { "type": "string", "description": "The model a waiting agent waits for." },
         "lastSignalAt": { "type": ["string", "null"], "description": "When the last terminal signal arrived, RFC 3339 in UTC." },

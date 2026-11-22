@@ -12,6 +12,7 @@
     "signal": "heartbeat",
     "outputTokens": 0,
     "totalTokens": 0,
+    "acceleratorLabel": "ollama-rig0",
     "gpuLabel": "ollama-rig0",
     "inferenceStartMs": 0
   },

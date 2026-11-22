@@ -53,7 +53,7 @@ func readyServer() *aiv1alpha1.ModelServer {
 	}
 	p.Status.Ready = true
 	p.Status.ServerInfo = &aiv1alpha1.ServerInfo{Version: version}
-	p.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{MaxParallel: 2, VRAMTotalMiB: 24_000, ContextLength: 16384,
+	p.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{MaxParallel: 2, AcceleratorMemoryTotalMiB: 24_000, ContextLength: 16384,
 		AvailableModels: []aiv1alpha1.AvailableModel{{Name: model, SizeBytes: 9_000 * 1024 * 1024}}}
 	return p
 }

@@ -66,7 +66,7 @@ func TestActivityAgentsInAStepAreBusy(t *testing.T) {
 	if !reflect.DeepEqual(doings(got), want) {
 		t.Fatalf("busy = %+v, want %v", got, want)
 	}
-	if got[0].Agent != actAgent || got[0].GPU != actGPU || got[2].Model != actModel {
+	if got[0].Agent != actAgent || got[0].GPU != actGPU || got[0].Accelerator != actGPU || got[2].Model != actModel {
 		t.Errorf("details: %+v", got)
 	}
 }
@@ -274,7 +274,7 @@ func TestProcessMessagesEmitsActivityWhileAnAgentIsBusy(t *testing.T) {
 			activity = &e
 		}
 	}
-	if len(activity.Agents) != 1 || activity.Agents[0].Agent != actAgent || activity.Agents[0].GPU != actGPU {
+	if len(activity.Agents) != 1 || activity.Agents[0].Agent != actAgent || activity.Agents[0].GPU != actGPU || activity.Agents[0].Accelerator != actGPU {
 		t.Fatalf("activity = %+v", activity)
 	}
 	closing := actMsg(actCoord, msgThreadClose, nil)
@@ -293,4 +293,19 @@ func TestReportSendsNothingWhenNobodyIsBusy(t *testing.T) {
 	emit := func(e SSEEvent) { t.Errorf("emitted %+v", e) }
 	r.report(context.Background(), "", emit)
 	r.report(context.Background(), actThread, emit)
+}
+
+// A step carries the accelerator under its current name, from either key a publisher sends.
+func TestActivityReadsTheAcceleratorFromTheNewKeyFirst(t *testing.T) {
+	for name, meta := range map[string]map[string]interface{}{
+		"new key":  {metaAcceleratorLabel: actGPU},
+		"both":     {metaAcceleratorLabel: actGPU, metaGPULabel: "stale"},
+		"old only": {metaGPULabel: actGPU},
+	} {
+		a := trackerAt(actMsg(actAgent, msgHeartbeat, meta))
+		got := a.busy(context.Background(), actThread, actT0, fixedLiveness{})
+		if len(got) != 1 || got[0].Accelerator != actGPU || got[0].GPU != actGPU {
+			t.Errorf("%s: busy = %+v", name, got)
+		}
+	}
 }

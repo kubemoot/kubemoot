@@ -13,10 +13,23 @@ import (
 // The kinds of a call no server can take, as the service names them and as the bus names a
 // capacity stand-aside.
 const (
-	KindModelTooLarge  = "model-too-large"
-	KindGPUBusy        = "gpu-busy"
-	KindPromptTooLarge = "prompt-too-large"
+	KindModelTooLarge   = "model-too-large"
+	KindAcceleratorBusy = "accelerator-busy"
+	KindPromptTooLarge  = "prompt-too-large"
 )
+
+// KindGPUBusyDeprecated is the old name of KindAcceleratorBusy. A placement service older than this
+// release still sends it; it is read as KindAcceleratorBusy and never sent on. Removed in the
+// release after.
+const KindGPUBusyDeprecated = "gpu-busy"
+
+// CanonicalKind returns kind under its current name: the deprecated gpu-busy becomes accelerator-busy.
+func CanonicalKind(kind string) string {
+	if kind == KindGPUBusyDeprecated {
+		return KindAcceleratorBusy
+	}
+	return kind
+}
 
 // Request asks where one model call runs. Models are the acceptable models, preferred first.
 type Request struct {

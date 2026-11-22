@@ -148,13 +148,14 @@ class CoordinatorStateReducerTest {
                 signal("d", "stand_aside", ""),
                 signal("e", "stand_aside", "\"capacityReason\":\"model-too-large\",\"tooLargeModel\":\"big:70b\""),
                 signal("f", "stand_aside", "\"capacityReason\":\"gpu-busy\""),
-                signal("g", "waiting", "\"model\":\"m:14b\""));
+                signal("g", "waiting", "\"model\":\"m:14b\""),
+                signal("h", "stand_aside", "\"capacityReason\":\"accelerator-busy\""));
 
         assertEquals(Set.of("a"), s.agree.keySet());
         assertEquals(Set.of("b"), s.concern.keySet());
         assertEquals(Set.of("c"), s.block.keySet());
-        assertEquals(Set.of("d", "e", "f"), s.standAside);
-        assertEquals(Map.of("e", "model-too-large", "f", "gpu-busy"), s.capacityStandAsides);
+        assertEquals(Set.of("d", "e", "f", "h"), s.standAside);
+        assertEquals(Map.of("e", "model-too-large", "f", "accelerator-busy", "h", "accelerator-busy"), s.capacityStandAsides);
         assertEquals(Set.of("big:70b"), s.tooLargeModels);
         assertEquals(Map.of("g", "m:14b"), s.waiting);
     }

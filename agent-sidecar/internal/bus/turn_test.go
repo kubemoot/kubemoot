@@ -187,14 +187,14 @@ func TestADeclaredToolTheGatewayLacksFailsTheTurnBeforeTheHarnessStarts(t *testi
 
 func TestAWaitingTurnSaysSoOnTheBus(t *testing.T) {
 	p := newPod(t, options{}, func(_ context.Context, _ *sdk.Message, m *turn.Meter) (a2a.Result, error) {
-		m.Waiting(placement.KindGPUBusy)
+		m.Waiting(placement.KindAcceleratorBusy)
 		return answer("later")(nil, nil, nil)
 	})
 	p.advisory(t, "tw", agent)
 	for {
 		m := p.next(t)
 		if m.MessageType == waiting {
-			if m.Metadata["reason"] != placement.KindGPUBusy {
+			if m.Metadata["reason"] != placement.KindAcceleratorBusy {
 				t.Fatalf("%+v", m.Metadata)
 			}
 			return

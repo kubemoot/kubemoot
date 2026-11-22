@@ -16,6 +16,7 @@
     ],
     "userQuery": "Describe the proxmox nodes.",
     "primaryChannel": "proxmox",
+    "acceleratorLabel": "ollama-rig0",
     "gpuLabel": "ollama-rig0"
   },
   "agentName": "homelab-coordinator",

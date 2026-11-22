@@ -323,7 +323,7 @@ class ChatServiceCapacityTest {
     }
 
     @Test
-    void saturatedCluster_withoutWaiter_standsAsideGpuBusyAtOnce() {
+    void saturatedCluster_withoutWaiter_standsAsideAcceleratorBusyAtOnce() {
         when(selector.readState()).thenReturn(List.of(server(32_768)));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
@@ -331,7 +331,7 @@ class ChatServiceCapacityTest {
         var nfe = assertThrows(NoFitException.class, () -> service(null, null)
                 .directChat(request(), true, new RecordingCapacityWait()));
 
-        assertEquals(NoFitException.REASON_GPU_BUSY, nfe.reason());
+        assertEquals(NoFitException.REASON_ACCELERATOR_BUSY, nfe.reason());
         assertEquals(PREFERRED, nfe.model());
     }
 
@@ -352,7 +352,7 @@ class ChatServiceCapacityTest {
     }
 
     @Test
-    void callThatCannotWait_standsAsideGpuBusy_evenWithAWaiter() {
+    void callThatCannotWait_standsAsideAcceleratorBusy_evenWithAWaiter() {
         when(selector.readState()).thenReturn(List.of(server(32_768)));
         when(selector.pickAndClaimWarm(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
         when(selector.pickAndClaim(anyString(), anyLong(), anyLong(), anyLong())).thenReturn(Optional.empty());
@@ -360,7 +360,7 @@ class ChatServiceCapacityTest {
         var nfe = assertThrows(NoFitException.class, () -> service(new GpuCapacityWaiter(new FakeCapacitySignal(), 60, 90), null)
                 .directChat(request(), true));
 
-        assertEquals(NoFitException.REASON_GPU_BUSY, nfe.reason());
+        assertEquals(NoFitException.REASON_ACCELERATOR_BUSY, nfe.reason());
     }
 
     @Test
@@ -522,7 +522,7 @@ class ChatServiceCapacityTest {
     }
 
     @Test
-    void coordinatorCall_everyGpuBusy_stillFallsBackToTheStaticEndpoint() {
+    void coordinatorCall_everyAcceleratorBusy_stillFallsBackToTheStaticEndpoint() {
         when(selector.readState()).thenReturn(List.of(serverWithContext(32_768, 32_768)));
         var synthesis = streamingAnswering("synthesis");
         when(pool.streamingForEndpoint(any(), anyString(), anyString(), any(), anyInt(), any(), any()))

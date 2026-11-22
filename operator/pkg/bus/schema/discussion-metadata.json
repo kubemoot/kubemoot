@@ -25,9 +25,13 @@
       "type": "string",
       "description": "The model an agent's call ran on, the same as modelName on agree and concern; on waiting and on a capacity stand-aside, the model the agent waits for or could not place."
     },
-    "gpuLabel": {
+    "acceleratorLabel": {
       "type": "string",
       "description": "The accelerator the sender ran on, such as a ModelServer name; none when it ran on none. Absent on a signal sent before the sender's call is placed (triaging, evaluating, waiting, heartbeat): the scheduler picks the server when the call is made."
+    },
+    "gpuLabel": {
+      "type": "string",
+      "description": "The old name of acceleratorLabel. Deprecated: sent with acceleratorLabel for one release, then removed."
     },
     "server": {
       "type": "string",
@@ -89,7 +93,7 @@
     },
     "reason": {
       "type": "string",
-      "description": "Why: on stand_aside and waiting, gpu-busy, model-too-large or prompt-too-large; on gap_detected, the gap in words; on stop_requested, manual_stop; on a scheduled message, the reason it was scheduled."
+      "description": "Why: on stand_aside and waiting, accelerator-busy (gpu-busy from a publisher older than this release), model-too-large or prompt-too-large; on gap_detected, the gap in words; on stop_requested, manual_stop; on a scheduled message, the reason it was scheduled."
     },
     "predictorReason": {
       "type": "string",

@@ -112,7 +112,7 @@ func TestDeprecatedNamesCoverEveryOldName(t *testing.T) {
 
 func TestDeprecatedNamesListTheOldAPIFields(t *testing.T) {
 	d := DeprecatedNames()
-	for _, f := range []string{"spec.artifacts", "artifactAccess", "artifactReadOps", "vramMib"} {
+	for _, f := range []string{"spec.artifacts", "artifactAccess", "artifactReadOps", "vramMib", "gpu-busy"} {
 		if !slices.Contains(d.Fields, f) {
 			t.Errorf("fields %v miss %s", d.Fields, f)
 		}
@@ -156,6 +156,8 @@ func TestFindFlagsOldNamesAtTheStartOfAWordOnly(t *testing.T) {
 		{"vramMib: 11000", []string{"vramMib"}},
 		{"acceleratorMemoryMiB: 11000", nil},
 		{"myvramMib: 1", nil},
+		{"reason: gpu-busy", []string{"gpu-busy"}},
+		{"reason: accelerator-busy", nil},
 		{"", nil},
 	}
 	for _, tc := range cases {

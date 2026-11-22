@@ -24,16 +24,17 @@ import (
 
 // SignalEvent represents a single SSE event from the discussion gateway stream.
 type SignalEvent struct {
-	Type       string `json:"type"`
-	Agent      string `json:"agent,omitempty"`
-	Status     string `json:"status,omitempty"`
-	GPU        string `json:"gpu,omitempty"`
-	Signal     string `json:"signal,omitempty"`
-	Summary    string `json:"summary,omitempty"`
-	Content    string `json:"content,omitempty"`
-	ThreadID   string `json:"threadId,omitempty"`
-	StoodAside bool   `json:"stood_aside,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Type        string `json:"type"`
+	Agent       string `json:"agent,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Accelerator string `json:"accelerator,omitempty"`
+	GPU         string `json:"gpu,omitempty"` // the old name of accelerator, sent for one release
+	Signal      string `json:"signal,omitempty"`
+	Summary     string `json:"summary,omitempty"`
+	Content     string `json:"content,omitempty"`
+	ThreadID    string `json:"threadId,omitempty"`
+	StoodAside  bool   `json:"stood_aside,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // AssertionResult is the per-assertion pass/fail outcome of one run.

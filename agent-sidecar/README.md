@@ -42,7 +42,7 @@ additive and a service may answer 404 to it (the sidecar then does without).
 
 | Call | Request | Answers |
 |---|---|---|
-| `POST /placement/v1/place` | `namespace, crew, agent, threadId, phase, alias, models[] (preferred first), promptTokens, maxOutputTokens, mayUnload, wait` | `200 {server, endpoint, model, reason, ticket, queued, coldLoad, evicted[]}`; `409 {code: kubemoot_no_fit, reason, kind}` with `kind` one of `model-too-large`, `gpu-busy`, `prompt-too-large` (a `reason` equal to one of them is read as the kind); `202 {waitId, reason}` when the call is held for capacity; 5xx is "unavailable" |
+| `POST /placement/v1/place` | `namespace, crew, agent, threadId, phase, alias, models[] (preferred first), promptTokens, maxOutputTokens, mayUnload, wait` | `200 {server, endpoint, model, reason, ticket, queued, coldLoad, evicted[]}`; `409 {code: kubemoot_no_fit, reason, kind}` with `kind` one of `model-too-large`, `accelerator-busy`, `prompt-too-large` (a `reason` equal to one of them is read as the kind); `202 {waitId, reason}` when the call is held for capacity; 5xx is "unavailable" |
 | `GET /placement/v1/wait/{waitId}` | none; the caller's disconnect ends the wait | `200` placement, `409` no fit, `202` still waiting (the client asks again) |
 | `POST /placement/v1/release` | `ticket, ok, promptTokens, completionTokens, durationMs` | `2xx` |
 | `POST /placement/v1/plans` | `namespace, crew, agent, threadId, phase, models[], mayUnload` | `2xx`; sent when the coordinator selects the agent, so a model can load early |

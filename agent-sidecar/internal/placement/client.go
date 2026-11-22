@@ -76,7 +76,7 @@ func (c *Client) follow(ctx context.Context, rep reply, onQueued func(string)) (
 			return reply{}, &ErrUnavailable{Err: fmt.Errorf("a 202 without a waitId: %s", bytes.TrimSpace(rep.body))}
 		}
 		if !notified && onQueued != nil {
-			onQueued(w.Reason)
+			onQueued(CanonicalKind(w.Reason))
 		}
 		notified = true
 		if err := pause(ctx); err != nil {
@@ -117,11 +117,11 @@ func parseNoFit(body []byte) *ErrNoFit {
 		Reason string `json:"reason"`
 	}
 	_ = json.Unmarshal(body, &e)
-	out := &ErrNoFit{Kind: e.Kind, Reason: e.Reason}
+	out := &ErrNoFit{Kind: CanonicalKind(e.Kind), Reason: e.Reason}
 	if out.Kind == "" {
-		switch e.Reason {
-		case KindModelTooLarge, KindGPUBusy, KindPromptTooLarge:
-			out.Kind = e.Reason
+		switch reason := CanonicalKind(e.Reason); reason {
+		case KindModelTooLarge, KindAcceleratorBusy, KindPromptTooLarge:
+			out.Kind = reason
 		}
 	}
 	return out

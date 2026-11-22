@@ -19,7 +19,7 @@ import java.util.function.Supplier;
  * and when the discussion ends. Each change triggers one more pick attempt. The
  * normal exit is a successful claim.</p>
  *
- * <p>Two exits give up with {@link NoFitException#REASON_GPU_BUSY}: the thread
+ * <p>Two exits give up with {@link NoFitException#REASON_ACCELERATOR_BUSY}: the thread
  * ended, or the wait reached its safety limit
  * ({@code kubemoot.discuss.gpu-wait-limit-seconds}, default the discussion
  * synthesis timeout). The limit is a safety net for a lost wake-up, not the way
@@ -53,15 +53,15 @@ public class GpuCapacityWaiter {
      * Publishes {@link CapacityWait#onWaiting} once, before the first block, and
      * {@link CapacityWait#onCapacity} when an announced wait succeeds.
      *
-     * @throws NoFitException with reason gpu-busy when the thread ends, the
+     * @throws NoFitException with reason accelerator-busy when the thread ends, the
      *         capacity watch cannot start, or the safety limit passes
      */
     public <T> T await(String model, Supplier<Optional<T>> attempt, CapacityWait wait) {
         if (wait.threadEnded()) {
-            throw NoFitException.gpuBusy(model, "no GPU has room and this call cannot wait");
+            throw NoFitException.acceleratorBusy(model, "no accelerator has room and this call cannot wait");
         }
         if (!signal.ensureWatching()) {
-            throw NoFitException.gpuBusy(model, "no GPU has room and the capacity watch is unavailable");
+            throw NoFitException.acceleratorBusy(model, "no accelerator has room and the capacity watch is unavailable");
         }
         wait.wakeOnEnd(signal::nudge);
         long deadline = System.nanoTime() + limit.toNanos();
@@ -74,7 +74,7 @@ public class GpuCapacityWaiter {
                 return finish(model, wait, announced, result.get());
             }
             if (wait.threadEnded()) {
-                throw NoFitException.gpuBusy(model, "the discussion ended while every GPU was busy");
+                throw NoFitException.acceleratorBusy(model, "the discussion ended while every accelerator was busy");
             }
             if (!announced) {
                 log.info("Every GPU that can hold {} is busy - waiting for capacity (limit {}s)",
@@ -87,13 +87,13 @@ public class GpuCapacityWaiter {
         return lastAttempt(model, attempt, wait);
     }
 
-    /** One more try once the limit has passed without a change; gpu-busy when it still finds no room. */
+    /** One more try once the limit has passed without a change; accelerator-busy when it still finds no room. */
     private <T> T lastAttempt(String model, Supplier<Optional<T>> attempt, CapacityWait wait) {
         Optional<T> result = attempt.get();
         if (result.isPresent()) {
             return finish(model, wait, true, result.get());
         }
-        throw NoFitException.gpuBusy(model, "every GPU stayed busy for the " + limit.toSeconds() + "s wait limit");
+        throw NoFitException.acceleratorBusy(model, "every accelerator stayed busy for the " + limit.toSeconds() + "s wait limit");
     }
 
     private <T> T finish(String model, CapacityWait wait, boolean announced, T value) {
@@ -117,7 +117,7 @@ public class GpuCapacityWaiter {
             return signal.awaitChange(seen, Duration.ofNanos(remainingNanos));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw NoFitException.gpuBusy(model, "interrupted while waiting for a GPU");
+            throw NoFitException.acceleratorBusy(model, "interrupted while waiting for an accelerator");
         }
     }
 }

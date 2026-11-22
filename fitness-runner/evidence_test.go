@@ -499,3 +499,14 @@ func TestCheckInventedNamesNotCheckedWhenAResultIsNowhere(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckInventedNamesAllowsTheAcceleratorNameAnEventCarries(t *testing.T) {
+	st := store([]*nats.ObjectInfo{obj(evNodes)}, map[string]string{evNodes: nodeBody})
+	out := realRun("Is node-7 ready?", "**node-7** and **node-9** and **vllm-rig0**")
+	out.Assertions = []AssertionResult{{Raw: `DEFER synthesis REFLECTS "mentions node-9"`}}
+	out.Events[0].Accelerator = "vllm-rig0"
+	got := checkInventedNames([]evidenceStore{st}, evNS, out, noWait)
+	if !got.Captured || len(got.InventedNames) != 0 {
+		t.Errorf("the accelerator name an event carries is allowed: %+v", got)
+	}
+}

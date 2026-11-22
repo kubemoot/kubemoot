@@ -39,11 +39,11 @@ func TestTheThreadAndAliasReachThePlacementService(t *testing.T) {
 func TestAWaitingCallTellsTheTurnsOwner(t *testing.T) {
 	var seen map[string]any
 	door, placer, reg := newDoor(t, jsonUpstream(&seen), nil)
-	placer.queued = placement.KindGPUBusy
+	placer.queued = placement.KindAcceleratorBusy
 	var heard []string
 	reg.Open("k", turn.Info{OnWaiting: func(r string) { heard = append(heard, r) }})
 	_ = post(t, door.URL, "k", completions).Body.Close()
-	if !slices.Equal(heard, []string{placement.KindGPUBusy}) {
+	if !slices.Equal(heard, []string{placement.KindAcceleratorBusy}) {
 		t.Fatalf("heard %v", heard)
 	}
 }

@@ -32,6 +32,7 @@
     "model": "qwen3:14b",
     "signal": "agree",
     "outputTokens": 640,
+    "acceleratorLabel": "ollama-rig1",
     "gpuLabel": "ollama-rig1"
   },
   "agentName": "proxmox-pve",

@@ -1,0 +1,21 @@
+{
+  "messageId": "0f7c1d52-5c1e-4d71-9a0e-6c1a0b8a3a11",
+  "channel": "broadcast",
+  "threadId": "33627b88-c58c-4017-a483-119d2e45c712",
+  "timestamp": "2026-11-21T14:02:11.120394822Z",
+  "content": "Could not get an accelerator: every accelerator that can hold qwen3:32b was busy",
+  "metadata": {
+    "modelName": "qwen3:32b",
+    "model": "qwen3:32b",
+    "role": "analyst",
+    "inputTokens": 0,
+    "inferenceMs": 0,
+    "signal": "stand_aside",
+    "reason": "accelerator-busy",
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "inferenceStartMs": 1792085958965
+  },
+  "agentName": "nvidia-gpu-advisor",
+  "messageType": "stand_aside"
+}

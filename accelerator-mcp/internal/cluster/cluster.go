@@ -140,8 +140,8 @@ func UsableMemoryMiB(p *aiv1alpha1.ModelServer) int64 {
 
 // TotalMemoryMiB is the server's memory: discovered, else declared, else 0.
 func TotalMemoryMiB(p *aiv1alpha1.ModelServer) int64 {
-	if p.Status.Capacity != nil && p.Status.Capacity.VRAMTotalMiB > 0 {
-		return p.Status.Capacity.VRAMTotalMiB
+	if total := p.Status.Capacity.TotalMiB(); total > 0 {
+		return total
 	}
 	if p.Spec.Scheduling != nil {
 		return p.Spec.Scheduling.MemoryMiB
@@ -152,7 +152,7 @@ func TotalMemoryMiB(p *aiv1alpha1.ModelServer) int64 {
 // HasAccelerator is true when the server's memory is accelerator memory it
 // discovered, so a model partly outside it has spilled to the CPU.
 func HasAccelerator(p *aiv1alpha1.ModelServer) bool {
-	return p.Status.Capacity != nil && p.Status.Capacity.VRAMTotalMiB > 0
+	return p.Status.Capacity.TotalMiB() > 0
 }
 
 // IsVLLM is true for a server of vLLM servers, which batch requests and keep models asleep.

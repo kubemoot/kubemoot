@@ -206,7 +206,7 @@ final class CoordinatorStateReducer {
         s.standAside.add(agent(e));
         String reason = text(e.data(), CAPACITY_REASON);
         if (reason != null) {
-            s.capacityStandAsides.put(agent(e), reason);
+            s.capacityStandAsides.put(agent(e), ai.kubemoot.agent.modelserver.NoFitException.canonicalReason(reason));
         }
         String tooLarge = text(e.data(), TOO_LARGE_MODEL);
         if (tooLarge != null) {

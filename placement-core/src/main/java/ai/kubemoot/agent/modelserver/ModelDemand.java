@@ -6,7 +6,7 @@ import java.util.Comparator;
  * Near-future demand for one model across every crew, read from the shared
  * demand bucket.
  *
- * @param waiters     agents waiting for a GPU for this model right now
+ * @param waiters     agents waiting for an accelerator for this model right now
  * @param intents     agents selected for a live thread that are about to request it
  * @param useRate     decaying count of recent call starts (half-life {@link DemandBoard#USE_HALF_LIFE})
  * @param predicted   decaying selection frequency of agents that name this model, summed

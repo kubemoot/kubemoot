@@ -1,6 +1,7 @@
 {
   "type": "finding",
   "agent": "obs-advisor",
+  "accelerator": "ollama-gpu",
   "gpu": "ollama-gpu",
   "signal": "agree",
   "summary": "The Proxmox node data shows:",

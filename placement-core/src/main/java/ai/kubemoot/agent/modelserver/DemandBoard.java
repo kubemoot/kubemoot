@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * per model (models are shared across crews); agent ids carry the namespace.
  *
  * <ul>
- *   <li>{@code wait.<model>.<agent>}: the agent is waiting for a GPU for the model.
+ *   <li>{@code wait.<model>.<agent>}: the agent is waiting for an accelerator for the model.
  *       Written when a wait starts, deleted when it ends.</li>
  *   <li>{@code intent.<model>.<agent>}: the agent was selected for a live thread and
  *       names the model as a candidate. Written at selection, deleted on the agent's
@@ -110,7 +110,7 @@ public class DemandBoard {
         }
     }
 
-    /** Records that this agent is waiting for a GPU for {@code model}. */
+    /** Records that this agent is waiting for an accelerator for {@code model}. */
     public void waitStarted(String model) {
         put(waitKey(model), entry(KIND_WAIT, model, System.currentTimeMillis() + WAIT_TTL.toMillis()));
     }

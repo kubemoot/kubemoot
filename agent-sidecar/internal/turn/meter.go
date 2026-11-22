@@ -128,12 +128,12 @@ func (m *Meter) Degraded(reason string) {
 }
 
 // NoFit records that no server could take a call, with the kind the placement service gave
-// (model-too-large, gpu-busy or prompt-too-large).
+// (model-too-large, accelerator-busy or prompt-too-large).
 func (m *Meter) NoFit(kind string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if kind == "" {
-		kind = "gpu-busy"
+		kind = "accelerator-busy"
 	}
 	m.noFitKind = kind
 }

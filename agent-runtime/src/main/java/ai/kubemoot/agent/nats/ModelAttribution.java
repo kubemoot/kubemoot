@@ -1,7 +1,7 @@
 package ai.kubemoot.agent.nats;
 
 import ai.kubemoot.agent.chat.ModelUse;
-import ai.kubemoot.agent.util.GpuLabels;
+import ai.kubemoot.agent.util.AcceleratorLabels;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -79,9 +79,9 @@ final class ModelAttribution {
      * The server the last call ran on, or {@code fallback} when no call is known or
      * the last one went to the static endpoint rather than a picked server.
      */
-    static String gpuLabel(List<ModelUse> uses, String fallback) {
+    static String acceleratorLabel(List<ModelUse> uses, String fallback) {
         List<ModelUse> known = known(uses);
-        String server = known.isEmpty() ? null : GpuLabels.fromServer(last(known).server());
+        String server = known.isEmpty() ? null : AcceleratorLabels.fromServer(last(known).server());
         return server != null ? server : fallback;
     }
 

@@ -284,7 +284,11 @@ func TestTranslateAndEmit_WaitingAndStandAsideReasons(t *testing.T) {
 		{"stand_aside without reason", bus.DiscussionMessage{MessageType: signalStandAside, AgentName: testRulesAgent},
 			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseDone, StoodAside: true, Signal: signalStandAside}},
 		{phaseEvaluating, bus.DiscussionMessage{MessageType: phaseEvaluating, AgentName: testRulesAgent, Metadata: map[string]interface{}{"gpuLabel": testGPU}},
-			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseEvaluating, GPU: testGPU}},
+			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseEvaluating, Accelerator: testGPU, GPU: testGPU}},
+		{"evaluating, new key", bus.DiscussionMessage{MessageType: phaseEvaluating, AgentName: testRulesAgent, Metadata: map[string]interface{}{"acceleratorLabel": testGPU, "gpuLabel": "other"}},
+			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseEvaluating, Accelerator: testGPU, GPU: testGPU}},
+		{"stand_aside with the new reason", bus.DiscussionMessage{MessageType: signalStandAside, AgentName: testRulesAgent, Metadata: map[string]interface{}{metaReason: "accelerator-busy"}},
+			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseDone, StoodAside: true, Signal: signalStandAside, Reason: "accelerator-busy"}},
 		{phaseReady, bus.DiscussionMessage{MessageType: phaseReady, AgentName: testRulesAgent},
 			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseReady}},
 	}

@@ -62,8 +62,10 @@ func TestMemoryAndParallel(t *testing.T) {
 	check(t, "unknown", TotalMemoryMiB(p) == 0 && UsableMemoryMiB(p) == 0 && MaxParallel(p) == 1 && !HasAccelerator(p), p)
 	p.Spec.Scheduling = &aiv1alpha1.ServerScheduling{MemoryMiB: 18_432}
 	check(t, "declared", TotalMemoryMiB(p) == 18_432 && UsableMemoryMiB(p) == 16_221 && !HasAccelerator(p), p)
-	p.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{VRAMTotalMiB: 32_607, MaxParallel: 4}
+	p.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{AcceleratorMemoryTotalMiB: 32_607, MaxParallel: 4}
 	check(t, "discovered wins", TotalMemoryMiB(p) == 32_607 && HasAccelerator(p) && MaxParallel(p) == 4, p)
+	p.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{VRAMTotalMiB: 32_607, MaxParallel: 4}
+	check(t, "an older status names it vramTotalMiB", TotalMemoryMiB(p) == 32_607 && HasAccelerator(p), p)
 }
 
 func TestResetRequested(t *testing.T) {
