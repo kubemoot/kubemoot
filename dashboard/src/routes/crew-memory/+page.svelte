@@ -5,9 +5,8 @@
 	import { crewDirectory, namespace } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry } from '#lib/crew-display-name.js';
-	import { CommandHint, PageTitle } from '#lib/components/common/index.js';
-	import { memoryAddCommand, memoryClearCommand, memoryDeleteCommand, memoryEditCommand, memoryExportCommand } from '#lib/cli-commands.js';
-	import MemoryExportPanel from '#lib/components/memory/MemoryExportPanel.svelte';
+	import { PageTitle } from '#lib/components/common/index.js';
+	import MemoryExport from '#lib/components/memory/MemoryExport.svelte';
 
 	interface Fact {
 		namespace: string;
@@ -55,8 +54,7 @@
 		load(scope);
 	});
 
-	// Export: the operator builds the OMPI export; the panel previews it and offers the download.
-	let exportOpen = $state(false);
+	// Export: the operator builds the OMPI export; the control downloads it.
 	const exportEndpoint = resolve('/api/kubemoot/crew-memory/export');
 </script>
 
@@ -65,7 +63,7 @@
 		<PageTitle route="/crew-memory" />
 		{#if scope}
 			<div class="header-actions">
-				<button use:tooltip={ACTIONS.exportMemory} onclick={() => (exportOpen = !exportOpen)} aria-expanded={exportOpen}>Export</button>
+				<MemoryExport {scope} endpoint={exportEndpoint} hasFacts={facts.length > 0} />
 			</div>
 		{/if}
 	</div>
@@ -75,10 +73,6 @@
 	</p>
 
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
-
-	{#if scope && exportOpen}
-		<MemoryExportPanel {scope} endpoint={exportEndpoint} />
-	{/if}
 
 	{#if !scope}
 		<div class="empty-state">Pick one crew in the top bar to see what it remembers.</div>
@@ -107,13 +101,6 @@
 				</table>
 			{/if}
 		</div>
-
-		<p class="hint">This page only reads. Facts are written by the crew's agents, or by you with kmctl:</p>
-		<CommandHint label="Add a fact:" command={memoryAddCommand(scope.crew, scope.namespace)} />
-		<CommandHint label="Change a fact:" command={memoryEditCommand(scope.crew, scope.namespace)} />
-		<CommandHint label="Delete a fact:" command={memoryDeleteCommand(scope.crew, scope.namespace)} />
-		<CommandHint label="Clear all facts (export first):" command={memoryClearCommand(scope.crew, scope.namespace)} />
-		<CommandHint label="Export this crew's memory with kmctl:" command={memoryExportCommand(scope.crew, scope.namespace)} />
 	{/if}
 </div>
 
@@ -130,11 +117,5 @@
 	.val { max-width: 420px; word-break: break-word; }
 	.ts { white-space: nowrap; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 	.empty-state { color: var(--color-text-muted); text-align: center; padding: 2rem 1rem; }
-	.hint { color: var(--color-text-muted); font-size: 0.85rem; }
-	button {
-		padding: 0.3rem 0.7rem; cursor: pointer; font-size: 0.8rem;
-		background: var(--color-bg-tertiary); color: var(--color-text);
-		border: 1px solid var(--color-border); border-radius: 0.375rem;
-	}
 	.error { color: var(--color-error); }
 </style>
