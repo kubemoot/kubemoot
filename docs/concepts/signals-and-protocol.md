@@ -15,7 +15,7 @@ is no central controller issuing commands.
 |--------|---------|
 | `agree` | This contribution supports the emerging answer. |
 | `concern` | A reservation that should be weighed before the crew settles. |
-| `stand_aside` | No relevant contribution; abstain without blocking. With `metadata.reason` set to `gpu-busy`, `model-too-large`, or `prompt-too-large`, the agent was willing but could not get an accelerator (see below). |
+| `stand_aside` | No relevant contribution; abstain without blocking. With `metadata.reason` set to `accelerator-busy`, `model-too-large`, or `prompt-too-large`, the agent was willing but could not get an accelerator (see below). |
 | `block` | A strong objection that should stop the answer as it stands. |
 | `failure` | The agent tried and could not complete - surfaced as a first-class signal, not hidden behind silence. |
 
@@ -31,7 +31,7 @@ returned data, the output is posted as before, failed sections included.
 
 Additional protocol signals facilitate the discussion itself - `triaging`,
 `evaluating`, `waiting`, `advisory`, `proposal`. An agent publishes `waiting`
-(with `metadata.model` and `metadata.reason: gpu-busy`) once when every accelerator that can
+(with `metadata.model` and `metadata.reason: accelerator-busy`) once when every accelerator that can
 hold its model is busy, and `evaluating` again when an accelerator frees up. Which signals a crew exercises is fixed
 by the runtime today; the one archetype that ships is described in
 [The Moot](../consensus-model/).
@@ -46,7 +46,8 @@ queued. A signal names where its calls actually ran:
 | Field | Meaning |
 |---|---|
 | `metadata.modelName` | The model the last call behind the signal ran on. On `triaging`, the triage model the agent plans to use. On a signal sent before a call completed (`evaluating`, `waiting`, `failure`), the model the agent is configured with. On the coordinator's `advisory` and `advisory_ready`, the model its advisory call ran on. |
-| `metadata.gpuLabel` | The server the last call ran on, or a label derived from the agent's static endpoint when no server was picked. The coordinator's `advisory` and `advisory_ready` name the server of the advisory call. Signals sent before a call is placed (triaging, evaluating, waiting, heartbeat) carry none, because the scheduler picks the server when the call is made. |
+| `metadata.acceleratorLabel` | The server the last call ran on, or a label derived from the agent's static endpoint when no server was picked. The coordinator's `advisory` and `advisory_ready` name the server of the advisory call. Signals sent before a call is placed (triaging, evaluating, waiting, heartbeat) carry none, because the scheduler picks the server when the call is made. |
+| `metadata.gpuLabel` | Deprecated old name of `metadata.acceleratorLabel`, sent with it in this release and removed in the next. A reader takes `acceleratorLabel` and falls back to `gpuLabel` for a message from an older publisher. |
 | `metadata.modelsUsed` | Each distinct place the calls ran, as `model@server` in call order (the model alone for the static endpoint). |
 | `metadata.placementCalls` | The same calls with their placement: the policy, the reason, the options weighed, the predicted completion time and what the call measured. The coordinator copies them to the thread's receipt; see [Reading a placement decision](../../architecture/scheduler/#reading-a-placement-decision). |
 
@@ -96,8 +97,8 @@ case, where the agent was selected and willing but the cluster could not run it:
 
 | `metadata.reason` | Meaning |
 |---|---|
-| `gpu-busy` | Every GPU that can hold the model stayed busy until the discussion ended or the agent's capacity wait reached its safety limit. |
-| `model-too-large` | No GPU in the cluster can ever hold the model (`metadata.model`). |
+| `accelerator-busy` | Every accelerator that can hold the model stayed busy until the discussion ended or the agent's capacity wait reached its safety limit. `gpu-busy` is the deprecated old value: publishers no longer send it, readers accept it in this release, and it is removed in the next. |
+| `model-too-large` | No accelerator in the cluster can ever hold the model (`metadata.model`). |
 | `prompt-too-large` | No server gives an acceptable model a context window that holds the prompt. The engine would drop the oldest messages, so the agent stands aside instead. |
 
 When no agent contributed and at least one stood aside for one of these reasons (or was

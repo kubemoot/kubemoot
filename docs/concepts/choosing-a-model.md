@@ -292,7 +292,7 @@ spec:
   serverRef: ollama-a
   parameters: 35B
   capabilities: [tool-calling, reasoning]
-  vramMib: 20480
+  acceleratorMemoryMiB: 20480
 ```
 
 No agent is edited, no crew is touched, and the crew is not redeployed. The agents whose phases

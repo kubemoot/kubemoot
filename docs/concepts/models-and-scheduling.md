@@ -166,7 +166,7 @@ When neither way forward helps right away, or waiting is the cheaper one, the ag
 **waits for capacity**:
 
 - It publishes a `waiting` signal once, naming the model it waits for. CrewForge, Homelab
-  Pilot, and the discussion stream show it as "waiting for a GPU with room for
+  Pilot, and the discussion stream show it as "waiting for an accelerator with room for
   `<model>`".
 - The wait is driven by state, not a timer. The agent tries again each time server
   state or the in-flight calls change: a call finishes and frees a slot, or another
@@ -175,7 +175,7 @@ When neither way forward helps right away, or waiting is the cheaper one, the ag
 - A **safety limit** ends a wait that never gets capacity: the discussion's synthesis
   timeout by default (90 seconds), or `KUBEMOOT_DISCUSS_GPU_WAIT_LIMIT_SECONDS` on the
   agent. A wait also ends when the discussion itself ends. Either way the agent stands
-  aside with the reason `gpu-busy`. The limit is a safety net; the normal end of a wait
+  aside with the reason `accelerator-busy`. The limit is a safety net; the normal end of a wait
   is an accelerator with room.
 
 If no accelerator in the cluster has enough memory to ever hold the model, waiting cannot help.
@@ -214,8 +214,8 @@ next.
 
 | What you see | Meaning | What to do |
 |---|---|---|
-| `waiting` signal, "waiting for a GPU with room for `<model>`" | Every accelerator that can hold the model is busy. The agent is queued on cluster state. | Nothing. It proceeds when capacity frees up. |
-| `stand_aside` with reason `gpu-busy` | The agent waited but no accelerator had room before the discussion ended or the safety limit passed. | Ask again when the cluster is quieter, add accelerator capacity, or add a smaller `Model` the policy can pick. |
+| `waiting` signal, "waiting for an accelerator with room for `<model>`" | Every accelerator that can hold the model is busy. The agent is queued on cluster state. | Nothing. It proceeds when capacity frees up. |
+| `stand_aside` with reason `accelerator-busy` | The agent waited but no accelerator had room before the discussion ended or the safety limit passed. | Ask again when the cluster is quieter, add accelerator capacity, or add a smaller `Model` the policy can pick. |
 | `stand_aside` with reason `model-too-large` | No accelerator in the cluster can hold the model. | Add a smaller `Model` that satisfies the rule, or an accelerator with more memory. |
 | `stand_aside` with reason `prompt-too-large` | The prompt is larger than the per-request context every suitable server gives the model. | Raise `OLLAMA_CONTEXT_LENGTH` on a server (trading against `OLLAMA_NUM_PARALLEL`), or use a model with a larger context. |
 | `stand_aside` with no reason | The agent had nothing to add. | Normal crew behavior. |
@@ -223,12 +223,12 @@ next.
 When no agent contributed and at least one of them could not get an accelerator, the crew's
 answer says so instead of suggesting the crew lacks coverage:
 
-> The crew's agents could not get a GPU: every GPU was busy with other work, so none of
+> The crew's agents could not get an accelerator: every accelerator was busy with other work, so none of
 > them could answer in time. This is the cluster's capacity, not the crew's design; ask
 > again in a moment.
 
-For `model-too-large` the answer names the model: "No GPU in this cluster can hold the
-model `<model>` the agents need; add a smaller Model or a larger GPU." Either answer is
+For `model-too-large` the answer names the model: "No accelerator in this cluster can hold the
+model `<model>` the agents need; add a smaller Model or a larger accelerator." Either answer is
 about cluster capacity. It does not mean the crew's agents, prompts, or tools are wrong.
 
 ## Several crews at once
@@ -241,7 +241,7 @@ so their calls account for each other.
 - **Unloading respects every crew.** A model another crew is waiting for, about to use,
   or uses often is the last to be unloaded.
 - **Waits grow with load.** With more concurrent calls, slots fill and agents wait
-  longer. A burst that outlasts the safety limit ends in `gpu-busy` stand-asides.
+  longer. A burst that outlasts the safety limit ends in `accelerator-busy` stand-asides.
 - Fuller prediction across concurrent crews is ongoing work. The behavior above is what
   happens today; there is no cross-crew priority or fairness beyond the per-call
   choice, the demand view, and the wait.
@@ -270,7 +270,7 @@ ask a question at the same moment, and each coordinator selects its agents.
      loads `qwen3:32b` onto Accelerator 1.
    - If other agents are waiting for `qwen3:14b`, or were just selected to use it, it
      stays loaded, and the researcher keeps waiting until memory frees up elsewhere or
-     the safety limit passes and it stands aside with `gpu-busy`.
+     the safety limit passes and it stands aside with `accelerator-busy`.
 
 If no accelerator in the cluster could hold `qwen3:32b` at all, the researcher would have stood
 aside with `model-too-large` without waiting.
