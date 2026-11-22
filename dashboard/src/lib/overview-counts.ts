@@ -6,7 +6,7 @@ export interface CountEntry {
 }
 
 interface NodeLike {
-	gpu?: { present: boolean };
+	gpu?: { present: boolean; count?: number };
 	status?: { conditions?: Array<{ type: string; status: string }> };
 }
 
@@ -22,12 +22,21 @@ function isNodeReady(node: NodeLike): boolean {
 	return !!node.status?.conditions?.some((c) => c.type === 'Ready' && c.status === 'True');
 }
 
-/** Node counts (Ready condition) and GPU node counts; every GPU node counts as ready. */
-export function nodeCounts(nodes: NodeLike[]): { nodes: CountEntry; gpus: CountEntry } {
-	const gpuNodes = nodes.filter((n) => n.gpu?.present).length;
+/** Accelerators on a node: the device count its plugin reports, at least one on an accelerator node. */
+function acceleratorsOn(node: NodeLike): number {
+	return node.gpu?.present ? Math.max(node.gpu.count ?? 1, 1) : 0;
+}
+
+/**
+ * Node counts (Ready condition) and accelerator counts. An accelerator is one device of any
+ * kind the cluster reports (GPU, TPU, NPU); it counts as ready when its node is Ready.
+ */
+export function nodeCounts(nodes: NodeLike[]): { nodes: CountEntry; accelerators: CountEntry } {
+	const readyNodes = nodes.filter(isNodeReady);
+	const sum = (list: NodeLike[]) => list.reduce((total, n) => total + acceleratorsOn(n), 0);
 	return {
-		nodes: { total: nodes.length, ready: nodes.filter(isNodeReady).length },
-		gpus: { total: gpuNodes, ready: gpuNodes }
+		nodes: { total: nodes.length, ready: readyNodes.length },
+		accelerators: { total: sum(nodes), ready: sum(readyNodes) }
 	};
 }
 

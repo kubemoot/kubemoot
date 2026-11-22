@@ -61,7 +61,7 @@
 					<path d="M6 12h4" />
 					<path d="M14 12h4" />
 				</svg>
-				<span class="gpu-type">{node.gpu.type || 'GPU'}</span>
+				<span class="gpu-type">{node.gpu.type || 'Accelerator'}</span>
 				{#if node.gpu.count && node.gpu.count > 1}
 					<span class="gpu-count">x{node.gpu.count}</span>
 				{/if}

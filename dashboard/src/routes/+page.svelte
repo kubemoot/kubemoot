@@ -60,7 +60,7 @@
 		}
 	}
 
-	// The CRD lists counted on the Overview, in card order after nodes and GPUs.
+	// The CRD lists counted on the Overview, in card order after nodes and accelerators.
 	const CRD_PLURALS = [
 		'crews',
 		'modelservers',
@@ -114,7 +114,7 @@
 
 	const resourceTypes = [
 		{ key: 'nodes', label: 'Nodes', href: resolve('/nodes'), icon: 'server' },
-		{ key: 'gpus', label: 'GPUs', href: resolve('/nodes'), icon: 'zap' },
+		{ key: 'accelerators', label: 'Accelerators', href: resolve('/nodes'), icon: 'zap' },
 		{ key: 'crews', label: 'Crews', href: resolve('/crews'), icon: 'users' },
 		{ key: 'modelservers', label: 'Model servers', href: resolve('/modelservers'), icon: 'cloud' },
 		{ key: 'models', label: 'Models', href: resolve('/models'), icon: 'box' },

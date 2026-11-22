@@ -15,7 +15,7 @@
 		error: 'Error',
 		pending: 'Pending',
 		unknown: 'Unknown',
-		hot: 'GPU Loaded'
+		hot: 'Accelerator Loaded'
 	};
 
 	const displayLabel = $derived(label || statusLabels[status]);

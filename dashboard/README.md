@@ -1,6 +1,6 @@
 # Kubemoot Dashboard
 
-A Kubernetes Dashboard-like web UI for observing Kubemoot CRDs and GPU resources.
+A Kubernetes Dashboard-like web UI for observing Kubemoot CRDs and accelerator resources.
 
 ## Access
 
@@ -11,7 +11,7 @@ Gateway exposes it on. See [Dashboard](../docs/operating/dashboard.md) for the d
 ## Features
 
 - **Overview Dashboard**: Summary of all Kubemoot resources with health status
-- **Node View**: Cluster nodes with GPU detection and resource info
+- **Node View**: Cluster nodes with accelerator detection and resource info
 - **CRD Views**: List and detail views for all 8 Kubemoot CRDs:
   - ModelServers
   - Models
@@ -85,7 +85,7 @@ docker run -p 3000:3000 kubemoot-dashboard
 - `GET /dashboard/api/health` - Health check
 - `GET /dashboard/api/version` - App version
 - `GET /dashboard/api/namespaces` - List namespaces
-- `GET /dashboard/api/nodes` - Nodes with GPU info
+- `GET /dashboard/api/nodes` - Nodes with accelerator info (the response field is still named `gpu`)
 
 ### Kubemoot CRDs
 All endpoints support `?namespace=` query parameter:

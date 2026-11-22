@@ -52,14 +52,14 @@
 		{ label: 'Stand Aside', color: '#6b7280', tooltip: 'Query is outside this agent\'s domain - no contribution' },
 		{ label: 'Proposal', color: '#60a5fa', tooltip: 'Onboarding agent proposed a new tool to fill a capability gap' },
 		{ label: 'Synthesis', color: '#fbbf24', tooltip: 'Coordinator synthesized all agent contributions into a final answer' },
-		{ label: 'Triaging', color: '#38bdf8', tooltip: 'Agent is queued on the triage GPU deciding whether to contribute' },
+		{ label: 'Triaging', color: '#38bdf8', tooltip: 'Agent is queued on the triage accelerator deciding whether to contribute' },
 		{ label: 'Evaluating', color: '#818cf8', tooltip: 'Agent passed triage and is running full tool-calling inference' },
 		{ label: 'Heartbeat', color: '#64748b', tooltip: 'Agent is alive - queued for or running LLM inference' },
 		{ label: 'Waking', color: '#fb923c', tooltip: 'Agent is starting from scale-to-zero - cold start in progress' },
 		{ label: 'Ready', color: '#22d3ee', tooltip: 'Agent finished cold start and is ready for triage' },
 		{ label: 'Inference', color: '#9ca3af', type: 'bar-solid' as const, tooltip: 'Saturated bar portion - actual LLM inference time' },
-		{ label: 'Overhead', color: '#9ca3af', type: 'bar-faded' as const, tooltip: 'Faded bar portion - GPU queue wait and triage time before inference' },
-		{ label: 'Queue Depth', color: '#ef4444', type: 'queue' as const, tooltip: 'Number of other agents running inference on the same GPU concurrently' }
+		{ label: 'Overhead', color: '#9ca3af', type: 'bar-faded' as const, tooltip: 'Faded bar portion - accelerator queue wait and triage time before inference' },
+		{ label: 'Queue Depth', color: '#ef4444', type: 'queue' as const, tooltip: 'Number of other agents running inference on the same accelerator concurrently' }
 	];
 
 	// The color of each server an agent's span names, in the order the spans first name them

@@ -23,18 +23,22 @@ describe('nodeCounts', () => {
 	const ready = { status: { conditions: [{ type: 'Ready', status: 'True' }] } };
 	const notReady = { status: { conditions: [{ type: 'Ready', status: 'False' }] } };
 
-	it('counts Ready nodes and GPU nodes', () => {
+	it('counts Ready nodes and the accelerators on them', () => {
 		expect(
 			nodeCounts([
-				{ ...ready, gpu: { present: true } },
-				notReady,
+				{ ...ready, gpu: { present: true, count: 2 } },
+				{ ...notReady, gpu: { present: true, count: 4 } },
 				{},
 				{ ...ready, gpu: { present: false } }
 			])
 		).toEqual({
 			nodes: { total: 4, ready: 2 },
-			gpus: { total: 1, ready: 1 }
+			accelerators: { total: 6, ready: 2 }
 		});
+	});
+
+	it('counts an accelerator node that reports no device count as one', () => {
+		expect(nodeCounts([{ ...ready, gpu: { present: true } }]).accelerators).toEqual({ total: 1, ready: 1 });
 	});
 
 	it('ignores conditions other than Ready', () => {
@@ -43,7 +47,7 @@ describe('nodeCounts', () => {
 	});
 
 	it('is zero without nodes', () => {
-		expect(nodeCounts([])).toEqual({ nodes: { total: 0, ready: 0 }, gpus: { total: 0, ready: 0 } });
+		expect(nodeCounts([])).toEqual({ nodes: { total: 0, ready: 0 }, accelerators: { total: 0, ready: 0 } });
 	});
 });
 
