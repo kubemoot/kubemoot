@@ -46,10 +46,10 @@ func reviewTestArchetype(name string, review *kubemootv1alpha1.ArchetypeReview) 
 	}
 }
 
-func reviewTestPolicyFor(crew, archetype string) *kubemootv1alpha1.CrewSchedulingPolicy {
+func reviewTestPolicyFor(archetype string) *kubemootv1alpha1.CrewSchedulingPolicy {
 	return &kubemootv1alpha1.CrewSchedulingPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: reviewTestPolicy + "-" + crew, Namespace: testCrewNamespace},
-		Spec:       kubemootv1alpha1.CrewSchedulingPolicySpec{CrewRef: crew, ArchetypeRef: archetype},
+		ObjectMeta: metav1.ObjectMeta{Name: reviewTestPolicy + "-" + testCrewName, Namespace: testCrewNamespace},
+		Spec:       kubemootv1alpha1.CrewSchedulingPolicySpec{CrewRef: testCrewName, ArchetypeRef: archetype},
 	}
 }
 
@@ -79,8 +79,8 @@ func TestReviewEnvVars_BothFieldsBecomeVariables(t *testing.T) {
 }
 
 func TestCrewArchetypeName_FirstPolicyThatNamesOneWinsOtherwiseTheDefault(t *testing.T) {
-	named := reviewTestPolicyFor(testCrewName, reviewTestPanel)
-	unset := reviewTestPolicyFor(testCrewName, "")
+	named := reviewTestPolicyFor(reviewTestPanel)
+	unset := reviewTestPolicyFor("")
 	if got := crewArchetypeName([]*kubemootv1alpha1.CrewSchedulingPolicy{unset, named}); got != reviewTestPanel {
 		t.Errorf("policies in name order, the first that names one wins: want %q, got %q", reviewTestPanel, got)
 	}
@@ -102,7 +102,7 @@ func TestCoordinatorReviewEnvVars_FollowsTheCrewsArchetype(t *testing.T) {
 	r := reviewTestReconciler(t,
 		reviewTestArchetype(defaultArchetypeName, &kubemootv1alpha1.ArchetypeReview{Convene: kubemootv1alpha1.ReviewConveneDomain}),
 		reviewTestArchetype(reviewTestPanel, &kubemootv1alpha1.ArchetypeReview{Convene: kubemootv1alpha1.ReviewConveneAll}),
-		reviewTestPolicyFor(testCrewName, reviewTestPanel),
+		reviewTestPolicyFor(reviewTestPanel),
 	)
 	got := r.coordinatorReviewEnvVars(context.Background(), reviewTestCoordinatorOf(testCrewName))
 	if len(got) != 1 || got[0].Name != envReviewConvene || got[0].Value != reviewTestAll {
