@@ -214,7 +214,7 @@
 		}
 	}
 
-	let timelineEl = $state<HTMLElement | null>(null);
+	let detailEl = $state<HTMLElement | null>(null);
 	let copiedThreadId = $state(false);
 
 	async function copyThreadId() {
@@ -225,19 +225,17 @@
 		setTimeout(() => { copiedThreadId = false; }, 2000);
 	}
 
-	// Auto-scroll to bottom when the selected thread gains messages.
+	// An open thread that gains messages follows them when the reader is already at the
+	// bottom of the detail pane; a finished thread opens at its top.
 	$effect(() => {
 		// Reading the message count registers the reactive dependency, so this
 		// effect re-runs as new messages arrive.
 		const count = selectedThread?.messages.length ?? 0;
-		if (timelineEl && count > 0) {
-			// Defer so we scroll after the DOM updates.
-			requestAnimationFrame(() => {
-				if (timelineEl) {
-					timelineEl.scrollTop = timelineEl.scrollHeight;
-				}
-			});
-		}
+		const follow = selectedThread?.status === 'open';
+		if (!detailEl || count === 0 || !follow) return;
+		const el = detailEl;
+		const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+		if (atBottom) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
 	});
 
 	// Keep the selection consistent with the crew filter: if the selected thread
@@ -333,7 +331,7 @@
 			{/if}
 		</div>
 
-		<div class="thread-detail">
+		<div class="thread-detail" bind:this={detailEl}>
 			{#if selectedThread}
 				<div class="thread-detail-header">
 					{#if selectedThread.crew}
@@ -400,7 +398,7 @@
 					</div>
 				{/if}
 
-				<div class="message-timeline" bind:this={timelineEl}>
+				<div class="message-timeline">
 					{#each timelineMessages as msg, msgIdx}
 						{@const stats = selectedStats.get(msg) ?? {}}
 						<div
@@ -695,8 +693,9 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
-		flex: 1;
-		overflow-y: auto;
+		/* The detail pane scrolls, not the list: a list that shared the pane's height with
+		   the span graph shrank to nothing. */
+		flex: 0 0 auto;
 	}
 
 	.message-card {
