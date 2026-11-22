@@ -71,6 +71,15 @@ kubectl krew install kmctl
 - A kubeconfig with access to the cluster (standard `~/.kube/config` or `KUBECONFIG`
   environment variable).
 - `kubectl` is not required by `kmctl` itself, but the same kubeconfig is used.
+- A usable Kubernetes context for every command that changes state (`apply`, `delete`,
+  `model add`, `fitness run|pause|resume|stop`, `mcp report pin|unpin`,
+  `conversation ask|replay|stop|pause|resume|delete`, `memory add|edit|delete|clear`).
+  Each checks the context before it sends anything: the kubeconfig is readable, the
+  context exists, its user has credentials, and the API server accepts them. When one
+  is missing, the command fails and names the fix (`kubectl config use-context NAME`,
+  `--context NAME` or `--kubeconfig PATH`). Reading commands, `create`, `version` and
+  `completion` are unchanged. The state-changing commands refuse `--nats-url`;
+  `memory export --nats-url` still works.
 
 ---
 
