@@ -42,4 +42,14 @@ describe('crew memory page', () => {
 		expect(screen.getByRole('link', { name: 'Export' }).getAttribute('download')).toBe('homelab-pilot-memory-ompi.zip');
 		expect(container.textContent).not.toMatch(/kmctl memory/);
 	});
+
+	it('shows Last used as a local date and time with the exact UTC time in the tooltip', async () => {
+		answerWith([{ ...fact, usedAt: '2026-11-22T01:00:00Z' }]);
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelector('td.ts')).toBeTruthy());
+		const cell = container.querySelector('td.ts');
+		expect(cell?.getAttribute('title')).toBe('2026-11-22T01:00:00Z');
+		expect(cell?.textContent).not.toContain('2026-11-22T01:00:00Z');
+		expect(cell?.textContent).toMatch(/Nov/);
+	});
 });
