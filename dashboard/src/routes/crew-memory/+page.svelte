@@ -70,7 +70,7 @@
 		{/if}
 	</div>
 	<p class="sub">
-		Working memory is what a crew has learned about this cluster and keeps between discussions, such as which accelerator
+		Working memory is what a crew has learned about this cluster and keeps between conversations, such as which accelerator
 		holds which model. Facts are scoped to one crew, and the least recently used are dropped over time.
 	</p>
 
