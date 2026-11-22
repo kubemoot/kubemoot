@@ -66,3 +66,20 @@ spec:
 {{- include "kubemoot-operator.consent3Spec" . }}
   ratify:
     enabled: false
+---
+{{- /*
+consent-3-unratified is DEPRECATED and is removed in the next release. It is identical to
+consent-3, which now ships with ratification off; point archetypeRef at consent-3.
+*/}}
+apiVersion: kubemoot.ai/v1alpha1
+kind: MootArchetype
+metadata:
+  name: consent-3-unratified
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    kubemoot.ai/builtin: "true"
+spec:
+  description: "DEPRECATED, removed in the next release: use consent-3, which now ships with ratification off."
+{{- include "kubemoot-operator.consent3Spec" . }}
+  ratify:
+    enabled: false
