@@ -22,6 +22,8 @@ const GAP_PX = 8;
 const EDGE_PX = 8;
 
 let counter = 0;
+// The tooltip that is open now; opening another closes it, however either was opened.
+let openNow: (() => void) | null = null;
 
 function normalize(param: TooltipParam): Required<TooltipOptions> {
 	const opts = typeof param === 'string' ? { text: param } : param;
@@ -72,6 +74,7 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 
 	const hide = () => {
 		clearTimeout(timer);
+		if (openNow === hide) openNow = null;
 		tip.removeAttribute('data-open');
 		window.removeEventListener('keydown', onKey, true);
 		window.removeEventListener('scroll', hide, true);
@@ -79,6 +82,8 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 	};
 	const open = () => {
 		if (opts.text === '') return;
+		if (openNow && openNow !== hide) openNow();
+		openNow = hide;
 		tip.setAttribute('data-open', 'true');
 		place(tip, node, opts.placement);
 		window.addEventListener('keydown', onKey, true);

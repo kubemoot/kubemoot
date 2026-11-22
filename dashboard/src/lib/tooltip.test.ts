@@ -104,6 +104,29 @@ describe('tooltip', () => {
 		expect(tip().hasAttribute('data-open')).toBe(false);
 	});
 
+	it('keeps only one tooltip open: a hover closes one opened by focus', () => {
+		vi.useFakeTimers();
+		const first = setup('First');
+		const second = setup('Second');
+		first.button.dispatchEvent(new FocusEvent('focus'));
+		expect(first.tip().hasAttribute('data-open')).toBe(true);
+		second.button.dispatchEvent(new MouseEvent('mouseenter'));
+		vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
+		const open = [...document.querySelectorAll('[role="tooltip"]')].filter((t) => t.hasAttribute('data-open'));
+		expect(open.map((t) => t.textContent)).toEqual(['Second']);
+	});
+
+	it('keeps only one tooltip open: a focus closes one opened by hover', () => {
+		vi.useFakeTimers();
+		const first = setup('First');
+		const second = setup('Second');
+		first.button.dispatchEvent(new MouseEvent('mouseenter'));
+		vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
+		second.button.dispatchEvent(new FocusEvent('focus'));
+		const open = [...document.querySelectorAll('[role="tooltip"]')].filter((t) => t.hasAttribute('data-open'));
+		expect(open.map((t) => t.textContent)).toEqual(['Second']);
+	});
+
 	it('puts a second line in a quieter style', () => {
 		const { tip } = setup('Term.\nPurpose.');
 		expect(tip().querySelectorAll('.km-tip-quiet').length).toBe(1);
