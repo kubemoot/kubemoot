@@ -99,7 +99,8 @@ wait_until() {
 ask_crew() {
     local how="$1" ns="$2" crew="$3" url="$4" timeout="$5"
     local marker log thread payload rc=0
-    marker="smoke-$(date +%s)-$RANDOM"
+    # The marker is unique, so the test finds its thread by it; the question says it once.
+    marker="$(date +%s)-$RANDOM"
     local question="Smoke check ${marker}: reply with one short sentence."
     log=$(mktemp)
     nats sub -s "$url" --raw "kubemoot.discuss.${ns}.${crew}.>" >"$log" 2>&1 &
@@ -110,7 +111,7 @@ ask_crew() {
         payload=$(thread_start_json "$thread" "msg-${marker}" "$ns" "$crew" "$question")
         nats pub -s "$url" "kubemoot.discuss.${ns}.${crew}.general.${thread}" "$payload" >/dev/null || rc=3
     else
-        payload=$(request_json "$marker" "$ns" "$crew" "$question")
+        payload=$(request_json "smoke-${marker}" "$ns" "$crew" "$question")
         nats pub -s "$url" "kubemoot.request.${ns}.${crew}" "$payload" >/dev/null || rc=3
         if [ "$rc" = 0 ]; then
             wait_until "[ -n \"\$(thread_for_marker '$log' '$marker')\" ]" "$sub" "$timeout" || rc=$?
