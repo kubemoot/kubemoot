@@ -9,7 +9,20 @@
 // Add the text here, never inline in a page. A test fails when an icon-only button has no
 // tooltip or aria-label, and when anything else has a tooltip.
 
+/** The tooltip of each icon in the hover bars; ACTIONS.hoverTip reads them by the action's id. */
+const HOVER_TIPS = {
+	'copy-message': 'Copy: this message\'s text',
+	'edit-question': 'Edit: puts this question in the ask field to send as a follow-up',
+	'copy-id': 'Copy id: the id with the question, to paste into a report or a command',
+	'delete-conversation': 'Delete: asks first, then erases this conversation from every store that holds it'
+} as const;
+
+export type HoverId = keyof typeof HOVER_TIPS;
+
 export const ACTIONS = {
+	hoverTip: (id: HoverId) => HOVER_TIPS[id] ?? 'Run this action',
+	rowActions: 'Actions: more things to do with this row',
+	viewOptions: 'View options: copy the shown text, or show the managed fields',
 	filterMine: 'Only conversations you started',
 	refresh: 'Refresh: reloads the data on this page now; changes nothing in the cluster',
 	systemInfo: 'System info: Kubemoot versions and how long each component has been up',
@@ -24,7 +37,6 @@ export const ACTIONS = {
 			? 'Reply: sends your follow-up in this conversation as you; the crew answers in it'
 			: 'Ask: sends your question to the crew as you and starts a new conversation',
 	dismissNotice: 'Dismiss: closes this message; nothing is changed',
-	copySuite: 'Copy: this suite\'s details to the clipboard as text',
 	exportMemory: 'Export: downloads this crew\'s memory as an OMPI zip, one JSON file per fact with who learned it and when. Credential facts are left out.',
 	exportMemoryEmpty: 'Nothing to export: this crew has not learned any facts yet'
 } as const;

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ResourceTabs, PageTitle } from '#lib/components/common/index.js';
+	import { ResourceView, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -72,7 +72,7 @@
 	{:else if error}
 		<div class="error">{error}</div>
 	{:else if report}
-		<ResourceTabs resource={report}>
+		<ResourceView resource={report}>
 			<div class="sections">
 				<div class="section">
 					<h2>Status</h2>
@@ -174,7 +174,7 @@
 					{/if}
 				</div>
 			</div>
-		</ResourceTabs>
+		</ResourceView>
 	{/if}
 </div>
 

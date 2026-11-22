@@ -4,3 +4,4 @@ export * from './kubemoot-crds.js';
 export * from './nodes.js';
 export * from './configmaps.js';
 export * from './deployments.js';
+export { deleteAs, deleteResource, deleteFailure, DELETABLE, type DeletableKind } from './delete.js';

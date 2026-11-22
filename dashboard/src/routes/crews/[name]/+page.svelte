@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { ResourceTabs, PageTitle } from '#lib/components/common/index.js';
+	import { ResourceView, PageTitle } from '#lib/components/common/index.js';
+	import CrewActions from '#lib/components/crews/CrewActions.svelte';
+	import { goto } from '$app/navigation';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -26,6 +28,7 @@
 		};
 	}
 
+	const signedIn = $derived(!!page.data.user);
 	let crew = $state<Crew | null>(null);
 	const capacity = $derived(capacityCondition(crew?.status?.conditions));
 	let agents = $state<Agent[]>([]);
@@ -127,6 +130,9 @@
 		<span class="phase-badge" class:ready={crew.status?.phase === 'Ready'} class:err={crew.status?.phase === 'Error'} class:waiting={crew.status?.phase === WAITING_FOR_CAPACITY}>
 			{crewPhaseLabel(crew.status?.phase)}
 		</span>
+		<div class="header-actions">
+			<CrewActions {crew} {signedIn} ondeleted={() => void goto(resolve('/crews'))} />
+		</div>
 	{/if}
 </div>
 
@@ -135,7 +141,7 @@
 {:else if error}
 	<p class="status-msg error">{error}</p>
 {:else if crew}
-	<ResourceTabs resource={crew}>
+	<ResourceView resource={crew}>
 		<div class="detail-grid">
 			<div class="detail-section">
 				<h2>Spec</h2>
@@ -250,13 +256,14 @@
 				</table>
 			</div>
 		{/if}
-	</ResourceTabs>
+	</ResourceView>
 {/if}
 
 <style>
 	.detail-header {
 		display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;
 	}
+	.header-actions { margin-left: auto; display: flex; }
 	.back-link { color: var(--color-text-muted); font-size: 0.85rem; }
 	.technical-name { font-size: 0.85rem; font-family: var(--font-mono); color: var(--color-text-muted); }
 	.phase-badge {

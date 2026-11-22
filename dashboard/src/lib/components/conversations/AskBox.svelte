@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { CrewScope } from '#lib/crewScope.js';
@@ -39,6 +40,14 @@
 	$effect(() => {
 		if (focus && field) field.focus();
 	});
+
+	/** Puts a question in the field for the person to edit and send, with the cursor at its end. */
+	export async function fill(value: string): Promise<void> {
+		text = value;
+		await tick();
+		field?.focus();
+		field?.setSelectionRange(value.length, value.length);
+	}
 
 	function refuse(err: unknown) {
 		if (err instanceof AskRefused) refusal = { status: err.status, message: err.message };

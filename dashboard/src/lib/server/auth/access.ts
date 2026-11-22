@@ -19,7 +19,7 @@ export interface AccessInput {
 /** Reachable without a session: the sign-in page, and the probes and static files that carry no data. */
 const PUBLIC: readonly RegExp[] = [/^\/(signin|api\/health|_app)(\/|$)/, /^\/favicon/];
 
-/** The writes the dashboard server accepts: signing in and out, asking a crew, and acting on a conversation. */
+/** The writes the dashboard server accepts: signing in and out, asking a crew, acting on a conversation, deleting a crew or a fitness run. */
 interface WriteRoute {
 	method: string;
 	pattern: RegExp;
@@ -31,7 +31,10 @@ const WRITE_ROUTES: readonly WriteRoute[] = [
 	{ method: 'POST', pattern: /^\/api\/gateway\/[^/]+\/[^/]+\/ask\/?$/ },
 	// stop, pause, resume and delete a conversation, as the signed-in person
 	{ method: 'POST', pattern: /^\/api\/gateway\/[^/]+\/[^/]+\/[^/]+\/(stop|pause|resume)\/?$/ },
-	{ method: 'DELETE', pattern: /^\/api\/gateway\/[^/]+\/[^/]+\/[^/]+\/?$/ }
+	{ method: 'DELETE', pattern: /^\/api\/gateway\/[^/]+\/[^/]+\/[^/]+\/?$/ },
+	// delete a crew or a fitness run, as the signed-in person; the operator's finalizer cleans up
+	{ method: 'DELETE', pattern: /^\/api\/kubemoot\/crews\/[^/]+\/?$/ },
+	{ method: 'DELETE', pattern: /^\/api\/kubemoot\/crewfitnesssuites\/[^/]+\/[^/]+\/?$/ }
 ];
 
 function isWriteRoute(method: string, path: string): boolean {

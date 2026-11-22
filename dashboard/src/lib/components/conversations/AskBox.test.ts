@@ -58,4 +58,23 @@ describe('AskBox', () => {
 		expect(screen.queryByLabelText('Your question')).toBeNull();
 		expect(document.body.textContent).not.toContain('kmctl');
 	});
+
+	it('fills the field with a question to edit and focuses it with the cursor at the end', async () => {
+		const { component } = render(AskBox, { scope, fetchFn: mockFetch(), conversationId: 'c-1' });
+		await component.fill('Which GPU is hotter?');
+		const field = screen.getByLabelText<HTMLTextAreaElement>('Your question');
+		expect(field.value).toBe('Which GPU is hotter?');
+		expect(document.activeElement).toBe(field);
+		expect(field.selectionStart).toBe('Which GPU is hotter?'.length);
+		expect(screen.getByRole('button', { name: 'Send reply' })).toBeTruthy();
+	});
+
+	it('replaces what was typed when a question is filled, and does not send it', async () => {
+		const fetchFn = mockFetch();
+		const { component } = render(AskBox, { scope, fetchFn });
+		await type('half a thought');
+		await component.fill('the earlier question');
+		expect(screen.getByLabelText<HTMLTextAreaElement>('Your question').value).toBe('the earlier question');
+		expect(fetchFn).not.toHaveBeenCalled();
+	});
 });

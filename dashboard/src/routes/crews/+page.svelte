@@ -6,6 +6,8 @@
 	import { resolve } from '$app/paths';
 	import { namespace } from '#lib/stores/index.js';
 	import { PageTitle } from '#lib/components/common/index.js';
+	import CrewActions from '#lib/components/crews/CrewActions.svelte';
+	import { page } from '$app/state';
 	import type { Crew } from '#lib/types/kubemoot.js';
 	import { LiveList } from '#lib/client/liveList.svelte.js';
 
@@ -17,25 +19,32 @@
 	$effect(() => {
 		live.setNamespace($namespace);
 	});
+
+	const signedIn = $derived(!!page.data.user);
+	// A crew the person has just deleted says so until the operator has finished cleaning up and the watch drops it.
+	let deleting = $state<Set<string>>(new Set());
+	const keyOf = (c: Crew) => `${c.metadata.namespace}/${c.metadata.name}`;
+	const isDeleting = (c: Crew) => deleting.has(keyOf(c)) || !!c.metadata.deletionTimestamp;
+	const crews = $derived(live.items);
 </script>
 
 <div class="page-header">
 	<PageTitle route="/crews" />
-	<span class="count">{live.items.length}</span>
+	<span class="count">{crews.length}</span>
 </div>
 
 {#if live.loading}
 	<p class="status-msg">Loading crews...</p>
 {:else if live.error}
 	<p class="status-msg error">{live.error}</p>
-{:else if live.items.length === 0}
+{:else if crews.length === 0}
 	<p class="status-msg">No crews found in namespace <code>{$namespace}</code></p>
 {:else}
 	<div class="crew-grid">
-		{#each live.items as crew (crew.metadata.namespace + '/' + crew.metadata.name)}
+		{#each crews as crew (keyOf(crew))}
 			{@const status = crew.status}
 			{@const ready = crewCanAnswer(status?.phase, status?.ready)}
-			{@const phase = status?.phase ?? 'Unknown'}
+			{@const phase = isDeleting(crew) ? 'Deleting' : (status?.phase ?? 'Unknown')}
 			{@const discussing = !!status?.discussionEndpoint}
 			{@const version = chartVersion(crew.metadata.labels)}
 			{@const technical = crewTechnicalHint(crew)}
@@ -86,6 +95,9 @@
 					{/if}
 				</div>
 			</a>
+			<div class="crew-menu">
+				<CrewActions {crew} {signedIn} canDelete={!isDeleting(crew)} openHref="{resolve('/crews/[name]', { name: crew.metadata.name })}?namespace={crew.metadata.namespace}" ondeleted={(c) => (deleting = new Set([...deleting, keyOf(c)]))} />
+			</div>
 			</div>
 		{/each}
 	</div>
@@ -109,7 +121,8 @@
 		gap: 1rem;
 	}
 
-	.crew-item { display: flex; flex-direction: column; gap: 0.4rem; }
+	.crew-item { position: relative; display: flex; flex-direction: column; gap: 0.4rem; }
+	.crew-menu { position: absolute; right: 0.75rem; bottom: 0.7rem; display: flex; }
 	.crew-item .crew-card { flex: 1; }
 	.crew-card {
 		background: var(--color-bg-secondary);
@@ -163,7 +176,7 @@
 	.crew-footer {
 		display: flex; justify-content: space-between; align-items: center;
 		padding-top: 0.5rem; border-top: 1px solid var(--color-border);
-		font-size: 0.75rem;
+		font-size: 0.75rem; padding-right: 2.25rem; min-height: 1.75rem;
 	}
 	.ns-label { color: var(--color-text-muted); font-family: var(--font-mono); }
 	.discuss-badge { color: var(--color-success); font-weight: 500; }

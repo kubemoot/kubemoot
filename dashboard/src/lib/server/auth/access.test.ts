@@ -76,10 +76,24 @@ describe('with a session', () => {
 	});
 
 	it('still refuses every other write with 405', () => {
-		for (const path of ['/api/nats/publish', '/api/kubemoot/crews/x', '/crews', '/api/gateway/ns/crew/abc/restart', '/api/gateway/ns/crew/abc/stop/now']) {
+		for (const path of ['/api/nats/publish', '/api/kubemoot/crews', '/crews', '/api/gateway/ns/crew/abc/restart', '/api/gateway/ns/crew/abc/stop/now', '/api/kubemoot/crews/x/agents', '/api/kubemoot/crewfitnesssuites/ns']) {
 			expect(decide({ method: 'DELETE', path, ...on })).toMatchObject({ action: 'deny', status: 405 });
 			expect(decide({ method: 'POST', path, ...on })).toMatchObject({ action: 'deny', status: 405 });
 		}
+	});
+
+	it('allows deleting a crew or a fitness run, and no other method on them', () => {
+		expect(decide({ method: 'DELETE', path: '/api/kubemoot/crews/homelab-pilot', ...on })).toEqual({ action: 'allow' });
+		expect(decide({ method: 'DELETE', path: '/api/kubemoot/crewfitnesssuites/crew-a/gate-run', ...on })).toEqual({ action: 'allow' });
+		for (const method of ['POST', 'PUT', 'PATCH']) {
+			expect(decide({ method, path: '/api/kubemoot/crews/homelab-pilot', ...on })).toMatchObject({ status: 405 });
+			expect(decide({ method, path: '/api/kubemoot/crewfitnesssuites/crew-a/gate-run', ...on })).toMatchObject({ status: 405 });
+		}
+	});
+
+	it('asks a visitor who is not signed in to sign in before deleting, even in anonymous read-only mode', () => {
+		expect(decide({ method: 'DELETE', path: '/api/kubemoot/crews/homelab-pilot' })).toMatchObject({ status: 401 });
+		expect(decide({ method: 'DELETE', path: '/api/kubemoot/crewfitnesssuites/ns/run', anonymousReadOnly: true })).toMatchObject({ status: 401 });
 	});
 
 	it('moves a signed-in visitor away from the sign-in page', () => {

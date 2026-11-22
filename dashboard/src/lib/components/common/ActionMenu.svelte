@@ -14,11 +14,13 @@
 		entries: MenuEntry[];
 		/** What opening the menu offers, said in the tooltip of its button (text from ACTIONS). */
 		tip: string;
+		/** The button's picture: lines (the default), three dots for a row's actions, or sliders for view options. */
+		icon?: 'menu' | 'more' | 'options';
 		/** Names the menu for assistive technology. */
 		label?: string;
 	}
 
-	let { entries, label = 'Actions', tip }: Props = $props();
+	let { entries, label = 'Actions', tip, icon = 'menu' }: Props = $props();
 
 	let open = $state(false);
 	let root = $state<HTMLElement | null>(null);
@@ -92,7 +94,15 @@
 		onclick={() => (open ? close(false) : openMenu())}
 		onkeydown={onButtonKey}
 	>
-		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" /></svg>
+		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+			{#if icon === 'more'}
+				<circle cx="5" cy="12" r="1.4" fill="currentColor" /><circle cx="12" cy="12" r="1.4" fill="currentColor" /><circle cx="19" cy="12" r="1.4" fill="currentColor" />
+			{:else if icon === 'options'}
+				<line x1="4" y1="7" x2="20" y2="7" /><circle cx="9" cy="7" r="2" fill="var(--color-bg-secondary)" /><line x1="4" y1="17" x2="20" y2="17" /><circle cx="15" cy="17" r="2" fill="var(--color-bg-secondary)" />
+			{:else}
+				<line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" />
+			{/if}
+		</svg>
 	</button>
 	{#if open}
 		<div class="menu" role="menu" aria-label={label} tabindex="-1" onkeydown={onMenuKey}>

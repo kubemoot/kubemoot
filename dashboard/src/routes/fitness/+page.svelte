@@ -7,13 +7,15 @@
 	import { namespace, showStandAsides } from '#lib/stores/index.js';
 	import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 	import { acceleratorOfEvent } from '#lib/accelerator-capacity.js';
-	import { CopyIcon, PageTitle } from '#lib/components/common/index.js';
+	import { page } from '$app/state';
+	import { CopyFlash } from '#lib/copy-flash.svelte.js';
+	import { ActionMenu, CopyIcon, DeleteResourceDialog, PageTitle, type MenuEntry } from '#lib/components/common/index.js';
 	import {
 		suiteDisplayPhase,
 		suiteIsJudged
 	} from '#lib/fitness-suite-controls.js';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
-	import { durTitle, fmtDateTime, fmtDur, iterDurText, phaseLabel, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
+	import { durTitle, fmtDateTime, fmtDur, formatBytes, iterDurText, phaseLabel, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
 	import { etaText, meanDurationMs, suiteEta } from '#lib/fitness-eta.js';
 	import {
 		SUITE_LABEL,
@@ -269,6 +271,7 @@
 	function upsertSuite(obj: CrewFitnessSuite) {
 		const name = obj?.metadata?.name;
 		if (!name) return;
+
 		const i = suites.findIndex((s) => s.metadata.name === name);
 		if (i >= 0) {
 			suites[i] = obj;
@@ -478,22 +481,53 @@
 		return PHASE_CLASSES[phase ?? ''] ?? 'phase-pending';
 	}
 
-	// Copy a suite's run context to the clipboard as markdown, so it can be pasted
+	// Copy a suite's name and run summary to the clipboard as markdown, so it can be pasted
 	// into a report or ticket without screenshotting or downloading the XLSX.
-	let copiedKey = $state<string | null>(null);
-	async function copySuite(suite: CrewFitnessSuite, e: Event) {
-		e.stopPropagation(); // don't toggle the row open
-		const key = `${suite.metadata.namespace ?? ''}/${suite.metadata.name ?? ''}`;
-		const text = suiteMarkdown(suite, judgeState[key]);
-		try {
-			await navigator.clipboard.writeText(text);
-			copiedKey = key;
-			setTimeout(() => {
-				if (copiedKey === key) copiedKey = null;
-			}, 1500);
-		} catch {
-			/* clipboard API unavailable (e.g. insecure context) */
+	const flash = new CopyFlash();
+
+	const signedIn = $derived(!!page.data.user);
+	let deleting = $state<CrewFitnessSuite | null>(null);
+
+	// The delete is accepted; the operator's finalizer is cleaning up. The row says so until the watch drops it.
+	function markDeleting(suite: CrewFitnessSuite) {
+		const stamped = { ...suite, metadata: { ...suite.metadata, deletionTimestamp: new Date().toISOString() } };
+		suites = suites.map((s) => (s.metadata.uid === suite.metadata.uid ? stamped : s));
+	}
+
+	/** What a delete removes, named for the confirmation: the run, its results and its report. */
+	function whatGoes(suite: CrewFitnessSuite): string[] {
+		const total = suite.status?.iterationsTotal ?? 0;
+		const report = suite.status?.artifactRef?.objectKey ? [`Its XLSX report (${formatBytes(suite.status.artifactRef.sizeBytes)})`] : [];
+		return [
+			`The run ${suite.metadata.name} in ${suite.metadata.namespace}`,
+			...(total > 0 ? [`Its ${total} iteration results, transcripts and scores`] : []),
+			...report
+		];
+	}
+
+	// One menu per row: open it, copy its summary, download its report, delete it.
+	function suiteMenu(suite: CrewFitnessSuite): MenuEntry[] {
+		const ns = suite.metadata.namespace ?? '';
+		const name = suite.metadata.name ?? '';
+		const entries: MenuEntry[] = [
+			{ kind: 'item', label: openSuite[`${ns}/${name}`] ? 'Close' : 'Open', onselect: () => void toggleSuite(ns, name) },
+			{ kind: 'item', label: 'Copy summary', onselect: () => void flash.copy(`${ns}/${name}`, suiteMarkdown(suite, judgeState[`${ns}/${name}`])) }
+		];
+		const report = suite.status?.artifactRef;
+		if (report?.objectKey) {
+			const href = resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name });
+			entries.push({ kind: 'link', label: `Download XLSX (${formatBytes(report.sizeBytes)})`, href, download: true });
 		}
+		if (signedIn && !suite.metadata.deletionTimestamp) {
+			entries.push({ kind: 'separator' }, { kind: 'item', label: 'Delete...', danger: true, onselect: () => (deleting = suite) });
+		}
+		return entries;
+	}
+
+	// A click inside the row's menu belongs to the menu, not to the row that opens it.
+	function onRowClick(event: MouseEvent, ns: string, name: string) {
+		if ((event.target as Element).closest('.c-actions')) return;
+		void toggleSuite(ns, name);
 	}
 </script>
 
@@ -535,7 +569,7 @@
 				<th>Pass / Fail / Err</th>
 				<th>Progress</th>
 				<th>Duration</th>
-				<th class="c-report">Report</th>
+				<th class="c-actions" aria-label="Actions"></th>
 			</tr>
 		</thead>
 		{#each suites as suite (suite.metadata.uid ?? suite.metadata.name)}
@@ -545,10 +579,12 @@
 			{@const id = `${ns}/${name}`}
 			{@const eta = suiteEta(s, now)}
 			<tbody>
-				<tr class="suite-row" onclick={() => toggleSuite(ns, name)}>
+				<tr class="suite-row" onclick={(e) => onRowClick(e, ns, name)}>
 					<td class="c-caret">{openSuite[id] ? '▼' : '▶'}</td>
 					<td>
-						{#if isJudging(id, s?.phase)}
+						{#if suite.metadata.deletionTimestamp}
+							<span class="badge phase-pending" title="The operator is removing this run">Deleting</span>
+						{:else if isJudging(id, s?.phase)}
 							<span class="badge phase-running running-badge" title="Suite finished - quality judging in progress"><span class="spin"></span>judging {judgeState[id].judged}</span>
 						{:else}
 							{@render statusBadge(suiteDisplayPhase(suite))}
@@ -562,11 +598,9 @@
 					<td class="mono"><span class="passed">{s?.passed ?? 0}</span>/<span class="failed">{s?.failed ?? 0}</span>/<span class="errored">{s?.errored ?? 0}</span></td>
 					<td class="mono">{s?.iterationsCompleted ?? 0}/{s?.iterationsTotal ?? 0}</td>
 					<td class="mono" title={durTitle(s?.startedAt, s?.completedAt)}>{fmtDur(suiteDurMs(s, now))}{#if eta}<div class="desc" title="Estimate: iterations left x elapsed time per completed iteration">{etaText(eta)}</div>{/if}</td>
-					<td class="c-report">
-						<button aria-label="Copy suite details" use:tooltip={ACTIONS.copySuite} class="copy-btn" onclick={(e) => copySuite(suite, e)}><CopyIcon done={copiedKey === id} /></button>
-						{#if s?.artifactRef?.objectKey}
-							<a class="dl" href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}" download onclick={(e) => e.stopPropagation()}>⬇ XLSX</a>
-						{:else}<span class="muted small">-</span>{/if}
+					<td class="c-actions">
+						{#if flash.copied === id}<span class="copied" role="status">Copied</span>{/if}
+						<ActionMenu entries={suiteMenu(suite)} label="Actions for {name}" tip={ACTIONS.rowActions} icon="more" />
 					</td>
 				</tr>
 
@@ -739,6 +773,22 @@
 	{/if}
 {/if}
 
+{#if deleting}
+	{@const target = deleting}
+	<DeleteResourceDialog
+		kind="suite"
+		namespace={target.metadata.namespace ?? ''}
+		name={target.metadata.name ?? ''}
+		question="Delete the fitness run {target.metadata.name}?"
+		goes={whatGoes(target)}
+		onclose={() => (deleting = null)}
+		ondeleted={() => {
+			markDeleting(target);
+			deleting = null;
+		}}
+	/>
+{/if}
+
 <style>
 	.page-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.4rem; }
 	.count { background: var(--color-bg-tertiary); padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.8rem; color: var(--color-text-muted); }
@@ -870,15 +920,6 @@
 	.passed { color: var(--color-success); font-weight: 600; }
 	.failed { color: var(--color-error); font-weight: 600; }
 	.errored { color: var(--color-warning, #c66); font-weight: 600; }
-	.dl { color: var(--color-cyan); text-decoration: none; font-family: var(--font-mono); font-size: 0.78rem; padding: 0.08rem 0.35rem; border: 1px solid var(--color-cyan); border-radius: 4px; }
-	.dl:hover { text-decoration: underline; }
-	/* The Report column keeps the copy button and the download link on one line, never cut off. */
-	.c-report { white-space: nowrap; width: 1%; }
-	.c-report .dl { display: inline-block; }
-	.copy-btn { display: inline-flex; vertical-align: middle; margin-right: 0.4rem; background: none; border: none; border-radius: 4px; cursor: pointer; color: var(--color-text-muted); line-height: 1; padding: 0.2rem; }
-	.copy-btn:hover { opacity: 0.7; }
-	@media (max-width: 1100px) {
-		.ftable th, .ftable td { padding-left: 0.2rem; padding-right: 0.2rem; }
-		.ftable > thead .c-caret, .ftable .suite-row .c-caret { width: 1.2rem; padding-right: 0; }
-	}
+	.c-actions { width: 4.5rem; text-align: right; white-space: nowrap; }
+	.copied { margin-right: 0.4rem; font-size: 0.75rem; color: var(--color-success); }
 </style>

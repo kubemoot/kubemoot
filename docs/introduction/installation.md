@@ -215,8 +215,8 @@ All three are off by default and the install connects as before. The names every
 ### Optional: the dashboard
 
 The operator chart carries the [dashboard](../../operating/dashboard/) as an optional
-subchart. It is off by default because the dashboard has no login, so whoever reaches it can read
-discussions and crew memory. The dashboard is read-only. To install it with the operator:
+subchart. It is off by default. You sign in to the dashboard with a Kubernetes token and it acts as
+you, so your own RBAC decides what it shows and what you can change. To install it with the operator:
 
 ```bash
 helm upgrade --install kubemoot-operator \
