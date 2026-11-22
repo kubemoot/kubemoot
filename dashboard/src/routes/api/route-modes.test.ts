@@ -17,8 +17,15 @@ const sources = import.meta.glob<string>('./**/+server.ts', {
 
 const WRITE_EXPORTS = ['POST', 'PUT', 'PATCH', 'DELETE', 'fallback'];
 
-/** The only API write: asking a crew through its gateway as the signed-in person (the hook lists it too). */
-const ALLOWED_WRITES = ['POST ./gateway/[namespace]/[crew]/ask/+server.ts'];
+/**
+ * The only API writes: asking a crew, and stopping, pausing, resuming or deleting its
+ * conversations, all through the crew's gateway as the signed-in person (the hook lists them too).
+ */
+const ALLOWED_WRITES = [
+	'DELETE ./gateway/[namespace]/[crew]/[conversationId]/+server.ts',
+	'POST ./gateway/[namespace]/[crew]/[conversationId]/[control]/+server.ts',
+	'POST ./gateway/[namespace]/[crew]/ask/+server.ts'
+];
 
 /** Routes that do not use the scope helper, and why that is correct. */
 const CLUSTER_SCOPED: Record<string, string> = {
@@ -78,7 +85,7 @@ describe('route enumeration', () => {
 		expect(Object.keys(modules).length).toBeGreaterThan(30);
 	});
 
-	it('finds no route that exports a write handler but asking a crew', () => {
+	it('finds no route that exports a write handler but the conversation actions', () => {
 		expect(writeHandlers().map((h) => `${h.method} ${h.file}`)).toEqual(ALLOWED_WRITES);
 	});
 });

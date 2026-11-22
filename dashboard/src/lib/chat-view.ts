@@ -9,8 +9,8 @@ import { formatDuration } from '#lib/duration-format.js';
 import type { CrewScope } from '#lib/crewScope.js';
 import type { Thread } from '#lib/stores/discussions.js';
 
-/** What a person sends: the opening question, a reply, a follow-up. */
-const PERSON_TYPES: ReadonlySet<string> = new Set(['thread_start', 'reply', 'follow_up']);
+/** What a person sends after the opening question: a reply, a follow-up. */
+const PERSON_TYPES: ReadonlySet<string> = new Set(['reply', 'follow_up']);
 
 export interface AnswerDetails {
 	/** Milliseconds from the person's question to this answer. */
@@ -28,7 +28,12 @@ export interface ChatTurn {
 	details?: AnswerDetails;
 }
 
+/**
+ * The opening of a thread is the person's question, whoever published it: a question asked
+ * through the gateway is opened by the crew's coordinator and carries the question as text.
+ */
 function isPersonTurn(msg: DiscussionMessage): boolean {
+	if (msg.messageType === 'thread_start') return true;
 	return msg.agentName === 'human' && PERSON_TYPES.has(msg.messageType);
 }
 
@@ -133,7 +138,7 @@ export function detailsLine(d: AnswerDetails | undefined): string {
 }
 
 /** The threads that belong to the selected crew, newest first as given. */
-export function crewThreads(threads: Thread[], scope: CrewScope | null): Thread[] {
+export function crewThreads<T extends Thread>(threads: T[], scope: CrewScope | null): T[] {
 	if (!scope) return threads;
 	return threads.filter(
 		(t) => t.namespace === scope.namespace && (t.crew === undefined || t.crew === scope.crew)

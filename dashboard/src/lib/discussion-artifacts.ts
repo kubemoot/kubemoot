@@ -1,5 +1,5 @@
 // Shared client-side helpers for discussion/finding/synthesis rendering, used by
-// BOTH the live discussions view (src/routes/discussions/+page.svelte) and the
+// BOTH the live discussions view (src/routes/moot/+page.svelte) and the
 // fitness transcript view (src/routes/fitness/+page.svelte). Kept in one place so
 // the marker parse, the download URL, and the collapse threshold can never drift
 // between the two views (the divergent-duplication smell this module exists to

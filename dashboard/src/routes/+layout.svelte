@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import '../app.css';
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';

@@ -212,6 +212,15 @@ function foldMessage(threads: Map<string, Thread>, msg: DiscussionMessage, subje
 	return true;
 }
 
+/** Drops threads from the view, as after the conversation they belong to is deleted. */
+export function forgetThreads(threadIds: readonly string[]) {
+	threadsMap.update((threads) => {
+		let changed = false;
+		for (const id of threadIds) changed = threads.delete(id) || changed;
+		return changed ? new Map(threads) : threads;
+	});
+}
+
 /** Folds one live discussion message into the threads and notifies subscribers once. */
 export function handleMessage(msg: DiscussionMessage, subject?: string) {
 	threadsMap.update((threads) => (foldMessage(threads, msg, subject) ? new Map(threads) : threads));
@@ -414,6 +423,9 @@ async function loadRecent() {
 		noteWindow(page);
 	}
 	streamReady.set(true);
+	// A thread whose start is older than the page shows its answer as its title until its own
+	// subject is read; the lists name a thread by its question, so read those now.
+	void completePartialThreads();
 }
 
 /** Reads the page of history before the oldest one loaded; call when the thread list is scrolled to its end. */

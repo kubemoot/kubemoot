@@ -101,6 +101,13 @@ describe('matchesFilter', () => {
 		expect(matchesFilter(t, { ...NO_FILTER, q: 'zebra' }, null)).toBe(false);
 	});
 
+	it('drops what holds an excluded word and keeps the rest', () => {
+		const t = thread({ userQuery: 'Smoke check smoke-17: reply with ok' });
+		expect(matchesFilter(t, { ...NO_FILTER, q: 'reply -smoke' }, null)).toBe(false);
+		expect(matchesFilter(thread(), { ...NO_FILTER, q: '-smoke' }, null)).toBe(true);
+		expect(matchesFilter(t, { ...NO_FILTER, q: '-smoke' }, null)).toBe(false);
+	});
+
 	it('requires every filter at once', () => {
 		expect(matchesFilter(thread(), { ...NO_FILTER, status: 'closed', q: 'zebra' }, null)).toBe(false);
 	});
@@ -111,6 +118,11 @@ describe('highlighting', () => {
 		const pieces = highlight('Gpu and gpu', 'GPU');
 		expect(pieces.map((p) => p.text).join('')).toBe('Gpu and gpu');
 		expect(pieces.filter((p) => p.hit).map((p) => p.text)).toEqual(['Gpu', 'gpu']);
+	});
+
+	it('marks each word and phrase, and not an excluded one', () => {
+		const pieces = highlight('The GPU node: smoke check', 'gpu "smoke check" -node');
+		expect(pieces.filter((p) => p.hit).map((p) => p.text)).toEqual(['GPU', 'smoke check']);
 	});
 
 	it('marks nothing for an empty query', () => {

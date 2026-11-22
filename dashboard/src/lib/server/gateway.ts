@@ -10,8 +10,10 @@ import { getCrew } from './k8s/kubemoot-crds.js';
 import { guardNamespace } from './scope.js';
 import { isDenied, kubeFailure, kubeStatus } from './k8s/errors.js';
 
+import { REASON_HEADER, validReason } from '#lib/access-reason.js';
+import { isConversationId } from '#lib/conversation-export.js';
+
 const DNS_LABEL = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
-const CONVERSATION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const MAX_MESSAGE_LENGTH = 20_000;
 
 function trimSlashes(text: string): string {
@@ -25,7 +27,7 @@ export function validLabel(value: string): boolean {
 }
 
 export function validConversationId(value: string): boolean {
-	return CONVERSATION_ID.test(value);
+	return isConversationId(value);
 }
 
 /** The gateway's address for a crew: the template from the environment, else the in-cluster Service. */
@@ -156,14 +158,30 @@ export async function proxyGateway(
 	crew: string,
 	path: string,
 	init: Parameters<typeof callGateway>[3],
-	onOk: (upstream: Response) => Response | Promise<Response>
+	onOk: (upstream: Response) => Response | Promise<Response>,
+	/** A status that is not a success but whose JSON body the caller wants as it is, such as a report. */
+	relayBodyOf: (status: number) => boolean = () => false
 ): Promise<Response> {
 	try {
 		const upstream = await callGateway(namespace, crew, path, init);
 		if (!upstream) return notSignedIn();
-		if (!upstream.ok) return await relayRefusal(upstream);
+		if (!upstream.ok && !relayBodyOf(upstream.status)) return await relayRefusal(upstream);
 		return await onOk(upstream);
 	} catch {
 		return refusal(502, "The crew's gateway could not be reached.");
 	}
 }
+
+
+/**
+ * The reason header to pass on: none when the request carries none, the trimmed reason when it
+ * is 1 to 200 characters, and an error to answer when it is not.
+ */
+export function accessReasonHeaders(request: Request): { ok: true; headers: Record<string, string> } | { ok: false; error: string } {
+	const raw = request.headers.get(REASON_HEADER);
+	if (raw === null) return { ok: true, headers: {} };
+	const reason = validReason(raw);
+	if (reason === undefined) return { ok: false, error: 'Give a reason of 1 to 200 characters, with no line breaks.' };
+	return { ok: true, headers: { [REASON_HEADER]: reason } };
+}
+

@@ -29,8 +29,8 @@
 	const navItems: NavItem[] = [
 		{ route: '/', href: resolve('/'), label: menuLabel('/'), icon: 'grid' },
 		{ route: '/nodes', href: resolve('/nodes'), label: menuLabel('/nodes'), icon: 'server' },
-		{ route: '/discussions', href: resolve('/discussions'), label: menuLabel('/discussions'), icon: 'message-square', section: 'Messaging' },
-		{ route: '/conversations', href: resolve('/conversations'), label: menuLabel('/conversations'), icon: 'message-circle' },
+		{ route: '/conversations', href: resolve('/conversations'), label: menuLabel('/conversations'), icon: 'message-circle', section: 'Messaging' },
+		{ route: '/moot', href: resolve('/moot'), label: menuLabel('/moot'), icon: 'message-square' },
 		{ route: '/crews', href: resolve('/crews'), label: menuLabel('/crews'), icon: 'users', section: 'Crews' },
 		{ route: '/agents', href: resolve('/agents'), label: menuLabel('/agents'), icon: 'cpu' },
 		{ route: '/promptmodules', href: resolve('/promptmodules'), label: menuLabel('/promptmodules'), icon: 'align-left' },

@@ -1,33 +1,44 @@
 <script lang="ts">
-	import { marked } from 'marked';
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { CrewScope } from '#lib/crewScope.js';
 	import { AskRefused, WORKING, askCrew, followAnswer, type AnswerState } from '#lib/ask-client.js';
 
+	/** The question just sent and its answer as it streams, for the page to show. */
+	export interface Live {
+		question: string;
+		answer: AnswerState;
+	}
+
 	interface Props {
 		/** The one selected crew; null when the selector shows all crews. */
 		scope: CrewScope | null;
-		/** The open conversation, when one is open: a reply continues it. */
+		/** The open conversation, when one is open: the text is a follow-up in it. */
 		conversationId?: string;
 		/** Called with the conversation id once the crew has taken a question. */
 		onAsked?: (conversationId: string) => void;
-		/** Show the answer as it streams here; the page turns it off once the discussion is open. */
-		showLive?: boolean;
+		/** The exchange in flight; the page shows it until the conversation itself is open. */
+		live?: Live | null;
+		/** Put the cursor in the field when it appears, as when a new conversation is started. */
+		focus?: boolean;
+		/** Replaceable so a test can answer without a server. */
+		fetchFn?: typeof fetch;
 	}
 
-	let { scope, conversationId, onAsked, showLive = true }: Props = $props();
+	let { scope, conversationId, onAsked, live = $bindable(null), focus = false, fetchFn }: Props = $props();
 
 	let text = $state('');
 	let sending = $state(false);
-	let startNew = $state(false);
 	let refusal = $state<{ status: number; message: string } | null>(null);
-	let asked = $state<{ question: string; answer: AnswerState } | null>(null);
+	let field = $state<HTMLTextAreaElement | null>(null);
 	let stream: AbortController | null = null;
 
-	const replying = $derived(!!conversationId && !startNew);
-	const idleLabel = $derived(replying ? 'Reply' : 'Ask');
-	const sendLabel = $derived(sending ? 'Sending...' : idleLabel);
+	const replying = $derived(!!conversationId);
+	const call = (): typeof fetch => fetchFn ?? fetch;
+
+	$effect(() => {
+		if (focus && field) field.focus();
+	});
 
 	function refuse(err: unknown) {
 		if (err instanceof AskRefused) refusal = { status: err.status, message: err.message };
@@ -41,9 +52,9 @@
 		refusal = null;
 		stream?.abort();
 		try {
-			const result = await askCrew(fetch, scope, question, replying ? conversationId : undefined);
+			const result = await askCrew(call(), scope, question, replying ? conversationId : undefined);
 			text = '';
-			asked = { question, answer: WORKING };
+			live = { question, answer: WORKING };
 			onAsked?.(result.conversationId);
 			follow(scope, result.conversationId, result.requestedAt, question);
 		} catch (err) {
@@ -55,7 +66,7 @@
 
 	function follow(crew: CrewScope, id: string, requestedAt: string | undefined, question: string) {
 		stream = new AbortController();
-		followAnswer(fetch, crew, id, requestedAt, (answer) => (asked = { question, answer }), stream.signal).catch(
+		followAnswer(call(), crew, id, requestedAt, (answer) => (live = { question, answer }), stream.signal).catch(
 			(err: unknown) => {
 				if (stream?.signal.aborted) return;
 				refuse(err);
@@ -64,7 +75,7 @@
 	}
 
 	function onKey(event: KeyboardEvent) {
-		if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+		if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
 			event.preventDefault();
 			void send();
 		}
@@ -72,65 +83,45 @@
 </script>
 
 <div class="ask">
-	{#if asked && showLive}
-		<div class="live" aria-live="polite">
-			<div class="q">You asked: {asked.question}</div>
-			{#if asked.answer.phase === 'working' && !asked.answer.answer}
-				<div class="status">
-					The crew is working on an answer{asked.answer.agents.length ? ` (${asked.answer.agents.join(', ')})` : ''}...
-				</div>
-			{/if}
-			{#if asked.answer.answer}
-				<div class="markdown">{@html marked.parse(asked.answer.answer)}</div>
-			{/if}
-			{#if asked.answer.phase === 'error'}
-				<div class="error" role="alert">{asked.answer.error}</div>
-			{/if}
-		</div>
-	{/if}
-
 	{#if refusal}
 		<div class="error" role="alert">{refusal.message}{refusal.status ? ` (${refusal.status})` : ''}</div>
 	{/if}
-
 	{#if !scope}
 		<p class="hint">Select a crew in the top bar to ask it a question.</p>
 	{:else}
-		<textarea
-			bind:value={text}
-			onkeydown={onKey}
-			rows="1"
-			placeholder={replying ? 'Reply in this conversation...' : 'Ask the crew a question...'}
-			aria-label="Your question"
-		></textarea>
-		<div class="row">
-			<button type="button" class="send" use:tooltip={ACTIONS.sendQuestion(replying)} onclick={send} disabled={sending || text.trim() === ''}>
-				{sendLabel}
+		<div class="compose">
+			<textarea
+				bind:this={field}
+				bind:value={text}
+				onkeydown={onKey}
+				rows="1"
+				placeholder={replying ? 'Reply in this conversation...' : 'Ask the crew a question...'}
+				aria-label="Your question"
+			></textarea>
+			<button type="button" class="send" onclick={send} disabled={sending || text.trim() === ''} use:tooltip={ACTIONS.sendQuestion(replying)} aria-label={replying ? 'Send reply' : 'Ask'}>
+				{#if sending}
+					<span class="dots">...</span>
+				{:else}
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+				{/if}
 			</button>
-			{#if conversationId}
-				<label class="new"><input use:tooltip={ACTIONS.startNewInstead} type="checkbox" bind:checked={startNew} /> Start a new conversation instead</label>
-			{/if}
-			<span class="hint">Asked as you. Ctrl+Enter sends.</span>
 		</div>
 	{/if}
 </div>
 
 <style>
-	.ask { display: flex; flex-direction: column; gap: 0.5rem; }
+	.ask { display: flex; flex-direction: column; gap: 0.35rem; }
+	.compose { display: flex; align-items: flex-end; gap: 0.5rem; }
 	textarea {
-		width: 100%; resize: vertical; padding: 0.5rem 0.6rem; border-radius: 0.4rem;
-		border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text);
-		font-family: inherit;
+		flex: 1; min-width: 0; resize: none; field-sizing: content; max-height: 8rem; padding: 0.45rem 0.6rem;
+		border-radius: 0.4rem; border: 1px solid var(--color-border); background: var(--color-bg-secondary);
+		color: var(--color-text); font-family: inherit; font-size: 0.9rem;
 	}
-	.row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 	.send {
-		background: var(--color-primary); color: white; border: none; border-radius: 0.4rem;
-		padding: 0.4rem 1rem; font-weight: 600;
+		display: inline-flex; align-items: center; justify-content: center; width: 2.2rem; height: 2.2rem;
+		background: var(--color-primary); color: white; border: none; border-radius: 0.4rem; cursor: pointer;
 	}
 	.send:disabled { opacity: 0.5; cursor: default; }
-	.hint, .new { font-size: 0.75rem; color: var(--color-text-muted); }
-	.live { border: 1px solid var(--color-border); border-radius: 0.4rem; padding: 0.5rem 0.75rem; background: var(--color-bg-secondary); }
-	.q { font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.3rem; }
-	.status { font-size: 0.85rem; color: var(--color-text-muted); }
+	.hint { font-size: 0.8rem; color: var(--color-text-muted); }
 	.error { color: var(--color-error); font-size: 0.85rem; }
 </style>

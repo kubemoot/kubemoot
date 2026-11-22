@@ -28,7 +28,7 @@ beforeAll(() => {
 	for (const m of all) handleMessage(m, subject);
 });
 
-describe('discussions page', () => {
+describe('the Moot page', () => {
 	it('lists the stored messages of the opened thread, signals and synthesis included', async () => {
 		const { container } = render(Page);
 		await waitFor(() => expect(container.querySelectorAll('.message-card').length).toBeGreaterThanOrEqual(4));
@@ -43,7 +43,7 @@ describe('discussions page', () => {
 
 	it('does not make the message list a scroll box of its own', () => {
 		// A list with flex: 1 and overflow-y: auto shrank to zero height under the span graph.
-		const css = readFileSync('src/routes/discussions/+page.svelte', 'utf8');
+		const css = readFileSync('src/routes/moot/+page.svelte', 'utf8');
 		const rule = /\.message-timeline \{[^}]*\}/.exec(css)?.[0] ?? '';
 		expect(rule).not.toMatch(/overflow-y:\s*auto/);
 		expect(rule).toMatch(/flex:\s*0 0 auto/);
@@ -55,7 +55,7 @@ describe('following a live discussion', () => {
 		const subject = 'kubemoot.discuss.crew-demo.demo.general.thread-live';
 		const live = (agent: string, type: DiscussionMessage['messageType'], content: string, over: Partial<DiscussionMessage> = {}) =>
 			msg(agent, type, content, { threadId: 'thread-live', timestamp: '2026-11-21T23:59:00.000Z', ...over });
-		history.replaceState({}, '', '/dashboard/discussions?thread=thread-live');
+		history.replaceState({}, '', '/dashboard/moot?thread=thread-live');
 		handleMessage(live('human', 'thread_start', 'Live question?', { metadata: { crew: 'demo', conversationId: 'c-live' } }), subject);
 		const { container } = render(Page);
 		await waitFor(() => expect(screen.getByText(/still working/)).toBeTruthy());

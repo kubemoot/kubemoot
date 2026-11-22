@@ -65,6 +65,22 @@ describe('chatTurns', () => {
 		expect(turns[0].text).toBe('hello');
 	});
 
+	it('shows the question first when the crew coordinator opened the thread for a gateway question', () => {
+		const turns = chatTurns([
+			msg('coordinator', 'thread_start', '00:00', { content: 'What are the two GPU temperatures?', metadata: { conversationId: 'c-1' } }),
+			msg('coordinator', 'advisory', '00:01'),
+			msg('coordinator', 'synthesis', '00:05', { content: 'They are 33C and 36C.' })
+		]);
+		expect(turns.map((t) => `${t.from}: ${t.text}`)).toEqual([
+			'you: What are the two GPU temperatures?',
+			'crew: They are 33C and 36C.'
+		]);
+	});
+
+	it('does not take a crew agent message other than a thread start for the person', () => {
+		expect(chatTurns([msg('coordinator', 'reply', '00:00')])).toEqual([]);
+	});
+
 	it('measures elapsed time from the question to the answer, per round', () => {
 		const turns = chatTurns(conversation());
 		expect(turns[1].details?.elapsedMs).toBe(10_000);

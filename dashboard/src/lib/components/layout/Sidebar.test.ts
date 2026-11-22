@@ -58,3 +58,19 @@ describe('Sidebar menu tooltips', () => {
 		expect(document.querySelector('[role="tooltip"][data-open]')).toBeNull();
 	});
 });
+
+describe('Sidebar order and names', () => {
+	it('lists Conversations first and the Moot second, under Messaging', () => {
+		render(Sidebar, { version: '0.1.0' });
+		const all = [...document.querySelectorAll('nav li')].map((li) => li.textContent?.trim());
+		const at = all.indexOf('Messaging');
+		expect(all.slice(at, at + 3)).toEqual(['Messaging', 'Conversations', 'Moot']);
+	});
+
+	it('has no Discussions entry, and the Moot points at /moot', () => {
+		render(Sidebar, { version: '0.1.0' });
+		const links = navLinks();
+		expect(links.map((a) => a.textContent?.trim())).not.toContain('Discussions');
+		expect(links.find((a) => a.textContent?.trim() === 'Moot')?.getAttribute('href')).toBe('/moot');
+	});
+});
