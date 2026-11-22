@@ -1,5 +1,5 @@
 {
-  "version": "2.8.0",
+  "version": "2.9.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -497,6 +497,7 @@
         "CLOSED",
         "EVALUATING",
         "PAUSED",
+        "RATIFY",
         "REVIEW",
         "SUBMITTED",
         "SYNTHESIZING"
@@ -747,6 +748,7 @@
         "agree",
         "block",
         "concern",
+        "draft",
         "evaluating",
         "failure",
         "gap_detected",
@@ -991,6 +993,70 @@
     "discussion-metadata.json#/definitions/Evidence/tool": {
       "type": "string"
     },
+    "discussion-metadata.json#/definitions/Ratification": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/definitions/Ratification/earlierObjections": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/definitions/Ratification/earlierObjections[]": {
+      "ref": "#/definitions/RatificationObjection"
+    },
+    "discussion-metadata.json#/definitions/Ratification/failures": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/definitions/Ratification/failures[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/definitions/Ratification/objections": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/definitions/Ratification/objections[]": {
+      "ref": "#/definitions/RatificationObjection"
+    },
+    "discussion-metadata.json#/definitions/Ratification/roster": {
+      "type": "array",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/Ratification/roster[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/definitions/Ratification/rounds": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/Ratification/state": {
+      "type": "string",
+      "enum": [
+        "not_ratified",
+        "ratified",
+        "released_with_objections"
+      ],
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/RatificationObjection": {
+      "type": "object"
+    },
+    "discussion-metadata.json#/definitions/RatificationObjection/agent": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/RatificationObjection/content": {
+      "type": "string",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/RatificationObjection/round": {
+      "type": "integer",
+      "required": true
+    },
+    "discussion-metadata.json#/definitions/RatificationObjection/verdict": {
+      "type": "string",
+      "enum": [
+        "block",
+        "concern"
+      ],
+      "required": true
+    },
     "discussion-metadata.json#/definitions/ReceiptAgent": {
       "type": "object",
       "constraints": {
@@ -1103,6 +1169,9 @@
     "discussion-metadata.json#/degraded": {
       "type": "boolean"
     },
+    "discussion-metadata.json#/draftId": {
+      "type": "string"
+    },
     "discussion-metadata.json#/evicted": {
       "type": "array"
     },
@@ -1180,6 +1249,9 @@
     "discussion-metadata.json#/loadDurationMs": {
       "type": "integer"
     },
+    "discussion-metadata.json#/maxRounds": {
+      "type": "integer"
+    },
     "discussion-metadata.json#/memberTasks": {
       "type": "object"
     },
@@ -1197,6 +1269,12 @@
     },
     "discussion-metadata.json#/modelsUsed[]": {
       "type": "string"
+    },
+    "discussion-metadata.json#/objections": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/objections[]": {
+      "ref": "#/definitions/RatificationObjection"
     },
     "discussion-metadata.json#/onboarding": {
       "type": "boolean"
@@ -1228,6 +1306,12 @@
     "discussion-metadata.json#/principal": {
       "ref": "principal.json"
     },
+    "discussion-metadata.json#/ratification": {
+      "ref": "#/definitions/Ratification"
+    },
+    "discussion-metadata.json#/ratifies": {
+      "type": "integer"
+    },
     "discussion-metadata.json#/reason": {
       "type": "string"
     },
@@ -1242,6 +1326,15 @@
     },
     "discussion-metadata.json#/role": {
       "type": "string"
+    },
+    "discussion-metadata.json#/roster": {
+      "type": "array"
+    },
+    "discussion-metadata.json#/roster[]": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/round": {
+      "type": "integer"
     },
     "discussion-metadata.json#/scheduleId": {
       "type": "string"

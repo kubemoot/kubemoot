@@ -15,11 +15,12 @@ import static org.junit.jupiter.api.Assertions.*;
 class DiscussionSubscriberTriggerTypesTest {
 
     @Test
-    void analystTriggersOnReviewReadyOnly() {
+    void analystTriggersOnReviewReadyAndTheDraftOnly() {
         var t = DiscussionSubscriber.triggerTypesFor("analyst");
         assertTrue(t.contains("review_ready"), "analyst must trigger on review_ready");
         assertFalse(t.contains("advisory_ready"), "analyst must NOT trigger on advisory_ready");
-        assertEquals(1, t.size(), "analyst triggers on review_ready only");
+        assertTrue(t.contains("draft"), "analyst ratifies the coordinator's draft");
+        assertEquals(2, t.size(), "analyst triggers on review_ready and the draft only");
     }
 
     @Test
@@ -34,6 +35,7 @@ class DiscussionSubscriberTriggerTypesTest {
         assertTrue(t.contains("advisory_ready"), "tooler must trigger on advisory_ready");
         assertTrue(t.contains("follow_up"));
         assertTrue(t.contains("reply"));
+        assertTrue(t.contains("draft"), "tooler ratifies the coordinator's draft");
         assertFalse(t.contains("review_ready"), "tooler must NOT trigger on review_ready");
     }
 

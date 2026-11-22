@@ -303,13 +303,28 @@ func TestTranslateAndEmit_WaitingAndStandAsideReasons(t *testing.T) {
 }
 
 func TestTranslateAndEmit_IgnoresNoiseAndUnknown(t *testing.T) {
-	for _, mt := range []string{"heartbeat", msgAdvisory, "review_ready", "something-new"} {
+	for _, mt := range []string{"heartbeat", msgAdvisory, "review_ready", "draft", "something-new"} {
 		translateAndEmit(bus.DiscussionMessage{MessageType: bus.DiscussionMessageMessageType(mt)}, func(e SSEEvent) { t.Errorf("%s emitted %+v", mt, e) })
 	}
 	var got []SSEEvent
 	translateAndEmit(bus.DiscussionMessage{MessageType: signalConcern, Content: "careful"}, func(e SSEEvent) { got = append(got, e) })
 	if len(got) != 1 || got[0].Summary != "careful" || got[0].Content != "" {
 		t.Errorf("concern: got %+v", got)
+	}
+}
+
+func TestTranslateAndEmit_ARatificationReplyIsNotAFinding(t *testing.T) {
+	for _, mt := range []string{signalAgree, signalConcern, signalBlock, signalFailure} {
+		reply := bus.DiscussionMessage{
+			MessageType: bus.DiscussionMessageMessageType(mt), AgentName: testAgent, Content: "the draft names a node I did not find",
+			Metadata: map[string]interface{}{metaRatifies: float64(1)},
+		}
+		translateAndEmit(reply, func(e SSEEvent) { t.Errorf("%s reply to a draft emitted %+v", mt, e) })
+	}
+	var got []SSEEvent
+	translateAndEmit(bus.DiscussionMessage{MessageType: signalConcern, Content: "a finding that answers no draft"}, func(e SSEEvent) { got = append(got, e) })
+	if len(got) != 1 {
+		t.Errorf("a concern that answers no draft is still a finding: %+v", got)
 	}
 }
 

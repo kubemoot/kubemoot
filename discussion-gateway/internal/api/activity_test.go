@@ -103,6 +103,10 @@ func TestActivityCoordinatorSteps(t *testing.T) {
 		{"reasoning before the advisory", []bus.DiscussionMessage{start}, doingReasoning},
 		{"waiting for woken agents", []bus.DiscussionMessage{start, actMsg(actCoord, msgAdvisoryReady, nil)}, doingWaitingForAgents},
 		{"waiting for a review", []bus.DiscussionMessage{start, actMsg(actCoord, msgAdvisory, nil), actMsg(actCoord, msgReviewReady, nil)}, doingWaitingForAgents},
+		{"waiting for the contributors to ratify the draft", []bus.DiscussionMessage{start, actMsg(actCoord, msgAdvisory, nil), actMsg(actCoord, msgDraft, nil)}, doingWaitingForAgents},
+		{"revising once every ratifier has answered", []bus.DiscussionMessage{
+			start, actMsg(actCoord, msgAdvisory, nil), actMsg(actCoord, msgDraft, nil), actMsg(testAgent, signalAgree, nil),
+		}, doingSynthesizing},
 		{"synthesizing once every agent is done", []bus.DiscussionMessage{
 			start, actMsg(actCoord, msgAdvisoryReady, nil),
 			actMsg(testAgent, phaseTriaging, nil), actMsg(testAgent, signalAgree, nil),

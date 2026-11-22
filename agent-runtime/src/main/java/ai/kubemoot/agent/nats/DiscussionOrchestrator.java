@@ -267,6 +267,8 @@ public class DiscussionOrchestrator {
     // Which analysts review, as the crew's consensus archetype declares it
     // (KUBEMOOT_DISCUSS_REVIEW_CONVENE and _FALLBACK, set by the operator).
     private final ReviewConvening.Policy reviewPolicy;
+    /** Whether and how the contributors ratify the draft (KUBEMOOT_DISCUSS_RATIFY_*, set by the operator). */
+    private final RatifyPolicy ratifyPolicy;
     // Whether the coordinator may answer a turn directly (empty tooler selection).
     // Off for single-specialist crews (the fitness judge) so the coordinator always
     // delegates to its specialist. Set via KUBEMOOT_DISCUSS_ANSWER_DIRECTLY.
@@ -385,6 +387,8 @@ public class DiscussionOrchestrator {
         this.hasAnalysts = properties.discuss().hasAnalysts();
         this.reviewPolicy = ReviewConvening.policy(
                 properties.discuss().reviewConvene(), properties.discuss().reviewFallback());
+        this.ratifyPolicy = RatifyPolicy.of(properties.discuss().ratifyEnabled(),
+                properties.discuss().ratifyMaxRounds(), properties.discuss().ratifyRoster());
         this.answerDirectlyEnabled = properties.discuss().answerDirectly();
         int advTimeout = properties.discuss().advisoryTimeoutSeconds();
         this.advisoryTimeoutSeconds = advTimeout > 0 ? advTimeout : 10;
@@ -925,7 +929,6 @@ public class DiscussionOrchestrator {
         String agentName = JsonFields.text(msg, FIELD_AGENT_NAME);
         String messageType = JsonFields.text(msg, FIELD_MESSAGE_TYPE);
         String content = JsonFields.text(msg, FIELD_CONTENT);
-        String channel = JsonFields.text(msg, FIELD_CHANNEL, CHANNEL_GENERAL);
 
         // Waking/ready signals have empty threadId: apply to all active threads
         if (threadId.isEmpty()) {
@@ -942,6 +945,22 @@ public class DiscussionOrchestrator {
         if (isDuplicateMessage(state, msg)) return;
         noteSequence(state, messageType, streamSequence);
 
+        // Ratification traffic (the draft and the replies to it) is kept out of the discussion the
+        // synthesis reads; it has its own state, and only a reply to the current round counts.
+        if (isRatifyTraffic(state, msg, messageType)) {
+            observeForReceipt(state, agentName, messageType, msg, Instant.now());
+            applyRatifyTraffic(state, agentName, messageType, content, msg);
+            return;
+        }
+        applyToThread(state, msg, filter, streamSequence);
+    }
+
+    /** Applies a message that is part of the discussion itself (not ratification traffic) to its thread. */
+    private void applyToThread(ThreadState state, JsonNode msg, ReplayFilter filter, long streamSequence) {
+        String agentName = JsonFields.text(msg, FIELD_AGENT_NAME);
+        String messageType = JsonFields.text(msg, FIELD_MESSAGE_TYPE);
+        String content = JsonFields.text(msg, FIELD_CONTENT);
+        String channel = JsonFields.text(msg, FIELD_CHANNEL, CHANNEL_GENERAL);
         var messageRecord = new MessageRecord(agentName, messageType, content, channel, Instant.now());
         state.messages.add(messageRecord);
         observeForReceipt(state, agentName, messageType, msg, messageRecord.timestamp());
@@ -961,7 +980,7 @@ public class DiscussionOrchestrator {
         }
 
         // Handle human reply on closed thread: reopen to EVALUATING
-        handleThreadReopen(state, threadId, messageType, agentName);
+        handleThreadReopen(state, state.threadId, messageType, agentName);
     }
 
     /**
@@ -997,12 +1016,14 @@ public class DiscussionOrchestrator {
         }
     }
 
-    /** True for our own thread_close / advisory_ready / review_ready echoes (we publish these). */
+    /** True for our own thread_close / advisory_ready / review_ready / draft echoes (we publish these). */
     private boolean isOwnControlEcho(String agentName, String messageType) {
-        return properties.agentName().equals(agentName)
-                && (MSG_THREAD_CLOSE.equals(messageType) || MSG_ADVISORY_READY.equals(messageType)
-                        || MSG_REVIEW_READY.equals(messageType));
+        return properties.agentName().equals(agentName) && OWN_CONTROL_ECHOES.contains(messageType);
     }
+
+    /** The control messages the coordinator publishes and hears again: the close, the two wake-ups and the draft. */
+    private static final Set<String> OWN_CONTROL_ECHOES =
+            Set.of(MSG_THREAD_CLOSE, MSG_ADVISORY_READY, MSG_REVIEW_READY, RatifyText.MSG_DRAFT);
 
     /** Dedup by messageId; an already-seen id is a redelivery to drop. */
     private boolean isDuplicateMessage(ThreadState state, JsonNode msg) {
@@ -1092,12 +1113,13 @@ public class DiscussionOrchestrator {
 
     /** A stop is honored only before the thread has already reached synthesis/closed. */
     static boolean canForceSynthesis(Phase phase) {
-        return phase != Phase.SYNTHESIZING && phase != Phase.CLOSED;
+        return phase != Phase.SYNTHESIZING && phase != Phase.RATIFY && phase != Phase.CLOSED;
     }
 
     /** A pause is honored only from a live phase (not already paused/closed/synthesizing). */
     static boolean canPause(Phase phase) {
-        return phase != Phase.PAUSED && phase != Phase.CLOSED && phase != Phase.SYNTHESIZING;
+        return phase != Phase.PAUSED && phase != Phase.CLOSED && phase != Phase.SYNTHESIZING
+                && phase != Phase.RATIFY;
     }
 
     /**
@@ -1111,7 +1133,10 @@ public class DiscussionOrchestrator {
 
     /** Dashboard "Stop": force synthesis on accumulated signals, unless already past it. */
     private void handleStopRequest(ThreadState state, String threadId, String agentName) {
-        if (canForceSynthesis(state.phase)) {
+        if (state.phase == Phase.RATIFY) {
+            log.info("Thread {} stop requested by {} - releasing the draft now", threadId, agentName);
+            releaseRatification(state, "stop");
+        } else if (canForceSynthesis(state.phase)) {
             log.info("Thread {} stop requested by {} — forcing synthesis from phase {}",
                     threadId, agentName, state.phase);
             transitionToSynthesis(state, "stop");
@@ -1380,6 +1405,7 @@ public class DiscussionOrchestrator {
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
+        state.ratify.reset();
         state.receipt.startRound(state.phaseStarted);
         events.reopened(state);
         log.info("Thread {} reopened by human reply → EVALUATING", threadId);
@@ -1467,6 +1493,7 @@ public class DiscussionOrchestrator {
         return (long) COLD_START_GRACE_SECONDS // NOSONAR S1905: deliberate widening so the int sum below is computed in long arithmetic (no overflow)
                 + advisoryTimeoutSeconds + evaluationTimeoutSeconds
                 + reviewTimeoutSeconds + synthesisTimeoutSeconds
+                + ratifyBudgetSeconds()
                 + HARD_CEILING_MARGIN_SECONDS;
     }
 
@@ -1500,7 +1527,7 @@ public class DiscussionOrchestrator {
             // Funnel through the one terminal-close path so a ceiling-terminated thread
             // gets the same synthesis + thread_close + threadCompleted metric + future
             // completion as a normal close - it must not be a divergent copy.
-            closeThread(state, resolveChannel(state), buildFallbackResponse(state), "ceiling");
+            closeThread(state, resolveChannel(state), ceilingAnswer(state), "ceiling");
         } finally {
             state.transitioning.set(false);
         }
@@ -1520,7 +1547,8 @@ public class DiscussionOrchestrator {
      *   ADVISORY     --auto------------------------->  EVALUATING   (advisory generated inline)
      *   EVALUATING   --auto: settle---------------->   REVIEW       (roster settled OR fast-path)
      *   REVIEW       --auto: settle---------------->   SYNTHESIZING (roster settled; no fast-path)
-     *   SYNTHESIZING --completeSynthesis (event)--->   CLOSED
+     *   SYNTHESIZING --draft complete (event)------>   RATIFY       (CLOSED when ratify is off or nobody contributed)
+     *   RATIFY       --auto: roster answered-------->  CLOSED       (or a revision and a next round)
      *   any\{SYNTHESIZING,CLOSED} --thread_pause (event)--> PAUSED
      *   PAUSED       --thread_resume (event)-------->   {phaseBeforePause}
      *   any\{SYNTHESIZING,CLOSED} --stop_requested (event)--> SYNTHESIZING
@@ -1543,6 +1571,8 @@ public class DiscussionOrchestrator {
         table.put(Phase.REVIEW, (state, now, elapsed) -> settlePhase(state, now, elapsed,
                 new PhaseSettle(minReviewSeconds, 0, false, false,
                         () -> transitionToSynthesis(state))));
+        // RATIFY: roster-gated; closes or revises the moment every ratifier has answered.
+        table.put(Phase.RATIFY, (state, now, elapsed) -> settleRatify(state));
         return table;
     }
 
@@ -2663,6 +2693,7 @@ public class DiscussionOrchestrator {
             // the descriptions of the files they came from. A fact no agent stated is unknown.
             String threadText = ManifestText.strip(formatThread(state), false) + stored;
             String threadPrefix = signalContext + "\n\n" + SynthesisFiles.rulesFor(threadText);
+            state.synthesisInput = threadPrefix + threadText;
             var synthesisResult = synthesizeWithCompleteness(systemPromptFor(state), threadPrefix + threadText,
                     state.threadId);
             String response = synthesisResult.text();
@@ -2684,8 +2715,10 @@ public class DiscussionOrchestrator {
             String channel = resolveChannel(state);
             response = detectAndAppendGapHint(state, response, synthToolerAgrees, channel);
 
-            // Publish synthesis (with onboarding hint appended if gap detected)
-            completeSynthesisPhase(state, channel, response, synthesisStart, "synthesized");
+            // The synthesis is a draft: the contributors ratify it before it is released.
+            if (!beginRatification(state, response, synthesisStart)) {
+                completeSynthesisPhase(state, channel, response, synthesisStart, "synthesized");
+            }
 
         } catch (Exception e) {
             log.warn("Synthesis failed for thread {}: {}", state.threadId, LogContent.reason(e));
@@ -3178,7 +3211,7 @@ public class DiscussionOrchestrator {
             completeFenced(state);
             return;
         }
-        publishToThread(state.threadId, channel, response, MSG_SYNTHESIS);
+        publishToThread(state.threadId, channel, response, MSG_SYNTHESIS, ratificationMetadata(state));
         publishThreadClose(state.threadId, channel);
         state.answer = response;
         state.phase = Phase.CLOSED;
@@ -3541,6 +3574,12 @@ public class DiscussionOrchestrator {
      * agent-published ones. Best-effort; never throws.
      */
     private void publishSyntheticFailure(String agentName, String threadId, String channel) {
+        publishSyntheticFailure(agentName, threadId, channel, Map.of());
+    }
+
+    /** As above, with {@code extra} added to the message's metadata (the round a ratifier missed). */
+    private void publishSyntheticFailure(String agentName, String threadId, String channel,
+                                         Map<String, Object> extra) {
         try {
             var conn = natsProvider.getConnection();
             if (conn == null) return;
@@ -3550,6 +3589,7 @@ public class DiscussionOrchestrator {
             meta.put("synthesizedBy", "coordinator");
             meta.put("lastError",
                     "Evaluation did not complete within the deadline; agent stopped responding");
+            meta.putAll(extra);
 
             var message = Map.of(
                     FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
@@ -3637,7 +3677,8 @@ public class DiscussionOrchestrator {
             MSG_REVIEW_READY, "[REVIEW READY]",
             "reply", "[USER REPLY]",
             "follow_up", "[FACILITATOR FOLLOW-UP]",
-            MSG_SYNTHESIS, "[SYNTHESIS]");
+            MSG_SYNTHESIS, "[SYNTHESIS]",
+            RatifyText.MSG_DRAFT, "[DRAFT]");
 
     /** Thread labels for message types shown as "[LABEL from agent]". */
     private static final Map<String, String> AUTHORED_THREAD_LABELS = Map.of(
@@ -3845,10 +3886,16 @@ public class DiscussionOrchestrator {
 
     // Visible for testing
     void publishToThread(String threadId, String channel, String content, String messageType) {
+        publishToThread(threadId, channel, content, messageType, Map.of());
+    }
+
+    /** As {@link #publishToThread(String, String, String, String)}, with {@code metadata} when it is not empty. */
+    void publishToThread(String threadId, String channel, String content, String messageType,
+                         Map<String, Object> metadata) {
         try {
             var thread = threads.get(threadId);
             String derivedId = events.messageId(thread, CoordinatorEvent.SYNTHESIS_DONE, messageType);
-            var message = Map.of(
+            var message = new HashMap<String, Object>(Map.of(
                     FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                     FIELD_THREAD_ID, threadId,
                     FIELD_AGENT_NAME, properties.agentName(),
@@ -3856,7 +3903,10 @@ public class DiscussionOrchestrator {
                     FIELD_CONTENT, publishedContent(messageType, content),
                     FIELD_CHANNEL, channel,
                     FIELD_TIMESTAMP, Instant.now().toString()
-            );
+            ));
+            if (!metadata.isEmpty()) {
+                message.put(FIELD_METADATA, metadata);
+            }
 
             byte[] payload = mapper.writeValueAsBytes(message);
 
@@ -4723,6 +4773,255 @@ public class DiscussionOrchestrator {
         return text.length() > maxLen ? text.substring(0, maxLen) + "..." : text;
     }
 
+    // --- RATIFY: the contributors check the draft before it is released ---
+
+    /** The released answer's {@code metadata.ratification}, or nothing when no draft was put to the table. */
+    private Map<String, Object> ratificationMetadata(ThreadState state) {
+        return state.ratify.active() ? Map.of("ratification", state.ratify.metadata()) : Map.of();
+    }
+
+    /**
+     * Puts the synthesis to the table as a draft. False, and nothing done, when ratification is off
+     * or no agent contributed (a direct answer): the caller releases the draft as the answer.
+     */
+    boolean beginRatification(ThreadState state, String draft, Instant synthesisStart) {
+        if (!ratifyPolicy.enabled()) {
+            return false;
+        }
+        var roster = ratifyRoster(state);
+        if (roster.isEmpty()) {
+            log.info("Thread {} - no contributor to ratify the draft; releasing it", state.threadId);
+            return false;
+        }
+        state.ratify.begin(draft, roster, synthesisStart);
+        seedRatifyRoster(state, roster);
+        state.phase = Phase.RATIFY;
+        state.phaseStarted = Instant.now();
+        enterPhase(state, "drafted");
+        log.info("Thread {} - SYNTHESIZING -> RATIFY, draft to {}", state.threadId, roster);
+        publishDraft(state);
+        return true;
+    }
+
+    /** The agents asked to ratify: those whose evidence the draft rests on, and the whole crew when the archetype says so. */
+    // Visible for testing
+    Set<String> ratifyRoster(ThreadState state) {
+        var roster = new java.util.TreeSet<String>();
+        roster.addAll(state.agreeSignals.keySet());
+        roster.addAll(state.concernSignals.keySet());
+        roster.addAll(state.blockSignals.keySet());
+        if (ratifyPolicy.roster() == RatifyPolicy.Roster.CREW) {
+            roster.addAll(crewAgentNames());
+        }
+        roster.remove(properties.agentName());
+        return roster;
+    }
+
+    /** The tooler and analyst names in the crew resumes. */
+    private Set<String> crewAgentNames() {
+        var names = new HashSet<String>();
+        try {
+            String raw = loadCrewResumes();
+            if (raw == null || raw.isBlank()) {
+                return names;
+            }
+            for (JsonNode node : mapper.readTree(raw)) {
+                String role = node.path("role").asText("");
+                if ("tooler".equalsIgnoreCase(role) || "analyst".equalsIgnoreCase(role)) {
+                    names.add(node.path(FIELD_NAME).asText(""));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Could not read the crew's agent names from the resumes: {}", LogContent.reason(e));
+        }
+        names.remove("");
+        return names;
+    }
+
+    /** Every ratifier is pending from the moment the draft is published, with the deadline a triaging signal opens. */
+    private void seedRatifyRoster(ThreadState state, Collection<String> roster) {
+        // Nothing is pending when a round begins (the round ended because every ratifier had answered),
+        // so clearing and filling is not racing the deadline check.
+        state.pendingEvaluations.clear();
+        state.phaseRoster.set(PhaseRoster.of(roster));
+        long deadline = System.currentTimeMillis() + properties.triageModel().timeoutSeconds() * 1000L;
+        for (String agent : roster) {
+            state.pendingEvaluations.put(agent, deadline);
+        }
+        metrics.setPendingEvaluations(state.pendingEvaluations.size());
+    }
+
+    /** Publishes the draft of the current round on the broadcast subject; only the roster acts on it. */
+    private void publishDraft(ThreadState state) {
+        try {
+            var conn = natsProvider.getConnection();
+            if (conn == null) return;
+            var roster = new ArrayList<>(new java.util.TreeSet<>(state.ratify.roster()));
+            var metadata = new HashMap<String, Object>();
+            metadata.put(FIELD_USER_QUERY, state.userQuery);
+            metadata.put("draftId", state.ratify.draftId());
+            metadata.put("round", state.ratify.round());
+            metadata.put("maxRounds", ratifyPolicy.maxRounds());
+            metadata.put("roster", roster);
+            metadata.put(FIELD_INNER_CIRCLE, roster);
+            if (state.ratify.round() > 1) {
+                metadata.put("objections", state.ratify.answeredObjections());
+            }
+            var message = Map.of(
+                    FIELD_MESSAGE_ID, UUID.randomUUID().toString(),
+                    FIELD_THREAD_ID, state.threadId,
+                    FIELD_AGENT_NAME, properties.agentName(),
+                    FIELD_MESSAGE_TYPE, RatifyText.MSG_DRAFT,
+                    FIELD_CONTENT, publishedContent(MSG_SYNTHESIS, state.ratify.draft()),
+                    FIELD_CHANNEL, CHANNEL_BROADCAST,
+                    FIELD_TIMESTAMP, Instant.now().toString(),
+                    FIELD_METADATA, metadata);
+            AgentTrace.publish(conn, broadcastSubject(state.crew, state.threadId), mapper.writeValueAsBytes(message));
+            log.info("Published draft round {} of thread {} to {}", state.ratify.round(), state.threadId, roster);
+        } catch (Exception e) {
+            log.warn("Failed to publish the draft of thread {}: {}", state.threadId, LogContent.reason(e));
+        }
+    }
+
+    /** True for the draft, the replies to it, and any terminal signal that arrives while the thread is in RATIFY. */
+    private static boolean isRatifyTraffic(ThreadState state, JsonNode msg, String messageType) {
+        return RatifyText.MSG_DRAFT.equals(messageType)
+                || msg.path(FIELD_METADATA).has(RatifyText.FIELD_RATIFIES)
+                || (state.phase == Phase.RATIFY && TERMINAL_SIGNALS.contains(messageType));
+    }
+
+    /**
+     * Counts a reply to the current round. Everything else is dropped: the coordinator's own draft,
+     * a reply that comes after the phase, a reply to an earlier round, and a late signal of the evidence phases.
+     */
+    // Visible for testing
+    void applyRatifyTraffic(ThreadState state, String agentName, String messageType, String content, JsonNode msg) {
+        if (properties.agentName().equals(agentName) || state.phase != Phase.RATIFY) {
+            return;
+        }
+        var kind = RatifyReply.Kind.ofSignal(messageType);
+        int round = msg.path(FIELD_METADATA).path(RatifyText.FIELD_RATIFIES).asInt(0);
+        String draftId = msg.path(FIELD_METADATA).path(RatifyText.FIELD_DRAFT_ID).asText("");
+        if (kind == null || round == 0 || !state.ratify.record(agentName, kind, content, round, draftId)) {
+            return;
+        }
+        state.pendingEvaluations.remove(agentName);
+        state.phaseRoster.get().recordTerminalSignal(agentName);
+        state.lastSignalReceived = Instant.now();
+        metrics.setPendingEvaluations(state.pendingEvaluations.size());
+        log.info("Thread {} - {} answered round {} of the draft: {}", state.threadId, agentName, round, kind.signal());
+    }
+
+    /** RATIFY's phase rule: the moment every ratifier has answered or missed its deadline, close or revise. */
+    // Visible for testing
+    void settleRatify(ThreadState state) {
+        checkRatifyTimeouts(state);
+        if (!state.ratify.everyoneAnswered()) {
+            return;
+        }
+        events.settled(state, "roster_signalled");
+        if (state.ratify.objections().isEmpty() || !ratifyPolicy.allowsRevisionAfter(state.ratify.round())) {
+            releaseRatification(state, state.ratify.outcome());
+        } else if (state.ratify.beginRevision()) {
+            startRevision(state);
+        }
+    }
+
+    /** Queues the revision; a coordinator that cannot queue it releases the draft with the objections. */
+    private void startRevision(ThreadState state) {
+        try {
+            submitLlm(() -> reviseDraft(state));
+        } catch (RuntimeException e) {
+            log.warn("Thread {} - the revision could not be queued ({}); releasing the draft with the objections",
+                    state.threadId, LogContent.reason(e));
+            state.ratify.abandonRevision();
+            releaseRatification(state, "revision_failed");
+        }
+    }
+
+    /** A ratifier past its deadline did not answer: a failure the table sees, never an agreement. */
+    private void checkRatifyTimeouts(ThreadState state) {
+        long now = System.currentTimeMillis();
+        state.pendingEvaluations.entrySet().removeIf(entry -> {
+            if (entry.getValue() >= now) {
+                return false;
+            }
+            String agent = entry.getKey();
+            int round = state.ratify.round();
+            log.warn("Thread {} - {} did not ratify round {} within its deadline", state.threadId, agent, round);
+            state.ratify.record(agent, RatifyReply.Kind.FAILURE, "did not answer within the deadline", round,
+                    state.ratify.draftId());
+            state.phaseRoster.get().recordTerminalSignal(agent);
+            publishSyntheticFailure(agent, state.threadId,
+                    state.primaryChannel != null ? state.primaryChannel : CHANNEL_GENERAL,
+                    Map.of(RatifyText.FIELD_RATIFIES, round, RatifyText.FIELD_DRAFT_ID, state.ratify.draftId()));
+            return true;
+        });
+        metrics.setPendingEvaluations(state.pendingEvaluations.size());
+    }
+
+    /**
+     * The coordinator revises the draft once, with the objections in front of it, and puts the
+     * revision to the same roster. A revision that cannot be written leaves the draft as it is and
+     * releases it with the objections: the table's objection is never dropped.
+     */
+    private void reviseDraft(ThreadState state) {
+        try {
+            String prompt = RatifyText.revisionPrompt(state.synthesisInput, state.ratify.draft(),
+                    state.ratify.objections());
+            var result = chatService.simpleLlmCallWithTokens(systemPromptFor(state), prompt);
+            recordPlacedCall(state, PHASE_SYNTHESIS, result);
+            state.synthesisInputTokens += result.inputTokens();
+            state.synthesisOutputTokens += result.outputTokens();
+            if (state.phase != Phase.RATIFY) {
+                return;
+            }
+            if (result.text() == null || result.text().isBlank()) {
+                throw new IllegalStateException("the revision came back empty");
+            }
+            if (!state.ratify.revise(result.text())) {
+                return; // released meanwhile: nothing more goes on the table
+            }
+            seedRatifyRoster(state, state.ratify.roster());
+            state.phaseStarted = Instant.now();
+            log.info("Thread {} - revised the draft on {} objection(s); round {}", state.threadId,
+                    state.ratify.answeredObjections().size(), state.ratify.round());
+            publishDraft(state);
+        } catch (Exception e) {
+            log.warn("Thread {} - the revision failed ({}); releasing the draft with the objections",
+                    state.threadId, LogContent.reason(e));
+            state.ratify.abandonRevision();
+            releaseRatification(state, "revision_failed");
+        }
+    }
+
+    /**
+     * Releases the draft as the answer: when the roster ratified, as it is; otherwise with the
+     * objections that stand and the agents that did not answer, in the text and in the metadata.
+     * Once: a stop request and the phase rule cannot both release.
+     */
+    void releaseRatification(ThreadState state, String reason) {
+        if (state.phase != Phase.RATIFY || !state.ratify.claimRelease()) {
+            return;
+        }
+        log.info("Thread {} - RATIFY -> CLOSED ({}, round {})", state.threadId, reason, state.ratify.round());
+        completeSynthesisPhase(state, resolveChannel(state), state.ratify.releaseText(),
+                state.ratify.startedAt(), "synthesized");
+    }
+
+    /** The answer of a thread that overran the hard ceiling: the draft with its objections while in RATIFY. */
+    private String ceilingAnswer(ThreadState state) {
+        return state.phase == Phase.RATIFY && state.ratify.active()
+                ? state.ratify.releaseText() : buildFallbackResponse(state);
+    }
+
+    /** What the hard ceiling allows for ratification: every round's wait for the roster and, for a revision, the call. */
+    private long ratifyBudgetSeconds() {
+        return ratifyPolicy.enabled()
+                ? (long) ratifyPolicy.maxRounds() * (properties.triageModel().timeoutSeconds() + synthesisTimeoutSeconds)
+                : 0;
+    }
+
     // Phase state machine
     enum Phase {
         SUBMITTED,      // Initial state
@@ -4730,7 +5029,8 @@ public class DiscussionOrchestrator {
         EVALUATING,     // Toolers gather; settles when every selected tooler has signalled
         REVIEW,         // Analysts cross-check (skipped for single tooler agree); settles when every woken analyst has signalled
         PAUSED,         // External pause — settle timer suspended, no phase transitions
-        SYNTHESIZING,   // LLM synthesizing final answer
+        SYNTHESIZING,   // LLM synthesizing the draft answer
+        RATIFY,         // The contributors check the draft; the coordinator revises once on objections; settles when the roster has answered
         CLOSED          // Thread complete
     }
 
@@ -4973,6 +5273,10 @@ public class DiscussionOrchestrator {
         // no skills were selected (behavior unchanged from pre-skills baseline).
         // volatile: written on llmExecutor thread, read on phase-transition thread.
         volatile Set<String> selectedSkills; // NOSONAR S3077: same pattern as innerCircle
+        /** The draft on the table and what the roster answered (see RatifyState); inactive before RATIFY. */
+        final RatifyState ratify = new RatifyState();
+        /** The text the synthesis call answered from, kept for the revision when the table objects. */
+        volatile String synthesisInput = "";
         /** Why these analysts were convened for review (see ReviewConvening); null before review. */
         volatile String reviewBasis;
 

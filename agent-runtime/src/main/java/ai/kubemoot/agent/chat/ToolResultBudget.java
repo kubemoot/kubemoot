@@ -92,12 +92,19 @@ final class ToolResultBudget {
         }
         String replacement = keptForTheCrew
                 ? ToolResultStandIn.of(toolName, result, room >= replyReserve, artifactKey)
-                : errorFor(toolName, tokens, available);
+                : errorFor(toolName, tokens, available, result);
         room -= tokens(length(toolName) + replacement.length() + ToolResultStandIn.extraChars(replacement));
         return new Admission(replacement, true, tokens, available);
     }
 
-    private String errorFor(String toolName, long tokens, long available) {
+    private String errorFor(String toolName, long tokens, long available, String result) {
+        String preview = TablePreview.of(result);
+        if (preview != null) {
+            String withPreview = fullError(toolName, tokens, available, preview);
+            if (tokens(length(toolName) + withPreview.length()) <= available) {
+                return withPreview;
+            }
+        }
         String error = fullError(toolName, tokens, available);
         return tokens(length(toolName) + error.length()) > available ? shortError(toolName) : error;
     }
@@ -111,10 +118,16 @@ final class ToolResultBudget {
     }
 
     static String fullError(String toolName, long tokens, long available) {
+        return fullError(toolName, tokens, available, null);
+    }
+
+    /** As above, with the {@link TablePreview} of the result when it is a table: its rows by their leading columns. */
+    static String fullError(String toolName, long tokens, long available, String preview) {
         return errorJson("Tool result larger than the room left in the context window: " + toolName
                 + " returned about " + tokens + " tokens and about " + available + " tokens are left."
                 + " The result was not kept. Call " + toolName + " again with a filter: a namespace,"
-                + " a label selector, a field selection, a limit, or a shorter time range." + aggregateHint(toolName));
+                + " a label selector, a field selection, a limit, or a shorter time range." + aggregateHint(toolName)
+                + (preview == null ? "" : " Table preview: " + preview));
     }
 
     /** For tools that read stored data: count, select or query it instead of reading rows. */

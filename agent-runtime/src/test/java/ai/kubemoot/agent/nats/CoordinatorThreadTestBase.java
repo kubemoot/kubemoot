@@ -148,6 +148,8 @@ abstract class CoordinatorThreadTestBase {
         when(discuss.conversationTtlMinutes()).thenReturn(1440);
         when(discuss.conversationKvBucket()).thenReturn("kubemoot_conversations");
         when(discuss.resumePreFilterTopK()).thenReturn(5);
+        // The threads these tests drive are about the phases before the answer; a test of ratification opts in.
+        when(discuss.ratifyEnabled()).thenReturn(Optional.of("false"));
         configureDiscuss(discuss);
 
         orchestrator = new DiscussionOrchestrator(natsProvider, properties, chatService,

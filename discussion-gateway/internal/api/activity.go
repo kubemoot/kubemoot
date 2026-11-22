@@ -48,6 +48,7 @@ const (
 	msgAdvisory      = "advisory"
 	msgAdvisoryReady = "advisory_ready"
 	msgReviewReady   = "review_ready"
+	msgDraft         = "draft"
 	msgHeartbeat     = "heartbeat"
 )
 
@@ -63,6 +64,8 @@ const (
 	metaAcceleratorLabel = "acceleratorLabel"
 	metaGPULabel         = "gpuLabel"
 	metaModel            = "model"
+	// metaRatifies marks a signal that answers a draft: the round it answers.
+	metaRatifies = "ratifies"
 )
 
 // acceleratorLabelOf is the accelerator a message says its sender ran on: the current key,
@@ -136,7 +139,9 @@ var coordinatorUpdates = map[bus.DiscussionMessageMessageType]func(*threadActivi
 	msgAdvisory:      func(th *threadActivity, _ bus.DiscussionMessage) { th.advised = true },
 	msgAdvisoryReady: func(th *threadActivity, _ bus.DiscussionMessage) { th.advised, th.awaitingAgents = true, true },
 	msgReviewReady:   func(th *threadActivity, _ bus.DiscussionMessage) { th.advised, th.awaitingAgents = true, true },
-	msgSynthesis:     func(th *threadActivity, _ bus.DiscussionMessage) { th.synthesized = true },
+	// The draft is on the table: the coordinator waits for the contributors to ratify it.
+	msgDraft:     func(th *threadActivity, _ bus.DiscussionMessage) { th.advised, th.awaitingAgents = true, true },
+	msgSynthesis: func(th *threadActivity, _ bus.DiscussionMessage) { th.synthesized = true },
 }
 
 func (th *threadActivity) observe(m bus.DiscussionMessage, at time.Time) {

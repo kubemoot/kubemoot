@@ -570,7 +570,7 @@ func translate(m discussMsg, emit func(SSEEvent)) {
 // translateAndEmit converts a NATS discussion message to an SSE event.
 func translateAndEmit(data bus.DiscussionMessage, emit func(SSEEvent)) {
 	switch data.MessageType {
-	case msgThreadStart, msgReviewReady, msgAdvisory, msgHeartbeat:
+	case msgThreadStart, msgReviewReady, msgAdvisory, msgHeartbeat, msgDraft:
 		return
 	case msgSynthesis:
 		emit(sseEvent(bus.StreamEventBase{Type: msgSynthesis, Content: data.Content}))
@@ -581,6 +581,9 @@ func translateAndEmit(data bus.DiscussionMessage, emit func(SSEEvent)) {
 			emit(e)
 		}
 	default:
+		if _, ratifies := data.Metadata[metaRatifies]; ratifies {
+			return // a verdict on the draft, not a finding; the answer carries the objections that stand
+		}
 		if e, ok := phaseEvent(data); ok {
 			emit(e)
 		} else if e, ok := findingEvent(data); ok {

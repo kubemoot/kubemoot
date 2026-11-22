@@ -212,6 +212,36 @@
       "items": { "type": "string" },
       "description": "The agents the coordinator convened. Absent when every agent may take part."
     },
+    "ratifies": {
+      "type": "integer",
+      "description": "On an agree, concern, block or failure sent in answer to a draft: the round of the draft it answers. The coordinator counts such a signal only in RATIFY and only for the current round; it is a verdict on the draft, not evidence."
+    },
+    "draftId": {
+      "type": "string",
+      "description": "On a draft: names it. Every reply to the draft carries the same value, so a late reply to an earlier draft (before a restart, a reopened thread or a revision) is never counted for a later one."
+    },
+    "round": {
+      "type": "integer",
+      "description": "On a draft: the round of ratification, 1 for the first draft and 2 for the revision."
+    },
+    "maxRounds": {
+      "type": "integer",
+      "description": "On a draft: the most rounds the archetype allows."
+    },
+    "roster": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "On a draft: the agents asked to ratify it. The same names as innerCircle."
+    },
+    "objections": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/RatificationObjection" },
+      "description": "On a revision (a draft of round 2 or later): the objections to the earlier draft that the revision answers."
+    },
+    "ratification": {
+      "$ref": "#/definitions/Ratification",
+      "description": "On the synthesis of a draft that was ratified: how the table answered it."
+    },
     "triageConfidence": {
       "type": "number",
       "description": "The coordinator's confidence in its choice of the inner circle."
@@ -435,6 +465,34 @@
       "properties": {
         "in": { "type": "integer", "description": "Input tokens." },
         "out": { "type": "integer", "description": "Output tokens." }
+      }
+    },
+    "RatificationObjection": {
+      "title": "RatificationObjection",
+      "type": "object",
+      "required": ["agent", "verdict", "round", "content"],
+      "properties": {
+        "agent": { "type": "string", "description": "The agent that objected." },
+        "verdict": { "type": "string", "enum": ["concern", "block"], "description": "How strongly: a concern states something its results do not support; a block says the draft contradicts them." },
+        "round": { "type": "integer", "description": "The round of the draft it objected to." },
+        "content": { "type": "string", "description": "The objection: the statement and what the agent's results show." }
+      }
+    },
+    "Ratification": {
+      "title": "Ratification",
+      "type": "object",
+      "required": ["state", "rounds", "roster"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["ratified", "released_with_objections", "not_ratified"],
+          "description": "ratified: the roster agreed. released_with_objections: an objection stands and the answer text ends with it. not_ratified: nobody objected but an agent did not answer."
+        },
+        "rounds": { "type": "integer", "description": "The rounds the draft went through." },
+        "roster": { "type": "array", "items": { "type": "string" }, "description": "The agents asked to ratify." },
+        "objections": { "type": "array", "items": { "$ref": "#/definitions/RatificationObjection" }, "description": "The objections of the last round, which stand." },
+        "earlierObjections": { "type": "array", "items": { "$ref": "#/definitions/RatificationObjection" }, "description": "The objections of earlier rounds that a revision answered." },
+        "failures": { "type": "array", "items": { "type": "string" }, "description": "The agents of the last round that did not ratify: failed, missed their deadline, or had not answered when a stop or the hard ceiling released the draft." }
       }
     },
     "ConversationTurn": {

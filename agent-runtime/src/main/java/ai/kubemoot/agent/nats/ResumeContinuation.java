@@ -67,6 +67,7 @@ final class ResumeContinuation {
             case REVIEW -> review(orchestrator, state, log);
             case PAUSED -> STAY_PAUSED;
             case SYNTHESIZING -> synthesizing(orchestrator, state, log);
+            case RATIFY -> ratifying(orchestrator, state, log);
             case CLOSED -> NOTHING;
         };
     }
@@ -122,6 +123,15 @@ final class ResumeContinuation {
         }
         orchestrator.beginSynthesis(state, Instant.now());
         return RESTART_SYNTHESIS;
+    }
+
+    /**
+     * The draft, the replies and the round are in the coordinator's memory only, and the answer is
+     * logged when the phase closes, so a thread found in RATIFY writes its draft again.
+     */
+    private static String ratifying(DiscussionOrchestrator orchestrator, ThreadState state, CoordinatorThreadState log) {
+        state.phase = DiscussionOrchestrator.Phase.SYNTHESIZING;
+        return synthesizing(orchestrator, state, log);
     }
 
     /** True when no agent has said anything in this evaluation: nobody is pending and no signal is in. */

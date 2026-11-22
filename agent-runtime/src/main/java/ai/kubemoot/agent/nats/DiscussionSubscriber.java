@@ -183,8 +183,10 @@ public class DiscussionSubscriber {
     // multi-round turns (follow_up, reply). They do NOT trigger on review_ready:
     // re-triaging every agent in the review phase caused an all-agents re-triage
     // storm, so review_ready stays off their trigger set.
+    // They do wake on the coordinator's draft (when they are on its roster): the contributors
+    // ratify the answer before it is released.
     private static final Set<String> TOOLER_TRIGGERS = Set.of(
-            MSG_ADVISORY_READY, "follow_up", MSG_REPLY
+            MSG_ADVISORY_READY, "follow_up", MSG_REPLY, RatifyText.MSG_DRAFT
     );
     // Analyst agents act in the REVIEW phase only. review_ready is re-enabled as a
     // trigger SCOPED to this role — only analysts wake on it, so the old storm
@@ -195,7 +197,7 @@ public class DiscussionSubscriber {
     // innerCircle is absent and all analysts review (the prior behavior). The
     // analyst reasons over the callers' gathered data the EVALUATING phase produced
     // (already accumulated in thread context).
-    private static final Set<String> ANALYST_TRIGGERS = Set.of(MSG_REVIEW_READY);
+    private static final Set<String> ANALYST_TRIGGERS = Set.of(MSG_REVIEW_READY, RatifyText.MSG_DRAFT);
 
     /** The trigger message types an agent acts on, by its discuss-role. */
     static Set<String> triggerTypesFor(String role) {
@@ -425,7 +427,12 @@ public class DiscussionSubscriber {
     private void tracedTurn(Context parent, String subject, PendingEvaluation evaluation) {
         var span = AgentTrace.startTurn(parent, evaluation.threadId(), evaluation.trigger(), properties.agentName());
         try (var ignored = span.makeCurrent()) {
-            evaluateAndRespond(subject, evaluation.threadId(), evaluation.conversation(), evaluation.selected());
+            if (RatifyText.MSG_DRAFT.equals(evaluation.trigger())) {
+                ratifyAndRespond(subject, evaluation.threadId(), evaluation.conversation(), evaluation.round(),
+                        evaluation.draftId());
+            } else {
+                evaluateAndRespond(subject, evaluation.threadId(), evaluation.conversation(), evaluation.selected());
+            }
         } catch (RuntimeException e) {
             AgentTrace.fail(span, e);
             throw e;
@@ -435,7 +442,12 @@ public class DiscussionSubscriber {
     }
 
     /** A discussion message this agent will evaluate, with the thread formatted for the prompt. */
-    record PendingEvaluation(String threadId, String conversation, boolean selected, String trigger) {
+    record PendingEvaluation(String threadId, String conversation, boolean selected, String trigger, int round,
+                             String draftId) {
+        PendingEvaluation(String threadId, String conversation, boolean selected, String trigger) {
+            this(threadId, conversation, selected, trigger, 0, "");
+        }
+
         PendingEvaluation(String threadId, String conversation, boolean selected) {
             this(threadId, conversation, selected, "");
         }
@@ -460,7 +472,11 @@ public class DiscussionSubscriber {
             return null;
         }
 
-        trackThreadState(threadId, agentName, messageType, ownAdvisory(msg, messageType, content));
+        int ratifyRound = msg.path(FIELD_METADATA).path(RatifyText.FIELD_RATIFIES).asInt(0);
+        if (ratifyRound == 0) {
+            // Replies to a draft are verdicts, not findings: they stay out of the thread the agents reason over.
+            trackThreadState(threadId, agentName, messageType, ownAdvisory(msg, messageType, content));
+        }
         extractMetadata(data, messageType, threadId);
 
         if (!isEvaluationTrigger(data, messageType, threadId)) {
@@ -476,8 +492,11 @@ public class DiscussionSubscriber {
         var messages = threadContext.get(threadId);
         log.info("Evaluating thread {} on trigger '{}' for agent {} (selected by coordinator)",
                 threadId, messageType, properties.agentName());
+        boolean draft = RatifyText.MSG_DRAFT.equals(messageType);
+        int round = draft ? msg.path(FIELD_METADATA).path("round").asInt(1) : 0;
+        String draftId = draft ? msg.path(FIELD_METADATA).path(RatifyText.FIELD_DRAFT_ID).asText("") : "";
         return new PendingEvaluation(threadId, formatThread(messages, threadId), isExplicitlySelected(data),
-                messageType);
+                messageType, round, draftId);
     }
 
     /** Rate-limit permits taken for the thread. Visible for testing. */
@@ -498,8 +517,13 @@ public class DiscussionSubscriber {
     private boolean isEvaluationTrigger(String data, String messageType, String threadId) {
         return !closedThreads.contains(threadId)
                 && triggerTypes.contains(messageType)
-                && rateLimiter.tryAcquire(threadId)
+                && withinRateLimit(messageType, threadId)
                 && !isExcludedByInnerCircle(data, threadId);
+    }
+
+    /** Ratifying the draft is owed to the thread, not a contribution the limit may refuse; anything else takes a permit. */
+    private boolean withinRateLimit(String messageType, String threadId) {
+        return RatifyText.MSG_DRAFT.equals(messageType) || rateLimiter.tryAcquire(threadId);
     }
 
     /**
@@ -707,6 +731,65 @@ public class DiscussionSubscriber {
             chatService.releasePlan(threadId);
             triageUses.remove(threadId);
         }
+    }
+
+    /**
+     * The agent is on the roster of the coordinator's draft: it checks the draft against what it
+     * found, with its tools, and publishes agree, concern or block for {@code round}. A call that
+     * fails, or a reply that opens with no verdict, is published as a failure: silence and a
+     * reply nobody can read are never consent.
+     */
+    // Visible for testing
+    void ratifyAndRespond(String subject, String threadId, String conversation, int round, String draftId) {
+        if (closedThreads.contains(threadId)) {
+            return;
+        }
+        long startMs = System.currentTimeMillis();
+        var heartbeat = startHeartbeat(subject, threadId);
+        try {
+            var result = runMullingInference(conversation + "\n\n" + RatifyText.ratifierInstruction(), threadId,
+                    new ThreadCapacityWait(subject, threadId));
+            publishRatification(subject, threadId, round, draftId, result, startMs);
+        } catch (Exception e) {
+            log.warn("Agent {} could not ratify round {} of thread {}: {}", properties.agentName(), round, threadId,
+                    LogContent.reason(e));
+            publishRatifyFailure(subject, threadId, round, draftId, e, startMs);
+        } finally {
+            heartbeat.cancel(false);
+            chatService.releasePlan(threadId);
+        }
+    }
+
+    /** Publishes the verdict in the model's reply, or a failure when the reply holds none. */
+    private void publishRatification(String subject, String threadId, int round, String draftId,
+                                     ChatService.ChatResult result, long startMs) {
+        var reply = RatifyReply.parse(result == null ? null : result.response());
+        long inTok = result != null ? result.inputTokens() : 0;
+        long outTok = result != null ? result.outputTokens() : 0;
+        var timing = new SignalTiming(System.currentTimeMillis() - startMs, startMs, inTok, outTok);
+        var meta = new HashMap<String, Object>(findingMetadata(result));
+        meta.put(RatifyText.FIELD_RATIFIES, round);
+        meta.put(RatifyText.FIELD_DRAFT_ID, draftId);
+        String gpuLabel = jitGpuLabelOr(result, NOT_PLACED);
+        if (reply == null) {
+            meta.put("failureType", "no_verdict");
+            publishSignal(subject, threadId, SIGNAL_FAILURE,
+                    "The reply to the draft opened with no verdict (AGREE, CONCERN or BLOCK).", timing, gpuLabel, meta);
+            return;
+        }
+        publishSignal(subject, threadId, reply.kind().signal(), reply.text(), timing, gpuLabel, meta);
+    }
+
+    private void publishRatifyFailure(String subject, String threadId, int round, String draftId, Exception e,
+                                      long startMs) {
+        String message = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
+        var meta = new HashMap<String, Object>();
+        meta.put(RatifyText.FIELD_RATIFIES, round);
+        meta.put(RatifyText.FIELD_DRAFT_ID, draftId);
+        meta.put("failureType", classifyException(e.getClass().getName(), message));
+        meta.put("lastError", truncate(message, ERROR_DETAIL_CHARS));
+        publishSignal(subject, threadId, SIGNAL_FAILURE, "Ratification failed: " + truncate(message, FAILURE_CONTENT_CHARS),
+                SignalTiming.of(System.currentTimeMillis() - startMs, startMs), NOT_PLACED, meta);
     }
 
     /**
@@ -1320,6 +1403,7 @@ public class DiscussionSubscriber {
             MSG_THREAD_START, "User Question",
             MSG_ADVISORY_READY, "Evaluation Phase Started",
             MSG_REVIEW_READY, "Review Phase - Other Agents' Responses",
+            RatifyText.MSG_DRAFT, "Draft Answer To Ratify",
             MSG_REPLY, "User Reply",
             "follow_up", "Facilitator Follow-up",
             "synthesis", "Synthesis");

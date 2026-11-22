@@ -186,7 +186,7 @@ class ChatServiceCallFilesTest {
     }
 
     @Test
-    void kubectlTableResultIsTypedAsTheTableAndHasNoRowCount() {
+    void kubectlTableResultIsTypedAsTheTableAndItsRowsAreCountedByTheRuntime() {
         registerTools(r -> "NAME   READY\npod-a  1/1\npod-b  1/1", "pods_list");
         modelCalls(call("c1", "pods_list", "{}"));
 
@@ -194,8 +194,8 @@ class ChatServiceCallFilesTest {
 
         var h = store.headers.values().iterator().next();
         assertEquals("text/plain; profile=kubectl-table", h.get(CallHeaders.CONTENT_TYPE));
-        assertFalse(h.containsKey(CallHeaders.ROWS));
-        assertTrue(result.text().contains("rows=unknown"));
+        assertEquals("2", h.get(CallHeaders.ROWS), "the lines below the header, counted in code, not by a model");
+        assertTrue(result.text().contains("rows=2"));
         assertTrue(result.text().contains("type=text/plain; profile=kubectl-table"), "the [CALL] line shows the stored type");
     }
 
