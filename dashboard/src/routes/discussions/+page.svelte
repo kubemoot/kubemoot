@@ -7,7 +7,7 @@
 	import type { Thread } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewTooltip } from '#lib/crew-display-name.js';
-	import { DiscussionSpanGraph, MessageStatsLine, PlacementPanel, ThreadSummaryPanel } from '#lib/components/discussions/index.js';
+	import { AnswerPanel, DiscussionMenu, DiscussionSpanGraph, MessageStatsLine, PlacementPanel } from '#lib/components/discussions/index.js';
 	import { debugMessageCount, visibleMessages, afterAnswerMessages } from '#lib/conversation-view.js';
 	import { placementCallsOf } from '#lib/placement-panel.js';
 	import { formatTimestamp, messageStats, summarizeThread } from '#lib/discussion-timing.js';
@@ -16,8 +16,10 @@
 	import { aggregateAgents, renderAgentSummary } from '#lib/discussion-agent-summary.js';
 	import { threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
-	import * as tips from '#lib/discussion-actions.js';
-
+	import { askCommand } from '#lib/cli-commands.js';
+	import { answerState } from '#lib/conversation-answer.js';
+	import { statusIcon } from '#lib/thread-status-icon.js';
+	import { browserTimeZone, exportHref, threadConversationId } from '#lib/conversation-export.js';
 	import { fetchDashboardVersion, versionLabel, VERSION_UNKNOWN } from '#lib/dashboard-version.js';
 
 	// Configure marked for safe inline rendering
@@ -28,6 +30,9 @@
 		color: string;
 		agentCount: number;
 	}
+
+	/** The channel every thread uses unless a crew defines more; its name is not worth showing. */
+	const DEFAULT_CHANNEL = 'general';
 
 	let selectedThreadId = $state<string | null>(null);
 
@@ -52,7 +57,6 @@
 	let openSynthesis = $state<Record<string, boolean>>({});
 
 	// Thread actions state
-	let copiedThread = $state(false);
 	let showSpanGraph = $state(false);
 	let dashboardVersion = $state(VERSION_UNKNOWN);
 	// Server-id -> discovered GPU model (e.g. "ollama-rig1" -> "RTX 4090"), so the
@@ -110,6 +114,13 @@
 			(m) => $showStandAsides || m.messageType !== 'stand_aside'
 		)
 	);
+	const selectedAnswer = $derived(answerState(selectedThread?.messages ?? [], selectedThread?.status ?? 'open'));
+	const answerElapsed = $derived.by(() => {
+		if (selectedAnswer.kind !== 'answered') return '';
+		const m = selectedThread?.messages.find((x) => x.messageId === selectedAnswer.messageId);
+		return (m && formatElapsed(selectedStats.get(m)?.elapsedMs)) || '';
+	});
+	const selectedStatus = $derived(statusIcon(selectedAnswer.kind, selectedThread ?? undefined));
 	const debugCount = $derived(debugMessageCount(selectedThread?.messages ?? []));
 	const afterAnswer = $derived(afterAnswerMessages(selectedThread?.messages ?? []));
 
@@ -184,8 +195,6 @@
 		if (!selectedThread) return;
 		const text = await formatThreadForClipboard(selectedThread);
 		await navigator.clipboard.writeText(text);
-		copiedThread = true;
-		setTimeout(() => { copiedThread = false; }, 2000);
 	}
 
 	// Build server-id -> GPU model map from the operator-discovered ModelServer
@@ -298,15 +307,12 @@
 						onclick={() => selectThread(thread.threadId)}
 					>
 						<div class="thread-header">
-							{#if thread.crew}
+							{#if thread.crew && $namespace === ''}
 								<span class="crew-badge" title={crewTooltip($crewDirectory, thread.namespace, thread.crew)}>{$namespace === '' && thread.namespace ? `${thread.namespace}/` : ''}{crewLabel($crewDirectory, thread.namespace, thread.crew)}</span>
 							{/if}
-							<span
-								class="channel-badge"
-								style="background-color: {channelColors[thread.channel] || '#6b7280'}"
-							>
-								{thread.channel}
-							</span>
+							{#if thread.channel !== DEFAULT_CHANNEL}
+								<span class="channel-badge" style="background-color: {channelColors[thread.channel] || '#6b7280'}">{thread.channel}</span>
+							{/if}
 							<span class="thread-status" class:open={thread.status === 'open'}
 								class:synthesized={thread.status === 'synthesized'}
 								class:closed={thread.status === 'closed'}>
@@ -334,56 +340,56 @@
 		<div class="thread-detail" bind:this={detailEl}>
 			{#if selectedThread}
 				<div class="thread-detail-header">
-					{#if selectedThread.crew}
-						<span class="crew-badge" title={crewTooltip($crewDirectory, selectedThread.namespace, selectedThread.crew)}>{$namespace === '' && selectedThread.namespace ? `${selectedThread.namespace}/` : ''}{crewLabel($crewDirectory, selectedThread.namespace, selectedThread.crew)}</span>
+					{#if selectedThread.crew && $namespace === ''}
+						<span class="crew-badge" title={crewTooltip($crewDirectory, selectedThread.namespace, selectedThread.crew)}>{selectedThread.namespace ? `${selectedThread.namespace}/` : ''}{crewLabel($crewDirectory, selectedThread.namespace, selectedThread.crew)}</span>
 					{/if}
-					{#if selectedThread.crewVersion}
-						<span class="crew-version-badge" title="Crew chart version">v{selectedThread.crewVersion}</span>
+					{#if selectedThread.channel && selectedThread.channel !== DEFAULT_CHANNEL}
+						<span class="channel-badge large" style="background-color: {channelColors[selectedThread.channel] || '#6b7280'}">{selectedThread.channel}</span>
 					{/if}
-					<span
-						class="channel-badge large"
-						style="background-color: {channelColors[selectedThread.channel] || '#6b7280'}"
-					>
-						{selectedThread.channel}
-					</span>
-					<span class="thread-status-label" class:open={selectedThread.status === 'open'}
-						class:synthesized={selectedThread.status === 'synthesized'}
-						class:closed={selectedThread.status === 'closed'}>
-						{statusLabel(selectedThread.status)}
-					</span>
-					{#if selectedThread.startedBy === 'human'}
-						<span class="human-badge">Human-initiated</span>
-					{/if}
-					<div class="thread-actions">
-						<button class="action-btn" class:active-toggle={showSpanGraph} onclick={() => { showSpanGraph = !showSpanGraph; }} title={tips.SPAN_GRAPH_TOOLTIP} aria-label="Toggle span graph">
-							<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-								<rect x="1" y="2" width="10" height="3" rx="1" fill="currentColor" opacity="0.8" />
-								<rect x="1" y="7" width="14" height="3" rx="1" fill="currentColor" opacity="0.6" />
-								<rect x="1" y="12" width="7" height="3" rx="1" fill="currentColor" opacity="0.4" />
+					<div class="thread-query-full" title={selectedThread.threadId}>
+						<span>{selectedThread.userQuery}</span>
+						<button class="thread-id-copy" onclick={copyThreadId} title="Copy thread id with the question" aria-label="Copy thread id with the question">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+								{#if copiedThreadId}<polyline points="20 6 9 17 4 12" />{:else}<rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />{/if}
 							</svg>
-						</button>
-						<button class="action-btn" class:active-toggle={$showDebugDetail} onclick={() => showDebugDetail.toggle()} title={debugToggleTitle($showDebugDetail, debugCount)} aria-label="Show debug detail" aria-pressed={$showDebugDetail}>
-							<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-								<ellipse cx="8" cy="9.5" rx="3" ry="4" fill="currentColor" opacity="0.8" />
-								<path d="M5 6.5L3 4.5M11 6.5L13 4.5M5 9.5H2M11 9.5H14M5.5 12.5L3.5 14.5M10.5 12.5L12.5 14.5M6.5 5.5C6.5 4 7 3 8 3S9.5 4 9.5 5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-							</svg>
-						</button>
-						<button class="action-btn" onclick={copyThread} title={tips.COPY_THREAD_TOOLTIP} aria-label="Copy thread">
-							{copiedThread ? '✓' : '📋'}
 						</button>
 					</div>
-				</div>
-				<div class="thread-query-full" title={selectedThread.threadId}>
-					<span>{selectedThread.userQuery}</span>
-					<button class="thread-id-copy" onclick={copyThreadId} title={tips.COPY_ID_TOOLTIP}>
-						{copiedThreadId ? '✓' : '#'}
-					</button>
+					<div class="thread-actions">
+						<span class="status-icon {selectedStatus.kind}" role="img" title={selectedStatus.tooltip} aria-label={selectedStatus.label}>
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+								{#if selectedStatus.kind === 'working'}
+									<circle cx="12" cy="12" r="5" fill="currentColor" />
+								{:else if selectedStatus.kind === 'answered'}
+									<circle cx="12" cy="12" r="9" /><polyline points="8 12.5 11 15.5 16 9" />
+								{:else if selectedStatus.kind === 'failed'}
+									<circle cx="12" cy="12" r="9" /><line x1="9" y1="9" x2="15" y2="15" /><line x1="15" y1="9" x2="9" y2="15" />
+								{:else}
+									<circle cx="12" cy="12" r="9" /><rect x="9" y="9" width="6" height="6" fill="currentColor" />
+								{/if}
+							</svg>
+						</span>
+						<DiscussionMenu
+							showTimeline={showSpanGraph}
+							showDebug={$showDebugDetail}
+							debugTitle={debugToggleTitle($showDebugDetail, debugCount)}
+							ontoggletimeline={() => { showSpanGraph = !showSpanGraph; }}
+							ontoggledebug={() => showDebugDetail.toggle()}
+							oncopydiscussion={copyThread}
+							oncopythreadid={copyThreadId}
+							downloadHref={selectedConversationId ? exportHref(resolve('/api/kubemoot/conversation-export'), selectedThreadScope, [selectedConversationId], browserTimeZone()) : null}
+							crew={selectedThread.crew}
+							namespace={selectedThread.namespace}
+							conversationId={selectedConversationId}
+						/>
+					</div>
 				</div>
 				{#if selectedSummary?.startedAt && formatTimestamp(selectedSummary.startedAt)}
 					<div class="thread-started" title={selectedSummary.startedAt}>
 						Started {formatTimestamp(selectedSummary.startedAt)}; times below are since then
 					</div>
 				{/if}
+
+				<AnswerPanel state={selectedAnswer} elapsed={answerElapsed} summary={selectedSummary} {agentLabel} />
 
 				{#if showSpanGraph && selectedThread}
 					<div class="span-graph-panel">
@@ -474,14 +480,13 @@
 							{/if}
 						</div>
 					{/each}
-					{#if $showDebugDetail && selectedSummary && (selectedSummary.endedAt || selectedSummary.participants.length > 0)}
-						<ThreadSummaryPanel summary={selectedSummary} {agentLabel} />
-					{/if}
 					{#if $showDebugDetail && selectedPlacementCalls.length > 0}
 						<PlacementPanel calls={selectedPlacementCalls} {agentLabel} />
 					{/if}
 				</div>
 
+				<!-- Room for the follow-up input at the bottom of an open discussion. -->
+				<div class="reply-bar"></div>
 			{:else}
 				<div class="no-selection">
 					Select a discussion thread to view its timeline
@@ -613,17 +618,6 @@
 		font-family: var(--font-mono);
 	}
 
-	.crew-version-badge {
-		display: inline-block;
-		padding: 0.125rem 0.4rem;
-		border-radius: 1rem;
-		font-size: 0.6rem;
-		font-weight: 600;
-		background: rgba(148, 163, 184, 0.15);
-		color: var(--color-text-muted, #94a3b8);
-		font-family: var(--font-mono);
-	}
-
 	.channel-badge {
 		display: inline-block;
 		padding: 0.125rem 0.5rem;
@@ -640,6 +634,7 @@
 	}
 
 	.thread-status {
+		margin-left: auto;
 		font-size: 0.65rem;
 		font-weight: 500;
 		text-transform: uppercase;
@@ -668,6 +663,7 @@
 
 	.thread-detail {
 		flex: 1;
+		min-width: 0;
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
@@ -676,8 +672,18 @@
 
 	.thread-detail-header {
 		display: flex;
-		align-items: center;
-		gap: 1rem;
+		align-items: flex-start;
+		flex-wrap: wrap;
+		gap: 0.5rem 1rem;
+	}
+
+	.thread-detail-header .thread-query-full {
+		flex: 1 1 14rem;
+		min-width: 0;
+	}
+
+	.thread-detail-header .crew-badge, .thread-detail-header .channel-badge {
+		align-self: center;
 	}
 
 	.human-badge {
@@ -888,12 +894,26 @@
 		align-items: center;
 		gap: 0.25rem;
 		margin-left: auto;
+		flex-wrap: nowrap;
 	}
 
+	.status-icon {
+		display: inline-flex; align-items: center; justify-content: center;
+		width: 1.75rem; height: 1.75rem; color: var(--color-text-muted); cursor: default;
+	}
+	.status-icon.working { color: #10b981; }
+	.status-icon.answered { color: #10b981; }
+	.status-icon.failed { color: #ef4444; }
+
 	.action-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.75rem;
+		height: 1.75rem;
 		background: none;
 		border: none;
-		padding: 0.25rem 0.375rem;
+		padding: 0;
 		cursor: pointer;
 		font-size: 0.875rem;
 		opacity: 0.7;
@@ -1061,11 +1081,10 @@
 		font-weight: 500;
 	}
 
+	/* Empty slot at the bottom of an open discussion, kept for the follow-up input. */
 	.reply-bar {
 		display: flex;
 		gap: 0.5rem;
-		padding-top: 0.75rem;
-		border-top: 1px solid var(--color-border);
 		flex-shrink: 0;
 	}
 
@@ -1092,5 +1111,11 @@
 		color: #3b82f6;
 		opacity: 1;
 		background-color: rgba(59, 130, 246, 0.1);
+	}
+
+	/* A narrow window stacks the list above the open discussion instead of squeezing both. */
+	@media (max-width: 1100px) {
+		.discussions-layout { flex-direction: column; }
+		.thread-list { width: 100%; max-height: 30vh; flex-shrink: 0; }
 	}
 </style>

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { namespace } from '#lib/stores/index.js';
+	import { plainPreview } from '#lib/chat-view.js';
 	import type { PromptModule } from '#lib/types/kubemoot.js';
 	import { LiveList } from '#lib/client/liveList.svelte.js';
 
@@ -86,7 +87,7 @@
 							href="{resolve('/promptmodules/[name]', { name: m.metadata.name })}?namespace={m.metadata.namespace}"
 						>{m.metadata.name}</a>
 					</td>
-					<td class="desc">{firstLine(m)}</td>
+					<td class="desc">{plainPreview(firstLine(m))}</td>
 					<td class="col-namespace mono muted">{m.metadata.namespace}</td>
 					<td class="col-size mono muted">{contentLength(m).toLocaleString()} chars</td>
 				</tr>
@@ -174,7 +175,7 @@
 
 	.col-order { width: 5rem; }
 	.col-namespace { width: 12rem; }
-	.col-size { width: 7rem; }
+	.col-size { width: 7rem; white-space: nowrap; }
 
 	.desc {
 		font-size: 0.8rem;

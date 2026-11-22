@@ -132,13 +132,14 @@
 		border-left: 3px solid var(--color-success);
 	}
 
-	.card-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+	.card-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.5rem; }
 	.crew-names { min-width: 0; }
-	.crew-name { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 600; color: var(--color-primary); overflow-wrap: anywhere; }
+	.crew-name { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 600; color: var(--color-primary); overflow-wrap: break-word; }
 	.crew-technical-name { font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-text-muted); }
 	.badges { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
 
 	.chart-badge {
+		white-space: nowrap;
 		font-size: 0.7rem; font-weight: 500; padding: 0.15rem 0.5rem;
 		border-radius: 999px; font-family: var(--font-mono);
 		background: var(--color-bg-tertiary); color: var(--color-text-muted);

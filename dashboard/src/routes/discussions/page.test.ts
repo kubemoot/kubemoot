@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { act, render, screen, waitFor } from '@testing-library/svelte';
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { handleMessage } from '#lib/stores/discussions.js';
@@ -43,5 +43,25 @@ describe('discussions page', () => {
 		const rule = /\.message-timeline \{[^}]*\}/.exec(css)?.[0] ?? '';
 		expect(rule).not.toMatch(/overflow-y:\s*auto/);
 		expect(rule).toMatch(/flex:\s*0 0 auto/);
+	});
+});
+
+describe('following a live discussion', () => {
+	it('shows the answer panel as working, then the answer, without a reload', async () => {
+		const subject = 'kubemoot.discuss.crew-demo.demo.general.thread-live';
+		const live = (agent: string, type: DiscussionMessage['messageType'], content: string, over: Partial<DiscussionMessage> = {}) =>
+			msg(agent, type, content, { threadId: 'thread-live', timestamp: '2026-11-21T23:59:00.000Z', ...over });
+		history.replaceState({}, '', '/dashboard/discussions?thread=thread-live');
+		handleMessage(live('human', 'thread_start', 'Live question?', { metadata: { crew: 'demo', conversationId: 'c-live' } }), subject);
+		const { container } = render(Page);
+		await waitFor(() => expect(screen.getByText(/still working/)).toBeTruthy());
+
+		await act(() => handleMessage(live('gpu-now', 'agree', 'gpu-0: 33C'), subject));
+		await waitFor(() => expect(screen.getByText('gpu-0: 33C')).toBeTruthy());
+		expect(screen.getByText(/still working/)).toBeTruthy();
+
+		await act(() => handleMessage(live('coordinator', 'synthesis', 'Final live answer.'), subject));
+		await waitFor(() => expect(screen.queryByText(/still working/)).toBeNull());
+		expect(container.querySelector('.answer-body')?.textContent).toContain('Final live answer.');
 	});
 });
