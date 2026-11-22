@@ -32,7 +32,7 @@ func agreeMetadata() map[string]interface{} {
 	return map[string]interface{}{
 		"modelName":     actModel,
 		"modelsUsed":    []interface{}{"qwen3:32b@rig-a", actModel + "@" + testGPU},
-		"gpuLabel":      testGPU,
+		metaGPULabel:    testGPU,
 		metaInputTokens: float64(1200), metaOutputTokens: float64(340), "totalTokens": float64(1540),
 		"inferenceMs": float64(6100), "toolsUsed": []interface{}{"pods_list", "", 7, "nodes_top"},
 		"artifact": map[string]interface{}{"key": testArtifact, "bytes": float64(8499)},

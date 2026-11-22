@@ -128,7 +128,7 @@ func TestActivityNobodyBusy(t *testing.T) {
 		live   fixedLiveness
 		now    time.Time
 	}{
-		{"unknown thread", trackerAt(start), "other", fixedLiveness{actCoord: true}, actLater},
+		{"unknown thread", trackerAt(start), testOtherID, fixedLiveness{actCoord: true}, actLater},
 		{"no thread followed yet", trackerAt(start), "", fixedLiveness{actCoord: true}, actLater},
 		{"answer out", trackerAt(start, actMsg(actCoord, msgSynthesis, nil)), actThread, fixedLiveness{actCoord: true}, actLater},
 		{"thread closed", trackerAt(start, actMsg(actCoord, msgThreadClose, nil)), actThread, fixedLiveness{actCoord: true}, actLater},
