@@ -20,7 +20,7 @@
 	</header>
 
 	{#if summary.problems.length > 0}
-		<ul class="problems">
+		<ul class="problems" class:offline={summary.offline}>
 			{#each summary.problems as p (p)}<li>{p}</li>{/each}
 		</ul>
 	{/if}
@@ -81,6 +81,10 @@
 		background: rgba(239, 68, 68, 0.1);
 		font-size: 0.75rem;
 		color: var(--color-text);
+	}
+	.problems.offline {
+		background: var(--color-bg-tertiary);
+		color: var(--color-text-muted);
 	}
 	.bars {
 		display: flex;

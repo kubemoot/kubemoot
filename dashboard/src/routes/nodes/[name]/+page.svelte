@@ -81,7 +81,7 @@
 		{#if node}
 			<div class="sections">
 				{#if problems.length > 0}
-					<ul class="problems" data-testid="node-problems">
+					<ul class="problems" class:offline={problems.every((p) => p.health === 'idle')} data-testid="node-problems">
 						{#each problems as p (p.text)}<li>{p.text}</li>{/each}
 					</ul>
 				{/if}
@@ -213,6 +213,11 @@
 		background: rgba(239, 68, 68, 0.1);
 		border: 1px solid rgba(239, 68, 68, 0.3);
 		font-size: 0.85rem;
+	}
+	.problems.offline {
+		background: var(--color-bg-tertiary);
+		border-color: var(--color-border);
+		color: var(--color-text-muted);
 	}
 	.table-wrap {
 		overflow-x: auto;
