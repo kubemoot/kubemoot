@@ -752,7 +752,7 @@ Each agent publishes to `kubemoot.chat.<namespace>.<agent_name>` on every chat r
 }
 ```
 
-The dashboard subscribes to `kubemoot.chat.>` for real-time topology node pulsing and the Messages page.
+The dashboard subscribes to `kubemoot.chat.>` for real-time topology node pulsing and the Conversations page.
 
 ### Discussion Events
 

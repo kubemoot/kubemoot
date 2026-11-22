@@ -24,6 +24,7 @@ describe('showsCrewSelector', () => {
 	it('shows on the Overview and on crew-scoped pages', () => {
 		expect(showsCrewSelector('/')).toBe(true);
 		expect(showsCrewSelector('/discussions')).toBe(true);
+		expect(showsCrewSelector('/conversations')).toBe(true);
 		expect(showsCrewSelector('/messages')).toBe(true);
 		expect(showsCrewSelector('/mcpservers/[name]')).toBe(true);
 	});

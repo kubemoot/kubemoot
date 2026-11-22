@@ -1,4 +1,4 @@
-// The Messages page: a person's chat with a crew. It shows what the person said and
+// The Conversations page: a person's chat with a crew. It shows what the person said and
 // the crew's answers (the synthesis on each thread), and nothing of the agents'
 // internal discussion; that stays on the Discussions page. Each answer carries
 // optional details: the time from the question to the answer and the tokens used.

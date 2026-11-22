@@ -13,7 +13,7 @@ const SECTIONS_WITHOUT_CREW = new Set(['nodes', 'verify', 'config']);
 
 /**
  * Whether the top bar shows the Crew selector on a page. The Overview, Discussions and
- * Messages are crew-scoped, so they show it; an error page (no matched route) shows it too.
+ * Conversations are crew-scoped, so they show it; an error page (no matched route) shows it too.
  */
 export function showsCrewSelector(routeId: string | null): boolean {
 	const section = routeSection(routeId);
