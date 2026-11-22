@@ -241,6 +241,11 @@ export const PAGE_DEFINITIONS = {
 		purpose: 'Read the default images and display preferences the operator uses.',
 		notes: ['Appearance and the other display preferences are stored in this browser only.']
 	},
+	'/operator': {
+		title: 'Operator',
+		term: 'The operator is the controller that turns Kubemoot resources into running crews, servers and tools.',
+		purpose: 'Read its version, how long it has run, its health, which pod leads, and the resource types it registered.'
+	},
 	'/nats': {
 		title: 'NATS',
 		term: 'NATS is the message bus where agents deliberate and where Kubemoot keeps its state.',

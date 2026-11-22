@@ -17,7 +17,12 @@ export default defineConfig({
 				// resolve() answers an absolute path everywhere: the sign-in gate builds its redirects and
 				// cookie path from it, and a path relative to the request would loop on /signin
 				relative: false
-			}
+			},
+			// SvelteKit's own check compares a form post's Origin with an https:// guess when no
+			// ORIGIN is set, which refuses a kubectl port-forward. src/hooks.server.ts checks the
+			// Origin of every write, of any content type, against the origin the client used; that
+			// is the one check.
+			csrf: { trustedOrigins: ['*'] }
 		})
 	],
 	server: {

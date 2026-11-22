@@ -24,6 +24,7 @@ export const ACTIONS = {
 	rowActions: 'Actions: more things to do with this row',
 	viewOptions: 'View options: copy the shown text, or show the managed fields',
 	filterMine: 'Only conversations you started',
+	listToggle: (collapsed: boolean) => (collapsed ? 'Show the list' : 'Hide the list: gives the open item the full width'),
 	refresh: 'Refresh: reloads the data on this page now; changes nothing in the cluster',
 	systemInfo: 'System info: Kubemoot versions and how long each component has been up',
 	copySystemInfo: 'Copy: the versions and uptime as text, for a support request',

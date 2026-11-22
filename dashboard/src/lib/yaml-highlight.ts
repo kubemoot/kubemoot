@@ -26,7 +26,7 @@ function leadLength(line: string): number {
 }
 
 /** Index just past a double-quoted string starting at `start`, or -1 when it never closes. */
-function quotedEnd(line: string, start: number): number {
+export function quotedEnd(line: string, start: number): number {
 	for (let i = start + 1; i < line.length; i++) {
 		if (line[i] === '\\') i++;
 		else if (line[i] === '"') return i + 1;

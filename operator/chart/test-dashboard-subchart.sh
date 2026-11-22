@@ -145,6 +145,18 @@ done
 bad="$(yq -N '.rules[0].verbs += ["delete"]' <<<"$viewer" | yq -N '.rules[].verbs[]' | sort -u | tr '\n' ' ')"
 [ "$bad" != "get list watch " ] || fail "the viewer verbs check accepted a delete verb"
 
+# kubemoot-operator-reader: what the operator page reads beyond `view` (CRDs and the leader lease).
+# Read verbs only, never aggregated into the built-in roles, and no wildcard.
+reader="$(render kubemoot-operator | yq -N 'select(.kind == "ClusterRole" and .metadata.name == "kubemoot-operator-reader")')"
+[ -n "$reader" ] || fail "the chart renders no kubemoot-operator-reader ClusterRole"
+reader_verbs="$(yq -N '.rules[].verbs[]' <<<"$reader" | sort -u | tr '\n' ' ')"
+[ "$reader_verbs" = "get list watch " ] || fail "kubemoot-operator-reader verbs are '$reader_verbs', want only get list watch"
+reader_rules="$(yq -N '.rules[] | (.apiGroups | join(",")) + "/" + (.resources | join(","))' <<<"$reader" | sort | tr '\n' ' ')"
+[ "$reader_rules" = "apiextensions.k8s.io/customresourcedefinitions coordination.k8s.io/leases " ] || fail "kubemoot-operator-reader reads '$reader_rules'"
+if yq -N '.metadata.labels | keys | .[]' <<<"$reader" | grep -q 'rbac.authorization.k8s.io/aggregate-to'; then fail "kubemoot-operator-reader is aggregated into a built-in role"; fi
+bad="$(yq -N '.rules[0].verbs += ["delete"]' <<<"$reader" | yq -N '.rules[].verbs[]' | sort -u | tr '\n' ' ')"
+[ "$bad" != "get list watch " ] || fail "the operator reader verbs check accepted a delete verb"
+
 # Standalone chart keeps its own defaults.
 standalone="$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard")"
 grep -q 'image: ghcr.io/kubemoot/dashboard:' <<<"$standalone" || fail "standalone dashboard image changed"

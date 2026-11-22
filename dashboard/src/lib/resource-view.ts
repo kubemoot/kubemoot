@@ -1,16 +1,22 @@
-// The three views every Kubemoot resource page offers, how the choice lives in the URL, and the
-// text the YAML and JSON views show.
+// The views every Kubemoot resource page offers (Description, YAML, JSON and KYAML), how the choice
+// lives in the URL, and the text the text views show.
 
 import { displayResource, toYaml, type YamlResource } from '#lib/yaml.js';
 import { highlightJson } from '#lib/json-highlight.js';
+import { toKyaml } from '#lib/kyaml.js';
+import { highlightKyaml } from '#lib/kyaml-highlight.js';
 import { highlightYaml, type YamlToken } from '#lib/yaml-highlight.js';
 
-export type ResourceView = 'description' | 'yaml' | 'json';
+/** The formats the text views write. */
+export type TextFormat = 'yaml' | 'json' | 'kyaml';
+
+export type ResourceView = 'description' | TextFormat;
 
 export const VIEWS: readonly { id: ResourceView; label: string }[] = [
 	{ id: 'description', label: 'Description' },
 	{ id: 'yaml', label: 'YAML' },
-	{ id: 'json', label: 'JSON' }
+	{ id: 'json', label: 'JSON' },
+	{ id: 'kyaml', label: 'KYAML' }
 ];
 
 /** What a page URL offers: SvelteKit's read-only page.url fits, and so does a URL. */
@@ -24,7 +30,7 @@ export interface UrlParts {
 /** The view named by ?view=; anything else is the Description. A link with the older ?tab=yaml still opens the YAML. */
 export function viewFromUrl(url: UrlParts): ResourceView {
 	const named = url.searchParams.get('view') ?? (url.searchParams.get('tab') === 'yaml' ? 'yaml' : null);
-	return named === 'yaml' || named === 'json' ? named : 'description';
+	return VIEWS.some((v) => v.id === named && v.id !== 'description') ? (named as TextFormat) : 'description';
 }
 
 /** The page URL with the view chosen; the Description is the default and leaves no parameter. */
@@ -36,13 +42,24 @@ export function viewUrl(url: UrlParts, view: ResourceView): string {
 	return next.pathname + next.search + next.hash;
 }
 
-/** The resource as text in the format: YAML, or two-space JSON, each ending in a newline. */
-export function resourceText(resource: YamlResource, format: 'yaml' | 'json', showManagedFields: boolean): string {
-	const shown = displayResource(resource, showManagedFields);
-	return format === 'yaml' ? toYaml(shown) : JSON.stringify(shown, null, 2) + '\n';
+const WRITERS: Record<TextFormat, (shown: YamlResource) => string> = {
+	yaml: toYaml,
+	json: (shown) => JSON.stringify(shown, null, 2) + '\n',
+	kyaml: toKyaml
+};
+
+const HIGHLIGHTERS: Record<TextFormat, (text: string) => YamlToken[][]> = {
+	yaml: highlightYaml,
+	json: highlightJson,
+	kyaml: highlightKyaml
+};
+
+/** The resource as text in the format: YAML, two-space JSON, or KYAML (as `kubectl get -o kyaml` writes it), each ending in a newline. */
+export function resourceText(resource: YamlResource, format: TextFormat, showManagedFields: boolean): string {
+	return WRITERS[format](displayResource(resource, showManagedFields));
 }
 
 /** The text as coloured pieces, line by line. */
-export function resourceLines(text: string, format: 'yaml' | 'json'): YamlToken[][] {
-	return format === 'yaml' ? highlightYaml(text) : highlightJson(text);
+export function resourceLines(text: string, format: TextFormat): YamlToken[][] {
+	return HIGHLIGHTERS[format](text);
 }

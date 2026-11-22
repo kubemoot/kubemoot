@@ -97,3 +97,11 @@ export async function checkConnection(): Promise<{ connected: boolean; version?:
 		};
 	}
 }
+
+export function getApiextensionsApi(): k8s.ApiextensionsV1Api {
+	return getKubeConfig().makeApiClient(k8s.ApiextensionsV1Api);
+}
+
+export function getCoordinationApi(): k8s.CoordinationV1Api {
+	return getKubeConfig().makeApiClient(k8s.CoordinationV1Api);
+}

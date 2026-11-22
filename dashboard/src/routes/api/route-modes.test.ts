@@ -40,6 +40,7 @@ const CLUSTER_SCOPED: Record<string, string> = {
 	'./kubemoot/config/+server.ts': 'KubemootConfig is a cluster-scoped singleton (image versions, defaults)',
 	'./kubemoot/componentstatuses/+server.ts': 'operator control-plane health: name, healthy, message',
 	'./kubemoot/system-info/+server.ts': 'operator version and uptime',
+	'./kubemoot/operator/+server.ts': 'the operator Deployment, its pods and lease, and the Kubemoot CRDs, read with the caller token; all in the operator namespace or cluster-scoped',
 	'./nats/config/+server.ts': 'whether NATS is configured; no subjects or data',
 	'./kubemoot/discussions/artifact/+server.ts': 'redirects to the workspace route, which applies the scope',
 };

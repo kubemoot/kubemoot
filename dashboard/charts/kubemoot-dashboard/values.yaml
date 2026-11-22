@@ -72,9 +72,10 @@ auth:
   # ClusterRole below) and can never ask or change anything.
   anonymousReadOnly: false
   # The public origin people reach the dashboard at, for example https://dashboard.example.com.
-  # Every sign-in, sign-out and ask must carry an Origin header equal to the origin the server
-  # sees, so behind a proxy that ends TLS set this (it becomes adapter-node's ORIGIN). Empty
-  # derives the origin from the request, which suits a kubectl port-forward.
+  # Every sign-in, sign-out and ask must carry an Origin header equal to the origin the dashboard
+  # expects. Set this behind a proxy that ends TLS (it becomes adapter-node's ORIGIN and wins).
+  # Empty derives the origin from the request: the connection's scheme (plain HTTP for a
+  # kubectl port-forward to http://localhost:8080) with the Host the client asked for.
   origin: ""
   # Instead of origin: trust the proxy's X-Forwarded-Proto and X-Forwarded-Host headers. Only
   # turn it on when the proxy sets them and no client can reach the dashboard around it.

@@ -7,7 +7,7 @@
 	import CodeView from './CodeView.svelte';
 	import { CopyFlash } from '#lib/copy-flash.svelte.js';
 	import { hasManagedFields, type YamlResource } from '#lib/yaml.js';
-	import { VIEWS, resourceLines, resourceText, viewFromUrl, viewUrl, type ResourceView } from '#lib/resource-view.js';
+	import { VIEWS, resourceLines, resourceText, viewFromUrl, viewUrl, type ResourceView, type TextFormat } from '#lib/resource-view.js';
 
 	interface Props {
 		/** The custom resource the page shows; the YAML and JSON views render it as Kubernetes returned it. */
@@ -21,7 +21,7 @@
 	let { resource, children }: Props = $props();
 
 	const active = $derived(viewFromUrl(page.url));
-	const format = $derived<'yaml' | 'json'>(active === 'json' ? 'json' : 'yaml');
+	const format = $derived<TextFormat>(active === 'description' ? 'yaml' : active);
 	let showManaged = $state(false);
 	const flash = new CopyFlash();
 

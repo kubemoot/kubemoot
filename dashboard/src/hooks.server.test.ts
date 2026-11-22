@@ -7,23 +7,36 @@ import { handle } from './hooks.server';
 
 const ORIGIN = 'https://dash.example.test';
 
-function event(method: string, path: string, opts: { cookie?: string; origin?: string | null } = {}) {
-	const headers: Record<string, string> = {};
+interface EventOptions {
+	cookie?: string;
+	origin?: string | null;
+	/** The request URL's origin when it is not ORIGIN (adapter-node guesses https without a configured origin). */
+	urlOrigin?: string;
+	/** Extra request headers, such as X-Forwarded-Proto. */
+	headers?: Record<string, string>;
+	/** Whether the socket is TLS; omitted means the server cannot tell (no platform). */
+	encrypted?: boolean;
+}
+
+function event(method: string, path: string, opts: EventOptions = {}) {
+	const urlOrigin = opts.urlOrigin ?? ORIGIN;
+	const headers: Record<string, string> = { ...opts.headers };
 	if (opts.origin !== null && (opts.origin ?? method !== 'GET')) headers.origin = opts.origin ?? ORIGIN;
 	const jar = new Map<string, string>(opts.cookie ? [[SESSION_COOKIE, opts.cookie]] : []);
 	const deleted: string[] = [];
 	return {
 		deleted,
 		event: {
-			request: new Request(`${ORIGIN}${path}`, { method, headers }),
-			url: new URL(`${ORIGIN}${path}`),
+			request: new Request(`${urlOrigin}${path}`, { method, headers }),
+			url: new URL(`${urlOrigin}${path}`),
+			platform: opts.encrypted === undefined ? undefined : { req: { socket: { encrypted: opts.encrypted } } },
 			cookies: { get: (n: string) => jar.get(n), delete: (n: string) => deleted.push(n) },
 			locals: {} as Record<string, unknown>
 		} as unknown as Parameters<typeof handle>[0]['event']
 	};
 }
 
-async function run(method: string, path: string, opts: Parameters<typeof event>[2] = {}) {
+async function run(method: string, path: string, opts: EventOptions = {}) {
 	let seenToken: string | undefined;
 	const resolve = vi.fn(async () => {
 		seenToken = callerToken()?.reveal();
@@ -37,6 +50,8 @@ async function run(method: string, path: string, opts: Parameters<typeof event>[
 beforeEach(() => {
 	resetSessions();
 	delete process.env[ANONYMOUS_READ_ONLY_ENV];
+	delete process.env.ORIGIN;
+	delete process.env.PROTOCOL_HEADER;
 });
 
 describe('without a session', () => {
@@ -92,6 +107,50 @@ describe('cross-site requests', () => {
 
 	it('are refused on sign-out too', async () => {
 		const { response } = await run('POST', '/signout', { origin: 'https://evil.example.test' });
+		expect(response.status).toBe(403);
+	});
+});
+
+describe('the origin when none is configured', () => {
+	// adapter-node builds an https:// URL for a request with no ORIGIN, whatever the socket is.
+	const guessed = 'https://localhost:18090';
+
+	it('accepts a sign-in made through a plain-HTTP port-forward that names its own http origin', async () => {
+		const { response } = await run('POST', '/signin', { urlOrigin: guessed, origin: 'http://localhost:18090', encrypted: false });
+		expect(response.status).toBe(200);
+	});
+
+	it('refuses an Origin that does not match the connection, even for the same host', async () => {
+		const { response, resolve } = await run('POST', '/signin', { urlOrigin: guessed, origin: 'https://localhost:18090', encrypted: false });
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({ expectedOrigin: 'http://localhost:18090' });
+		expect(resolve).not.toHaveBeenCalled();
+	});
+
+	it('refuses another site and a missing Origin', async () => {
+		for (const origin of ['http://evil.example.test', null]) {
+			const { response } = await run('POST', '/signin', { urlOrigin: guessed, origin, encrypted: false });
+			expect(response.status).toBe(403);
+		}
+	});
+
+	it('prefers a configured origin over the connection', async () => {
+		process.env.ORIGIN = 'https://dash.example.test';
+		const url = 'https://dash.example.test';
+		expect((await run('POST', '/signin', { urlOrigin: url, origin: url, encrypted: false })).response.status).toBe(200);
+		expect((await run('POST', '/signin', { urlOrigin: url, origin: 'http://localhost:18090', encrypted: false })).response.status).toBe(403);
+	});
+
+	it('uses the forwarded scheme behind a TLS-ending proxy when forwarded headers are trusted', async () => {
+		process.env.PROTOCOL_HEADER = 'x-forwarded-proto';
+		const run1 = await run('POST', '/signin', { urlOrigin: 'https://dash.example.test', origin: 'https://dash.example.test', encrypted: false, headers: { 'x-forwarded-proto': 'https' } });
+		expect(run1.response.status).toBe(200);
+		const plain = await run('POST', '/signin', { urlOrigin: 'https://dash.example.test', origin: 'http://dash.example.test', encrypted: false, headers: { 'x-forwarded-proto': 'https' } });
+		expect(plain.response.status).toBe(403);
+	});
+
+	it('does not let an untrusted client choose the scheme with a forwarded header', async () => {
+		const { response } = await run('POST', '/signin', { urlOrigin: guessed, origin: 'https://localhost:18090', encrypted: false, headers: { 'x-forwarded-proto': 'https' } });
 		expect(response.status).toBe(403);
 	});
 });

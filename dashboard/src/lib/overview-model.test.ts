@@ -21,6 +21,7 @@ const node = (name: string, over: { ready?: boolean; conditions?: object[]; acce
 
 const empty: OverviewData = {
 	componentStatuses: [],
+	operator: undefined,
 	nodes: [],
 	metrics: { available: true, data: {} },
 	pods: { available: true, data: {} },
@@ -148,6 +149,84 @@ describe('the Nodes and Accelerators tiles', () => {
 	});
 });
 
+describe('where each tile opens', () => {
+	const o = buildOverview(data({ componentStatuses: [{ name: 'operator', healthy: true, message: 'ok' }], nodes: [node('n1')] as never }), NOW);
+	const link = (key: string) => tile(o, key).link;
+
+	it('opens the most specific view of what the tile counts', () => {
+		expect(link('operator')).toEqual({ path: '/operator' });
+		expect(link('nodes')).toEqual({ path: '/nodes', search: '?role=all' });
+		expect(link('accelerators')).toEqual({ path: '/nodes', search: '?role=accelerator' });
+		expect(link('crews')).toEqual({ path: '/crews' });
+		expect(link('modelservers')).toEqual({ path: '/modelservers' });
+		expect(link('models')).toEqual({ path: '/models' });
+		expect(link('embeddingmodels')).toEqual({ path: '/embeddingmodels' });
+		expect(link('mcpservers')).toEqual({ path: '/mcpservers' });
+		expect(link('mcpgateways')).toEqual({ path: '/mcpgateways' });
+		expect(link('ragsources')).toEqual({ path: '/ragsources' });
+		expect(link('agents')).toEqual({ path: '/agents' });
+		expect(link('nats')).toEqual({ path: '/nats' });
+	});
+
+	it('keeps the accelerator link while the nodes load or cannot be read', () => {
+		for (const nodes of [undefined, null]) {
+			const waiting = buildOverview(data({ nodes }), NOW);
+			expect(tile(waiting, 'accelerators').link).toEqual({ path: '/nodes', search: '?role=accelerator' });
+			expect(tile(waiting, 'nodes').link).toEqual({ path: '/nodes', search: '?role=all' });
+		}
+	});
+});
+
+describe('the Operator tile', () => {
+	const up = [{ name: 'operator', healthy: true, message: 'ok' }];
+	const deployment = { available: true as const, data: { name: 'kubemoot-operator', namespace: 'kubemoot', version: '0.356.0', image: 'i', desired: 1, ready: 1, conditions: [], resource: {} } };
+	const detail = (over: object = {}) => ({ deployment, startedAt: { available: true as const, data: ago(30 * HOUR) }, leader: { available: true as const, data: 'p' }, crds: { available: true as const, data: [{ name: 'a.kubemoot.ai', kind: 'A', scope: 'Namespaced', versions: [] }] }, ...over });
+	const details = (operator: OverviewData['operator']) => tile(buildOverview(data({ componentStatuses: up, operator }), NOW), 'operator').details;
+
+	it('shows the version, uptime and number of CRDs under Ready', () => {
+		const t = tile(buildOverview(data({ componentStatuses: up, operator: detail() }), NOW), 'operator');
+		expect(t).toMatchObject({ figure: 'Ready', health: 'healthy', line: '' });
+		expect(t.details).toEqual([
+			{ text: 'Version 0.356.0', read: true },
+			{ text: 'Up 1d 6h', read: true },
+			{ text: '1 Kubemoot CRD', read: true }
+		]);
+	});
+
+	it('says plainly which line the account may not read, and never shows a zero for it', () => {
+		const refused = { available: false as const, reason: 'your account may not read the custom resource definitions', denied: true };
+		const lines = details(detail({ crds: refused }))!;
+		expect(lines[2]).toEqual({ text: 'Kubemoot CRDs: your account may not read them', read: false });
+		expect(lines.map((l) => l.text).join()).not.toMatch(/\b0 Kubemoot/);
+		const noDeployment = { available: false as const, reason: 'your account may not read the operator Deployment', denied: true };
+		expect(details(detail({ deployment: noDeployment }))![0]).toEqual({ text: 'Version: your account may not read them', read: false });
+	});
+
+	it('says no pod runs rather than a zero uptime', () => {
+		expect(details(detail({ startedAt: { available: true, data: '' } }))![1]).toEqual({ text: 'Uptime: no operator pod is running', read: true });
+	});
+
+	it('shows nothing under the figure while the operator is read, and one plain line when it could not be', () => {
+		expect(details(undefined)).toEqual([]);
+		expect(details(null)).toEqual([{ text: 'Version, uptime and CRDs could not be read', read: false }]);
+	});
+
+	it('still shows what could be read when the health report cannot be, and is unavailable only when nothing could', () => {
+		for (const statuses of [null, [] as never]) {
+			const t = tile(buildOverview(data({ componentStatuses: statuses, operator: detail() }), NOW), 'operator');
+			expect(t).toMatchObject({ phase: 'ready', health: 'unknown', figure: '', line: 'Health report unavailable' });
+			expect(t.details?.[0]).toEqual({ text: 'Version 0.356.0', read: true });
+		}
+		expect(tile(buildOverview(data({ componentStatuses: null, operator: null }), NOW), 'operator')).toMatchObject({ phase: 'unavailable', line: 'Unavailable' });
+		expect(tile(buildOverview(data({ componentStatuses: undefined, operator: detail() }), NOW), 'operator').phase).toBe('loading');
+	});
+
+	it('shows the operator message when it is not ready', () => {
+		const down = buildOverview(data({ componentStatuses: [{ name: 'operator', healthy: false, message: 'leader lost' }], operator: detail() }), NOW);
+		expect(tile(down, 'operator')).toMatchObject({ figure: 'Not ready', line: 'leader lost' });
+	});
+});
+
 describe('needs attention', () => {
 	it('is empty when everything is fine', () => {
 		expect(buildOverview(data({ componentStatuses: [{ name: 'operator', healthy: true, message: 'ok' }] }), NOW).attention).toEqual([]);
@@ -156,7 +235,7 @@ describe('needs attention', () => {
 	it('names an operator that is not ready, and the Operator tile is down', () => {
 		const o = buildOverview(data({ componentStatuses: [{ name: 'operator', healthy: false, message: 'leader lost' }] }), NOW);
 		expect(tile(o, 'operator')).toMatchObject({ health: 'down', figure: 'Not ready' });
-		expect(o.attention).toEqual([{ health: 'down', subject: 'Operator', problem: 'leader lost', link: { path: '/config' } }]);
+		expect(o.attention).toEqual([{ health: 'down', subject: 'Operator', problem: 'leader lost', link: { path: '/operator' } }]);
 	});
 
 	it('names a model server that is down, with the page that explains it', () => {

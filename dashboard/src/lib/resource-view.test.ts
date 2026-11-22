@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resourceLines, resourceText, viewFromUrl, viewUrl } from './resource-view.js';
+import { VIEWS, resourceLines, resourceText, viewFromUrl, viewUrl } from './resource-view.js';
 
 const url = (s: string) => new URL(s, 'https://page.invalid');
 
@@ -10,6 +10,12 @@ describe('viewFromUrl', () => {
 		expect(viewFromUrl(url('/crews/a'))).toBe('description');
 		expect(viewFromUrl(url('/crews/a?view=bogus'))).toBe('description');
 		expect(viewFromUrl(url('/crews/a?view=description'))).toBe('description');
+	});
+
+	it('reads kyaml, and offers it last in the selector', () => {
+		expect(viewFromUrl(url('/crews/a?view=kyaml'))).toBe('kyaml');
+		expect(VIEWS.map((v) => v.label)).toEqual(['Description', 'YAML', 'JSON', 'KYAML']);
+		expect(viewUrl(url('/crews/a?namespace=prod'), 'kyaml')).toBe('/crews/a?namespace=prod&view=kyaml');
 	});
 
 	it('still opens the YAML for a link made with the older tab parameter', () => {
@@ -55,16 +61,25 @@ describe('resourceText', () => {
 		expect(JSON.parse(resourceText(resource, 'json', true)).metadata.managedFields).toHaveLength(1);
 	});
 
+	it('writes KYAML as kubectl does, with the header, braces and quoted strings, without the managed fields', () => {
+		const text = resourceText(resource, 'kyaml', false);
+		expect(text.startsWith('---\n{\n  apiVersion: "kubemoot.ai/v1alpha1",\n')).toBe(true);
+		expect(text).toContain('  spec: {\n    replicas: 2,\n  },\n');
+		expect(text).not.toContain('managedFields');
+		expect(resourceText(resource, 'kyaml', true)).toContain('managedFields: [{');
+	});
+
 	it('leaves a Secret\'s contents out of both formats', () => {
 		const secret = { kind: 'Secret', metadata: { name: 's' }, data: { token: 'c2VjcmV0' } };
 		expect(resourceText(secret, 'yaml', false)).not.toContain('c2VjcmV0');
 		expect(resourceText(secret, 'json', true)).not.toContain('c2VjcmV0');
+		expect(resourceText(secret, 'kyaml', true)).not.toContain('c2VjcmV0');
 	});
 });
 
 describe('resourceLines', () => {
 	it('colours each format with its own reader, line for line', () => {
-		for (const format of ['yaml', 'json'] as const) {
+		for (const format of ['yaml', 'json', 'kyaml'] as const) {
 			const text = resourceText(resource, format, false);
 			expect(resourceLines(text, format).map((l) => l.map((t) => t.text).join('')).join('\n') + '\n').toBe(text);
 		}

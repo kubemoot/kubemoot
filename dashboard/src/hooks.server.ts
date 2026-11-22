@@ -4,13 +4,25 @@ import { jsonError } from '#lib/server/json-error.js';
 import { anonymousReadOnly } from '#lib/server/mode.js';
 import { decideAccess, isWrite, pathInApp, type Decision } from '#lib/server/auth/access.js';
 import { runWithIdentity, type RequestIdentity } from '#lib/server/auth/identity.js';
-import { sameOrigin } from '#lib/server/auth/same-origin.js';
+import { expectedOrigin, sameOrigin } from '#lib/server/auth/same-origin.js';
 import { SESSION_COOKIE, getSession, type Session } from '#lib/server/auth/session.js';
 
 function refuseOrRedirect(decision: Exclude<Decision, { action: 'allow' }>): Response {
 	if (decision.action === 'redirect') return new Response(null, { status: 303, headers: { Location: appBase() + decision.to } });
 	const headers = decision.status === 405 ? { Allow: 'GET, HEAD, OPTIONS' } : undefined;
 	return jsonError(decision.status, decision.error, decision.extra, headers);
+}
+
+/** The origin this request must name: see expectedOrigin. The socket tells plain HTTP (a port-forward) from TLS. */
+function requestOrigin(event: Parameters<Handle>[0]['event']): string {
+	const socket = event.platform?.req.socket as { encrypted?: boolean } | undefined;
+	return expectedOrigin({
+		url: event.url,
+		headers: event.request.headers,
+		configuredOrigin: (process.env.ORIGIN ?? '').trim() || undefined,
+		protocolHeader: (process.env.PROTOCOL_HEADER ?? '').trim().toLowerCase() || undefined,
+		encrypted: socket ? socket.encrypted === true : undefined
+	});
 }
 
 /** The live session of the request's cookie; a cookie whose session is gone or expired is removed. */
@@ -36,8 +48,11 @@ function sessionOf(event: Parameters<Handle>[0]['event']): Session | undefined {
  */
 export const handle: Handle = async ({ event, resolve }) => {
 	const method = event.request.method.toUpperCase();
-	if (isWrite(method) && !sameOrigin(event.request, event.url)) {
-		return jsonError(403, `Cross-origin request refused: expected an Origin of ${event.url.origin}.`, { expectedOrigin: event.url.origin });
+	if (isWrite(method)) {
+		const expected = requestOrigin(event);
+		if (!sameOrigin(event.request, expected)) {
+			return jsonError(403, `Cross-origin request refused: expected an Origin of ${expected}.`, { expectedOrigin: expected });
+		}
 	}
 	const session = sessionOf(event);
 	const decision = decideAccess({

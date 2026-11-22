@@ -7,7 +7,6 @@ import { MAX_SESSIONS, createSession, destroySession, getSession, resetSessions,
 import { cleanToken, sessionExpiry, signIn, tokenExpiry } from './sign-in';
 import { SignInError, type TokenReviewer } from './token-review';
 import { sessionCookieOptions } from './cookie';
-import { sameOrigin } from './same-origin';
 
 const NOW = Date.UTC(2026, 10, 21, 12, 0, 0);
 const HOUR = 3_600_000;
@@ -152,18 +151,6 @@ describe('request identity', () => {
 		});
 		expect(callerToken()).toBeUndefined();
 		await runWithIdentity({ kind: 'anonymous' }, async () => expect(callerToken()).toBeUndefined());
-	});
-});
-
-describe('sameOrigin', () => {
-	const url = new URL('https://dash.example.test/dashboard/signin');
-	const req = (origin?: string) => new Request(url, { method: 'POST', headers: origin ? { origin } : {} });
-
-	it('accepts the dashboard own origin only', () => {
-		expect(sameOrigin(req('https://dash.example.test'), url)).toBe(true);
-		expect(sameOrigin(req('https://evil.example.test'), url)).toBe(false);
-		expect(sameOrigin(req('http://dash.example.test'), url)).toBe(false);
-		expect(sameOrigin(req(), url)).toBe(false);
 	});
 });
 

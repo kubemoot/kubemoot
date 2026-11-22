@@ -14,6 +14,7 @@
 	// failing read shows "Unavailable" on its own tile and never a zero, and never blocks the rest.
 	let data = $state<OverviewData>({
 		componentStatuses: undefined,
+		operator: undefined,
 		nodes: undefined,
 		metrics: undefined,
 		pods: undefined,
@@ -52,9 +53,10 @@
 
 	async function refresh(ns: string) {
 		const own = (plural: string) => listUrl(plural, overviewNamespace(plural, ns));
-		const [componentStatuses, nodes, usage, crews, modelServers, models, embeddingModels, mcpServers, mcpGateways, ragSources, agents, suites, nats] =
+		const [componentStatuses, operator, nodes, usage, crews, modelServers, models, embeddingModels, mcpServers, mcpGateways, ragSources, agents, suites, nats] =
 			await Promise.all([
 				read(resolve('/api/kubemoot/componentstatuses'), (b: never) => b),
+				read(resolve('/api/kubemoot/operator'), (b: never) => b),
 				read(resolve('/api/nodes'), (b: { nodes?: never[] }) => b.nodes ?? []),
 				read(resolve('/api/node-usage'), (b: { metrics: never; pods: never }) => b),
 				read(own('crews'), items),
@@ -71,6 +73,7 @@
 		data = {
 			threads: undefined,
 			componentStatuses,
+			operator,
 			nodes,
 			metrics: usage?.metrics,
 			pods: usage?.pods,

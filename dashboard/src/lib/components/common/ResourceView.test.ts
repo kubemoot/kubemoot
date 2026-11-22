@@ -26,9 +26,9 @@ beforeEach(() => {
 });
 
 describe('ResourceView selector', () => {
-	it('opens on the Description with one small selector offering Description, YAML and JSON', () => {
+	it('opens on the Description with one small selector offering Description, YAML, JSON and KYAML', () => {
 		const { container } = mount();
-		expect([...selector().options].map((o) => o.textContent)).toEqual(['Description', 'YAML', 'JSON']);
+		expect([...selector().options].map((o) => o.textContent)).toEqual(['Description', 'YAML', 'JSON', 'KYAML']);
 		expect(selector().value).toBe('description');
 		expect(screen.getByText('the description').closest('[hidden]')).toBeNull();
 		expect(container.querySelector('pre')).toBeNull();

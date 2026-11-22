@@ -22,7 +22,12 @@
 		<div class="loading" role="status" aria-label="Loading {tile.label}"><LoadingSpinner size="sm" /></div>
 	{:else}
 		{#if tile.figure}<div class="figure">{tile.figure}</div>{/if}
-		<div class="line">{tile.line}</div>
+		{#if tile.line}<div class="line">{tile.line}</div>{/if}
+		{#if tile.details && tile.details.length > 0}
+			<ul class="details">
+				{#each tile.details as fact (fact.text)}<li class:refused={!fact.read}>{fact.text}</li>{/each}
+			</ul>
+		{/if}
 		{#if tile.bars.length > 0}
 			<div class="bars">
 				{#each tile.bars as b (b.label)}
@@ -71,6 +76,19 @@
 	.line {
 		font-size: 0.75rem;
 		color: var(--color-text-muted);
+	}
+	.details {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+	}
+	.details .refused {
+		color: var(--color-warning);
 	}
 	.bars {
 		display: flex;

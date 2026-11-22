@@ -1,5 +1,5 @@
 /** A reading the person's account could take, or the plain reason it could not. Never a zero in place of a failure. */
-export type Reading<T> = { available: true; data: T } | { available: false; reason: string };
+export type Reading<T> = { available: true; data: T } | { available: false; reason: string; denied?: boolean };
 
 /** Pods on one node: those Running, every pod that still holds a place on it, and the accelerator devices they ask for. */
 export interface PodCount {

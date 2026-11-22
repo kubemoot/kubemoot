@@ -52,7 +52,7 @@ describe('readNodeMetrics', () => {
 
 	it('says the cluster does not serve metrics, not that use is zero', async () => {
 		listClusterCustomObject.mockRejectedValue({ code: 404 });
-		expect(await readNodeMetrics()).toEqual({ available: false, reason: 'Node metrics (metrics.k8s.io) is not served by this cluster' });
+		expect(await readNodeMetrics()).toEqual({ available: false, reason: 'node metrics (metrics.k8s.io) is not served by this cluster' });
 	});
 
 	it('says a node has no reading, not that the cluster lacks metrics, when one node is not found', async () => {
@@ -65,12 +65,12 @@ describe('readNodeMetrics', () => {
 		listClusterCustomObject.mockRejectedValue({ code: 403 });
 		const out = await readNodeMetrics();
 		expect(out.available).toBe(false);
-		expect((out as { reason: string }).reason).toMatch(/permission/);
+		expect((out as { reason: string }).reason).toMatch(/your account may not read node metrics/);
 	});
 
 	it('gives a plain reason for any other failure', async () => {
 		listClusterCustomObject.mockRejectedValue(new Error('boom'));
-		expect(await readNodeMetrics()).toEqual({ available: false, reason: 'Node metrics (metrics.k8s.io) could not be read' });
+		expect(await readNodeMetrics()).toEqual({ available: false, reason: 'node metrics (metrics.k8s.io) could not be read' });
 	});
 });
 
