@@ -117,7 +117,7 @@ function runScript(source: string) {
 // The inline script in app.html runs before the first paint; it must reach the same theme as resolveTheme.
 describe('the script that applies the theme before the first paint', () => {
 	const html = readFileSync(join(process.cwd(), 'src', 'app.html'), 'utf8');
-	const script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
+	const script = new DOMParser().parseFromString(html, 'text/html').querySelector('script')?.textContent ?? '';
 
 	function run(stored: string | null, osLight: boolean): string | null {
 		localStorage.clear();
