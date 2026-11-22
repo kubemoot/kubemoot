@@ -9,11 +9,11 @@ export function routeSection(routeId: string | null): string | null {
 }
 
 /** The sections whose pages are not scoped to a crew, so the top bar hides the Crew selector. */
-const SECTIONS_WITHOUT_CREW = new Set(['nodes', 'messages', 'verify', 'config']);
+const SECTIONS_WITHOUT_CREW = new Set(['nodes', 'verify', 'config']);
 
 /**
- * Whether the top bar shows the Crew selector on a page. The Overview and Discussions
- * are crew-scoped, so they show it; an error page (no matched route) shows it too.
+ * Whether the top bar shows the Crew selector on a page. The Overview, Discussions and
+ * Messages are crew-scoped, so they show it; an error page (no matched route) shows it too.
  */
 export function showsCrewSelector(routeId: string | null): boolean {
 	const section = routeSection(routeId);

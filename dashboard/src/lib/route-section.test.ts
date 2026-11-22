@@ -24,11 +24,12 @@ describe('showsCrewSelector', () => {
 	it('shows on the Overview and on crew-scoped pages', () => {
 		expect(showsCrewSelector('/')).toBe(true);
 		expect(showsCrewSelector('/discussions')).toBe(true);
+		expect(showsCrewSelector('/messages')).toBe(true);
 		expect(showsCrewSelector('/mcpservers/[name]')).toBe(true);
 	});
 
 	it('hides on the pages that are not crew-scoped', () => {
-		for (const id of ['/nodes', '/messages', '/verify', '/config']) {
+		for (const id of ['/nodes', '/verify', '/config']) {
 			expect(showsCrewSelector(id)).toBe(false);
 		}
 	});
