@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
-	import { readinessStatus } from '#lib/resource-status.js';
-	import { onMount } from 'svelte';
+	import { NO_VALUE, readinessStatus } from '#lib/resource-status.js';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
@@ -15,6 +14,7 @@
 
 	let agent = $state<Agent | null>(null);
 	let heartbeat = $state<AgentHeartbeat | null>(null);
+	let replicas = $state<{ desired: number; ready: number } | null>(null);
 	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -32,14 +32,13 @@
 		error = null;
 
 		try {
-			const [res, hbRes] = await Promise.all([
-				fetch(`${resolve('/api/kubemoot/agents/[name]', { name })}?namespace=${ns}`),
-				fetch(resolve('/api/nats/kv')).catch(() => null)
-			]);
+			const res = await fetch(`${resolve('/api/kubemoot/agents/[name]', { name })}?namespace=${ns}`);
 			if (!res.ok) throw new Error('Agent not found');
 			agent = await res.json();
-
-			if (hbRes?.ok && name) await loadHeartbeat(hbRes, name);
+			// The page shows the agent now; what comes from other sources fills in as it arrives.
+			loading = false;
+			void loadHeartbeat(name);
+			void loadReplicas(name);
 
 			// Fetch tools for each referenced MCP server
 			const serverNames = mcpServerNames(agent);
@@ -57,10 +56,26 @@
 		}
 	}
 
-	async function loadHeartbeat(hbRes: Response, agentName: string) {
-		const hbData = await hbRes.json();
-		heartbeat =
-			agentStateFor<AgentHeartbeat>(hbData.agents, agent?.metadata.namespace ?? ns, agentName) ?? null;
+	// The heartbeat is extra detail from the bus: the page never waits for it, and shows none when it is slow or absent.
+	async function loadHeartbeat(agentName: string) {
+		try {
+			const res = await fetch(resolve('/api/nats/kv'));
+			if (!res.ok) return;
+			const data = await res.json();
+			heartbeat = agentStateFor<AgentHeartbeat>(data.agents, agent?.metadata.namespace ?? ns, agentName) ?? null;
+		} catch {
+			heartbeat = null;
+		}
+	}
+
+	// The Agent resource does not say how many instances run; its Deployment does.
+	async function loadReplicas(agentName: string) {
+		try {
+			const res = await fetch(`${resolve('/api/kubemoot/agents/[name]/replicas', { name: agentName })}?namespace=${ns}`);
+			replicas = res.ok ? await res.json() : null;
+		} catch {
+			replicas = null;
+		}
 	}
 
 	async function fetchAssembledPrompt() {
@@ -105,10 +120,6 @@
 		);
 		mcpServerTools = toolMap;
 	}
-
-	onMount(() => {
-		fetchAgent();
-	});
 
 	$effect(() => {
 		ns;
@@ -304,7 +315,7 @@
 					<InfoRow label="Ready" value={agent.status?.ready ? 'Yes' : 'No'} />
 					<InfoRow label="Phase" value={statusLabel} />
 					<InfoRow label="Endpoint" value={agent.status?.endpoint} mono />
-					<InfoRow label="Replicas" value={`${agent.status?.availableReplicas || 0}/${agent.spec.deployment?.replicas || 1}`} />
+					<InfoRow label="Replicas" value={replicas ? `${replicas.ready}/${replicas.desired}` : NO_VALUE} />
 					<InfoRow label="Message" value={agent.status?.message} />
 				</Section>
 

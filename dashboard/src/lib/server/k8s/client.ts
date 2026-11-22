@@ -74,6 +74,10 @@ export function getCustomObjectsApi(): k8s.CustomObjectsApi {
 	return getKubeConfig().makeApiClient(k8s.CustomObjectsApi);
 }
 
+export function getAppsApi(): k8s.AppsV1Api {
+	return getKubeConfig().makeApiClient(k8s.AppsV1Api);
+}
+
 export function getBatchApi(): k8s.BatchV1Api {
 	return getKubeConfig().makeApiClient(k8s.BatchV1Api);
 }
