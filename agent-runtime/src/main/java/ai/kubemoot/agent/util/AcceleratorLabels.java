@@ -4,20 +4,42 @@ package ai.kubemoot.agent.util;
  * Derives a stable SERVER label for telemetry from a model-server endpoint
  * URL or ModelServer CR name. The label is the server IDENTIFIER (the
  * endpoint's namespace/host, or the CR name) - it is deliberately NOT a hardcoded
- * GPU model. Which physical GPU a server runs is cluster topology that the
- * operator discovers (ModelServer.status.capacity.gpuModel via DCGM); a caller
+ * accelerator model. Which physical accelerator a server runs is cluster topology that the
+ * operator discovers (ModelServer.status.capacity.acceleratorModel); a caller
  * that holds the ServerState should prefer that discovered model for display.
  * This utility only provides a name-derived fallback so a label is never empty,
- * and bakes no assumption about the cluster's GPUs or models.
+ * and bakes no assumption about the cluster's accelerators or models.
  */
-public final class GpuLabels {
+public final class AcceleratorLabels {
 
-    private GpuLabels() {}
+    /** Bus metadata key of the accelerator label. */
+    public static final String FIELD = "acceleratorLabel";
+
+    /** The old bus metadata key of the label: sent with {@link #FIELD} for one release, then removed. */
+    public static final String DEPRECATED_FIELD = "gpuLabel";
+
+    private AcceleratorLabels() {}
+
+    /** Puts {@code label} in {@code metadata} under its current key and the deprecated old one. */
+    public static void put(java.util.Map<String, Object> metadata, String label) {
+        metadata.put(FIELD, label);
+        metadata.put(DEPRECATED_FIELD, label);
+    }
+
+    /**
+     * The label a signal's metadata carries: the current key, else the old one from an older
+     * publisher. Null when the metadata has neither.
+     */
+    public static String read(com.fasterxml.jackson.databind.JsonNode metadata) {
+        if (metadata == null) return null;
+        if (metadata.has(FIELD)) return metadata.get(FIELD).asText();
+        return metadata.has(DEPRECATED_FIELD) ? metadata.get(DEPRECATED_FIELD).asText() : null;
+    }
 
     /**
      * Server label derived from an endpoint URL. Extracts the host's namespace
      * component, e.g. "http://ollama.ollama-rig1:11434" -> "ollama-rig1". Returns
-     * "server" when nothing usable can be extracted. No GPU/model assumptions.
+     * "server" when nothing usable can be extracted. No accelerator or model assumptions.
      */
     public static String fromEndpoint(String endpoint) {
         if (endpoint == null || endpoint.isBlank()) return "server";
@@ -38,7 +60,7 @@ public final class GpuLabels {
 
     /**
      * The ModelServer CR name IS the server identifier - returned as-is so the
-     * GPU badge reflects WHERE the inference actually ran (the per-call JIT pick).
+     * accelerator badge reflects WHERE the inference actually ran (the per-call JIT pick).
      * Returns {@code null} for empty/unknown names so callers fall back to the
      * endpoint-derived label.
      */

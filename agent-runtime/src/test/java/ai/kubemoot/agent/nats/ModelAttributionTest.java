@@ -33,7 +33,7 @@ class ModelAttributionTest {
 
         assertEquals(ALTERNATIVE, meta.get("modelName"));
         assertEquals(List.of("model-large@server-a", "model-medium@server-b"), meta.get("modelsUsed"));
-        assertEquals("server-b", ModelAttribution.gpuLabel(List.of(
+        assertEquals("server-b", ModelAttribution.acceleratorLabel(List.of(
                 new ModelUse(PREFERRED, "server-a"), new ModelUse(ALTERNATIVE, "server-b")), "static"));
     }
 
@@ -50,7 +50,7 @@ class ModelAttributionTest {
         var use = List.of(new ModelUse(PREFERRED, ""));
 
         assertEquals(List.of(PREFERRED), ModelAttribution.of(use).get("modelsUsed"));
-        assertEquals("endpoint-label", ModelAttribution.gpuLabel(use, "endpoint-label"));
+        assertEquals("endpoint-label", ModelAttribution.acceleratorLabel(use, "endpoint-label"));
     }
 
     @Test
@@ -59,8 +59,8 @@ class ModelAttributionTest {
         assertTrue(ModelAttribution.of(List.of()).isEmpty());
         assertTrue(ModelAttribution.of(List.of(new ModelUse(null, "server-a"))).isEmpty(),
                 "a call with no model name is not attributed");
-        assertEquals("fallback", ModelAttribution.gpuLabel(null, "fallback"));
-        assertEquals("fallback", ModelAttribution.gpuLabel(List.of(), "fallback"));
+        assertEquals("fallback", ModelAttribution.acceleratorLabel(null, "fallback"));
+        assertEquals("fallback", ModelAttribution.acceleratorLabel(List.of(), "fallback"));
     }
 
     @Test
@@ -68,7 +68,7 @@ class ModelAttributionTest {
         var uses = Arrays.asList(new ModelUse(PREFERRED, "server-a"), new ModelUse("", "server-b"));
 
         assertEquals(PREFERRED, ModelAttribution.of(uses).get("modelName"));
-        assertEquals("server-a", ModelAttribution.gpuLabel(uses, "fallback"));
+        assertEquals("server-a", ModelAttribution.acceleratorLabel(uses, "fallback"));
     }
 
     @Test

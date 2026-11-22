@@ -12,7 +12,7 @@ import ai.kubemoot.agent.chat.ModelUse;
 import ai.kubemoot.agent.chat.ToolListPlaceholder;
 import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.rag.ResumeSearchClient;
-import ai.kubemoot.agent.util.GpuLabels;
+import ai.kubemoot.agent.util.AcceleratorLabels;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -100,17 +100,19 @@ public class DiscussionOrchestrator {
      */
     private static final Set<String> TERMINAL_SIGNALS =
             Set.of(MSG_AGREE, MSG_CONTRIBUTION, MSG_CONCERN, MSG_STAND_ASIDE, MSG_DECLINE, MSG_FAILURE, MSG_BLOCK);
-    /** An agent started waiting for GPU capacity. */
+    /** An agent started waiting for accelerator capacity. */
     private static final String MSG_WAITING = "waiting";
-    /** Stand-aside reason: every GPU that could hold the model stayed busy. */
-    static final String REASON_GPU_BUSY = ai.kubemoot.agent.modelserver.NoFitException.REASON_GPU_BUSY;
-    /** Stand-aside reason: no GPU can ever hold the model. */
+    /** Stand-aside reason: every accelerator that could hold the model stayed busy. */
+    static final String REASON_ACCELERATOR_BUSY = ai.kubemoot.agent.modelserver.NoFitException.REASON_ACCELERATOR_BUSY;
+    /** The old value of {@link #REASON_ACCELERATOR_BUSY}, accepted from an older publisher for one release. */
+    static final String REASON_GPU_BUSY_DEPRECATED = ai.kubemoot.agent.modelserver.NoFitException.REASON_GPU_BUSY_DEPRECATED;
+    /** Stand-aside reason: no accelerator can ever hold the model. */
     static final String REASON_MODEL_TOO_LARGE = ai.kubemoot.agent.modelserver.NoFitException.REASON_MODEL_TOO_LARGE;
-    /** Stand-aside reason: the prompt is larger than every GPU's context window for the model. */
+    /** Stand-aside reason: the prompt is larger than every accelerator's context window for the model. */
     static final String REASON_PROMPT_TOO_LARGE = ai.kubemoot.agent.modelserver.NoFitException.REASON_PROMPT_TOO_LARGE;
     /** The stand-aside reasons that mean the cluster, not the crew, kept an agent out. */
     private static final Set<String> CAPACITY_REASONS =
-            Set.of(REASON_GPU_BUSY, REASON_MODEL_TOO_LARGE, REASON_PROMPT_TOO_LARGE);
+            Set.of(REASON_ACCELERATOR_BUSY, REASON_GPU_BUSY_DEPRECATED, REASON_MODEL_TOO_LARGE, REASON_PROMPT_TOO_LARGE);
     static final String MSG_THREAD_START = "thread_start";
     static final String MSG_ADVISORY_READY = "advisory_ready";
     static final String MSG_REVIEW_READY = "review_ready";
@@ -206,7 +208,6 @@ public class DiscussionOrchestrator {
     private static final String CHANNEL_GENERAL = "general";
 
     // Metadata key constants (NATS message metadata)
-    private static final String FIELD_GPU_LABEL = "gpuLabel";
     private static final String FIELD_MODEL_NAME = "modelName";
     private static final String UNKNOWN_SERVER = "unknown";
     // Token-count map keys (input/output) used in the synthesis token report
@@ -1309,14 +1310,14 @@ public class DiscussionOrchestrator {
 
     /**
      * An agent is waiting for GPU capacity. Remember the model it waits for (so a
-     * synthesis that finds no contribution can say the GPUs were busy) and keep
+     * synthesis that finds no contribution can say the accelerators were busy) and keep
      * its deadline alive like a heartbeat.
      */
     private void handleWaitingSignal(ThreadState state, String agentName, JsonNode msg) {
         String model = msg.path(FIELD_METADATA).path("model").asText("");
         state.waitingAgents.put(agentName, model);
         handleHeartbeatSignal(state, agentName, msg);
-        log.info("Thread {} - agent {} is waiting for a GPU for {}", state.threadId, agentName, model);
+        log.info("Thread {} - agent {} is waiting for an accelerator for {}", state.threadId, agentName, model);
     }
 
     /** True for the stand-aside reasons that mean an agent could not get an accelerator. */
@@ -1325,8 +1326,10 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * Record a stand-aside's capacity reason ({@code gpu-busy}, {@code model-too-large}
-     * or {@code prompt-too-large}) and, for model-too-large, the model no GPU can hold.
+     * Record a stand-aside's capacity reason ({@code accelerator-busy}, or its deprecated old
+     * value {@code gpu-busy} from an older publisher, {@code model-too-large}
+     * or {@code prompt-too-large}) and, for model-too-large, the model no accelerator can hold.
+     * The old value is recorded under its current name.
      * Stand-asides without one of these reasons are ordinary and record nothing.
      */
     // Visible for testing
@@ -1336,7 +1339,7 @@ public class DiscussionOrchestrator {
         if (!CAPACITY_REASONS.contains(reason)) {
             return;
         }
-        state.capacityStandAsides.put(agentName, reason);
+        state.capacityStandAsides.put(agentName, ai.kubemoot.agent.modelserver.NoFitException.canonicalReason(reason));
         String model = meta.path("model").asText("");
         if (REASON_MODEL_TOO_LARGE.equals(reason) && !model.isEmpty()) {
             state.tooLargeModels.add(model);
@@ -2526,7 +2529,7 @@ public class DiscussionOrchestrator {
             metadata.put("standAsideCount", state.standAsideSignals.size());
             metadata.put("concernCount", state.concernSignals.size());
             metadata.put("failureCount", state.failureSignals.size());
-            metadata.put(FIELD_GPU_LABEL, GpuLabels.fromEndpoint(properties.model().endpoint()));
+            AcceleratorLabels.put(metadata, AcceleratorLabels.fromEndpoint(properties.model().endpoint()));
             metadata.put(FIELD_MODEL_NAME, properties.model().model());
 
             // The inner circle scopes review_ready to the selected analysts (the
@@ -3238,7 +3241,7 @@ public class DiscussionOrchestrator {
 
     /**
      * The answer when the synthesis call failed: the fallback, naming a synthesis
-     * prompt larger than every GPU's context window when that was the cause.
+     * prompt larger than every accelerator's context window when that was the cause.
      */
     String fallbackAfterSynthesisFailure(ThreadState state, Exception failure) {
         state.synthesisPromptTooLarge = isPromptTooLarge(failure);
@@ -3279,9 +3282,9 @@ public class DiscussionOrchestrator {
         }
     }
 
-    /** Leads the toolers' raw findings when the synthesis prompt fit no GPU's context window. */
+    /** Leads the toolers' raw findings when the synthesis prompt fit no accelerator's context window. */
     static final String SYNTHESIS_TOO_LARGE_PREFIX = "The findings below are too large together for the "
-            + "context window any GPU in this cluster gives the coordinator's model, so they are shown "
+            + "context window any accelerator in this cluster gives the coordinator's model, so they are shown "
             + "without a combined answer.\n\n";
 
     /** True when {@code e} is a refusal because the prompt fits no server's context window. */
@@ -3291,18 +3294,18 @@ public class DiscussionOrchestrator {
     }
 
     static final String PROMPT_TOO_LARGE_MESSAGE = "The question and the evidence gathered for it are larger "
-            + "than the context window any GPU in this cluster gives the agents' models, so they could not "
+            + "than the context window any accelerator in this cluster gives the agents' models, so they could not "
             + "answer without losing part of it. Ask a narrower question, or give the Ollama server a larger "
             + "per-request context (OLLAMA_CONTEXT_LENGTH).";
 
-    static final String GPU_BUSY_MESSAGE = "The crew's agents could not get a GPU: every GPU was busy "
+    static final String ACCELERATOR_BUSY_MESSAGE = "The crew's agents could not get an accelerator: every accelerator was busy "
             + "with other work, so none of them could answer in time. This is the cluster's capacity, "
             + "not the crew's design; ask again in a moment.";
 
     /**
-     * The answer when no agent contributed because of GPU capacity: at least one
-     * agent stood aside with reason gpu-busy, model-too-large or prompt-too-large, or was still
-     * waiting for a GPU when the discussion settled. Null when an agent
+     * The answer when no agent contributed because of accelerator capacity: at least one
+     * agent stood aside with reason accelerator-busy, model-too-large or prompt-too-large, or was still
+     * waiting for an accelerator when the discussion settled. Null when an agent
      * contributed (agree or concern) or no capacity reason was reported, so the
      * ordinary synthesis and fallback text apply.
      */
@@ -3318,20 +3321,20 @@ public class DiscussionOrchestrator {
         if (state.capacityStandAsides.containsValue(REASON_PROMPT_TOO_LARGE)) {
             parts.add(PROMPT_TOO_LARGE_MESSAGE);
         }
-        if (state.capacityStandAsides.containsValue(REASON_GPU_BUSY) || !state.waitingAgents.isEmpty()) {
-            parts.add(GPU_BUSY_MESSAGE);
+        if (state.capacityStandAsides.containsValue(REASON_ACCELERATOR_BUSY) || !state.waitingAgents.isEmpty()) {
+            parts.add(ACCELERATOR_BUSY_MESSAGE);
         }
         return parts.isEmpty() ? null : String.join(" ", parts);
     }
 
     private static String tooLargeMessage(Set<String> models) {
         String named = models.isEmpty() ? "the model" : "the model " + String.join(", ", new java.util.TreeSet<>(models));
-        return "No GPU in this cluster can hold " + named + " the agents need; add a smaller Model or a larger GPU.";
+        return "No accelerator in this cluster can hold " + named + " the agents need; add a smaller Model or a larger accelerator.";
     }
 
     /**
      * Close the thread with the capacity answer instead of running the synthesis
-     * LLM when no agent contributed because of GPU capacity. Returns true when it
+     * LLM when no agent contributed because of accelerator capacity. Returns true when it
      * closed the thread.
      */
     private boolean closeForCapacity(ThreadState state, Instant synthesisStart) {
@@ -3339,7 +3342,7 @@ public class DiscussionOrchestrator {
         if (capacity == null) {
             return false;
         }
-        log.info("Thread {} - no contribution and agents could not get a GPU; answering with the capacity message",
+        log.info("Thread {} - no contribution and agents could not get an accelerator; answering with the capacity message",
                 state.threadId);
         return closeWith(state, synthesisStart, capacity, "capacity");
     }
@@ -3570,15 +3573,12 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * Extract the gpuLabel from a signal's metadata — used as the server key for LatencyTracker.
+     * Extract the acceleratorLabel from a signal's metadata — used as the server key for LatencyTracker.
      * Falls back to "unknown" if metadata is absent.
      */
     private static String extractServer(JsonNode msg) {
-        if (msg.has(FIELD_METADATA) && msg.get(FIELD_METADATA).has(FIELD_GPU_LABEL)) {
-            String label = msg.get(FIELD_METADATA).get(FIELD_GPU_LABEL).asText();
-            return label != null && !label.isEmpty() ? label : UNKNOWN_SERVER;
-        }
-        return UNKNOWN_SERVER;
+        String label = msg.has(FIELD_METADATA) ? AcceleratorLabels.read(msg.get(FIELD_METADATA)) : null;
+        return label != null && !label.isEmpty() ? label : UNKNOWN_SERVER;
     }
 
     /**
@@ -4934,7 +4934,7 @@ public class DiscussionOrchestrator {
         final ConcurrentHashMap<String, String> failureSignals = new ConcurrentHashMap<>();
         /** Names of the tools failure signals reported missing or failing: what a user can be told. */
         final java.util.Set<String> failedSources = ConcurrentHashMap.newKeySet();
-        /** Agents that stood aside for GPU capacity: agent name to gpu-busy or model-too-large. */
+        /** Agents that stood aside for accelerator capacity: agent name to accelerator-busy or model-too-large. */
         final ConcurrentHashMap<String, String> capacityStandAsides = new ConcurrentHashMap<>();
         /** Models a model-too-large stand-aside named. */
         final Set<String> tooLargeModels = ConcurrentHashMap.newKeySet();
@@ -5199,8 +5199,8 @@ public class DiscussionOrchestrator {
     // Visible for testing
     void putRanOn(Map<String, Object> metadata, ModelUse ranOn) {
         List<ModelUse> uses = ranOn == null ? List.of() : List.of(ranOn);
-        metadata.put(FIELD_GPU_LABEL,
-                ModelAttribution.gpuLabel(uses, GpuLabels.fromEndpoint(properties.model().endpoint())));
+        AcceleratorLabels.put(metadata,
+                ModelAttribution.acceleratorLabel(uses, AcceleratorLabels.fromEndpoint(properties.model().endpoint())));
         metadata.put(FIELD_MODEL_NAME, properties.model().model());
         metadata.putAll(ModelAttribution.of(uses));
     }

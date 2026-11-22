@@ -408,11 +408,11 @@ class DiscussionSubscriberHelpersTest {
 
     @Test
     void noFit_gpuBusy_contentAndMetadataNameTheReasonAndModel() {
-        var nfe = ai.kubemoot.agent.modelserver.NoFitException.gpuBusy("qwen3:14b", "wait limit");
-        assertEquals("Could not get a GPU: every GPU that can hold qwen3:14b was busy",
+        var nfe = ai.kubemoot.agent.modelserver.NoFitException.acceleratorBusy("qwen3:14b", "wait limit");
+        assertEquals("Could not get an accelerator: every accelerator that can hold qwen3:14b was busy",
                 DiscussionSubscriber.noFitContent(nfe));
         var meta = DiscussionSubscriber.noFitMetadata(nfe);
-        assertEquals("gpu-busy", meta.get("reason"));
+        assertEquals("accelerator-busy", meta.get("reason"));
         assertEquals("qwen3:14b", meta.get("model"));
         assertEquals("wait limit", meta.get("predictorReason"));
     }
@@ -420,7 +420,7 @@ class DiscussionSubscriberHelpersTest {
     @Test
     void noFit_promptTooLarge_contentAndMetadataNameTheReasonAndModel() {
         var nfe = ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge("m:14b", "prompt ~20000 tokens");
-        assertEquals("The prompt is larger than the context window any GPU gives m:14b",
+        assertEquals("The prompt is larger than the context window any accelerator gives m:14b",
                 DiscussionSubscriber.noFitContent(nfe));
         assertEquals("prompt-too-large", DiscussionSubscriber.noFitMetadata(nfe).get("reason"));
         assertEquals("prompt ~20000 tokens", DiscussionSubscriber.noFitMetadata(nfe).get("predictorReason"));
@@ -429,7 +429,7 @@ class DiscussionSubscriberHelpersTest {
     @Test
     void noFit_modelTooLarge_contentAndMetadataNameTheReasonAndModel() {
         var nfe = ai.kubemoot.agent.modelserver.NoFitException.modelTooLarge("qwen3:235b", "too big");
-        assertEquals("No GPU in this cluster can hold the model qwen3:235b", DiscussionSubscriber.noFitContent(nfe));
+        assertEquals("No accelerator in this cluster can hold the model qwen3:235b", DiscussionSubscriber.noFitContent(nfe));
         assertEquals("model-too-large", DiscussionSubscriber.noFitMetadata(nfe).get("reason"));
     }
 
@@ -485,6 +485,7 @@ class DiscussionSubscriberHelpersTest {
         var meta = msg.path("metadata");
         assertEquals("alt-model:14b", meta.path("modelName").asText());
         assertEquals("server-b", meta.path("gpuLabel").asText());
+        assertEquals("server-b", meta.path("acceleratorLabel").asText(), "the new name is sent with the old");
         assertEquals(List.of("alt-model:14b@server-b"), modelsUsed(msg));
         assertEquals(100, meta.path("inputTokens").asLong(), "token counts are unchanged");
         assertEquals(20, meta.path("outputTokens").asLong());
@@ -710,7 +711,7 @@ class DiscussionSubscriberHelpersTest {
         assertEquals("waiting", msg.path("messageType").asText());
         assertEquals("qwen3:14b", msg.path("metadata").path("model").asText());
         assertTrue(msg.path("metadata").path("gpuLabel").isMissingNode(), "no accelerator while waiting: " + msg);
-        assertEquals("gpu-busy", msg.path("metadata").path("reason").asText());
+        assertEquals("accelerator-busy", msg.path("metadata").path("reason").asText());
     }
 
     @Test

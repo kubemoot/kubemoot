@@ -11,6 +11,7 @@
     "modelName": "qwen3:32b",
     "layers": [],
     "inferenceMs": 12511,
+    "acceleratorLabel": "ollama-rig0",
     "gpuLabel": "ollama-rig0",
     "wisdom": "List Proxmox nodes with their status, including node names, online/offline status, storage usage, and network configuration. Use proxmox-list-nodes and proxmox-node-status to gather details about each"
   },

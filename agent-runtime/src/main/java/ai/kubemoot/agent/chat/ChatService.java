@@ -100,7 +100,7 @@ public class ChatService {
     /**
      * Waits for GPU capacity when every GPU that could hold the model is busy.
      * Null in unit tests that do not exercise waiting: a busy cluster then stands
-     * aside at once with reason gpu-busy.
+     * aside at once with reason accelerator-busy.
      */
     private final ai.kubemoot.agent.modelserver.GpuCapacityWaiter capacityWaiter;
     /** Other models a mulling call may use when one is warm with room. Null: bound model only. */
@@ -1845,7 +1845,7 @@ public class ChatService {
      *
      * <p>When nothing has room: a model no GPU can ever hold stands aside with
      * reason model-too-large; a busy cluster waits for capacity through
-     * {@code wait} and stands aside with reason gpu-busy only when the thread ends
+     * {@code wait} and stands aside with reason accelerator-busy only when the thread ends
      * or the wait's safety limit passes.</p>
      *
      * <p>Ticket release is the caller's responsibility (try/finally around the
@@ -1959,9 +1959,9 @@ public class ChatService {
     private MullingPick waitForCapacity(String model, long footprintMiB, int promptCharCount,
                                         ai.kubemoot.agent.modelserver.CapacityWait wait, String kind) {
         requireFeasible(model, footprintMiB, promptTokens(promptCharCount));
-        String busy = "model=" + model + " coldLoad=" + footprintMiB + "MiB: every GPU that can hold it is busy";
+        String busy = "model=" + model + " coldLoad=" + footprintMiB + "MiB: every accelerator that can hold it is busy";
         if (capacityWaiter == null || wait.threadEnded()) {
-            throw ai.kubemoot.agent.modelserver.NoFitException.gpuBusy(model, busy);
+            throw ai.kubemoot.agent.modelserver.NoFitException.acceleratorBusy(model, busy);
         }
         callPlanner.waitStarted(model);
         long waitStartMs = System.currentTimeMillis();

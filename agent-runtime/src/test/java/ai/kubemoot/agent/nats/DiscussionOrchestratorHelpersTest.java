@@ -429,7 +429,7 @@ class DiscussionOrchestratorHelpersTest {
         assertTrue(DiscussionOrchestrator.isPromptTooLarge(
                 ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge("m", "d")));
         assertFalse(DiscussionOrchestrator.isPromptTooLarge(
-                ai.kubemoot.agent.modelserver.NoFitException.gpuBusy("m", "d")));
+                ai.kubemoot.agent.modelserver.NoFitException.acceleratorBusy("m", "d")));
         assertFalse(DiscussionOrchestrator.isPromptTooLarge(new IllegalStateException("x")));
         assertFalse(DiscussionOrchestrator.isPromptTooLarge(null));
     }
@@ -464,7 +464,7 @@ class DiscussionOrchestratorHelpersTest {
         var chat = mock(ChatService.class);
         when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
                 .thenReturn(new ChatService.SimpleLlmResult("alpha, bravo, charlie, delta, echo", 10, 5))
-                .thenThrow(ai.kubemoot.agent.modelserver.NoFitException.gpuBusy("m", "busy"));
+                .thenThrow(ai.kubemoot.agent.modelserver.NoFitException.acceleratorBusy("m", "busy"));
 
         var retrying = createOrchestrator("", chat, 2);
         assertThrows(ai.kubemoot.agent.modelserver.NoFitException.class,
@@ -795,13 +795,31 @@ class DiscussionOrchestratorHelpersTest {
     }
 
     @Test
+    void acceleratorBusyStandAside_withNoContribution_answersWithTheCapacityMessage() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "rules-keeper", "stand_aside", "", signal("accelerator-busy", "qwen3:14b"));
+
+        assertEquals(DiscussionOrchestrator.ACCELERATOR_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
+        assertEquals("accelerator-busy", state.capacityStandAsides.get("rules-keeper"));
+    }
+
+    @Test
+    void deprecatedGpuBusyReason_isAcceptedAndRecordedUnderTheCurrentName() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "rules-keeper", "stand_aside", "", signal("gpu-busy", "qwen3:14b"));
+
+        assertEquals("accelerator-busy", state.capacityStandAsides.get("rules-keeper"));
+        assertEquals(DiscussionOrchestrator.ACCELERATOR_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
+    }
+
+    @Test
     void gpuBusyStandAside_withNoContribution_answersWithTheCapacityMessage() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         orchestrator.handleAgentSignal(state, "rules-keeper", "stand_aside", "", signal("gpu-busy", "qwen3:14b"));
 
-        assertEquals(DiscussionOrchestrator.GPU_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
+        assertEquals(DiscussionOrchestrator.ACCELERATOR_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
         String fallback = orchestrator.buildFallbackResponse(state);
-        assertTrue(fallback.startsWith("The crew's agents could not get a GPU"));
+        assertTrue(fallback.startsWith("The crew's agents could not get an accelerator"));
         assertTrue(fallback.contains("not the crew's design"));
         assertFalse(fallback.contains("No agent contributed"));
     }
@@ -811,8 +829,8 @@ class DiscussionOrchestratorHelpersTest {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         orchestrator.handleAgentSignal(state, "big-agent", "stand_aside", "", signal("model-too-large", "qwen3:235b"));
 
-        assertEquals("No GPU in this cluster can hold the model qwen3:235b the agents need; "
-                + "add a smaller Model or a larger GPU.", DiscussionOrchestrator.capacityMessage(state));
+        assertEquals("No accelerator in this cluster can hold the model qwen3:235b the agents need; "
+                + "add a smaller Model or a larger accelerator.", DiscussionOrchestrator.capacityMessage(state));
     }
 
     @Test
@@ -822,8 +840,8 @@ class DiscussionOrchestratorHelpersTest {
         orchestrator.handleAgentSignal(state, "b", "stand_aside", "", signal("gpu-busy", "qwen3:14b"));
 
         String msg = DiscussionOrchestrator.capacityMessage(state);
-        assertTrue(msg.startsWith("No GPU in this cluster can hold the model qwen3:235b"));
-        assertTrue(msg.endsWith(DiscussionOrchestrator.GPU_BUSY_MESSAGE));
+        assertTrue(msg.startsWith("No accelerator in this cluster can hold the model qwen3:235b"));
+        assertTrue(msg.endsWith(DiscussionOrchestrator.ACCELERATOR_BUSY_MESSAGE));
     }
 
     @Test
@@ -837,14 +855,14 @@ class DiscussionOrchestratorHelpersTest {
     }
 
     @Test
-    void promptTooLargeAndGpuBusy_reportBoth() {
+    void promptTooLargeAndAcceleratorBusy_reportBoth() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         orchestrator.handleAgentSignal(state, "a", "stand_aside", "", signal("prompt-too-large", "m:14b"));
         orchestrator.handleAgentSignal(state, "b", "stand_aside", "", signal("gpu-busy", "m:8b"));
 
         String msg = DiscussionOrchestrator.capacityMessage(state);
         assertTrue(msg.startsWith(DiscussionOrchestrator.PROMPT_TOO_LARGE_MESSAGE));
-        assertTrue(msg.endsWith(DiscussionOrchestrator.GPU_BUSY_MESSAGE));
+        assertTrue(msg.endsWith(DiscussionOrchestrator.ACCELERATOR_BUSY_MESSAGE));
     }
 
     @Test
@@ -857,18 +875,18 @@ class DiscussionOrchestratorHelpersTest {
     }
 
     @Test
-    void agentStillWaitingAtSettle_countsAsGpuBusy() {
+    void agentStillWaitingAtSettle_countsAsAcceleratorBusy() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("gpu-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("accelerator-busy", "qwen3:14b"));
 
         assertEquals("qwen3:14b", state.waitingAgents.get("rules-keeper"));
-        assertEquals(DiscussionOrchestrator.GPU_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
+        assertEquals(DiscussionOrchestrator.ACCELERATOR_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
     }
 
     @Test
     void waitingAgentThatThenAnswers_isNoLongerWaiting_andTheAnswerWins() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("gpu-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("accelerator-busy", "qwen3:14b"));
         orchestrator.handleAgentSignal(state, "rules-keeper", "agree", "Rule 7 applies", signal(null, null));
 
         assertTrue(state.waitingAgents.isEmpty());
@@ -905,7 +923,7 @@ class DiscussionOrchestratorHelpersTest {
 
         assertEquals(java.util.Map.of("c", "model-too-large"), java.util.Map.copyOf(state.capacityStandAsides));
         assertTrue(state.tooLargeModels.isEmpty());
-        assertEquals("No GPU in this cluster can hold the model the agents need; add a smaller Model or a larger GPU.",
+        assertEquals("No accelerator in this cluster can hold the model the agents need; add a smaller Model or a larger accelerator.",
                 DiscussionOrchestrator.capacityMessage(state));
     }
 

@@ -57,12 +57,22 @@ const (
 	signalDecline      = "decline"
 )
 
-// Discussion message metadata keys: the GPU an agent runs on and the model it uses
-// or waits for.
+// Discussion message metadata keys: the accelerator an agent runs on (and its deprecated old
+// name, sent for one release) and the model it uses or waits for.
 const (
-	metaGPULabel = "gpuLabel"
-	metaModel    = "model"
+	metaAcceleratorLabel = "acceleratorLabel"
+	metaGPULabel         = "gpuLabel"
+	metaModel            = "model"
 )
+
+// acceleratorLabelOf is the accelerator a message says its sender ran on: the current key,
+// else the old one from a publisher older than this release.
+func acceleratorLabelOf(m bus.DiscussionMessage) string {
+	if label := metaString(m, metaAcceleratorLabel); label != "" {
+		return label
+	}
+	return metaString(m, metaGPULabel)
+}
 
 // terminalSignals end an agent's part in a thread.
 var terminalSignals = map[bus.DiscussionMessageMessageType]bool{
@@ -72,7 +82,7 @@ var terminalSignals = map[bus.DiscussionMessageMessageType]bool{
 
 // agentStep is the step an agent is in on a thread.
 type agentStep struct {
-	doing, gpu, model string
+	doing, accelerator, model string
 	since             time.Time
 }
 
@@ -154,7 +164,7 @@ func (th *threadActivity) observe(m bus.DiscussionMessage, at time.Time) {
 // in. A discussion heartbeat keeps the current step, or means evaluating when the
 // stream joined after the agent's evaluating message.
 func agentStepOf(m bus.DiscussionMessage, current agentStep, at time.Time) (agentStep, bool) {
-	step := agentStep{gpu: metaString(m, metaGPULabel), model: metaString(m, metaModel), since: at}
+	step := agentStep{accelerator: acceleratorLabelOf(m), model: metaString(m, metaModel), since: at}
 	switch m.MessageType {
 	case phaseWaking, phaseReady:
 		step.doing = doingWaking
@@ -227,7 +237,7 @@ func (th *threadActivity) coordinatorStep() string {
 
 func (s agentStep) activity(agent string) bus.AgentActivity {
 	return bus.AgentActivity{
-		Agent: agent, Doing: bus.AgentActivityDoing(s.doing), GPU: s.gpu, Model: s.model,
+		Agent: agent, Doing: bus.AgentActivityDoing(s.doing), Accelerator: s.accelerator, GPU: s.accelerator, Model: s.model,
 		Since: s.since.UTC().Format(time.RFC3339),
 	}
 }

@@ -11,7 +11,8 @@
       "enum": ["waking", "triaging", "evaluating", "waiting_for_accelerator", "reasoning", "waiting_for_agents", "synthesizing"],
       "description": "What the agent is doing."
     },
-    "gpu": { "type": "string", "description": "The accelerator it runs on." },
+    "accelerator": { "type": "string", "description": "The accelerator it runs on." },
+    "gpu": { "type": "string", "description": "The old name of accelerator. Deprecated: sent with accelerator for one release, then removed." },
     "model": { "type": "string", "description": "The model it waits for." },
     "since": { "type": "string", "description": "When it started this step, RFC 3339 in UTC." }
   }

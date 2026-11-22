@@ -85,7 +85,7 @@ func TestAHeldCallIsFollowedToItsAnswerAndTheOwnerHearsOnce(t *testing.T) {
 	c := service(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost:
-			writeJSON(w, 202, map[string]string{keyWaitID: "w 1", keyReason: KindGPUBusy})
+			writeJSON(w, 202, map[string]string{keyWaitID: "w 1", keyReason: KindAcceleratorBusy})
 		case polls.Add(1) < 3:
 			writeJSON(w, 202, map[string]string{keyWaitID: "w 1"})
 		default:
@@ -97,7 +97,7 @@ func TestAHeldCallIsFollowedToItsAnswerAndTheOwnerHearsOnce(t *testing.T) {
 	if err != nil || rep.Ticket != "tk" {
 		t.Fatalf("%+v %v", rep, err)
 	}
-	if len(heard) != 1 || heard[0] != KindGPUBusy {
+	if len(heard) != 1 || heard[0] != KindAcceleratorBusy {
 		t.Errorf("the owner must hear of the wait once with its reason: %v", heard)
 	}
 }
@@ -108,11 +108,11 @@ func TestAHeldCallThatEndsInNoFitIsANoFit(t *testing.T) {
 			writeJSON(w, 202, map[string]string{keyWaitID: "w"})
 			return
 		}
-		writeJSON(w, 409, map[string]string{keyKind: KindGPUBusy, keyReason: "gave up"})
+		writeJSON(w, 409, map[string]string{keyKind: KindAcceleratorBusy, keyReason: "gave up"})
 	})
 	_, err := c.Place(context.Background(), request, nil)
 	var nf *ErrNoFit
-	if !errors.As(err, &nf) || nf.Kind != KindGPUBusy {
+	if !errors.As(err, &nf) || nf.Kind != KindAcceleratorBusy {
 		t.Fatalf("%v", err)
 	}
 }
@@ -214,7 +214,7 @@ func TestFallbackRunsDegradedOnlyWhenTheServiceIsUnavailable(t *testing.T) {
 	}
 
 	noFit := service(t, func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, 409, map[string]string{keyKind: KindGPUBusy})
+		writeJSON(w, 409, map[string]string{keyKind: KindAcceleratorBusy})
 	})
 	f = Fallback{Primary: noFit, Bound: bound()}
 	_, err = f.Place(context.Background(), request, nil)
@@ -262,5 +262,20 @@ func TestPlanSendsThePlan(t *testing.T) {
 	bad := service(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(404) })
 	if err := bad.Plan(context.Background(), PlanRequest{}); err == nil {
 		t.Error("a service without plans answers an error the caller may ignore")
+	}
+}
+
+func TestParseNoFitReadsTheDeprecatedGPUBusyAsAcceleratorBusy(t *testing.T) {
+	for name, body := range map[string]string{
+		"kind":   `{"kind":"gpu-busy","reason":"x"}`,
+		"reason": `{"reason":"gpu-busy"}`,
+		"new":    `{"kind":"accelerator-busy"}`,
+	} {
+		if got := parseNoFit([]byte(body)); got.Kind != KindAcceleratorBusy {
+			t.Errorf("%s: kind %q, want %q", name, got.Kind, KindAcceleratorBusy)
+		}
+	}
+	if got := parseNoFit([]byte(`{"kind":"model-too-large"}`)); got.Kind != KindModelTooLarge {
+		t.Errorf("other kinds are kept, got %q", got.Kind)
 	}
 }

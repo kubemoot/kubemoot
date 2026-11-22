@@ -12,6 +12,7 @@
     "signal": "triaging",
     "outputTokens": 0,
     "totalTokens": 0,
+    "acceleratorLabel": "ollama-rig1",
     "gpuLabel": "ollama-rig1",
     "inferenceStartMs": 1792085940871
   },

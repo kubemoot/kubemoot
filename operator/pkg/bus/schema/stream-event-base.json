@@ -15,7 +15,8 @@
       "type": "string",
       "description": "The phase: waking, ready, triaging, evaluating, waiting, or done for an agent that stood aside."
     },
-    "gpu": { "type": "string", "description": "The accelerator the agent runs on." },
+    "accelerator": { "type": "string", "description": "The accelerator the agent runs on." },
+    "gpu": { "type": "string", "description": "The old name of accelerator. Deprecated: sent with accelerator for one release, then removed." },
     "signal": {
       "type": "string",
       "description": "The consensus signal of a finding (agree, concern, block or failure), or stand_aside on the stand-aside phase event."
@@ -25,7 +26,7 @@
     "threadId": { "type": "string", "description": "The thread, on thread_found." },
     "stood_aside": { "type": "boolean", "description": "Set on the phase event of an agent that stood aside." },
     "model": { "type": "string", "description": "The model a waiting agent waits for." },
-    "reason": { "type": "string", "description": "Why an agent waits or stood aside, such as gpu-busy." },
+    "reason": { "type": "string", "description": "Why an agent waits or stood aside, such as accelerator-busy (gpu-busy before the old name was retired)." },
     "error": { "type": "string", "description": "What went wrong, on error." },
     "agents": {
       "type": "array",

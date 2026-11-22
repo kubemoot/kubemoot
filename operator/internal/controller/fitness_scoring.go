@@ -225,14 +225,15 @@ var recognizedSignals = map[string]bool{
 // needs. Parsed from the stored RunOutcome (report_server widens transcriptDoc
 // to carry these).
 type transcriptEvent struct {
-	Type       string `json:"type"`
-	Agent      string `json:"agent,omitempty"`
-	Signal     string `json:"signal,omitempty"`
-	Content    string `json:"content,omitempty"`
-	Summary    string `json:"summary,omitempty"` // concern findings carry their text here (agree findings use Content)
-	GPU        string `json:"gpu,omitempty"`
-	StoodAside bool   `json:"stood_aside,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Type        string `json:"type"`
+	Agent       string `json:"agent,omitempty"`
+	Signal      string `json:"signal,omitempty"`
+	Content     string `json:"content,omitempty"`
+	Summary     string `json:"summary,omitempty"` // concern findings carry their text here (agree findings use Content)
+	Accelerator string `json:"accelerator,omitempty"`
+	GPU         string `json:"gpu,omitempty"` // the old name of accelerator, sent for one release
+	StoodAside  bool   `json:"stood_aside,omitempty"`
+	Error       string `json:"error,omitempty"`
 
 	// FailureType and LastError are the signal metadata of a failure finding.
 	FailureType string `json:"failureType,omitempty"`

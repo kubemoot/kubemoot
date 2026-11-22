@@ -4,12 +4,14 @@
     {
       "agent": "nvidia-gpu-advisor",
       "doing": "triaging",
+      "accelerator": "ollama-rig1",
       "gpu": "ollama-rig1",
       "since": "2026-10-15T17:39:18Z"
     },
     {
       "agent": "obs-advisor",
       "doing": "triaging",
+      "accelerator": "ollama-rig1",
       "gpu": "ollama-rig1",
       "since": "2026-10-15T17:39:18Z"
     }

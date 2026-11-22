@@ -11,6 +11,7 @@
     "concernCount": 0,
     "userQuery": "Describe the proxmox nodes.",
     "failureCount": 0,
+    "acceleratorLabel": "ollama-rig0",
     "gpuLabel": "ollama-rig0"
   },
   "agentName": "homelab-coordinator",

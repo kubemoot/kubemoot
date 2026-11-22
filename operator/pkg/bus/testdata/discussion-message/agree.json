@@ -25,6 +25,7 @@
     "model": "qwen3:32b",
     "signal": "agree",
     "outputTokens": 1760,
+    "acceleratorLabel": "ollama-gpu",
     "gpuLabel": "ollama-gpu"
   },
   "agentName": "obs-advisor",

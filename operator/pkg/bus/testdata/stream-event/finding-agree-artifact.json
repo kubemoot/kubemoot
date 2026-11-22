@@ -1,6 +1,7 @@
 {
   "type": "finding",
   "agent": "proxmox-pve",
+  "accelerator": "ollama-rig1",
   "gpu": "ollama-rig1",
   "signal": "agree",
   "summary": "[ARTIFACT key=crew-homelab-pilot/homelab-pilot/33627b88-c58c-4017-a483-119d2e45c712/proxmox-pve/agree-b9af3035-e196-4635-834a-00bc5df9f3b0 bytes=8342 - the FULL data is in the file /artifacts/crew-hom",

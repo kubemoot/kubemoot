@@ -600,16 +600,17 @@ func doneEvent(data bus.DiscussionMessage) bus.StreamEventBase {
 }
 
 // phaseEvent maps an agent's progress signals to a phase event: waking, ready,
-// triaging and evaluating (with the GPU it landed on), waiting for GPU capacity
+// triaging and evaluating (with the accelerator it landed on), waiting for accelerator capacity
 // (with the model it waits for), and stood aside (with the reason, when the agent
-// gave one, such as gpu-busy).
+// gave one, such as accelerator-busy).
 func phaseEvent(data bus.DiscussionMessage) (SSEEvent, bool) {
 	e := sseEvent(bus.StreamEventBase{Type: eventPhase, Agent: data.AgentName})
 	switch data.MessageType {
 	case phaseWaking, phaseReady:
 		e.Status = string(data.MessageType)
 	case phaseTriaging, phaseEvaluating:
-		e.Status, e.GPU = string(data.MessageType), metaString(data, metaGPULabel)
+		e.Status, e.Accelerator = string(data.MessageType), acceleratorLabelOf(data)
+		e.GPU = e.Accelerator // deprecated old name, sent for one release
 	case phaseWaiting:
 		e.Status, e.Model, e.Reason = phaseWaiting, metaString(data, metaModel), metaString(data, metaReason)
 	case signalStandAside:
@@ -631,8 +632,10 @@ func phaseEvent(data bus.DiscussionMessage) (SSEEvent, bool) {
 // SignalMeta carries the signal's metadata: model, tokens, inference time, tools,
 // a spilled artifact, and what failed.
 func findingEvent(data bus.DiscussionMessage) (SSEEvent, bool) {
+	label := acceleratorLabelOf(data)
 	e := sseEvent(bus.StreamEventBase{
-		Type: eventFinding, Agent: data.AgentName, Signal: string(data.MessageType), GPU: metaString(data, metaGPULabel),
+		Type: eventFinding, Agent: data.AgentName, Signal: string(data.MessageType),
+		Accelerator: label, GPU: label, // GPU is the deprecated old name, sent for one release
 	})
 	switch data.MessageType {
 	case signalAgree, signalBlock, signalFailure:

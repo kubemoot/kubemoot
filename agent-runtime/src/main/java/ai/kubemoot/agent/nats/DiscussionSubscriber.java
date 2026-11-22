@@ -12,7 +12,7 @@ import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.ContextRejection;
 import ai.kubemoot.agent.chat.ToolCallFailure;
 import ai.kubemoot.agent.config.AgentProperties;
-import ai.kubemoot.agent.util.GpuLabels;
+import ai.kubemoot.agent.util.AcceleratorLabels;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
@@ -736,7 +736,7 @@ public class DiscussionSubscriber {
             }
 
             commitToThread(threadId, conversation);
-            String triageGpuLabel = GpuLabels.fromEndpoint(chatService.getTriageEndpoint());
+            String triageGpuLabel = AcceleratorLabels.fromEndpoint(chatService.getTriageEndpoint());
             publishSignal(subject, threadId, "triaging", "Queued for triage assessment",
                     SignalTiming.of(0, System.currentTimeMillis()), NOT_PLACED, plannedTriageModel());
 
@@ -804,7 +804,7 @@ public class DiscussionSubscriber {
             String text = triage.text() == null ? "" : triage.text();
             var use = triage.modelUse() == null ? List.<ai.kubemoot.agent.chat.ModelUse>of()
                     : List.of(triage.modelUse());
-            return new TriageOutcome(text, timing, ModelAttribution.gpuLabel(use, fallbackGpu),
+            return new TriageOutcome(text, timing, ModelAttribution.acceleratorLabel(use, fallbackGpu),
                     ModelAttribution.of(use));
         }
 
@@ -842,7 +842,7 @@ public class DiscussionSubscriber {
                                   long triageMs, long triageStartMs) {
         // The coordinator already judged this agent relevant, so it always runs
         // the full tool-calling evaluation on the primary GPU.
-        String mullingGpuLabel = GpuLabels.fromEndpoint(ollamaBaseUrl);
+        String mullingGpuLabel = AcceleratorLabels.fromEndpoint(ollamaBaseUrl);
 
         publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
                 SignalTiming.of(triageMs, triageStartMs), NOT_PLACED);
@@ -905,10 +905,10 @@ public class DiscussionSubscriber {
     }
 
     /**
-     * No GPU could run this call. Publish stand_aside carrying
-     * {@code metadata.reason} ({@code gpu-busy}: every GPU that could hold the
+     * No accelerator could run this call. Publish stand_aside carrying
+     * {@code metadata.reason} ({@code accelerator-busy}: every accelerator that could hold the
      * model stayed busy until the thread ended or the capacity wait reached its
-     * safety limit; {@code model-too-large}: no GPU can ever hold it;
+     * safety limit; {@code model-too-large}: no accelerator can ever hold it;
      * {@code prompt-too-large}: the prompt exceeds every server's context) and
      * {@code metadata.model}, so the coordinator and the dashboard can say the
      * cluster, not the crew design, kept this agent out. Distinct from a
@@ -928,12 +928,12 @@ public class DiscussionSubscriber {
     // Visible for testing
     static String noFitContent(ai.kubemoot.agent.modelserver.NoFitException nfe) {
         if (ai.kubemoot.agent.modelserver.NoFitException.REASON_MODEL_TOO_LARGE.equals(nfe.reason())) {
-            return "No GPU in this cluster can hold the model " + nfe.model();
+            return "No accelerator in this cluster can hold the model " + nfe.model();
         }
         if (ai.kubemoot.agent.modelserver.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
-            return "The prompt is larger than the context window any GPU gives " + nfe.model();
+            return "The prompt is larger than the context window any accelerator gives " + nfe.model();
         }
-        return "Could not get a GPU: every GPU that can hold " + nfe.model() + " was busy";
+        return "Could not get an accelerator: every accelerator that can hold " + nfe.model() + " was busy";
     }
 
     // Visible for testing
@@ -953,7 +953,7 @@ public class DiscussionSubscriber {
     }
 
     /**
-     * The subscriber's side of a GPU capacity wait for one thread: the wait ends
+     * The subscriber's side of an accelerator capacity wait for one thread: the wait ends
      * with the thread, {@code waiting} is published when it starts, and
      * {@code evaluating} is published again when capacity arrives.
      */
@@ -973,9 +973,9 @@ public class DiscussionSubscriber {
 
         @Override
         public void onWaiting(String model) {
-            publishSignal(subject, threadId, SIGNAL_WAITING, "Waiting for a GPU with room for " + model,
+            publishSignal(subject, threadId, SIGNAL_WAITING, "Waiting for an accelerator with room for " + model,
                     SignalTiming.of(0, System.currentTimeMillis()), NOT_PLACED,
-                    Map.of(FIELD_MODEL, model, "reason", ai.kubemoot.agent.modelserver.NoFitException.REASON_GPU_BUSY));
+                    Map.of(FIELD_MODEL, model, "reason", ai.kubemoot.agent.modelserver.NoFitException.REASON_ACCELERATOR_BUSY));
         }
 
         @Override
@@ -1210,7 +1210,7 @@ public class DiscussionSubscriber {
 
     /** The server the evaluation's last call ran on, or the fallback when no pick was made. */
     private static String jitGpuLabelOr(ChatService.ChatResult result, String fallback) {
-        return result == null ? fallback : ModelAttribution.gpuLabel(result.modelsUsed(), fallback);
+        return result == null ? fallback : ModelAttribution.acceleratorLabel(result.modelsUsed(), fallback);
     }
 
     /** The model metadata of the evaluation's calls; empty when there is no result. */
@@ -1382,7 +1382,7 @@ public class DiscussionSubscriber {
 
     private void publishSignal(String originalSubject, String threadId, String signal, String content,
                                SignalTiming timing) {
-        publishSignal(originalSubject, threadId, signal, content, timing, GpuLabels.fromEndpoint(ollamaBaseUrl));
+        publishSignal(originalSubject, threadId, signal, content, timing, AcceleratorLabels.fromEndpoint(ollamaBaseUrl));
     }
 
     private void publishSignal(String originalSubject, String threadId, String signal, String content,
@@ -1409,7 +1409,7 @@ public class DiscussionSubscriber {
             // model the calls ran on (ModelAttribution) once they have.
             metadata.put(ModelAttribution.FIELD_MODEL_NAME, properties.model().model());
             if (gpuLabel != null && !gpuLabel.isEmpty()) {
-                metadata.put("gpuLabel", gpuLabel);
+                AcceleratorLabels.put(metadata, gpuLabel);
             }
             metadata.put("inferenceMs", timing.inferenceMs());
             metadata.put("inferenceStartMs", timing.inferenceStartMs());

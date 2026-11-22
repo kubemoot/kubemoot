@@ -4,6 +4,9 @@
     "agent-activity.json#": {
       "type": "object"
     },
+    "agent-activity.json#/accelerator": {
+      "type": "string"
+    },
     "agent-activity.json#/agent": {
       "type": "string",
       "required": true
@@ -370,6 +373,7 @@
     "coordinator-event.json#/definitions/CoordinatorEventFields/capacityReason": {
       "type": "string",
       "enum": [
+        "accelerator-busy",
         "gpu-busy",
         "model-too-large",
         "prompt-too-large"
@@ -785,6 +789,9 @@
     },
     "discussion-metadata.json#": {
       "type": "object"
+    },
+    "discussion-metadata.json#/acceleratorLabel": {
+      "type": "string"
     },
     "discussion-metadata.json#/advisory": {
       "type": "string"
@@ -2120,6 +2127,9 @@
     },
     "stream-event-base.json#": {
       "type": "object"
+    },
+    "stream-event-base.json#/accelerator": {
+      "type": "string"
     },
     "stream-event-base.json#/agent": {
       "type": "string"

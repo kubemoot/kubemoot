@@ -48,7 +48,7 @@ func TestFindingCarriesTheSignalMetadata(t *testing.T) {
 		ToolsUsed: []string{"pods_list", "nodes_top"},
 		Artifact:  &bus.ArtifactRef{Key: testArtifact, Bytes: 8499},
 	}
-	if !reflect.DeepEqual(e.SignalMeta, want) || e.GPU != testGPU {
+	if !reflect.DeepEqual(e.SignalMeta, want) || e.GPU != testGPU || e.Accelerator != testGPU {
 		t.Fatalf("got %+v (gpu %q), want %+v", e.SignalMeta, e.GPU, want)
 	}
 	data, _ := json.Marshal(e)

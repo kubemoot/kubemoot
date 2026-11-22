@@ -2,6 +2,7 @@
   "type": "phase",
   "agent": "proxmox-pve",
   "status": "triaging",
+  "accelerator": "ollama-rig1",
   "gpu": "ollama-rig1",
   "timestamp": "2026-10-15T17:39:00.871994989Z"
 }

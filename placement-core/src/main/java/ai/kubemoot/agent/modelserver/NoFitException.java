@@ -1,16 +1,16 @@
 package ai.kubemoot.agent.modelserver;
 
 /**
- * Thrown by the chat pipeline when no GPU can serve this call, so the agent
+ * Thrown by the chat pipeline when no accelerator can serve this call, so the agent
  * stands aside instead of calling a server the scheduler refused.
  *
  * <h3>Reasons</h3>
  * <ul>
- *   <li>{@link #REASON_GPU_BUSY}: some GPU could hold the model, but every one
+ *   <li>{@link #REASON_ACCELERATOR_BUSY}: some accelerator could hold the model, but every one
  *       stayed busy with other work until the discussion ended or the agent's
  *       capacity wait reached its safety limit.</li>
- *   <li>{@link #REASON_MODEL_TOO_LARGE}: no GPU in the cluster has enough usable
- *       VRAM to ever hold the model.</li>
+ *   <li>{@link #REASON_MODEL_TOO_LARGE}: no accelerator in the cluster has enough usable
+ *       memory to ever hold the model.</li>
  *   <li>{@link #REASON_PROMPT_TOO_LARGE}: the prompt is larger than the context
  *       window every server gives the model, so the engine would drop part of
  *       it (the question among it) instead of answering it.</li>
@@ -24,16 +24,22 @@ package ai.kubemoot.agent.modelserver;
  * was the limit.
  *
  * <h3>Not a failure</h3>
- * The agent is not broken: it was selected and willing to answer, but no GPU
+ * The agent is not broken: it was selected and willing to answer, but no accelerator
  * could run it. A {@code stand_aside} with a reason says exactly that, distinct
  * from a {@code failure} signal (something went wrong during the call).
  */
 public class NoFitException extends RuntimeException {
 
-    /** Stand-aside reason: every GPU that could hold the model stayed busy. */
-    public static final String REASON_GPU_BUSY = "gpu-busy";
+    /** Stand-aside reason: every accelerator that could hold the model stayed busy. */
+    public static final String REASON_ACCELERATOR_BUSY = "accelerator-busy";
 
-    /** Stand-aside reason: no GPU in the cluster can ever hold the model. */
+    /**
+     * The old value of {@link #REASON_ACCELERATOR_BUSY}. Publishers no longer send it; readers
+     * accept it for one release, from a publisher older than this release.
+     */
+    public static final String REASON_GPU_BUSY_DEPRECATED = "gpu-busy";
+
+    /** Stand-aside reason: no accelerator in the cluster can ever hold the model. */
     public static final String REASON_MODEL_TOO_LARGE = "model-too-large";
 
     /** Stand-aside reason: the prompt is larger than every server's context for the model. */
@@ -43,9 +49,9 @@ public class NoFitException extends RuntimeException {
     private final String reason;
     private final String model;
 
-    /** A gpu-busy refusal with no model recorded. */
+    /** An accelerator-busy refusal with no model recorded. */
     public NoFitException(String predictorReason) {
-        this(REASON_GPU_BUSY, "", predictorReason);
+        this(REASON_ACCELERATOR_BUSY, "", predictorReason);
     }
 
     public NoFitException(String reason, String model, String predictorReason) {
@@ -55,12 +61,22 @@ public class NoFitException extends RuntimeException {
         this.predictorReason = predictorReason;
     }
 
-    /** Every GPU that could hold {@code model} stayed busy. */
-    public static NoFitException gpuBusy(String model, String detail) {
-        return new NoFitException(REASON_GPU_BUSY, model, detail);
+    /** Every accelerator that could hold {@code model} stayed busy. */
+    public static NoFitException acceleratorBusy(String model, String detail) {
+        return new NoFitException(REASON_ACCELERATOR_BUSY, model, detail);
     }
 
-    /** No GPU can ever hold {@code model}. */
+    /** True for {@link #REASON_ACCELERATOR_BUSY} and its deprecated old value. */
+    public static boolean isAcceleratorBusy(String reason) {
+        return REASON_ACCELERATOR_BUSY.equals(reason) || REASON_GPU_BUSY_DEPRECATED.equals(reason);
+    }
+
+    /** The reason under its current name: the deprecated old value becomes {@link #REASON_ACCELERATOR_BUSY}. */
+    public static String canonicalReason(String reason) {
+        return REASON_GPU_BUSY_DEPRECATED.equals(reason) ? REASON_ACCELERATOR_BUSY : reason;
+    }
+
+    /** No accelerator can ever hold {@code model}. */
     public static NoFitException modelTooLarge(String model, String detail) {
         return new NoFitException(REASON_MODEL_TOO_LARGE, model, detail);
     }
@@ -75,7 +91,7 @@ public class NoFitException extends RuntimeException {
         return predictorReason;
     }
 
-    /** {@link #REASON_GPU_BUSY}, {@link #REASON_MODEL_TOO_LARGE}, or {@link #REASON_PROMPT_TOO_LARGE}. */
+    /** {@link #REASON_ACCELERATOR_BUSY}, {@link #REASON_MODEL_TOO_LARGE}, or {@link #REASON_PROMPT_TOO_LARGE}. */
     public String reason() {
         return reason;
     }

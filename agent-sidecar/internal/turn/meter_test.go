@@ -46,10 +46,10 @@ func TestEmptyMeterHasNoFailureOrModelFields(t *testing.T) {
 func TestWaitingReportsOnce(t *testing.T) {
 	var got []string
 	m := NewMeter(Info{OnWaiting: func(r string) { got = append(got, r) }})
-	m.Waiting("gpu-busy")
-	m.Waiting("gpu-busy")
+	m.Waiting("accelerator-busy")
+	m.Waiting("accelerator-busy")
 	m.Degraded("placement-unavailable")
-	if !slices.Equal(got, []string{"gpu-busy"}) {
+	if !slices.Equal(got, []string{"accelerator-busy"}) {
 		t.Fatalf("the owner hears of waiting once: %v", got)
 	}
 }
@@ -69,7 +69,7 @@ func TestNoFitKindDefaultsToBusy(t *testing.T) {
 		t.Fatal("no call failed yet")
 	}
 	m.NoFit("")
-	if m.NoFitKind() != "gpu-busy" {
+	if m.NoFitKind() != "accelerator-busy" {
 		t.Fatal(m.NoFitKind())
 	}
 	m.NoFit("model-too-large")
