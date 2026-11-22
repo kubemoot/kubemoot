@@ -1485,10 +1485,17 @@ Hint: Pass -n crew-homelab-pilot
 
 | Failure | Message |
 |---|---|
-| No kubeconfig or no current context | `no Kubernetes cluster is configured (the kubeconfig has no current context)` |
-| `--context` not in the kubeconfig | `context "NAME" is not in the kubeconfig` |
-| API server unreachable | `cannot reach the Kubernetes API server (context "NAME")` |
-| Credentials rejected | `the Kubernetes API server did not accept your credentials (context "NAME")` |
+| No kubeconfig or no current context (reading command) | `no Kubernetes cluster is configured (the kubeconfig has no current context)` |
+| `--context` not in the kubeconfig (reading command) | `context "NAME" is not in the kubeconfig` |
+| API server unreachable (reading command) | `cannot reach the Kubernetes API server (context "NAME")` |
+| Credentials rejected (reading command) | `the Kubernetes API server did not accept your credentials (context "NAME")` |
+| No kubeconfig or no current context (state-changing command) | `no Kubernetes context is selected: the kubeconfig has no current context, or there is no kubeconfig` |
+| Kubeconfig unreadable (state-changing command) | `the kubeconfig cannot be read: ...` |
+| `--context` not in the kubeconfig (state-changing command) | `context "NAME" is not in the kubeconfig` |
+| Context user has no credentials (state-changing command) | `context "NAME" has no credentials, so the request would be anonymous` |
+| API server unreachable (state-changing command) | `cannot reach the Kubernetes API server (context "NAME")` |
+| Credentials rejected (state-changing command) | `the Kubernetes API server did not accept the credentials of context "NAME"` |
+| `--nats-url` on a state-changing command | `--nats-url is not accepted by "COMMAND": it changes Kubemoot state and must go through your Kubernetes context` |
 | Missing permission (RBAC) | `you are not allowed to VERB RESOURCE in namespace "NS"` |
 | Kubemoot not installed | `the cluster does not serve the Kubemoot API (kubemoot.ai)` |
 | `get` of a missing object | `no crew "NAME" in namespace "NS"` (and the same for the other nouns) |
