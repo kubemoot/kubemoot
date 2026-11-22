@@ -1,0 +1,387 @@
+[
+	{
+		"name": "plain scalars and nulls",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "t",
+				"namespace": "default"
+			},
+			"spec": {
+				"text": "hello",
+				"empty": "",
+				"nothing": null,
+				"yes": true,
+				"no": false,
+				"int": 42,
+				"negative": -7,
+				"zero": 0,
+				"float": 1.5,
+				"small": 1e-7,
+				"large": 1e+21,
+				"long": 123456789012
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    name: \"t\",\n    namespace: \"default\",\n  },\n  spec: {\n    empty: \"\",\n    float: 1.5,\n    int: 42,\n    large: 1e+21,\n    long: 123456789012,\n    negative: -7,\n    \"no\": false,\n    nothing: null,\n    small: 1e-7,\n    text: \"hello\",\n    \"yes\": true,\n    zero: 0,\n  },\n}\n"
+	},
+	{
+		"name": "strings that look like other types stay quoted",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "t",
+				"namespace": "default"
+			},
+			"spec": {
+				"a": "true",
+				"b": "null",
+				"c": "123",
+				"d": "1.5",
+				"e": "2026-11-22",
+				"f": "~",
+				"g": "on",
+				"h": "0x1F",
+				"i": "11:00",
+				"j": "2026-11-22T10:00:00Z"
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    name: \"t\",\n    namespace: \"default\",\n  },\n  spec: {\n    a: \"true\",\n    b: \"null\",\n    c: \"123\",\n    d: \"1.5\",\n    e: \"2026-11-22\",\n    \"f\": \"~\",\n    g: \"on\",\n    h: \"0x1F\",\n    i: \"11:00\",\n    j: \"2026-11-22T10:00:00Z\",\n  },\n}\n"
+	},
+	{
+		"name": "empty maps and lists",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "t",
+				"namespace": "default"
+			},
+			"spec": {
+				"map": {},
+				"list": [],
+				"nested": {
+					"map": {},
+					"list": []
+				},
+				"items": [
+					{},
+					[]
+				],
+				"lone": [
+					[]
+				]
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    name: \"t\",\n    namespace: \"default\",\n  },\n  spec: {\n    items: [{}, []],\n    list: [],\n    lone: [[]],\n    map: {},\n    nested: {\n      list: [],\n      map: {},\n    },\n  },\n}\n"
+	},
+	{
+		"name": "lists of scalars and mixed lists are not cuddled",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "t",
+				"namespace": "default"
+			},
+			"spec": {
+				"names": [
+					"a",
+					"b"
+				],
+				"numbers": [
+					1,
+					2.5,
+					3
+				],
+				"flags": [
+					true,
+					false,
+					null
+				],
+				"mixed": [
+					1,
+					{
+						"a": 1
+					},
+					[
+						2
+					]
+				],
+				"blank": [
+					""
+				]
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    name: \"t\",\n    namespace: \"default\",\n  },\n  spec: {\n    blank: [\n      \"\",\n    ],\n    flags: [\n      true,\n      false,\n      null,\n    ],\n    mixed: [\n      1,\n      {\n        a: 1,\n      },\n      [\n        2,\n      ],\n    ],\n    names: [\n      \"a\",\n      \"b\",\n    ],\n    numbers: [\n      1,\n      2.5,\n      3,\n    ],\n  },\n}\n"
+	},
+	{
+		"name": "lists of maps and lists are cuddled",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "t",
+				"namespace": "default"
+			},
+			"spec": {
+				"rules": [
+					{
+						"name": "a",
+						"ports": [
+							80,
+							443
+						]
+					},
+					{
+						"name": "b",
+						"env": {
+							"K": "v"
+						}
+					}
+				],
+				"matrix": [
+					[
+						1,
+						2
+					],
+					[
+						3,
+						4
+					],
+					[]
+				],
+				"deep": [
+					[
+						{
+							"x": [
+								{
+									"y": 1
+								}
+							]
+						}
+					]
+				]
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    name: \"t\",\n    namespace: \"default\",\n  },\n  spec: {\n    deep: [[{\n      x: [{\n        \"y\": 1,\n      }],\n    }]],\n    matrix: [[\n      1,\n      2,\n    ], [\n      3,\n      4,\n    ], []],\n    rules: [{\n      name: \"a\",\n      ports: [\n        80,\n        443,\n      ],\n    }, {\n      env: {\n        K: \"v\",\n      },\n      name: \"b\",\n    }],\n  },\n}\n"
+	},
+	{
+		"name": "keys: bare only when safe",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "t",
+				"namespace": "default"
+			},
+			"spec": {
+				"1": 11,
+				"plain": 1,
+				"with-dash": 2,
+				"with.dot": 3,
+				"with/slash": 4,
+				"with_under": 5,
+				"k8s.io/name": 6,
+				"a b": 7,
+				"-lead": 8,
+				"trail-": 9,
+				".dot": 10,
+				"1.5": 12,
+				"": 13,
+				"q\"uote": 14,
+				"back\\slash": 15,
+				"tab\tkey": 16,
+				"new\nline": 17,
+				"caf\u00e9": 18,
+				"\u65e5\u672c": 19
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    name: \"t\",\n    namespace: \"default\",\n  },\n  spec: {\n    \"\": 13,\n    \"-lead\": 8,\n    \".dot\": 10,\n    \"1\": 11,\n    \"1.5\": 12,\n    \"a b\": 7,\n    \"back\\\\slash\": 15,\n    caf\u00e9: 18,\n    k8s.io/name: 6,\n    \"new\\nline\": 17,\n    plain: 1,\n    \"q\\\"uote\": 14,\n    \"tab\\tkey\": 16,\n    \"trail-\": 9,\n    with-dash: 2,\n    with.dot: 3,\n    with/slash: 4,\n    with_under: 5,\n    \u65e5\u672c: 19,\n  },\n}\n"
+	},
+	{
+		"name": "keys that a YAML parser reads as another type are quoted",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "t",
+				"namespace": "default"
+			},
+			"spec": {
+				"0": 15,
+				"y": 1,
+				"n": 2,
+				"yes": 3,
+				"no": 4,
+				"on": 5,
+				"off": 6,
+				"true": 7,
+				"false": 8,
+				"null": 9,
+				"~": 10,
+				"t": 11,
+				"f": 12,
+				"T": 13,
+				"F": 14,
+				"0x1F": 16,
+				"0b101": 17,
+				"0o17": 18,
+				"017": 19,
+				"1e3": 20,
+				"1_000": 21,
+				"11:00": 22,
+				"2026-11-22": 23,
+				"2026-1-2": 24,
+				".inf": 25,
+				"-.inf": 26,
+				".nan": 27,
+				"inf": 28,
+				"nan": 29,
+				"Infinity": 30,
+				"99999999999999999999": 31,
+				"2026-13-45": 32,
+				"1:60": 33,
+				"Yes": 34,
+				"OFF": 35,
+				"NULL": 36
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    name: \"t\",\n    namespace: \"default\",\n  },\n  spec: {\n    \"-.inf\": 26,\n    \".inf\": 25,\n    \".nan\": 27,\n    \"0\": 15,\n    \"017\": 19,\n    \"0b101\": 17,\n    \"0o17\": 18,\n    \"0x1F\": 16,\n    \"11:00\": 22,\n    \"1:60\": 33,\n    \"1_000\": 21,\n    \"1e3\": 20,\n    \"2026-1-2\": 24,\n    \"2026-11-22\": 23,\n    2026-13-45: 32,\n    \"99999999999999999999\": 31,\n    \"F\": 14,\n    \"Infinity\": 30,\n    \"NULL\": 36,\n    \"OFF\": 35,\n    \"T\": 13,\n    \"Yes\": 34,\n    \"f\": 12,\n    \"false\": 8,\n    \"inf\": 28,\n    \"n\": 2,\n    \"nan\": 29,\n    \"no\": 4,\n    \"null\": 9,\n    \"off\": 6,\n    \"on\": 5,\n    \"t\": 11,\n    \"true\": 7,\n    \"y\": 1,\n    \"yes\": 3,\n    \"~\": 10,\n  },\n}\n"
+	},
+	{
+		"name": "keys are sorted by code point",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "t",
+				"namespace": "default"
+			},
+			"spec": {
+				"b": 1,
+				"B": 2,
+				"a": 3,
+				"_": 4,
+				"Z": 5,
+				"z": 6,
+				"\u00e9": 7,
+				"\ud83d\ude00": 8,
+				"\uff5e": 9
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    name: \"t\",\n    namespace: \"default\",\n  },\n  spec: {\n    B: 2,\n    Z: 5,\n    _: 4,\n    a: 3,\n    b: 1,\n    z: 6,\n    \u00e9: 7,\n    \"\uff5e\": 9,\n    \"\ud83d\ude00\": 8,\n  },\n}\n"
+	},
+	{
+		"name": "multi-line strings",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "t",
+				"namespace": "default"
+			},
+			"spec": {
+				"a": "line1\nline2\n",
+				"b": "  lead\n\ttab\n\nend",
+				"c": "\n",
+				"d": "no trailing newline\nsecond",
+				"e": "\n\nleading blanks",
+				"f": "a\n\n\nb\n",
+				"g": "x\r\ny",
+				"h": "   \n  indented only",
+				"i": "single\n",
+				"j": "sp ace\n trail ",
+				"k": "quote \"q\" and \\ slash\nnext"
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    name: \"t\",\n    namespace: \"default\",\n  },\n  spec: {\n    a: \"\\\n       line1\\n\\\n       line2\\n\\\n      \",\n    b: \"\\\n      \\  lead\\n\\\n      \\\ttab\\n\\\n       \\n\\\n       end\\\n      \",\n    c: \"\\\n       \\n\\\n      \",\n    d: \"\\\n       no trailing newline\\n\\\n       second\\\n      \",\n    e: \"\\\n       \\n\\\n       \\n\\\n       leading blanks\\\n      \",\n    \"f\": \"\\\n       a\\n\\\n       \\n\\\n       \\n\\\n       b\\n\\\n      \",\n    g: \"\\\n       x\\r\\n\\\n       y\\\n      \",\n    h: \"\\\n      \\   \\n\\\n      \\  indented only\\\n      \",\n    i: \"\\\n       single\\n\\\n      \",\n    j: \"\\\n       sp ace\\n\\\n      \\ trail \\\n      \",\n    k: \"\\\n       quote \\\"q\\\" and \\\\ slash\\n\\\n       next\\\n      \",\n  },\n}\n"
+	},
+	{
+		"name": "escapes and unicode in strings",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "t",
+				"namespace": "default"
+			},
+			"spec": {
+				"quote": "say \"hi\"",
+				"slash": "a\\b",
+				"tab": "a\tb",
+				"cr": "a\rb",
+				"bell": "a\u0007b",
+				"esc": "a\u001bb",
+				"nul": "a\u0000b",
+				"ctl": "a\u0001b",
+				"nbsp": "a\u00a0b",
+				"ls": "a\u2028b",
+				"ps": "a\u2029b",
+				"zwsp": "a\u200bb",
+				"bom": "a\ufeffb",
+				"accent": "caf\u00e9",
+				"cjk": "\u65e5\u672c\u8a9e",
+				"emoji": "\ud83d\ude00",
+				"ideo": "a\u3000b",
+				"combining": "e\u0301",
+				"fff": "a\ufffdb"
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    name: \"t\",\n    namespace: \"default\",\n  },\n  spec: {\n    accent: \"caf\u00e9\",\n    bell: \"a\\ab\",\n    bom: \"a\\ufeffb\",\n    cjk: \"\u65e5\u672c\u8a9e\",\n    combining: \"e\u0301\",\n    cr: \"a\\rb\",\n    ctl: \"a\\x01b\",\n    emoji: \"\ud83d\ude00\",\n    esc: \"a\\eb\",\n    fff: \"a\ufffdb\",\n    ideo: \"a\\u3000b\",\n    ls: \"a\\Lb\",\n    nbsp: \"a\\_b\",\n    nul: \"a\\0b\",\n    ps: \"a\\Pb\",\n    quote: \"say \\\"hi\\\"\",\n    slash: \"a\\\\b\",\n    tab: \"a\tb\",\n    zwsp: \"a\\u200bb\",\n  },\n}\n"
+	},
+	{
+		"name": "a realistic resource",
+		"input": {
+			"apiVersion": "kubemoot.ai/v1alpha1",
+			"kind": "Crew",
+			"metadata": {
+				"name": "demo",
+				"namespace": "crew-demo",
+				"labels": {
+					"app.kubernetes.io/name": "demo",
+					"helm.sh/chart": "demo-0.1.0_abcdef"
+				},
+				"annotations": {
+					"note": "first line\nsecond line"
+				},
+				"finalizers": [
+					"kubemoot.ai/crew-finalizer"
+				],
+				"generation": 2
+			},
+			"status": {
+				"conditions": [
+					{
+						"type": "Ready",
+						"status": "True",
+						"lastTransitionTime": "2026-11-22T00:41:46Z",
+						"message": "ok: 23 agents"
+					}
+				],
+				"agentCount": 23
+			},
+			"spec": {
+				"description": "A crew",
+				"discussion": {
+					"enabled": true
+				},
+				"network": {
+					"allowedIngress": [
+						{
+							"matchLabels": {
+								"kubernetes.io/metadata.name": "demo"
+							}
+						}
+					]
+				},
+				"retention": {
+					"memory": {},
+					"purgeUnused": "90d"
+				}
+			}
+		},
+		"expected": "---\n{\n  apiVersion: \"kubemoot.ai/v1alpha1\",\n  kind: \"Crew\",\n  metadata: {\n    annotations: {\n      note: \"\\\n         first line\\n\\\n         second line\\\n        \",\n    },\n    finalizers: [\n      \"kubemoot.ai/crew-finalizer\",\n    ],\n    generation: 2,\n    labels: {\n      app.kubernetes.io/name: \"demo\",\n      helm.sh/chart: \"demo-0.1.0_abcdef\",\n    },\n    name: \"demo\",\n    namespace: \"crew-demo\",\n  },\n  spec: {\n    description: \"A crew\",\n    discussion: {\n      enabled: true,\n    },\n    network: {\n      allowedIngress: [{\n        matchLabels: {\n          kubernetes.io/metadata.name: \"demo\",\n        },\n      }],\n    },\n    retention: {\n      memory: {},\n      purgeUnused: \"90d\",\n    },\n  },\n  status: {\n    agentCount: 23,\n    conditions: [{\n      lastTransitionTime: \"2026-11-22T00:41:46Z\",\n      message: \"ok: 23 agents\",\n      status: \"True\",\n      type: \"Ready\",\n    }],\n  },\n}\n"
+	}
+]

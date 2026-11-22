@@ -1,5 +1,5 @@
 import { getCoreApi, getCustomObjectsApi } from './client.js';
-import { isDenied, deniedMessage } from './errors.js';
+import { failedReading, readingOf } from './errors.js';
 import type { NodeMetric } from '#lib/node-usage.js';
 import type { NodePod, PodCount, Reading } from '#lib/reading.js';
 import { ACCELERATOR_RESOURCE_KEYS } from './accelerator-info.js';
@@ -19,13 +19,6 @@ interface PodItem {
 
 const METRICS_GROUP = { group: 'metrics.k8s.io', version: 'v1beta1', plural: 'nodes' } as const;
 
-function failure(e: unknown, what: string, notFound = `${what} is not served by this cluster`): { available: false; reason: string } {
-	if (isDenied(e)) return { available: false, reason: deniedMessage(e) };
-	const status = (e as { code?: number } | null)?.code;
-	if (status === 404) return { available: false, reason: notFound };
-	return { available: false, reason: `${what} could not be read` };
-}
-
 /** A Kubernetes node name: lower-case letters, digits, dashes and dots. Anything else, a comma or an equals sign most of all, would change a field selector. */
 export function isNodeName(name: string): boolean {
 	return /^[a-z0-9.-]{1,253}$/.test(name);
@@ -43,7 +36,7 @@ export async function readNodeMetrics(name?: string): Promise<Reading<Record<str
 		return { available: true, data };
 	} catch (e) {
 		const none = 'Node metrics (metrics.k8s.io) has no reading for this node, which happens when it is down';
-		return failure(e, 'Node metrics (metrics.k8s.io)', name ? none : undefined);
+		return failedReading(e, 'node metrics (metrics.k8s.io)', name ? none : undefined);
 	}
 }
 
@@ -102,19 +95,11 @@ export function podsOnNode(pods: readonly PodItem[]): NodePod[] {
 }
 
 /** Pod counts for every node. */
-export async function readPodCounts(): Promise<Reading<Record<string, PodCount>>> {
-	try {
-		return { available: true, data: countPods(await listPods()) };
-	} catch (e) {
-		return failure(e, 'The pod list');
-	}
+export function readPodCounts(): Promise<Reading<Record<string, PodCount>>> {
+	return readingOf('the pod list', async () => countPods(await listPods()));
 }
 
 /** The pods on one node. */
-export async function readNodePods(node: string): Promise<Reading<NodePod[]>> {
-	try {
-		return { available: true, data: podsOnNode(await listPods(node)) };
-	} catch (e) {
-		return failure(e, 'The pod list');
-	}
+export function readNodePods(node: string): Promise<Reading<NodePod[]>> {
+	return readingOf('the pod list', async () => podsOnNode(await listPods(node)));
 }

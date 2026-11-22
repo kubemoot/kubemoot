@@ -1,10 +1,11 @@
 <script lang="ts">
 	import type { YamlToken } from '#lib/yaml-highlight.js';
+	import type { TextFormat } from '#lib/resource-view.js';
 
 	interface Props {
 		/** The text as coloured pieces, line by line. */
 		lines: YamlToken[][];
-		format: 'yaml' | 'json';
+		format: TextFormat;
 	}
 
 	let { lines, format }: Props = $props();
@@ -13,7 +14,7 @@
 <div class="code-view">
 	<!-- A scrollable region must be reachable by keyboard so long lines can be read. -->
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-	<pre class="code {format}" role="region" aria-label="Resource {format === 'yaml' ? 'YAML' : 'JSON'}" tabindex="0"><code
+	<pre class="code {format}" role="region" aria-label="Resource {format.toUpperCase()}" tabindex="0"><code
 			>{#each lines as tokens, i (i)}<span class="line">{#each tokens as token, j (j)}<span class={token.kind}
 							>{token.text}</span
 						>{/each}{'\n'}</span

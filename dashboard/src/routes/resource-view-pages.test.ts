@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Component } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toKyaml } from '#lib/kyaml.js';
 import { toYaml } from '#lib/yaml.js';
 import { page, setPageUrl } from '../../vitest-mocks/app-state.svelte.js';
 
@@ -96,7 +97,7 @@ describe('which pages have the resource views', () => {
 	});
 });
 
-describe('every Kubemoot detail page offers Description, YAML and JSON', () => {
+describe('every Kubemoot detail page offers Description, YAML, JSON and KYAML', () => {
 	const entries = [
 		...Object.entries(PAGES).map(([dir, p]) => ({ file: `./${dir}/[name]/+page.svelte`, route: p.route, kind: p.kind })),
 		{ file: './config/+page.svelte', route: '/config', kind: SINGLETON_PAGES.config }
@@ -113,7 +114,7 @@ describe('every Kubemoot detail page offers Description, YAML and JSON', () => {
 		const { container } = render(Page);
 		await waitFor(() => expect(screen.getByRole('combobox', { name: 'View' })).toBeTruthy());
 		const select = screen.getByRole<HTMLSelectElement>('combobox', { name: 'View' });
-		expect([...select.options].map((o) => o.textContent)).toEqual(['Description', 'YAML', 'JSON']);
+		expect([...select.options].map((o) => o.textContent)).toEqual(['Description', 'YAML', 'JSON', 'KYAML']);
 		expect(select.value).toBe('yaml');
 
 		const shown = container.querySelector('pre.code.yaml')?.textContent ?? '';
@@ -128,5 +129,13 @@ describe('every Kubemoot detail page offers Description, YAML and JSON', () => {
 		setPageUrl(`${route}?namespace=kubemoot&view=json`);
 		await waitFor(() => expect(container.querySelector('pre.code.json')).toBeTruthy());
 		expect(JSON.parse(container.querySelector('pre.code.json')?.textContent ?? '')).toEqual({ ...body, metadata });
+
+		// And as KYAML, the dialect `kubectl get -o kyaml` writes.
+		setPageUrl(`${route}?namespace=kubemoot&view=kyaml`);
+		await waitFor(() => expect(container.querySelector('pre.code.kyaml')).toBeTruthy());
+		const kyaml = container.querySelector('pre.code.kyaml')?.textContent ?? '';
+		expect(kyaml).toBe(toKyaml({ ...body, metadata }));
+		expect(kyaml.startsWith('---\n{\n')).toBe(true);
+		expect(kyaml).toContain(`kind: "${kind}"`);
 	});
 });

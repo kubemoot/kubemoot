@@ -67,7 +67,7 @@ describe('the node page', () => {
 		expect(container.textContent).toContain('1 of 1');
 		expect(container.textContent).toContain('nvidia.com/gpu=true:NoSchedule');
 		expect(container.textContent).toContain('node-address-1');
-		expect([...screen.getByRole<HTMLSelectElement>('combobox', { name: 'View' }).options].map((o) => o.textContent)).toEqual(['Description', 'YAML', 'JSON']);
+		expect([...screen.getByRole<HTMLSelectElement>('combobox', { name: 'View' }).options].map((o) => o.textContent)).toEqual(['Description', 'YAML', 'JSON', 'KYAML']);
 	});
 
 	it('says why use and pods are missing and shows no zero in their place', async () => {

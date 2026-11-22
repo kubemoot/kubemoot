@@ -30,7 +30,7 @@ describe('showsCrewSelector', () => {
 	});
 
 	it('hides on the pages that are not crew-scoped', () => {
-		for (const id of ['/nodes', '/verify', '/config']) {
+		for (const id of ['/nodes', '/verify', '/config', '/operator']) {
 			expect(showsCrewSelector(id)).toBe(false);
 		}
 	});

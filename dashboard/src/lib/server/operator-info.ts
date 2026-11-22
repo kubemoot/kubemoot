@@ -1,5 +1,7 @@
 // Pure readers for the operator Deployment and pods behind /api/kubemoot/system-info.
 
+import { deploymentImage, deploymentVersion, podSelectorOf } from '#lib/operator-detail.js';
+
 export interface OperatorDeploymentLike {
 	metadata?: { labels?: Record<string, string> };
 	spec?: {
@@ -19,23 +21,9 @@ export interface OperatorDeploymentInfo {
 	podSelector: string;
 }
 
-function firstContainerImage(dep: OperatorDeploymentLike): string | undefined {
-	return dep.spec?.template?.spec?.containers?.[0]?.image;
-}
-
-function podSelectorOf(dep: OperatorDeploymentLike): string {
-	return Object.entries(dep.spec?.selector?.matchLabels ?? {})
-		.map(([k, v]) => `${k}=${v}`)
-		.join(',');
-}
-
 /** Version, image, and pod selector of the operator Deployment, 'unknown' where absent. */
 export function operatorDeploymentInfo(dep: OperatorDeploymentLike): OperatorDeploymentInfo {
-	return {
-		operatorVersion: dep.metadata?.labels?.['app.kubernetes.io/version'] || 'unknown',
-		operatorImage: firstContainerImage(dep) ?? 'unknown',
-		podSelector: podSelectorOf(dep)
-	};
+	return { operatorVersion: deploymentVersion(dep), operatorImage: deploymentImage(dep), podSelector: podSelectorOf(dep) };
 }
 
 /**

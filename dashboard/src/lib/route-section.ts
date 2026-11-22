@@ -9,7 +9,7 @@ export function routeSection(routeId: string | null): string | null {
 }
 
 /** The sections whose pages are not scoped to a crew, so the top bar hides the Crew selector. */
-const SECTIONS_WITHOUT_CREW = new Set(['nodes', 'verify', 'config']);
+const SECTIONS_WITHOUT_CREW = new Set(['nodes', 'verify', 'config', 'operator']);
 
 /**
  * Whether the top bar shows the Crew selector on a page. The Overview, Moot and

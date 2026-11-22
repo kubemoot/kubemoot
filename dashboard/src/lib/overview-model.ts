@@ -16,6 +16,8 @@ import type { NodeWithAccelerator } from './types/k8s.js';
 import type { Agent, Crew, CrewFitnessSuite, EmbeddingModel, MCPGateway, MCPServer, Model, ModelServer, RAGSource } from './types/kubemoot.js';
 import { bar, HIGH_USE_FRACTION, usageBar, type TileBar } from './usage-bar.js';
 import { catalogEntries } from './model-catalog.js';
+import { roleSearch } from './node-role.js';
+import { operatorFacts, type Fact, type OperatorDetail } from './operator-detail.js';
 
 /** A source the page reads: undefined while it loads, null when it could not be read, else the data. */
 export type Source<T> = T | null | undefined;
@@ -31,6 +33,8 @@ export type ThreadLike = Pick<Thread, 'threadId' | 'status' | 'userQuery' | 'sta
 
 export interface OverviewData {
 	componentStatuses: Source<ComponentStatus[]>;
+	/** The operator's version, uptime and CRDs as the signed-in person can read them. */
+	operator: Source<OperatorDetail>;
 	nodes: Source<NodeWithAccelerator[]>;
 	/** CPU and memory use per node; null when metrics.k8s.io could not be read, with the reason. */
 	metrics: Source<Reading<Record<string, NodeMetric>>>;
@@ -79,6 +83,8 @@ export interface Tile {
 	bars: TileBar[];
 	/** Why a measurement is missing, when the tile otherwise has its numbers. */
 	note?: string;
+	/** Lines of fact under the figure, each a reading or the plain reason there is none. */
+	details?: Fact[];
 }
 
 export interface Overview {
@@ -173,10 +179,13 @@ function judgeNodes(nodes: NodeWithAccelerator[], metrics: Record<string, NodeMe
 	});
 }
 
+/** The accelerator tile opens the Nodes page on the accelerator nodes it counts. */
+const ACCELERATOR_LINK = { path: '/nodes', search: roleSearch('accelerator') };
+
 function nodeTiles(data: OverviewData): Tile[] {
-	const link = { path: '/nodes' };
+	const link = { path: '/nodes', search: roleSearch('all') };
 	const nodes = data.nodes;
-	if (!nodes) return [pending('nodes', 'Nodes', link, nodes), pending('accelerators', 'Accelerators', link, nodes)];
+	if (!nodes) return [pending('nodes', 'Nodes', link, nodes), pending('accelerators', 'Accelerators', ACCELERATOR_LINK, nodes)];
 	const measured = data.metrics?.available ? data.metrics.data : undefined;
 	const judged = judgeNodes(nodes, measured);
 	const bars: TileBar[] = [];
@@ -194,7 +203,7 @@ function nodeTiles(data: OverviewData): Tile[] {
 
 /** The accelerator devices on Ready nodes against all of them; the tile is as unwell as the worst accelerator node. */
 function acceleratorTile(nodes: NodeWithAccelerator[], judged: readonly Judged[]): Tile {
-	const link = { path: '/nodes' };
+	const link = ACCELERATOR_LINK;
 	const { accelerators } = nodeCounts(nodes);
 	if (accelerators.total === 0) {
 		return { key: 'accelerators', label: 'Accelerators', link, phase: 'ready', health: 'idle', figure: '0', line: 'None in the cluster', bars: [] };
@@ -289,20 +298,35 @@ function modelsJudged({ models, modelServers }: OverviewData): Listed {
 	return [...judgeResources((models ?? []).map(modelResource), 'Model', '/models'), ...judgeCatalog(modelServers ?? [])];
 }
 
-function operatorTile(statuses: Source<ComponentStatus[]>): Tile {
-	const link = { path: '/config' };
-	if (!statuses) return pending('operator', 'Operator', link, statuses);
-	const operator = statuses.find((c) => c.name === 'operator');
-	if (!operator) return pending('operator', 'Operator', link, null);
+/** The operator's own page: version, uptime, health, leader and the registered CRDs. */
+const OPERATOR_LINK = { path: '/operator' };
+
+function operatorDetails(operator: Source<OperatorDetail>, now: number): Fact[] {
+	if (operator === undefined) return [];
+	if (operator === null) return [{ text: 'Version, uptime and CRDs could not be read', read: false }];
+	return operatorFacts(operator, now);
+}
+
+/** The tile when the operator's health report is missing but its Deployment could be read: what is known, with the report marked unavailable. */
+function operatorWithoutReport(operator: Source<OperatorDetail>, now: number): Tile {
+	return { key: 'operator', label: 'Operator', link: OPERATOR_LINK, phase: 'ready', health: 'unknown', figure: '', line: 'Health report unavailable', bars: [], details: operatorDetails(operator, now) };
+}
+
+function operatorTile(statuses: Source<ComponentStatus[]>, operator: Source<OperatorDetail>, now: number): Tile {
+	const link = OPERATOR_LINK;
+	if (statuses === undefined) return pending('operator', 'Operator', link, statuses);
+	const status = statuses?.find((c) => c.name === 'operator');
+	if (!status) return operator ? operatorWithoutReport(operator, now) : pending('operator', 'Operator', link, null);
 	return {
 		key: 'operator',
 		label: 'Operator',
 		link,
 		phase: 'ready',
-		health: operator.healthy ? 'healthy' : 'down',
-		figure: operator.healthy ? 'Ready' : 'Not ready',
-		line: operator.message,
-		bars: []
+		health: status.healthy ? 'healthy' : 'down',
+		figure: status.healthy ? 'Ready' : 'Not ready',
+		line: status.healthy ? '' : status.message,
+		bars: [],
+		details: operatorDetails(operator, now)
 	};
 }
 
@@ -313,7 +337,7 @@ function componentFindings(statuses: ComponentStatus[]): Finding[] {
 		.filter((c) => !c.healthy && c.name !== 'nats' && c.name !== 'modelservers')
 		.map((c) =>
 			c.name === 'operator'
-				? { health: 'down' as const, subject: 'Operator', problem: c.message || 'Not ready', link }
+				? { health: 'down' as const, subject: 'Operator', problem: c.message || 'Not ready', link: OPERATOR_LINK }
 				: { health: 'degraded' as const, subject: `Component ${c.name}`, problem: c.message || 'Not healthy', link }
 		);
 }
@@ -446,9 +470,9 @@ function tileFor(key: string, label: string, path: string, listed: Listed, extra
 	return listed ? countTile(key, label, link, listed, extra) : pending(key, label, link, listed);
 }
 
-function tilesOf(data: OverviewData, j: Judgments): Tile[] {
+function tilesOf(data: OverviewData, j: Judgments, now: number): Tile[] {
 	return [
-		operatorTile(data.componentStatuses),
+		operatorTile(data.componentStatuses, data.operator, now),
 		...nodeTiles(data),
 		tileFor('crews', 'Crews', '/crews', j.crews),
 		tileFor('modelservers', 'Model servers', '/modelservers', j.servers, { bars: serverBars(data.modelServers ?? []) }),
@@ -502,7 +526,7 @@ export function collapseFindings(findings: Finding[]): Finding[] {
 export function buildOverview(data: OverviewData, now: number = Date.now()): Overview {
 	const judgments = judgeAll(data);
 	const attention = collapseFindings(findingsFor(data, judgments, now)).toSorted((a, b) => Number(b.health === 'down') - Number(a.health === 'down'));
-	return { tiles: tilesOf(data, judgments), attention };
+	return { tiles: tilesOf(data, judgments, now), attention };
 }
 
 export type { TileBar } from './usage-bar.js';
