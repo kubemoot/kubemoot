@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { PageTitle } from '#lib/components/common/index.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
@@ -193,11 +195,10 @@
 					</td>
 					<td>
 						{#if s?.artifactRef?.objectKey}
-							<a
+							<a use:tooltip={ACTIONS.downloadSuiteReport(formatBytes(s.artifactRef.sizeBytes))}
 								href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}"
 								class="download-link"
 								download
-								title="Download {formatBytes(s.artifactRef.sizeBytes)}"
 							>
 								⬇ XLSX
 							</a>

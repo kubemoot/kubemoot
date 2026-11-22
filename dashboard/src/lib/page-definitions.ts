@@ -86,7 +86,7 @@ export const PAGE_DEFINITIONS = {
 	'/crew-memory': {
 		title: 'Crew Memory',
 		menu: 'Memory',
-		term: 'Crew memory is what a crew has learned about its cluster and keeps between discussions.',
+		term: 'Crew memory is what a crew has learned about its cluster and keeps between conversations.',
 		purpose: 'Read what a crew remembers and export it.'
 	},
 	'/topology': {

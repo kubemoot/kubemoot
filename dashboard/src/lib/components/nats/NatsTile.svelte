@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import StatusBadge from '#lib/components/common/StatusBadge.svelte';
 	import LoadingSpinner from '#lib/components/common/LoadingSpinner.svelte';
 	import { formatBytes, formatPercent, tileOf, type NatsStatus, type TileState } from '#lib/nats/status.js';
@@ -29,7 +31,7 @@
 	}
 </script>
 
-<a {href} class="nats-tile" data-testid="nats-tile">
+<a use:tooltip={ACTIONS.openNats} {href} class="nats-tile" data-testid="nats-tile">
 	<div class="head">
 		<span class="label">NATS</span>
 		{#if tile}

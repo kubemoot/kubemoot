@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { menuLabel } from '#lib/page-definitions.js';
+	import { tooltip } from '#lib/tooltip.js';
+	import { menuLabel, pageDefinition, type PageRoute } from '#lib/page-definitions.js';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import SystemInfoPopover from '#lib/components/common/SystemInfoPopover.svelte';
@@ -18,6 +19,7 @@
 	let { version = '...' }: SidebarProps = $props();
 
 	interface NavItem {
+		route: PageRoute;
 		href: string;
 		label: string;
 		icon: string;
@@ -25,27 +27,33 @@
 	}
 
 	const navItems: NavItem[] = [
-		{ href: resolve('/'), label: menuLabel('/'), icon: 'grid' },
-		{ href: resolve('/nodes'), label: menuLabel('/nodes'), icon: 'server' },
-		{ href: resolve('/discussions'), label: menuLabel('/discussions'), icon: 'message-square', section: 'Messaging' },
-		{ href: resolve('/conversations'), label: menuLabel('/conversations'), icon: 'message-circle' },
-		{ href: resolve('/crews'), label: menuLabel('/crews'), icon: 'users', section: 'Crews' },
-		{ href: resolve('/agents'), label: menuLabel('/agents'), icon: 'cpu' },
-		{ href: resolve('/promptmodules'), label: menuLabel('/promptmodules'), icon: 'align-left' },
-		{ href: resolve('/crew-memory'), label: menuLabel('/crew-memory'), icon: 'database' },
-		{ href: resolve('/fitness'), label: menuLabel('/fitness'), icon: 'activity' },
-		{ href: resolve('/models'), label: menuLabel('/models'), icon: 'box', section: 'Models' },
-		{ href: resolve('/modelservers'), label: menuLabel('/modelservers'), icon: 'cloud' },
-		{ href: resolve('/embeddingmodels'), label: menuLabel('/embeddingmodels'), icon: 'layers' },
-		{ href: resolve('/mcpservers'), label: menuLabel('/mcpservers'), icon: 'terminal', section: 'Tools' },
-		{ href: resolve('/mcpgateways'), label: menuLabel('/mcpgateways'), icon: 'git-merge' },
-		{ href: resolve('/mcpcatalogs'), label: menuLabel('/mcpcatalogs'), icon: 'book' },
-		{ href: resolve('/mcpqualitypolicies'), label: menuLabel('/mcpqualitypolicies'), icon: 'shield' },
-		{ href: resolve('/mcpreports'), label: menuLabel('/mcpreports'), icon: 'file-text' },
-		{ href: resolve('/ragsources'), label: menuLabel('/ragsources'), icon: 'database', section: 'Knowledge' },
-		{ href: resolve('/config'), label: menuLabel('/config'), icon: 'settings', section: 'System' },
-		{ href: resolve('/nats'), label: menuLabel('/nats'), icon: 'database' }
+		{ route: '/', href: resolve('/'), label: menuLabel('/'), icon: 'grid' },
+		{ route: '/nodes', href: resolve('/nodes'), label: menuLabel('/nodes'), icon: 'server' },
+		{ route: '/discussions', href: resolve('/discussions'), label: menuLabel('/discussions'), icon: 'message-square', section: 'Messaging' },
+		{ route: '/conversations', href: resolve('/conversations'), label: menuLabel('/conversations'), icon: 'message-circle' },
+		{ route: '/crews', href: resolve('/crews'), label: menuLabel('/crews'), icon: 'users', section: 'Crews' },
+		{ route: '/agents', href: resolve('/agents'), label: menuLabel('/agents'), icon: 'cpu' },
+		{ route: '/promptmodules', href: resolve('/promptmodules'), label: menuLabel('/promptmodules'), icon: 'align-left' },
+		{ route: '/crew-memory', href: resolve('/crew-memory'), label: menuLabel('/crew-memory'), icon: 'database' },
+		{ route: '/fitness', href: resolve('/fitness'), label: menuLabel('/fitness'), icon: 'activity' },
+		{ route: '/models', href: resolve('/models'), label: menuLabel('/models'), icon: 'box', section: 'Models' },
+		{ route: '/modelservers', href: resolve('/modelservers'), label: menuLabel('/modelservers'), icon: 'cloud' },
+		{ route: '/embeddingmodels', href: resolve('/embeddingmodels'), label: menuLabel('/embeddingmodels'), icon: 'layers' },
+		{ route: '/mcpservers', href: resolve('/mcpservers'), label: menuLabel('/mcpservers'), icon: 'terminal', section: 'Tools' },
+		{ route: '/mcpgateways', href: resolve('/mcpgateways'), label: menuLabel('/mcpgateways'), icon: 'git-merge' },
+		{ route: '/mcpcatalogs', href: resolve('/mcpcatalogs'), label: menuLabel('/mcpcatalogs'), icon: 'book' },
+		{ route: '/mcpqualitypolicies', href: resolve('/mcpqualitypolicies'), label: menuLabel('/mcpqualitypolicies'), icon: 'shield' },
+		{ route: '/mcpreports', href: resolve('/mcpreports'), label: menuLabel('/mcpreports'), icon: 'file-text' },
+		{ route: '/ragsources', href: resolve('/ragsources'), label: menuLabel('/ragsources'), icon: 'database', section: 'Knowledge' },
+		{ route: '/config', href: resolve('/config'), label: menuLabel('/config'), icon: 'settings', section: 'System' },
+		{ route: '/nats', href: resolve('/nats'), label: menuLabel('/nats'), icon: 'database' }
 	];
+
+	/** The same term and purpose as the page title tooltip, opened to the right of the menu. */
+	const menuTip = (route: PageRoute) => {
+		const def = pageDefinition(route);
+		return { text: `${def.term}\n${def.purpose}`, placement: 'right' as const };
+	};
 
 	const isActive = (href: string, currentPath: string) =>
 		isActivePath(href, currentPath, resolve('/'));
@@ -78,6 +86,7 @@
 					href={item.href}
 					class="nav-link"
 					class:active={isActive(item.href, page.url.pathname)}
+					use:tooltip={menuTip(item.route)}
 				>
 					<span class="nav-icon">
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

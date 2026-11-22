@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { formatBytes, formatMiB } from '#lib/format.js';
 	import { readinessStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
@@ -151,10 +153,9 @@
 										class:cached={!loaded}
 										title={loaded ? 'In VRAM' : 'On disk, not in VRAM'}
 									></span>
-									<a
+									<a use:tooltip={ACTIONS.openModelCRs(entry.name)}
 										class="model-name mono"
 										href={modelDetailsHref(entry.name)}
-										title="View Model CRs for {entry.name}"
 										onclick={stopProp}
 									>{entry.name}</a>
 									{#if entry.loadedInfo?.sizeVram}

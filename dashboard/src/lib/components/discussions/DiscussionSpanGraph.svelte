@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 	import { showStandAsides } from '#lib/stores/index.js';
 	import { buildAgentSpans, type AgentSpan } from '#lib/discussion-spans.js';
@@ -307,11 +309,10 @@
 			<span class="hidden-count">{hiddenNoWorkCount} no-work agent{hiddenNoWorkCount === 1 ? '' : 's'} hidden</span>
 		</div>
 	{/if}
-	<button
+	<button aria-label="Copy agent graph image" use:tooltip={ACTIONS.copyGraphImage}
 		class="copy-image-btn"
 		class:copied={copiedImage}
 		onclick={copyGraphImage}
-		title="Copy agent graph image to clipboard"
 	>
 		{copiedImage ? '✓' : '📷'}
 	</button>

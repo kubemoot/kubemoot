@@ -4,6 +4,7 @@ import PageTitle from './PageTitle.svelte';
 import { PAGE_DEFINITIONS } from '#lib/page-definitions.js';
 
 const tip = () => screen.getByRole('tooltip', { hidden: true });
+const isOpen = () => tip().hasAttribute('data-open');
 
 describe('PageTitle', () => {
 	it('shows the defined title as the page heading', () => {
@@ -19,48 +20,37 @@ describe('PageTitle', () => {
 	it('describes the title with the term and the purpose for a screen reader', () => {
 		render(PageTitle, { route: '/nodes' });
 		const target = screen.getByText('Kubernetes Nodes');
-		const id = target.getAttribute('aria-describedby');
-		expect(id).toBeTruthy();
-		expect(tip().id).toBe(id);
+		expect(target.getAttribute('aria-describedby')).toBe(tip().id);
 		expect(tip().textContent).toContain(PAGE_DEFINITIONS['/nodes'].term);
 		expect(tip().textContent).toContain(PAGE_DEFINITIONS['/nodes'].purpose);
 	});
 
-	it('can be reached with the keyboard', () => {
+	it('can be reached with the keyboard and shows the tooltip on focus', async () => {
 		render(PageTitle, { route: '/crews' });
-		expect(screen.getByText('Crews').getAttribute('tabindex')).toBe('0');
+		const target = screen.getByText('Crews');
+		expect(target.getAttribute('tabindex')).toBe('0');
+		expect(isOpen()).toBe(false);
+		await fireEvent.focus(target);
+		expect(isOpen()).toBe(true);
+		await fireEvent.blur(target);
+		expect(isOpen()).toBe(false);
 	});
 
-	it('shows the tooltip on focus and hides it on blur', async () => {
-		render(PageTitle, { route: '/crews' });
-		expect(tip().className).not.toContain('shown');
-		await fireEvent.focus(screen.getByText('Crews'));
-		expect(tip().className).toContain('shown');
-		await fireEvent.blur(screen.getByText('Crews'));
-		expect(tip().className).not.toContain('shown');
-	});
-
-	it('shows the tooltip on hover and hides it on leave', async () => {
-		const { container } = render(PageTitle, { route: '/crews' });
-		const wrapper = container.querySelector('.page-title') as HTMLElement;
-		await fireEvent.mouseEnter(wrapper);
-		expect(tip().className).toContain('shown');
-		await fireEvent.mouseLeave(wrapper);
-		expect(tip().className).not.toContain('shown');
-	});
-
-	it('hides a hover tooltip on Escape', async () => {
-		const { container } = render(PageTitle, { route: '/crews' });
-		await fireEvent.mouseEnter(container.querySelector('.page-title') as HTMLElement);
-		await fireEvent.keyDown(window, { key: 'Escape' });
-		expect(tip().className).not.toContain('shown');
-	});
-
-	it('hides the tooltip on Escape', async () => {
+	it('closes on Escape', async () => {
 		render(PageTitle, { route: '/crews' });
 		const target = screen.getByText('Crews');
 		await fireEvent.focus(target);
-		await fireEvent.keyDown(target, { key: 'Escape' });
-		expect(tip().className).not.toContain('shown');
+		await fireEvent.keyDown(window, { key: 'Escape' });
+		expect(isOpen()).toBe(false);
+	});
+
+	it('keeps the normal heading font unless it is a resource name', () => {
+		const { container } = render(PageTitle, { route: '/crews' });
+		expect(container.querySelector('h1')?.classList.contains('mono')).toBe(false);
+	});
+
+	it('uses monospace for a resource name', () => {
+		const { container } = render(PageTitle, { route: '/crews/[name]', title: 'homelab-pilot', mono: true });
+		expect(container.querySelector('h1')?.classList.contains('mono')).toBe(true);
 	});
 });

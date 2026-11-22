@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	interface Props {
 		/** What the command does, one short phrase. */
 		label: string;
@@ -24,7 +26,7 @@
 <div class="command-hint">
 	<span class="label">{label}</span>
 	<code>{command}</code>
-	<button type="button" class="copy" onclick={copy} aria-label="Copy the command to the clipboard">
+	<button use:tooltip={ACTIONS.copyCommand} type="button" class="copy" onclick={copy} aria-label="Copy the command to the clipboard">
 		{copied ? 'Copied' : 'Copy'}
 	</button>
 </div>

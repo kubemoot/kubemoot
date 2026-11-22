@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
 	import { releaseLabel, versionLabel } from '#lib/dashboard-version.js';
@@ -121,7 +123,7 @@
 <svelte:document onclick={handleClickOutside} />
 
 <span class="sysinfo-wrapper">
-	<button class="sysinfo-btn" onclick={toggle} title="System info" aria-label="System info">
+	<button use:tooltip={ACTIONS.systemInfo} class="sysinfo-btn" onclick={toggle} aria-label="System info">
 		<!-- Inline info icon (Feather-style) -->
 		<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 			<circle cx="12" cy="12" r="10" />
@@ -133,7 +135,7 @@
 		<div class="sysinfo-popup" onclick={(e) => e.stopPropagation()}>
 			<div class="popup-header">
 				<span>Kubemoot components</span>
-				<button class="copy-btn" onclick={copyInfo} title="Copy versions & uptime for support" aria-label="Copy system info">
+				<button use:tooltip={ACTIONS.copySystemInfo} class="copy-btn" onclick={copyInfo} aria-label="Copy system info">
 					{copied ? '✓ Copied' : '⧉ Copy'}
 				</button>
 			</div>

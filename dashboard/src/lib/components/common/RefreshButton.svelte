@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { refresh } from '#lib/stores/index.js';
 
 	interface Props {
@@ -12,12 +14,11 @@
 	}
 </script>
 
-<button
+<button aria-label="Refresh" use:tooltip={ACTIONS.refresh}
 	class="refresh-button"
 	class:loading
 	onclick={handleClick}
 	disabled={loading}
-	title="Refresh data"
 >
 	<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 		<polyline points="23 4 23 10 17 10" />

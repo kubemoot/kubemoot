@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { readinessStatus } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
@@ -185,7 +187,7 @@
 						</p>
 					{:else if assembledPrompt !== null}
 						<div class="prompt-assembled-row">
-							<button class="link-button" type="button" onclick={() => (showAssembledPrompt = !showAssembledPrompt)}>
+							<button use:tooltip={ACTIONS.toggleAssembledPrompt} class="link-button" type="button" onclick={() => (showAssembledPrompt = !showAssembledPrompt)}>
 								{showAssembledPrompt ? 'Hide' : 'Show'} assembled system prompt ({assembledPrompt.length.toLocaleString()} chars)
 							</button>
 							<span class="prompt-source mono">from ConfigMap <code>{promptConfigMapName}</code>/system.txt</span>

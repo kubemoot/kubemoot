@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
@@ -62,7 +64,7 @@
 						Show agents that stand aside in consensus
 						<span class="pref-hint">When off, agents that stand aside (do no work) are hidden across the Discussions, Fitness, and span-graph views. Stored in this browser.</span>
 					</span>
-					<input type="checkbox" checked={$showStandAsides} onchange={(e) => showStandAsides.set(e.currentTarget.checked)} />
+					<input use:tooltip={ACTIONS.toggleStandAsides} type="checkbox" checked={$showStandAsides} onchange={(e) => showStandAsides.set(e.currentTarget.checked)} />
 				</label>
 			</Section>
 		</div>

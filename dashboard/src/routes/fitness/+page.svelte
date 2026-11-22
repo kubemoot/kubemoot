@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { onMount } from 'svelte';
 	import { marked } from 'marked';
 	import { resolve } from '$app/paths';
@@ -509,7 +511,7 @@
 
 {#snippet agentTag(agent: string | undefined, ns: string)}
 	{#if agent && agentNames.has(agent)}
-		<a class="evtag agent-link" href="{resolve('/agents/[name]', { name: agent })}?namespace={ns}" title="Open {agent} (deployed in this crew)" onclick={(e) => e.stopPropagation()}>{agent}</a>
+		<a use:tooltip={ACTIONS.openAgent(agent)} class="evtag agent-link" href="{resolve('/agents/[name]', { name: agent })}?namespace={ns}" onclick={(e) => e.stopPropagation()}>{agent}</a>
 	{:else}
 		<span class="evtag" title={agent ? `${agent} is not in the current crew deployment` : ''}>{agent ?? ''}</span>
 	{/if}
@@ -549,7 +551,7 @@
 			{@const id = `${ns}/${name}`}
 			{@const eta = suiteEta(s, now)}
 			<tbody>
-				<tr class="suite-row" onclick={() => toggleSuite(ns, name)}>
+				<tr class="suite-row" use:tooltip={ACTIONS.expandSuite} onclick={() => toggleSuite(ns, name)}>
 					<td class="c-caret">{openSuite[id] ? '▼' : '▶'}</td>
 					<td>
 						{#if isJudging(id, s?.phase)}
@@ -567,9 +569,9 @@
 					<td class="mono">{s?.iterationsCompleted ?? 0}/{s?.iterationsTotal ?? 0}</td>
 					<td class="mono" title={durTitle(s?.startedAt, s?.completedAt)}>{fmtDur(suiteDurMs(s, now))}{#if eta}<div class="desc" title="Estimate: iterations left x elapsed time per completed iteration">{etaText(eta)}</div>{/if}</td>
 					<td>
-						<button class="copy-btn" title="Copy this suite's details to the clipboard" onclick={(e) => copySuite(suite, e)}>{copiedKey === id ? '✓' : '📋'}</button>
+						<button aria-label="Copy suite details" use:tooltip={ACTIONS.copySuite} class="copy-btn" onclick={(e) => copySuite(suite, e)}>{copiedKey === id ? '✓' : '📋'}</button>
 						{#if s?.artifactRef?.objectKey}
-							<a class="dl" href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}" download onclick={(e) => e.stopPropagation()} title="Download {formatBytes(s.artifactRef.sizeBytes)}">⬇ XLSX</a>
+							<a use:tooltip={ACTIONS.downloadSuiteReport(formatBytes(s.artifactRef.sizeBytes))} class="dl" href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}" download onclick={(e) => e.stopPropagation()}>⬇ XLSX</a>
 						{:else}<span class="muted small">-</span>{/if}
 					</td>
 				</tr>
@@ -602,7 +604,7 @@
 									{#each groupScenarios(merged) as g (g.scenario)}
 										{@const sk = `${id}::${g.scenario}`}
 										<tbody>
-											<tr class="scenario-row" onclick={() => (openScenario[sk] = !openScenario[sk])}>
+											<tr class="scenario-row" use:tooltip={ACTIONS.expandScenario} onclick={() => (openScenario[sk] = !openScenario[sk])}>
 												<td class="c-caret">{openScenario[sk] ? '▼' : '▶'}</td>
 												<td class="mono scenario">
 													{g.scenario}
@@ -641,7 +643,7 @@
 															{#each g.iterations as it (it.key)}
 																{@const tid = it.key}
 																<tbody>
-																	{#if it.running}<tr class="iter-row running"><td class="c-caret"></td><td class="mono">{it.iter}</td><td>{@render statusBadge('Running')}</td><td class="mono muted">-</td><td class="mono" title={durTitle(it.startedAt)}>{iterDurText(it, now)}</td></tr>{:else}<tr class="iter-row" onclick={() => toggleIter(ns, name, it)}>
+																	{#if it.running}<tr class="iter-row running"><td class="c-caret"></td><td class="mono">{it.iter}</td><td>{@render statusBadge('Running')}</td><td class="mono muted">-</td><td class="mono" title={durTitle(it.startedAt)}>{iterDurText(it, now)}</td></tr>{:else}<tr class="iter-row" use:tooltip={ACTIONS.expandIteration} onclick={() => toggleIter(ns, name, it)}>
 																		<td class="c-caret">{openIter[tid] ? '▼' : '▶'}</td>
 																		<td class="mono">{it.iter}</td>
 																		<td>{#if it.status === 'Passed'}<span class="badge phase-neutral" title="Discussion ran and hard assertions passed (plumbing). Answer quality is the REFLECTS score on the scenario row, not this.">ran</span>{:else}{@render statusBadge(it.status)}{/if}</td>
@@ -661,7 +663,7 @@
 									{@const standAsides = (t.events ?? []).filter((e) => e.type === 'phase' && e.stood_aside)}
 									{@const convEvents = dedupeSynthesis(t.events ?? [])}
 																					{#if t.question}<div class="q"><strong>Q:</strong> {t.question}</div>{/if}
-																					<div class="meta muted small">thread {t.threadId || '-'}{#if t.threadId}<button class="copy-tid" title="Copy thread id" onclick={(e) => { e.stopPropagation(); copyThreadId(t.threadId, t.question); }}>{copiedTid === t.threadId ? '✓' : '📋'}</button>{/if} · {fmtDur(t.durationMs)}</div>
+																					<div class="meta muted small">thread {t.threadId || '-'}{#if t.threadId}<button aria-label="Copy thread id" use:tooltip={ACTIONS.copyThreadId} class="copy-tid" onclick={(e) => { e.stopPropagation(); copyThreadId(t.threadId, t.question); }}>{copiedTid === t.threadId ? '✓' : '📋'}</button>{/if} · {fmtDur(t.durationMs)}</div>
 																					{#if t.assertions && t.assertions.length > 0}
 																						<div class="asserts">
 																							{#each t.assertions as a}
@@ -696,9 +698,9 @@
 																								{@const full = ev.content || ev.summary || ''}
 																								{@const short = ev.summary || ev.content || ''}
 																								{@const hasMore = full.length > short.length}
-																								{@const fArtifact = artifactKey(full)}<div class="ev finding">{@render agentTag(ev.agent, ns)} <span class="sig sig-{ev.signal}">{ev.signal}</span>{#if openFinding[fkey] || !hasMore}<div class="md">{@html md(full)}</div>{#if hasMore}<button class="finding-toggle" onclick={() => (openFinding[fkey] = false)}>show less</button>{/if}{:else}<span class="md-inline">{@html mdInline(short)}</span><button class="finding-toggle" onclick={() => (openFinding[fkey] = true)}>… more</button>{/if}{#if fArtifact}<a class="artifact-dl" href={artifactHref(fArtifact)} download title="Download the full spilled artifact ({fArtifact})">download</a>{/if}</div>
+																								{@const fArtifact = artifactKey(full)}<div class="ev finding">{@render agentTag(ev.agent, ns)} <span class="sig sig-{ev.signal}">{ev.signal}</span>{#if openFinding[fkey] || !hasMore}<div class="md">{@html md(full)}</div>{#if hasMore}<button use:tooltip={ACTIONS.toggleFinding} class="finding-toggle" onclick={() => (openFinding[fkey] = false)}>show less</button>{/if}{:else}<span class="md-inline">{@html mdInline(short)}</span><button use:tooltip={ACTIONS.toggleFinding} class="finding-toggle" onclick={() => (openFinding[fkey] = true)}>… more</button>{/if}{#if fArtifact}<a use:tooltip={ACTIONS.downloadArtifact} class="artifact-dl" href={artifactHref(fArtifact)} download>download</a>{/if}</div>
 																							{:else if ev.type === 'synthesis'}
-																								{@const skey = `${tid}:${evIdx}`}{@const synthLong = (ev.content?.length ?? 0) > SYNTHESIS_COLLAPSE_CHARS}{@const sArtifact = artifactKey(ev.content)}<div class="ev synthesis"><span class="evtag">synthesis</span><div class="md synth-body" class:collapsed={synthLong && !openSynthesis[skey]}>{@html md(ev.content)}</div>{#if synthLong}<button class="finding-toggle" onclick={() => (openSynthesis[skey] = !openSynthesis[skey])}>{openSynthesis[skey] ? 'show less' : '… more'}</button>{/if}{#if sArtifact}<a class="artifact-dl" href={artifactHref(sArtifact)} download title="Download the full spilled artifact ({sArtifact})">download</a>{/if}</div>
+																								{@const skey = `${tid}:${evIdx}`}{@const synthLong = (ev.content?.length ?? 0) > SYNTHESIS_COLLAPSE_CHARS}{@const sArtifact = artifactKey(ev.content)}<div class="ev synthesis"><span class="evtag">synthesis</span><div class="md synth-body" class:collapsed={synthLong && !openSynthesis[skey]}>{@html md(ev.content)}</div>{#if synthLong}<button use:tooltip={ACTIONS.toggleSynthesis} class="finding-toggle" onclick={() => (openSynthesis[skey] = !openSynthesis[skey])}>{openSynthesis[skey] ? 'show less' : '… more'}</button>{/if}{#if sArtifact}<a use:tooltip={ACTIONS.downloadArtifact} class="artifact-dl" href={artifactHref(sArtifact)} download>download</a>{/if}</div>
 																							{:else if ev.type === 'error' || ev.error}
 																								<div class="ev err"><span class="evtag">error</span> {ev.error ?? ev.content}</div>
 																							{/if}
