@@ -18,7 +18,8 @@ export default defineConfig({
 		alias: {
 			'$app/env/private': r('./vitest-mocks/app-env-private.ts'),
 			'$app/env': r('./vitest-mocks/app-env.ts'),
-			'$app/paths': r('./vitest-mocks/app-paths.ts')
+			'$app/paths': r('./vitest-mocks/app-paths.ts'),
+			'$app/state': r('./vitest-mocks/app-state.ts')
 		}
 	},
 	test: {

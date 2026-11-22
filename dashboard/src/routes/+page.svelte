@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	// Kubemoot Dashboard - Overview Page
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
@@ -167,7 +169,7 @@
 		<NatsTile status={nats} href={resolve('/nats')} />
 		{#each resourceTypes as resource}
 			{@const c = counts?.[resource.key]}
-			<a href={resource.href} class="card">
+			<a use:tooltip={ACTIONS.openTile(resource.label)} href={resource.href} class="card">
 				<div class="card-header">
 					<span class="card-label">{resource.label}</span>
 					{#if c}

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	let { text }: { text: string } = $props();
 	let open = $state(false);
 
@@ -13,7 +15,7 @@
 <svelte:document onclick={handleClickOutside} />
 
 <span class="help-wrapper">
-	<button class="help-btn" onclick={(e) => { e.stopPropagation(); open = !open; }} title="Help">?</button>
+	<button aria-label="Help" use:tooltip={ACTIONS.help} class="help-btn" onclick={(e) => { e.stopPropagation(); open = !open; }}>?</button>
 	{#if open}
 		<div class="help-popup" onclick={(e) => e.stopPropagation()}>
 			<p>{text}</p>

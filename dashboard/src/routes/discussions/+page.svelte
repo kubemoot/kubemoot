@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { PageTitle } from '#lib/components/common/index.js';
 	import { askCommand } from '#lib/cli-commands.js';
 	import { onMount } from 'svelte';
@@ -125,12 +127,6 @@
 	const selectedStatus = $derived(statusIcon(selectedAnswer.kind, selectedThread ?? undefined));
 	const debugCount = $derived(debugMessageCount(selectedThread?.messages ?? []));
 	const afterAnswer = $derived(afterAnswerMessages(selectedThread?.messages ?? []));
-
-	function debugToggleTitle(on: boolean, hidden: number): string {
-		if (on) return 'Hide debug detail';
-		const more = hidden > 0 ? `${hidden} more messages, ` : '';
-		return `Show debug detail (${more}timings, tokens, placement)`;
-	}
 
 	/** An agent's name as the timeline shows it. */
 	function agentLabel(agent: string): string {
@@ -303,7 +299,7 @@
 			{:else}
 				{#each visibleThreads as thread}
 					<div class="thread-row">
-					<button
+					<button use:tooltip={ACTIONS.openThread}
 						class="thread-card"
 						class:selected={selectedThreadId === thread.threadId}
 						onclick={() => selectThread(thread.threadId)}
@@ -332,7 +328,7 @@
 					</div>
 				{/each}
 				{#if $hasOlder}
-					<button class="load-older" disabled={$loadingOlder} onclick={() => loadOlder()}>
+					<button use:tooltip={ACTIONS.loadOlder} class="load-older" disabled={$loadingOlder} onclick={() => loadOlder()}>
 						{$loadingOlder ? 'Loading older threads...' : 'Load older threads'}
 					</button>
 				{/if}
@@ -350,7 +346,7 @@
 					{/if}
 					<div class="thread-query-full" title={selectedThread.threadId}>
 						<span>{selectedThread.userQuery}</span>
-						<button class="thread-id-copy" onclick={copyThreadId} title="Copy thread id with the question" aria-label="Copy thread id with the question">
+						<button use:tooltip={ACTIONS.copyThreadId} class="thread-id-copy" onclick={copyThreadId} aria-label="Copy thread id with the question">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 								{#if copiedThreadId}<polyline points="20 6 9 17 4 12" />{:else}<rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />{/if}
 							</svg>
@@ -373,7 +369,7 @@
 						<DiscussionMenu
 							showTimeline={showSpanGraph}
 							showDebug={$showDebugDetail}
-							debugTitle={debugToggleTitle($showDebugDetail, debugCount)}
+							debugHiddenCount={debugCount}
 							ontoggletimeline={() => { showSpanGraph = !showSpanGraph; }}
 							ontoggledebug={() => showDebugDetail.toggle()}
 							oncopydiscussion={copyThread}
@@ -454,8 +450,8 @@
 								{@const synthLong = isSynthesis && msg.content.length > SYNTHESIS_COLLAPSE_CHARS}
 								{@const aKey = artifactKey(msg.content)}
 								<div class="message-content markdown synth-body" class:collapsed={synthLong && !openSynthesis[skey]}>{@html marked.parse(msg.content)}</div>
-								{#if synthLong}<button class="finding-toggle" onclick={() => (openSynthesis[skey] = !openSynthesis[skey])}>{openSynthesis[skey] ? 'show less' : '… more'}</button>{/if}
-								{#if aKey}<a class="artifact-dl" href={artifactHref(aKey)} download title="Download the full spilled artifact ({aKey})">download</a>{/if}
+								{#if synthLong}<button use:tooltip={ACTIONS.toggleSynthesis} class="finding-toggle" onclick={() => (openSynthesis[skey] = !openSynthesis[skey])}>{openSynthesis[skey] ? 'show less' : '… more'}</button>{/if}
+								{#if aKey}<a use:tooltip={ACTIONS.downloadArtifact} class="artifact-dl" href={artifactHref(aKey)} download>download</a>{/if}
 							{/if}
 							{#if msg.metadata?.toolsUsed && msg.metadata.toolsUsed.length > 0}
 								<div class="tools-used">

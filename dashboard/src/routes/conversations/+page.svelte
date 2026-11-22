@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
@@ -87,9 +89,9 @@
 		{#each chats as t (t.threadId)}
 			<div class="chat-item">
 			{#if selectedScope && threadConversationId(t)}
-				<input type="checkbox" class="chat-tick" aria-label="Select this conversation for download" checked={!!ticked[t.threadId]} onchange={(e) => tick(t.threadId, e.currentTarget.checked)} />
+				<input use:tooltip={ACTIONS.selectConversation} type="checkbox" class="chat-tick" aria-label="Select this conversation for download" checked={!!ticked[t.threadId]} onchange={(e) => tick(t.threadId, e.currentTarget.checked)} />
 			{/if}
-			<button class="chat-row" class:active={t.threadId === selectedThreadId} onclick={() => selectChat(t.threadId)}>
+			<button use:tooltip={ACTIONS.openConversation} class="chat-row" class:active={t.threadId === selectedThreadId} onclick={() => selectChat(t.threadId)}>
 				<span class="chat-preview">{preview(t.threadId, t.userQuery)}</span>
 				<span class="chat-meta">
 					{#if $namespace === '' && t.namespace}<span class="crew-badge">{crewLabel($crewDirectory, t.namespace, t.crew ?? '')}</span>{/if}
@@ -105,7 +107,7 @@
 			<PageTitle route="/conversations" />
 			<div class="header-controls">
 				<label class="details-toggle" title="Show how long each answer took and the tokens it used">
-					<input type="checkbox" checked={$showChatDetails} onchange={() => showChatDetails.toggle()} />
+					<input use:tooltip={ACTIONS.toggleDetails} type="checkbox" checked={$showChatDetails} onchange={() => showChatDetails.toggle()} />
 					Details
 				</label>
 				{#if selected}
@@ -113,7 +115,7 @@
 					{#if selectedConversationId}
 						<ConversationDownload scope={selectedScopeOfThread} ids={[selectedConversationId]} endpoint={exportEndpoint} label="Download" />
 					{/if}
-					<button class="action-btn" onclick={copyChat} title="Copy this conversation to the clipboard">{copied ? '✓' : '📋'}</button>
+					<button aria-label="Copy conversation" use:tooltip={ACTIONS.copyConversation} class="action-btn" onclick={copyChat}>{copied ? '✓' : '📋'}</button>
 				{/if}
 			</div>
 		</div>

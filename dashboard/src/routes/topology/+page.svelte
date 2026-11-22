@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
@@ -54,7 +56,7 @@
 			<PageTitle route="/topology" />
 		</div>
 		<div class="header-actions">
-			<button class="reset-layout-btn" onclick={handleResetLayout}>Reset Layout</button>
+			<button use:tooltip={ACTIONS.resetLayout} class="reset-layout-btn" onclick={handleResetLayout}>Reset Layout</button>
 			<div class="legend">
 			<span class="legend-item">
 				<span class="legend-dot coordinator"></span> Coordinator

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { tick } from 'svelte';
 	import { askCommand, replayConversationCommand } from '#lib/cli-commands.js';
 
@@ -17,12 +19,12 @@
 		namespace?: string | null;
 		conversationId?: string;
 		/** Said in the tooltip of the button. */
-		debugTitle?: string;
+		debugHiddenCount?: number;
 	}
 
 	let {
 		showTimeline, showDebug, ontoggletimeline, ontoggledebug, oncopydiscussion, oncopythreadid,
-		downloadHref = null, crew, namespace, conversationId, debugTitle = 'Debug detail'
+		downloadHref = null, crew, namespace, conversationId, debugHiddenCount = 0
 	}: Props = $props();
 
 	let open = $state(false);
@@ -92,11 +94,10 @@
 <svelte:window onclick={(e) => { if (open && root && !root.contains(e.target as Node)) open = false; }} />
 
 <div class="discussion-menu" bind:this={root}>
-	<button
+	<button use:tooltip={ACTIONS.discussionActions}
 		type="button"
 		class="menu-button"
 		bind:this={button}
-		title="Actions"
 		aria-label="Actions"
 		aria-haspopup="menu"
 		aria-expanded={open}
@@ -107,22 +108,22 @@
 	</button>
 	{#if open}
 		<div class="menu" role="menu" aria-label="Discussion actions" tabindex="-1" onkeydown={onMenuKey}>
-			<button type="button" role="menuitemcheckbox" aria-checked={showTimeline} tabindex="-1" onclick={() => run(ontoggletimeline)}>
+			<button use:tooltip={ACTIONS.showTimeline} type="button" role="menuitemcheckbox" aria-checked={showTimeline} tabindex="-1" onclick={() => run(ontoggletimeline)}>
 				<span class="check" aria-hidden="true">{#if showTimeline}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>{/if}</span>Show timeline
 			</button>
-			<button type="button" role="menuitemcheckbox" aria-checked={showDebug} tabindex="-1" title={debugTitle} onclick={() => run(ontoggledebug)}>
+			<button use:tooltip={ACTIONS.showDebug(showDebug, debugHiddenCount)} type="button" role="menuitemcheckbox" aria-checked={showDebug} tabindex="-1" onclick={() => run(ontoggledebug)}>
 				<span class="check" aria-hidden="true">{#if showDebug}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>{/if}</span>Debug detail
 			</button>
 			<hr />
-			<button type="button" role="menuitem" tabindex="-1" onclick={() => run(oncopydiscussion)}><span class="check"></span>Copy discussion</button>
-			<button type="button" role="menuitem" tabindex="-1" onclick={() => run(oncopythreadid)}><span class="check"></span>Copy thread id with the question</button>
+			<button use:tooltip={ACTIONS.copyDiscussion} type="button" role="menuitem" tabindex="-1" onclick={() => run(oncopydiscussion)}><span class="check"></span>Copy discussion</button>
+			<button use:tooltip={ACTIONS.copyThreadId} type="button" role="menuitem" tabindex="-1" onclick={() => run(oncopythreadid)}><span class="check"></span>Copy thread id with the question</button>
 			{#if downloadHref}
-				<a role="menuitem" tabindex="-1" href={downloadHref} download onclick={() => close(false)}><span class="check"></span>Download conversation</a>
+				<a use:tooltip={ACTIONS.downloadConversation} role="menuitem" tabindex="-1" href={downloadHref} download onclick={() => close(false)}><span class="check"></span>Download conversation</a>
 			{/if}
 			{#if kmctl.length > 0}
 				<hr />
 				{#each kmctl as item (item.label)}
-					<button type="button" role="menuitem" tabindex="-1" onclick={() => copyCommand(item)}><span class="check"></span>{copied === item.label ? 'Copied' : item.label}</button>
+					<button use:tooltip={ACTIONS.copyKmctl(item.label)} type="button" role="menuitem" tabindex="-1" onclick={() => copyCommand(item)}><span class="check"></span>{copied === item.label ? 'Copied' : item.label}</button>
 				{/each}
 			{/if}
 		</div>

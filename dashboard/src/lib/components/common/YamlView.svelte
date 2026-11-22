@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { displayResource, toYaml, type YamlResource } from '#lib/yaml.js';
 
 	interface Props {
@@ -24,9 +26,9 @@
 
 {#if resource}
 	<details class="yaml-view">
-		<summary>YAML</summary>
+		<summary use:tooltip={ACTIONS.expandYaml}>YAML</summary>
 		<div class="body">
-			<button type="button" class="copy" onclick={copy} aria-label="Copy the resource YAML to the clipboard">
+			<button use:tooltip={ACTIONS.copyYaml} type="button" class="copy" onclick={copy} aria-label="Copy the resource YAML to the clipboard">
 				{copied ? 'Copied' : 'Copy'}
 			</button>
 			<pre class="yaml" aria-label="Resource YAML"><code>{text}</code></pre>

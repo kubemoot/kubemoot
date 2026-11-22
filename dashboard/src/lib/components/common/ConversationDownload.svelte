@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { CrewScope } from '#lib/crewScope.js';
 	import { browserTimeZone, exportHref, exportLabel } from '#lib/conversation-export.js';
 
@@ -20,11 +22,10 @@
 </script>
 
 {#if href}
-	<a
+	<a use:tooltip={ACTIONS.downloadConversations(ids.length)}
 		class="action-btn"
 		{href}
 		download
-		title="Download everything Kubemoot still holds about {ids.length === 1 ? 'this conversation' : 'these conversations'} as a zip, built by the operator"
 		>{label ?? exportLabel(ids.length)}</a
 	>
 {/if}

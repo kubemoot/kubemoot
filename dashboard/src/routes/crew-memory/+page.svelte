@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { resolve } from '$app/paths';
 	import { crewDirectory, namespace } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
@@ -63,7 +65,7 @@
 		<PageTitle route="/crew-memory" />
 		{#if scope}
 			<div class="header-actions">
-				<button onclick={() => (exportOpen = !exportOpen)} aria-expanded={exportOpen} title="Download this crew's memory in the OMPI interchange format">Export</button>
+				<button use:tooltip={ACTIONS.exportMemory} onclick={() => (exportOpen = !exportOpen)} aria-expanded={exportOpen}>Export</button>
 			</div>
 		{/if}
 	</div>

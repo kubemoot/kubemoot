@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { reportComparator } from '#lib/mcp-report-sort.js';
 	import { onMount } from 'svelte';
@@ -83,7 +85,7 @@
 		<div class="controls">
 			<div class="filter">
 				<label for="verdict-filter">Filter:</label>
-				<select id="verdict-filter" bind:value={filterVerdict}>
+				<select use:tooltip={ACTIONS.filterVerdict} id="verdict-filter" bind:value={filterVerdict}>
 					<option value="all">All Verdicts</option>
 					<option value="use">Use</option>
 					<option value="caution">Caution</option>
@@ -93,7 +95,7 @@
 			</div>
 			<div class="sort">
 				<label for="sort-by">Sort:</label>
-				<select id="sort-by" bind:value={sortBy}>
+				<select use:tooltip={ACTIONS.sortReports} id="sort-by" bind:value={sortBy}>
 					<option value="lastTested">Last Tested</option>
 					<option value="successRate">Success Rate</option>
 					<option value="name">Name</option>
@@ -121,10 +123,10 @@
 
 			{#each filteredReports as report (report.metadata.namespace + '/' + report.metadata.name)}
 				<div class="table-row" class:expanded={expandedReport === report.metadata.name}>
-					<button class="row-main" onclick={() => toggleExpand(report.metadata.name)}>
+					<button use:tooltip={ACTIONS.toggleReportRow} class="row-main" onclick={() => toggleExpand(report.metadata.name)}>
 						<span class="col-name">
 							{#if report.spec?.githubUrl}
-								<a href={report.spec.githubUrl} target="_blank" rel="noopener" class="server-link" onclick={(e) => e.stopPropagation()}>
+								<a use:tooltip={ACTIONS.openGithub} href={report.spec.githubUrl} target="_blank" rel="noopener" class="server-link" onclick={(e) => e.stopPropagation()}>
 									{report.spec?.serverName || report.metadata.name}
 								</a>
 							{:else}

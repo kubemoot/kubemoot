@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { CrewScope } from '#lib/crewScope.js';
 	import {
 		exportFileName,
@@ -63,7 +65,7 @@
 				</tbody>
 			</table>
 		{/if}
-		<a
+		<a use:tooltip={ACTIONS.downloadMemory}
 			class="button primary"
 			href={`${endpoint}?${exportQuery(scope, { report: false })}`}
 			download={exportFileName(scope)}>Download</a
