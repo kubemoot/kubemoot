@@ -16,6 +16,14 @@
 		display: block;
 	}
 
+	/* The lockup's name is white. On the light theme it sits on a dark plate, so the brand file stays as published. */
+	:global(:root[data-theme='light']) .logo-link {
+		display: inline-block;
+		padding: 4px 10px;
+		border-radius: 8px;
+		background-color: var(--color-brand-plate);
+	}
+
 	.kubemoot-logo {
 		display: block;
 		height: 36px;

@@ -11,6 +11,8 @@ export interface PageDefinition {
 	purpose: string;
 	/** The left-menu label, when it is shorter than the title. */
 	menu?: string;
+	/** Further lines for the (i) help: what a control on the page means. */
+	notes?: readonly string[];
 }
 
 const TERMS = {
@@ -55,13 +57,15 @@ export const PAGE_DEFINITIONS = {
 	'/conversations': {
 		title: 'Conversations',
 		term: 'A conversation holds your own questions to a crew and the crew\'s answers.',
-		purpose: 'Ask a question, follow up, stop an answer in progress, or delete a conversation.'
+		purpose: 'Ask a question, follow up, stop an answer in progress, or delete a conversation.',
+		notes: ['The list shows conversations started in the chosen time range; the default is the last 24 hours.']
 	},
 	'/moot': {
 		title: 'The Moot',
 		menu: 'Moot',
 		term: 'A moot is the agents of a crew deliberating over one question until they settle on an answer.',
-		purpose: 'Read how the agents reached each answer, message by message. This page is read-only.'
+		purpose: 'Read how the agents reached each answer, message by message. This page is read-only.',
+		notes: ['The list shows discussions started in the chosen time range; the default is the last 24 hours.']
 	},
 	'/crews': {
 		title: 'Crews',
@@ -98,7 +102,8 @@ export const PAGE_DEFINITIONS = {
 		title: 'Crew Memory',
 		menu: 'Memory',
 		term: 'Crew memory is what a crew has learned about its cluster and keeps between conversations.',
-		purpose: 'Read what a crew remembers and export it.'
+		purpose: 'Read what a crew remembers and export it.',
+		notes: ['Facts belong to one crew, and the least recently used are dropped over time.']
 	},
 	'/topology': {
 		title: 'Agent Topology',
@@ -123,7 +128,8 @@ export const PAGE_DEFINITIONS = {
 	'/crewfitnesssuites': {
 		title: 'Fitness Suites',
 		term: 'A fitness suite repeats a crew\'s scenarios many times to measure how reliably it answers.',
-		purpose: 'Follow each suite\'s progress and pass rates.'
+		purpose: 'Follow each suite\'s progress and pass rates.',
+		notes: ['Each suite produces an XLSX report with per-iteration results and per-scenario aggregates.']
 	},
 	'/crewfitnesssuites/[name]': {
 		title: 'Fitness Suite',
@@ -232,7 +238,8 @@ export const PAGE_DEFINITIONS = {
 		title: 'Kubemoot Config',
 		menu: 'Config',
 		term: 'Kubemoot config holds the cluster-wide settings that apply to every crew.',
-		purpose: 'Read the default images and display preferences the operator uses.'
+		purpose: 'Read the default images and display preferences the operator uses.',
+		notes: ['Appearance and the other display preferences are stored in this browser only.']
 	},
 	'/nats': {
 		title: 'NATS',

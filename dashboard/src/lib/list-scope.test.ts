@@ -1,16 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { NO_FILTER } from './conversation-filter.js';
+import { DEFAULT_FILTER, NO_FILTER } from './conversation-filter.js';
 import { listAddress, mineScopesFor } from './list-scope.js';
 
 describe('listAddress', () => {
 	it('writes the filter into the query and keeps the open conversation', () => {
-		expect(listAddress('/conversations', '?conversation=c-1&q=old', { ...NO_FILTER, q: 'namespace -smoke', mine: true })).toBe(
+		expect(listAddress('/conversations', '?conversation=c-1&q=old', { ...DEFAULT_FILTER, q: 'namespace -smoke', mine: true })).toBe(
 			'/conversations?conversation=c-1&mine=1&q=namespace+-smoke'
 		);
 	});
 
 	it('has no query when the filter is empty and nothing is open', () => {
-		expect(listAddress('/moot', '?q=gpu', NO_FILTER)).toBe('/moot');
+		expect(listAddress('/moot', '?q=gpu', DEFAULT_FILTER)).toBe('/moot');
+	});
+
+	it('keeps Anytime in the address, since the default is the last 24 hours', () => {
+		expect(listAddress('/moot', '', NO_FILTER)).toBe('/moot?range=any');
 	});
 });
 

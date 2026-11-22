@@ -11,7 +11,6 @@ const base = (over: Partial<MenuContext> = {}): MenuContext => ({
 	ontoggledetails: vi.fn(),
 	copyConversation: vi.fn(),
 	copyIdAndQuestion: vi.fn(),
-	copyKmctl: vi.fn(),
 	control: vi.fn(),
 	remove: vi.fn(),
 	...over
@@ -19,14 +18,13 @@ const base = (over: Partial<MenuContext> = {}): MenuContext => ({
 const labels = (c: MenuContext) => conversationMenu(c).flatMap((e) => (e.kind === 'separator' ? [] : [e.label]));
 
 describe('conversationMenu', () => {
-	it('offers copy, download, the Moot, kmctl and delete for a finished conversation, and no control', () => {
+	it('offers copy, download, the Moot and delete for a finished conversation, and no control', () => {
 		expect(labels(base())).toEqual([
 			'Show answer details',
 			'Copy conversation',
 			'Copy conversation id with the first question',
 			'Download conversation',
 			'Open in the Moot',
-			'Copy kmctl command',
 			'Delete conversation'
 		]);
 	});

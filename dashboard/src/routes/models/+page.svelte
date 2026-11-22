@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -63,7 +61,7 @@
 				{#if serverFilter}
 					<span class="filter-chip">server = <code>{serverFilter}</code></span>
 				{/if}
-				<button use:tooltip={ACTIONS.clearModelFilter} class="clear-btn" type="button" onclick={clearFilter}>Clear</button>
+				<button class="clear-btn" type="button" onclick={clearFilter}>Clear</button>
 			</div>
 		{/if}
 		{#each visibleModels as model (model.metadata.namespace + '/' + model.metadata.name)}

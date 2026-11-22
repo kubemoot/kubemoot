@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
-	import { askCommand } from '#lib/cli-commands.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { marked } from 'marked';
 	import { threadStartedAt } from '#lib/stores/discussions.js';
@@ -13,7 +11,7 @@
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewPillNamespace, crewTooltip } from '#lib/crew-display-name.js';
 	import { AnswerPanel, DiscussionMenu, DiscussionSpanGraph, MessageStatsLine, PlacementPanel } from '#lib/components/discussions/index.js';
-	import { debugMessageCount, visibleMessages, afterAnswerMessages } from '#lib/conversation-view.js';
+	import { visibleMessages, afterAnswerMessages } from '#lib/conversation-view.js';
 	import { placementCallsOf } from '#lib/placement-panel.js';
 	import { formatTimestamp, messageStats, summarizeThread } from '#lib/discussion-timing.js';
 	import { formatElapsed } from '#lib/duration-format.js';
@@ -27,8 +25,9 @@
 	import { FilterBar } from '#lib/components/conversations/index.js';
 	import { ListCard, ListDetailLayout } from '#lib/components/layout/index.js';
 	import { listMine } from '#lib/ask-client.js';
-	import { listAddress, mineScopesFor } from '#lib/list-scope.js';
-	import { matchesFilter, parseFilter, type ListFilter } from '#lib/conversation-filter.js';
+	import { mineScopesFor } from '#lib/list-scope.js';
+	import { emptyBecauseOfFilter, matchesFilter } from '#lib/conversation-filter.js';
+	import { createListFilter } from '#lib/list-filter.svelte.js';
 	import { fetchDashboardVersion, versionLabel, VERSION_UNKNOWN } from '#lib/dashboard-version.js';
 
 	// Configure marked for safe inline rendering
@@ -59,12 +58,13 @@
 
 	// The filters and the search are the Conversations page's, in the URL like its own, so a link
 	// reproduces the list; the open thread stays in ?thread=.
-	const filter = $derived(parseFilter(new URLSearchParams(page.url.search)));
+	// The filters and the search live in the URL query, so a link reproduces the view; a link with
+	// none opens on the filter this viewer last chose.
+	const listFilter = createListFilter('moot', '/moot');
+	onMount(() => listFilter.restore());
+	const filter = $derived(listFilter.filter);
+	const setFilter = listFilter.set;
 	const signedIn = $derived(!!page.data.user);
-
-	function setFilter(next: ListFilter) {
-		void goto(listAddress('/moot', page.url.search, next), { replace: true, reset: false });
-	}
 
 	// The conversations the signed-in person started, for the Mine filter.
 	let mine = $state<Set<string> | null>(null);
@@ -159,7 +159,6 @@
 		return (m && formatElapsed(selectedStats.get(m)?.elapsedMs)) || '';
 	});
 	const selectedStatus = $derived(statusIcon(selectedAnswer.kind, selectedThread ?? undefined));
-	const debugCount = $derived(debugMessageCount(selectedThread?.messages ?? []));
 	const afterAnswer = $derived(afterAnswerMessages(selectedThread?.messages ?? []));
 
 	/** An agent's name as the timeline shows it. */
@@ -307,7 +306,7 @@
 	});
 </script>
 
-<ListDetailLayout route="/moot" subtitle="The agents deliberating over each question. Read-only." onlistscroll={onListScroll} bind:detailEl detailOpen={!!selectedThread}>
+<ListDetailLayout route="/moot" onlistscroll={onListScroll} bind:detailEl detailOpen={!!selectedThread}>
 	{#snippet actions()}
 		<div class="connection-status" class:connected={$discussionsConnected}>
 			<span class="status-dot"></span>
@@ -320,17 +319,17 @@
 				<div class="empty-state">Loading discussion history...</div>
 			{:else if visibleThreads.length === 0}
 				<div class="empty-state">
-					{#if filter.q || filter.status || filter.mine || filter.from || filter.to}
-						No discussions match these filters.
+					{#if emptyBecauseOfFilter(filter, 'discussions')}
+						{emptyBecauseOfFilter(filter, 'discussions')}
 					{:else if selectedCrew}
 						No discussions for crew "{crewLabel($crewDirectory, $namespace, selectedCrew)}". Pick "All crews" to see all.
 					{:else}
-						No discussions yet. Start one with <code>{askCommand(selectedScope?.crew ?? 'CREW', selectedScope?.namespace ?? 'NAMESPACE')}</code>.
+						No discussions yet.
 					{/if}
 				</div>
 			{:else}
 				{#each visibleThreads as thread (thread.threadId)}
-					<ListCard kind="thread" selected={selectedThreadId === thread.threadId} onopen={() => selectThread(thread.threadId)}>
+					<ListCard selected={selectedThreadId === thread.threadId} onopen={() => selectThread(thread.threadId)}>
 						{#snippet head()}
 							{#if thread.crew && $namespace === ''}
 								<span class="crew-badge" title={crewTooltip($crewDirectory, thread.namespace, thread.crew)}>{crewLabel($crewDirectory, thread.namespace, thread.crew)}{#if crewPillNamespace($crewDirectory, thread.namespace, thread.crew)}<span class="pill-ns">{thread.namespace}</span>{/if}</span>
@@ -354,7 +353,7 @@
 					</ListCard>
 				{/each}
 				{#if $hasOlder}
-					<button use:tooltip={ACTIONS.loadOlder} class="load-older" disabled={$loadingOlder} onclick={() => loadOlder()}>
+					<button class="load-older" disabled={$loadingOlder} onclick={() => loadOlder()}>
 						{$loadingOlder ? 'Loading older threads...' : 'Load older threads'}
 					</button>
 				{/if}
@@ -394,15 +393,11 @@
 						<DiscussionMenu
 							showTimeline={showSpanGraph}
 							showDebug={$showDebugDetail}
-							debugHiddenCount={debugCount}
 							ontoggletimeline={() => { showSpanGraph = !showSpanGraph; }}
 							ontoggledebug={() => showDebugDetail.toggle()}
 							oncopydiscussion={copyThread}
 							oncopythreadid={copyThreadId}
 							downloadHref={selectedConversationId ? exportHref(resolve('/api/kubemoot/conversation-export'), selectedThreadScope, [selectedConversationId], browserTimeZone()) : null}
-							crew={selectedThread.crew}
-							namespace={selectedThread.namespace}
-							conversationId={selectedConversationId}
 						/>
 					</div>
 				</div>
@@ -475,8 +470,8 @@
 								{@const synthLong = isSynthesis && msg.content.length > SYNTHESIS_COLLAPSE_CHARS}
 								{@const aKey = artifactKey(msg.content)}
 								<div class="message-content markdown synth-body" class:collapsed={synthLong && !openSynthesis[skey]}>{@html marked.parse(msg.content)}</div>
-								{#if synthLong}<button use:tooltip={ACTIONS.toggleSynthesis} class="finding-toggle" onclick={() => (openSynthesis[skey] = !openSynthesis[skey])}>{openSynthesis[skey] ? 'show less' : '… more'}</button>{/if}
-								{#if aKey}<a use:tooltip={ACTIONS.downloadArtifact} class="artifact-dl" href={artifactHref(aKey)} download>download</a>{/if}
+								{#if synthLong}<button class="finding-toggle" onclick={() => (openSynthesis[skey] = !openSynthesis[skey])}>{openSynthesis[skey] ? 'show less' : '… more'}</button>{/if}
+								{#if aKey}<a class="artifact-dl" href={artifactHref(aKey)} download>download</a>{/if}
 							{/if}
 							{#if msg.metadata?.toolsUsed && msg.metadata.toolsUsed.length > 0}
 								<div class="tools-used">
@@ -599,8 +594,8 @@
 		text-transform: uppercase;
 	}
 
-	.thread-status.open { color: #10b981; }
-	.thread-status.synthesized { color: #f59e0b; }
+	.thread-status.open { color: var(--accent-green); }
+	.thread-status.synthesized { color: var(--accent-amber); }
 	.thread-status.closed { color: var(--color-text-muted); }
 
 
@@ -627,7 +622,7 @@
 		padding: 0.125rem 0.5rem;
 		border-radius: 0.25rem;
 		background: rgba(16, 185, 129, 0.2);
-		color: #34d399;
+		color: var(--accent-green);
 		font-weight: 500;
 	}
 
@@ -713,7 +708,7 @@
 	}
 
 	.human-name {
-		color: #34d399;
+		color: var(--accent-green);
 	}
 
 	.message-type-badge {
@@ -724,22 +719,22 @@
 		border-radius: 0.25rem;
 	}
 
-	.message-type-badge.thread_start { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
-	.message-type-badge.advisory { background: rgba(168, 85, 247, 0.2); color: #c084fc; }
-	.message-type-badge.advisory_ready { background: rgba(14, 165, 233, 0.2); color: #38bdf8; }
-	.message-type-badge.review_ready { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
-	.message-type-badge.agree, .message-type-badge.contribution { background: rgba(16, 185, 129, 0.2); color: #34d399; }
-	.message-type-badge.concern { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
-	.message-type-badge.block { background: rgba(239, 68, 68, 0.2); color: #f87171; }
-	.message-type-badge.stand_aside, .message-type-badge.decline { background: rgba(107, 114, 128, 0.15); color: #6b7280; }
-	.message-type-badge.proposal { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
-	.message-type-badge.consent { background: rgba(16, 185, 129, 0.2); color: #34d399; }
-	.message-type-badge.synthesis { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
-	.message-type-badge.follow_up { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
-	.message-type-badge.reply { background: rgba(16, 185, 129, 0.2); color: #34d399; }
-	.message-type-badge.triage_result { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
-	.message-type-badge.gap_detected { background: rgba(239, 68, 68, 0.15); color: #f87171; }
-	.message-type-badge.thread_close { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
+	.message-type-badge.thread_start { background: rgba(59, 130, 246, 0.2); color: var(--accent-blue); }
+	.message-type-badge.advisory { background: rgba(168, 85, 247, 0.2); color: var(--accent-purple); }
+	.message-type-badge.advisory_ready { background: rgba(14, 165, 233, 0.2); color: var(--accent-sky); }
+	.message-type-badge.review_ready { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
+	.message-type-badge.agree, .message-type-badge.contribution { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); }
+	.message-type-badge.concern { background: rgba(245, 158, 11, 0.2); color: var(--accent-amber); }
+	.message-type-badge.block { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }
+	.message-type-badge.stand_aside, .message-type-badge.decline { background: rgba(107, 114, 128, 0.15); color: var(--accent-gray); }
+	.message-type-badge.proposal { background: rgba(59, 130, 246, 0.2); color: var(--accent-blue); }
+	.message-type-badge.consent { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); }
+	.message-type-badge.synthesis { background: rgba(245, 158, 11, 0.2); color: var(--accent-amber); }
+	.message-type-badge.follow_up { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
+	.message-type-badge.reply { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); }
+	.message-type-badge.triage_result { background: rgba(99, 102, 241, 0.2); color: var(--accent-indigo); }
+	.message-type-badge.gap_detected { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+	.message-type-badge.thread_close { background: rgba(107, 114, 128, 0.2); color: var(--accent-gray); }
 
 	.message-time {
 		margin-left: auto;
@@ -793,7 +788,7 @@
 		padding: 0.125rem 0.5rem;
 		border-radius: 1rem;
 		background: rgba(99, 102, 241, 0.15);
-		color: #a5b4fc;
+		color: var(--accent-indigo);
 		cursor: help;
 	}
 
@@ -821,8 +816,8 @@
 		text-transform: uppercase;
 	}
 
-	.thread-status-label.open { color: #10b981; }
-	.thread-status-label.synthesized { color: #f59e0b; }
+	.thread-status-label.open { color: var(--accent-green); }
+	.thread-status-label.synthesized { color: var(--accent-amber); }
 	.thread-status-label.closed { color: var(--color-text-muted); }
 
 	.thread-actions {
@@ -837,9 +832,9 @@
 		display: inline-flex; align-items: center; justify-content: center;
 		width: 1.75rem; height: 1.75rem; color: var(--color-text-muted); cursor: default;
 	}
-	.status-icon.working { color: #10b981; }
-	.status-icon.answered { color: #10b981; }
-	.status-icon.failed { color: #ef4444; }
+	.status-icon.working { color: var(--accent-green); }
+	.status-icon.answered { color: var(--accent-green); }
+	.status-icon.failed { color: var(--accent-red); }
 
 	.action-btn {
 		display: inline-flex;
@@ -997,7 +992,7 @@
 		padding: 0.125rem 0.375rem;
 		border-radius: 0.25rem;
 		background: rgba(139, 92, 246, 0.2);
-		color: #a78bfa;
+		color: var(--accent-violet);
 		font-family: ui-monospace, monospace;
 	}
 
@@ -1013,7 +1008,7 @@
 		padding: 0.125rem 0.5rem;
 		border-radius: 1rem;
 		background: rgba(168, 85, 247, 0.15);
-		color: #c084fc;
+		color: var(--accent-purple);
 		font-weight: 500;
 	}
 
@@ -1044,7 +1039,7 @@
 	}
 
 	.action-btn.active-toggle {
-		color: #3b82f6;
+		color: var(--accent-blue);
 		opacity: 1;
 		background-color: rgba(59, 130, 246, 0.1);
 	}

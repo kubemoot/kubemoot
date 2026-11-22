@@ -1,5 +1,5 @@
-// The one tooltip behind every page title, menu item and action in the dashboard.
-// Use it as a Svelte action: <button use:tooltip={ACTIONS.copyDiscussion}>.
+// The one tooltip behind the dashboard's buttons and clickable icons.
+// Use it as a Svelte action: <button use:tooltip={ACTIONS.refresh}>.
 //
 // The tooltip is a real element (role="tooltip") that the control points at with
 // aria-describedby, so a screen reader reads it as the control's description and the
@@ -9,16 +9,13 @@
 export interface TooltipOptions {
 	/** The text. A line break starts a second, quieter line (term, then purpose). */
 	text: string;
-	/**
-	 * Where it opens: under the control (default), to its right (a list row, the left menu), or
-	 * beside the menu the control is an item of, never over the items below it.
-	 */
+	/** Where it opens: under the control (default) or to its right. */
 	placement?: Placement;
 	/** Pause before a hover opens it, in milliseconds. Focus opens it at once. */
 	delay?: number;
 }
 
-export type Placement = 'below' | 'right' | 'menu';
+export type Placement = 'below' | 'right';
 
 export type TooltipParam = string | TooltipOptions;
 
@@ -32,11 +29,11 @@ let counter = 0;
 // The tooltip that is open now; opening another closes it, however either was opened.
 let openNow: (() => void) | null = null;
 
-/** A control can ask for its tooltip beside it with data-tooltip-placement="right" (a list row) or "menu" (a menu item), and a longer pause with data-tooltip-delay (milliseconds). */
+/** A control can ask for its tooltip beside it with data-tooltip-placement="right", and a longer pause with data-tooltip-delay (milliseconds). */
 function normalize(param: TooltipParam, node: HTMLElement): Required<TooltipOptions> {
 	const opts = typeof param === 'string' ? { text: param } : param;
 	const want = node.dataset.tooltipPlacement;
-	const asked: Placement = want === 'right' || want === 'menu' ? want : 'below';
+	const asked: Placement = want === 'right' ? want : 'below';
 	const pause = Number(node.dataset.tooltipDelay);
 	return { placement: asked, delay: Number.isFinite(pause) && pause > 0 ? pause : TOOLTIP_DELAY_MS, ...opts };
 }
@@ -51,22 +48,7 @@ function fillText(tip: HTMLElement, text: string) {
 	});
 }
 
-/**
- * Beside the menu an item belongs to: to its right when there is room, else to its left, level
- * with the item. The menu and its other items stay uncovered.
- */
-function placeBesideMenu(tip: HTMLElement, node: HTMLElement) {
-	const menu = (node.closest('[role="menu"]') ?? node).getBoundingClientRect();
-	const item = node.getBoundingClientRect();
-	const width = tip.offsetWidth;
-	const fitsRight = menu.right + GAP_PX + width + EDGE_PX <= window.innerWidth;
-	const left = fitsRight ? menu.right + GAP_PX : menu.left - GAP_PX - width;
-	tip.style.left = `${Math.max(EDGE_PX, left)}px`;
-	tip.style.top = `${Math.max(EDGE_PX, item.top + item.height / 2 - tip.offsetHeight / 2)}px`;
-}
-
 function place(tip: HTMLElement, node: HTMLElement, placement: Placement) {
-	if (placement === 'menu') return placeBesideMenu(tip, node);
 	const rect = node.getBoundingClientRect();
 	const width = tip.offsetWidth;
 	const height = tip.offsetHeight;
@@ -110,6 +92,8 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 	};
 	const open = () => {
 		if (opts.text === '') return;
+		// A control that has just opened a menu or popover never shows a tooltip over it.
+		if (node.getAttribute('aria-expanded') === 'true') return;
 		if (openNow && openNow !== hide) openNow();
 		openNow = hide;
 		tip.setAttribute('data-open', 'true');

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
@@ -56,7 +54,7 @@
 			<PageTitle route="/topology" />
 		</div>
 		<div class="header-actions">
-			<button use:tooltip={ACTIONS.resetLayout} class="reset-layout-btn" onclick={handleResetLayout}>Reset Layout</button>
+			<button class="reset-layout-btn" onclick={handleResetLayout}>Reset Layout</button>
 			<div class="legend">
 			<span class="legend-item">
 				<span class="legend-dot coordinator"></span> Coordinator
@@ -215,7 +213,7 @@
 		background-color: rgba(239, 68, 68, 0.1);
 		border: 1px solid rgba(239, 68, 68, 0.3);
 		border-radius: 0.5rem;
-		color: #f87171;
+		color: var(--accent-red);
 		font-size: 0.875rem;
 	}
 

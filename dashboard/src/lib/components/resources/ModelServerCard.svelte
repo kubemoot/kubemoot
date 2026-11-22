@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { formatBytes, formatMiB } from '#lib/format.js';
 	import { acceleratorMemoryTotalMiB, acceleratorMemoryUsedMiB, loadedAcceleratorMemory } from '#lib/accelerator-capacity.js';
 	import { readinessStatus } from '#lib/resource-status.js';
@@ -154,7 +152,7 @@
 										class:cached={!loaded}
 										title={loaded ? 'In VRAM' : 'On disk, not in VRAM'}
 									></span>
-									<a use:tooltip={ACTIONS.openModelCRs(entry.name)}
+									<a
 										class="model-name mono"
 										href={modelDetailsHref(entry.name)}
 										onclick={stopProp}

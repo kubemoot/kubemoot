@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { PageTitle } from '#lib/components/common/index.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
@@ -106,19 +104,13 @@
 	<span class="count">{live.items.length}</span>
 </div>
 
-<p class="page-subtitle">
-	N-iteration sweeps of fitness scripts against a crew. Each suite produces an XLSX
-	with per-iteration results and per-scenario aggregates.
-</p>
-
 {#if live.loading}
 	<p class="status-msg">Loading fitness suites...</p>
 {:else if live.error}
 	<p class="status-msg error">{live.error}</p>
 {:else if live.items.length === 0}
 	<p class="status-msg">
-		No CrewFitnessSuite CRs found in namespace <code>{$namespace || 'all'}</code>.
-		Apply one with <code>kmctl apply -f &lt;suite.yaml&gt; -n &lt;namespace&gt;</code> to start a baseline sweep.
+		No fitness suites found in namespace <code>{$namespace || 'all'}</code>.
 	</p>
 {:else}
 	<table class="suites-table">
@@ -195,7 +187,7 @@
 					</td>
 					<td>
 						{#if s?.artifactRef?.objectKey}
-							<a use:tooltip={ACTIONS.downloadSuiteReport(formatBytes(s.artifactRef.sizeBytes))}
+							<a
 								href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}"
 								class="download-link"
 								download
@@ -228,9 +220,6 @@
 	.count {
 		background: var(--color-bg-tertiary); padding: 0.15rem 0.6rem;
 		border-radius: 999px; font-size: 0.8rem; color: var(--color-text-muted);
-	}
-	.page-subtitle {
-		color: var(--color-text-muted); margin-bottom: 1.5rem; font-size: 0.9rem;
 	}
 
 	.status-msg { color: var(--color-text-muted); padding: 2rem; text-align: center; }

@@ -30,6 +30,9 @@ function conversation(threadId: string, question: string, answer: string, at: st
 }
 
 beforeAll(() => {
+	// The default list shows the last 24 hours, so the clock is set to just after the fixed test threads.
+	vi.useFakeTimers({ toFake: ['Date'] });
+	vi.setSystemTime(new Date('2026-11-21T20:00:00Z'));
 	vi.stubGlobal('EventSource', class { close() {} addEventListener() {} onmessage = null; onerror = null; onopen = null; });
 	vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], conversations: [], messages: [] }) }));
 	conversation('t-ns', 'Which namespace is the pod in?', 'It runs in the default namespace.\n\n1. first\n2. second', '10:00:00');
@@ -78,10 +81,11 @@ describe('the Conversations list', () => {
 		expect(await screen.findByText('No conversations match this search.')).toBeTruthy();
 	});
 
-	it('has the search help as a ? tooltip, not a box of prose', () => {
+	it('has the search help as an (i) that opens on click, not a box of prose', async () => {
 		const { container } = render(Page);
-		expect(container.querySelector('.help-btn')).toBeTruthy();
 		expect(container.textContent).not.toContain('Words must all match');
+		await fireEvent.click(screen.getByRole('button', { name: 'About search' }));
+		expect(screen.getByRole('dialog').textContent).toContain('Words must all match');
 	});
 });
 
@@ -148,10 +152,24 @@ describe('starting a conversation', () => {
 });
 
 describe('the page heading', () => {
-	it('says what the page is in one muted line', () => {
+	it('has no subtitle line; an (i) beside the title opens the term, the purpose and the time range note', async () => {
 		render(Page);
 		expect(screen.getByRole('heading', { name: 'Conversations' })).toBeTruthy();
-		expect(screen.getByText("Your questions and the crew's answers.")).toBeTruthy();
+		expect(screen.queryByText("Your questions and the crew's answers.")).toBeNull();
+		expect(screen.queryByRole('dialog')).toBeNull();
+		await fireEvent.click(screen.getByRole('button', { name: 'About Conversations' }));
+		const help = screen.getByRole('dialog').textContent ?? '';
+		expect(help).toContain('A conversation holds your own questions');
+		expect(help).toContain('last 24 hours');
+	});
+
+	it('explains Mine with a short tooltip on the checkbox, not in an (i)', async () => {
+		render(Page);
+		await fireEvent.click(screen.getByRole('button', { name: 'About Conversations' }));
+		expect(screen.getByRole('dialog').textContent).not.toMatch(/Mine/);
+		expect(screen.queryByRole('button', { name: /About Mine/ })).toBeNull();
+		const label = screen.getByText('Mine').closest('label') as HTMLElement;
+		expect(document.getElementById(label.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Only conversations you started');
 	});
 });
 

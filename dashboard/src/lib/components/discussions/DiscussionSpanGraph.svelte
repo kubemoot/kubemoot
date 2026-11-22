@@ -610,7 +610,7 @@
 		top: 4px;
 		right: 4px;
 		z-index: 10;
-		background: rgba(30, 41, 59, 0.8);
+		background: var(--color-overlay);
 		border: 1px solid rgba(100, 116, 139, 0.3);
 		border-radius: 4px;
 		padding: 4px 8px;
@@ -628,7 +628,7 @@
 	}
 
 	.copy-image-btn.copied {
-		color: #34d399;
+		color: var(--accent-green);
 		border-color: rgba(52, 211, 153, 0.4);
 	}
 
@@ -688,7 +688,7 @@
 		padding: 1px 5px;
 		border-radius: 3px;
 		background: rgba(139, 92, 246, 0.25);
-		color: #a78bfa;
+		color: var(--accent-violet);
 		font-family: ui-monospace, monospace;
 		white-space: nowrap;
 	}
@@ -698,7 +698,7 @@
 		padding: 1px 5px;
 		border-radius: 3px;
 		background: rgba(239, 68, 68, 0.25);
-		color: #f87171;
+		color: var(--accent-red);
 		font-family: ui-monospace, monospace;
 		white-space: nowrap;
 	}

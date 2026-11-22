@@ -103,12 +103,7 @@
 
 <div class="overview">
 	<header class="header">
-		<PageTitle route="/" />
-		{#if $namespace !== ''}
-			<p class="subtitle">
-				Crew namespace <code>{$namespace}</code>. Nodes, model servers, models, and embedding models are shared by every crew and always counted in full.
-			</p>
-		{/if}
+		<PageTitle route="/" notes={$namespace === '' ? [] : [`Showing the crew namespace ${$namespace}. Nodes, model servers, models and embedding models are shared by every crew and always counted in full.`]} />
 	</header>
 
 	<NeedsAttention findings={overview.attention} />
@@ -127,19 +122,6 @@
 
 	.header {
 		margin-bottom: 1.5rem;
-	}
-
-	.subtitle {
-		margin-top: 0.5rem;
-		color: var(--color-text-muted);
-		font-size: 0.9rem;
-	}
-
-	.subtitle code {
-		background-color: var(--color-bg-tertiary);
-		padding: 0.125rem 0.375rem;
-		border-radius: 0.25rem;
-		font-size: 0.85rem;
 	}
 
 	.grid {

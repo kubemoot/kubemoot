@@ -6,7 +6,6 @@
 	import { AskRefused } from '#lib/ask-client.js';
 	import { MAX_REASON_LENGTH, validReason } from '#lib/access-reason.js';
 	import { conversationMenu } from '#lib/conversation-menu.js';
-	import { askCommand } from '#lib/cli-commands.js';
 	import { failedStores, idWithQuestion, removedLines, type RunState } from '#lib/conversation-actions.js';
 	import {
 		ErasureIncomplete,
@@ -120,7 +119,6 @@
 			ontoggledetails,
 			copyConversation: () => void copy('Conversation', copyText()),
 			copyIdAndQuestion: () => void copy('Id and question', idWithQuestion(conversationId ?? '', question)),
-			copyKmctl: () => void copy('Command', askCommand(scope?.crew ?? '', scope?.namespace, conversationId)),
 			control: (c) => void perform({ type: 'control', control: c }),
 			remove: () => (notice = { kind: 'confirm' })
 		})
@@ -137,27 +135,27 @@
 			{:else if notice.kind === 'confirm'}
 				<span>Delete this conversation from every store that holds it? This cannot be undone.</span>
 				<span class="buttons">
-					<button type="button" class="danger" use:tooltip={ACTIONS.confirmDelete} disabled={busy} onclick={() => void perform({ type: 'delete', force: false })}>Yes, delete</button>
-					<button type="button" use:tooltip={ACTIONS.cancelDelete} aria-label="No, keep the conversation" onclick={() => (notice = null)}>No</button>
+					<button type="button" class="danger" disabled={busy} onclick={() => void perform({ type: 'delete', force: false })}>Yes, delete</button>
+					<button type="button" aria-label="No, keep the conversation" onclick={() => (notice = null)}>No</button>
 				</span>
 			{:else if notice.kind === 'running'}
 				<span>This conversation is still running. Stop it, then delete it?</span>
 				<span class="buttons">
-					<button type="button" class="danger" use:tooltip={ACTIONS.stopAndDelete} disabled={busy} onclick={() => void perform({ type: 'delete', force: true })}>Stop and delete</button>
-					<button type="button" use:tooltip={ACTIONS.cancelAction} onclick={() => (notice = null)}>Cancel</button>
+					<button type="button" class="danger" disabled={busy} onclick={() => void perform({ type: 'delete', force: true })}>Stop and delete</button>
+					<button type="button" onclick={() => (notice = null)}>Cancel</button>
 				</span>
 			{:else if notice.kind === 'reason'}
 				<label for="access-reason">This is not your conversation. Say why you are acting on it (it is recorded).</label>
 				<input id="access-reason" type="text" maxlength={MAX_REASON_LENGTH} bind:value={reasonText} placeholder="Reason, 1 to {MAX_REASON_LENGTH} characters" onkeydown={(e) => e.key === 'Enter' && submitReason()} />
 				<span class="buttons">
-					<button type="button" use:tooltip={ACTIONS.continueWithReason} disabled={!reasonValid || busy} onclick={submitReason}>Continue</button>
-					<button type="button" use:tooltip={ACTIONS.cancelAction} onclick={() => (notice = null)}>Cancel</button>
+					<button type="button" disabled={!reasonValid || busy} onclick={submitReason}>Continue</button>
+					<button type="button" onclick={() => (notice = null)}>Cancel</button>
 				</span>
 			{:else if notice.kind === 'incomplete'}
 				<span class="error">Not everything was removed: {failedStores(notice.report).join(', ')} could not be cleared. Repeat the delete to remove the rest.</span>
 				<span class="buttons">
-					<button type="button" class="danger" use:tooltip={ACTIONS.repeatDelete} disabled={busy} onclick={() => void perform({ type: 'delete', force: false })}>Repeat delete</button>
-					<button type="button" use:tooltip={ACTIONS.closeReport} onclick={() => (notice = null)}>Close</button>
+					<button type="button" class="danger" disabled={busy} onclick={() => void perform({ type: 'delete', force: false })}>Repeat delete</button>
+					<button type="button" onclick={() => (notice = null)}>Close</button>
 				</span>
 				{#if removedLines(notice.report).length > 0}<span class="muted">Removed so far: {removedLines(notice.report).join(', ')}.</span>{/if}
 			{/if}
@@ -171,7 +169,7 @@
 		position: absolute; right: 0; top: calc(100% + 0.25rem); z-index: 15; width: 22rem; max-width: 80vw;
 		display: flex; flex-direction: column; gap: 0.4rem; padding: 0.6rem 0.75rem; font-size: 0.8rem;
 		background: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 0.375rem;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+		box-shadow: var(--shadow-popup);
 	}
 	.buttons { display: flex; gap: 0.4rem; }
 	.notice button {

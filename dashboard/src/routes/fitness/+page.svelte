@@ -7,16 +7,13 @@
 	import { namespace, showStandAsides } from '#lib/stores/index.js';
 	import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 	import { acceleratorOfEvent } from '#lib/accelerator-capacity.js';
-	import { CommandHint, PageTitle } from '#lib/components/common/index.js';
-	import { deleteSuiteCommand, suiteControlCommand } from '#lib/cli-commands.js';
+	import { CopyIcon, PageTitle } from '#lib/components/common/index.js';
 	import {
-		availableSuiteActions,
 		suiteDisplayPhase,
-		suiteIsJudged,
-		type SuiteAction
+		suiteIsJudged
 	} from '#lib/fitness-suite-controls.js';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
-	import { durTitle, fmtDateTime, fmtDur, formatBytes, iterDurText, phaseLabel, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
+	import { durTitle, fmtDateTime, fmtDur, iterDurText, phaseLabel, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
 	import { etaText, meanDurationMs, suiteEta } from '#lib/fitness-eta.js';
 	import {
 		SUITE_LABEL,
@@ -370,13 +367,6 @@
 		}
 	}
 
-	// Pause, resume and stop set spec.suspend or spec.cancel; the operator does the work.
-	const CONTROL_LABEL: Record<SuiteAction, string> = {
-		pause: 'Pause (the running iteration finishes, no new one starts):',
-		resume: 'Resume from the next iteration:',
-		stop: 'Stop (end the running iteration, keep completed results):'
-	};
-
 	onMount(() => {
 		// Initial list for fast first render, then attach the live watch.
 		fetchAll(false).then(connectWatch).then(refreshJudging);
@@ -514,7 +504,7 @@
 
 {#snippet agentTag(agent: string | undefined, ns: string)}
 	{#if agent && agentNames.has(agent)}
-		<a use:tooltip={ACTIONS.openAgent(agent)} class="evtag agent-link" href="{resolve('/agents/[name]', { name: agent })}?namespace={ns}" onclick={(e) => e.stopPropagation()}>{agent}</a>
+		<a class="evtag agent-link" href="{resolve('/agents/[name]', { name: agent })}?namespace={ns}" onclick={(e) => e.stopPropagation()}>{agent}</a>
 	{:else}
 		<span class="evtag" title={agent ? `${agent} is not in the current crew deployment` : ''}>{agent ?? ''}</span>
 	{/if}
@@ -535,6 +525,7 @@
 {:else if suites.length === 0 && standaloneTests.length === 0}
 	<p class="status-msg">No fitness suites or tests in <code>{$namespace || 'all namespaces'}</code>.</p>
 {:else}
+	<div class="table-scroll">
 	<table class="ftable">
 		<thead>
 			<tr>
@@ -544,7 +535,7 @@
 				<th>Pass / Fail / Err</th>
 				<th>Progress</th>
 				<th>Duration</th>
-				<th>Report</th>
+				<th class="c-report">Report</th>
 			</tr>
 		</thead>
 		{#each suites as suite (suite.metadata.uid ?? suite.metadata.name)}
@@ -554,7 +545,7 @@
 			{@const id = `${ns}/${name}`}
 			{@const eta = suiteEta(s, now)}
 			<tbody>
-				<tr class="suite-row" use:tooltip={ACTIONS.expandSuite} onclick={() => toggleSuite(ns, name)}>
+				<tr class="suite-row" onclick={() => toggleSuite(ns, name)}>
 					<td class="c-caret">{openSuite[id] ? '▼' : '▶'}</td>
 					<td>
 						{#if isJudging(id, s?.phase)}
@@ -571,10 +562,10 @@
 					<td class="mono"><span class="passed">{s?.passed ?? 0}</span>/<span class="failed">{s?.failed ?? 0}</span>/<span class="errored">{s?.errored ?? 0}</span></td>
 					<td class="mono">{s?.iterationsCompleted ?? 0}/{s?.iterationsTotal ?? 0}</td>
 					<td class="mono" title={durTitle(s?.startedAt, s?.completedAt)}>{fmtDur(suiteDurMs(s, now))}{#if eta}<div class="desc" title="Estimate: iterations left x elapsed time per completed iteration">{etaText(eta)}</div>{/if}</td>
-					<td>
-						<button aria-label="Copy suite details" use:tooltip={ACTIONS.copySuite} class="copy-btn" onclick={(e) => copySuite(suite, e)}>{copiedKey === id ? '✓' : '📋'}</button>
+					<td class="c-report">
+						<button aria-label="Copy suite details" use:tooltip={ACTIONS.copySuite} class="copy-btn" onclick={(e) => copySuite(suite, e)}><CopyIcon done={copiedKey === id} /></button>
 						{#if s?.artifactRef?.objectKey}
-							<a use:tooltip={ACTIONS.downloadSuiteReport(formatBytes(s.artifactRef.sizeBytes))} class="dl" href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}" download onclick={(e) => e.stopPropagation()}>⬇ XLSX</a>
+							<a class="dl" href="{resolve('/api/kubemoot/crewfitnesssuites/[namespace]/[name]/artifact', { namespace: ns, name })}" download onclick={(e) => e.stopPropagation()}>⬇ XLSX</a>
 						{:else}<span class="muted small">-</span>{/if}
 					</td>
 				</tr>
@@ -584,12 +575,6 @@
 					<tr class="sub">
 						<td></td>
 						<td colspan="6" class="sub-cell">
-							<div class="suite-commands">
-								{#each availableSuiteActions(suite) as action (action)}
-									<CommandHint label={CONTROL_LABEL[action]} command={suiteControlCommand(action, name, ns)} />
-								{/each}
-								<CommandHint label="Remove this run and its artifacts:" command={deleteSuiteCommand(name, ns)} />
-							</div>
 							{#if iterLoading[id]}
 								<p class="status-msg small">Loading iterations…</p>
 							{:else if merged.length === 0}
@@ -607,7 +592,7 @@
 									{#each groupScenarios(merged) as g (g.scenario)}
 										{@const sk = `${id}::${g.scenario}`}
 										<tbody>
-											<tr class="scenario-row" use:tooltip={ACTIONS.expandScenario} onclick={() => (openScenario[sk] = !openScenario[sk])}>
+											<tr class="scenario-row" onclick={() => (openScenario[sk] = !openScenario[sk])}>
 												<td class="c-caret">{openScenario[sk] ? '▼' : '▶'}</td>
 												<td class="mono scenario">
 													{g.scenario}
@@ -646,7 +631,7 @@
 															{#each g.iterations as it (it.key)}
 																{@const tid = it.key}
 																<tbody>
-																	{#if it.running}<tr class="iter-row running"><td class="c-caret"></td><td class="mono">{it.iter}</td><td>{@render statusBadge('Running')}</td><td class="mono muted">-</td><td class="mono" title={durTitle(it.startedAt)}>{iterDurText(it, now)}</td></tr>{:else}<tr class="iter-row" use:tooltip={ACTIONS.expandIteration} onclick={() => toggleIter(ns, name, it)}>
+																	{#if it.running}<tr class="iter-row running"><td class="c-caret"></td><td class="mono">{it.iter}</td><td>{@render statusBadge('Running')}</td><td class="mono muted">-</td><td class="mono" title={durTitle(it.startedAt)}>{iterDurText(it, now)}</td></tr>{:else}<tr class="iter-row" onclick={() => toggleIter(ns, name, it)}>
 																		<td class="c-caret">{openIter[tid] ? '▼' : '▶'}</td>
 																		<td class="mono">{it.iter}</td>
 																		<td>{#if it.status === 'Passed'}<span class="badge phase-neutral" title="Discussion ran and hard assertions passed (plumbing). Answer quality is the REFLECTS score on the scenario row, not this.">ran</span>{:else}{@render statusBadge(it.status)}{/if}</td>
@@ -666,7 +651,7 @@
 									{@const standAsides = (t.events ?? []).filter((e) => e.type === 'phase' && e.stood_aside)}
 									{@const convEvents = dedupeSynthesis(t.events ?? [])}
 																					{#if t.question}<div class="q"><strong>Q:</strong> {t.question}</div>{/if}
-																					<div class="meta muted small">thread {t.threadId || '-'}{#if t.threadId}<button aria-label="Copy thread id" use:tooltip={ACTIONS.copyThreadId} class="copy-tid" onclick={(e) => { e.stopPropagation(); copyThreadId(t.threadId, t.question); }}>{copiedTid === t.threadId ? '✓' : '📋'}</button>{/if} · {fmtDur(t.durationMs)}</div>
+																					<div class="meta muted small">thread {t.threadId || '-'}{#if t.threadId}<button aria-label="Copy thread id" use:tooltip={ACTIONS.copyThreadId} class="copy-tid" onclick={(e) => { e.stopPropagation(); copyThreadId(t.threadId, t.question); }}><CopyIcon done={copiedTid === t.threadId} /></button>{/if} · {fmtDur(t.durationMs)}</div>
 																					{#if t.assertions && t.assertions.length > 0}
 																						<div class="asserts">
 																							{#each t.assertions as a}
@@ -701,9 +686,9 @@
 																								{@const full = ev.content || ev.summary || ''}
 																								{@const short = ev.summary || ev.content || ''}
 																								{@const hasMore = full.length > short.length}
-																								{@const fArtifact = artifactKey(full)}<div class="ev finding">{@render agentTag(ev.agent, ns)} <span class="sig sig-{ev.signal}">{ev.signal}</span>{#if openFinding[fkey] || !hasMore}<div class="md">{@html md(full)}</div>{#if hasMore}<button use:tooltip={ACTIONS.toggleFinding} class="finding-toggle" onclick={() => (openFinding[fkey] = false)}>show less</button>{/if}{:else}<span class="md-inline">{@html mdInline(short)}</span><button use:tooltip={ACTIONS.toggleFinding} class="finding-toggle" onclick={() => (openFinding[fkey] = true)}>… more</button>{/if}{#if fArtifact}<a use:tooltip={ACTIONS.downloadArtifact} class="artifact-dl" href={artifactHref(fArtifact)} download>download</a>{/if}</div>
+																								{@const fArtifact = artifactKey(full)}<div class="ev finding">{@render agentTag(ev.agent, ns)} <span class="sig sig-{ev.signal}">{ev.signal}</span>{#if openFinding[fkey] || !hasMore}<div class="md">{@html md(full)}</div>{#if hasMore}<button class="finding-toggle" onclick={() => (openFinding[fkey] = false)}>show less</button>{/if}{:else}<span class="md-inline">{@html mdInline(short)}</span><button class="finding-toggle" onclick={() => (openFinding[fkey] = true)}>… more</button>{/if}{#if fArtifact}<a class="artifact-dl" href={artifactHref(fArtifact)} download>download</a>{/if}</div>
 																							{:else if ev.type === 'synthesis'}
-																								{@const skey = `${tid}:${evIdx}`}{@const synthLong = (ev.content?.length ?? 0) > SYNTHESIS_COLLAPSE_CHARS}{@const sArtifact = artifactKey(ev.content)}<div class="ev synthesis"><span class="evtag">synthesis</span><div class="md synth-body" class:collapsed={synthLong && !openSynthesis[skey]}>{@html md(ev.content)}</div>{#if synthLong}<button use:tooltip={ACTIONS.toggleSynthesis} class="finding-toggle" onclick={() => (openSynthesis[skey] = !openSynthesis[skey])}>{openSynthesis[skey] ? 'show less' : '… more'}</button>{/if}{#if sArtifact}<a use:tooltip={ACTIONS.downloadArtifact} class="artifact-dl" href={artifactHref(sArtifact)} download>download</a>{/if}</div>
+																								{@const skey = `${tid}:${evIdx}`}{@const synthLong = (ev.content?.length ?? 0) > SYNTHESIS_COLLAPSE_CHARS}{@const sArtifact = artifactKey(ev.content)}<div class="ev synthesis"><span class="evtag">synthesis</span><div class="md synth-body" class:collapsed={synthLong && !openSynthesis[skey]}>{@html md(ev.content)}</div>{#if synthLong}<button class="finding-toggle" onclick={() => (openSynthesis[skey] = !openSynthesis[skey])}>{openSynthesis[skey] ? 'show less' : '… more'}</button>{/if}{#if sArtifact}<a class="artifact-dl" href={artifactHref(sArtifact)} download>download</a>{/if}</div>
 																							{:else if ev.type === 'error' || ev.error}
 																								<div class="ev err"><span class="evtag">error</span> {ev.error ?? ev.content}</div>
 																							{/if}
@@ -734,6 +719,7 @@
 			</tbody>
 		{/each}
 	</table>
+	</div>
 
 	{#if standaloneTests.length > 0}
 		<h2 class="section">Standalone tests</h2>
@@ -763,6 +749,8 @@
 	.status-msg.small { padding: 0.5rem; font-size: 0.85rem; text-align: left; }
 	.status-msg code { color: var(--color-cyan); font-family: var(--font-mono); }
 
+	/* A table wider than the window scrolls inside this box, so no column is cut off. */
+	.table-scroll { overflow-x: auto; }
 	.ftable, .itable { width: 100%; border-collapse: collapse; }
 	.ftable th, .ftable td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--color-border); vertical-align: top; }
 	.ftable th { font-weight: 600; color: var(--color-text-muted); font-size: 0.8rem; }
@@ -821,7 +809,7 @@
 	.ev .md-inline :global(code) { font-family: var(--font-mono); font-size: 0.82em; background: var(--color-bg-tertiary); padding: 0.05rem 0.25rem; border-radius: 3px; }
 	.ev .md-inline :global(strong) { font-weight: 600; }
 	.ev .md-inline :global(a) { color: var(--color-cyan); }
-	.copy-tid { background: none; border: none; cursor: pointer; font-size: 0.75rem; padding: 0 0.25rem; opacity: 0.6; }
+	.copy-tid { display: inline-flex; vertical-align: middle; background: none; border: none; border-radius: 4px; cursor: pointer; color: var(--color-text-muted); padding: 0.1rem 0.25rem; opacity: 0.8; }
 	.copy-tid:hover { opacity: 1; }
 	/* Inline expand/collapse for a finding's full captured content */
 	.finding-toggle {
@@ -879,12 +867,18 @@
 	.phase-pending { background: var(--color-bg-tertiary); color: var(--color-text-muted); }
 	.phase-paused { background: var(--color-warning-bg, rgba(204, 153, 51, 0.15)); color: var(--color-warning, #c93); }
 	.phase-cancelled { background: var(--color-bg-tertiary); color: var(--color-text-muted); text-decoration: line-through; }
-	.suite-commands { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem; }
 	.passed { color: var(--color-success); font-weight: 600; }
 	.failed { color: var(--color-error); font-weight: 600; }
 	.errored { color: var(--color-warning, #c66); font-weight: 600; }
 	.dl { color: var(--color-cyan); text-decoration: none; font-family: var(--font-mono); font-size: 0.78rem; padding: 0.08rem 0.35rem; border: 1px solid var(--color-cyan); border-radius: 4px; }
 	.dl:hover { text-decoration: underline; }
-	.copy-btn { margin-right: 0.5rem; background: none; border: none; cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 0 0.25rem; }
+	/* The Report column keeps the copy button and the download link on one line, never cut off. */
+	.c-report { white-space: nowrap; width: 1%; }
+	.c-report .dl { display: inline-block; }
+	.copy-btn { display: inline-flex; vertical-align: middle; margin-right: 0.4rem; background: none; border: none; border-radius: 4px; cursor: pointer; color: var(--color-text-muted); line-height: 1; padding: 0.2rem; }
 	.copy-btn:hover { opacity: 0.7; }
+	@media (max-width: 1100px) {
+		.ftable th, .ftable td { padding-left: 0.2rem; padding-right: 0.2rem; }
+		.ftable > thead .c-caret, .ftable .suite-row .c-caret { width: 1.2rem; padding-right: 0; }
+	}
 </style>

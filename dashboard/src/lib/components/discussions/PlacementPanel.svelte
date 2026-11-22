@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { PlacementCall } from '#lib/types/bus.js';
 	import {
 		placementRow,
@@ -50,7 +48,7 @@
 					</div>
 					{#if row.alternatives.length > 0}
 						<details>
-							<summary use:tooltip={ACTIONS.showAlternatives}>{row.alternatives.length} {row.alternatives.length === 1 ? 'alternative' : 'alternatives'} considered</summary>
+							<summary>{row.alternatives.length} {row.alternatives.length === 1 ? 'alternative' : 'alternatives'} considered</summary>
 							<ul class="alternatives">
 								{#each row.alternatives as alt, j (j)}
 									<li>

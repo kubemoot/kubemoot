@@ -179,35 +179,28 @@ function rect(left: number, top: number, width: number, height: number): DOMRect
 	return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) };
 }
 
-describe('a menu item tooltip', () => {
-	// A menu 240px wide at x=1100..1340 with an item at y=200..230, and a tooltip 300px wide.
-	function menuItem(menuLeft: number, viewport: number) {
-		vi.stubGlobal('innerWidth', viewport);
-		const menu = document.createElement('div');
-		menu.setAttribute('role', 'menu');
-		const item = document.createElement('button');
-		item.dataset.tooltipPlacement = 'menu';
-		menu.append(item);
-		document.body.append(menu);
-		menu.getBoundingClientRect = () => rect(menuLeft, 150, 240, 200);
-		item.getBoundingClientRect = () => rect(menuLeft, 200, 240, 30);
-		tooltip(item, 'Copy conversation: puts the text on the clipboard');
+describe('a control that has opened a menu', () => {
+	it('never shows its tooltip while the menu is open, on focus or hover', () => {
+		vi.useFakeTimers();
+		const button = document.createElement('button');
+		button.setAttribute('aria-expanded', 'true');
+		document.body.append(button);
+		tooltip(button, 'Actions: copy or download');
 		const tip = document.querySelector('[role="tooltip"]') as HTMLElement;
-		Object.defineProperty(tip, 'offsetWidth', { value: 300 });
-		Object.defineProperty(tip, 'offsetHeight', { value: 40 });
-		item.dispatchEvent(new FocusEvent('focus'));
-		return { left: Number.parseFloat(tip.style.left), top: Number.parseFloat(tip.style.top), menuLeft, menuRight: menuLeft + 240 };
-	}
-
-	it('opens to the left of the menu when the right has no room, never over it', () => {
-		const t = menuItem(1100, 1440);
-		expect(t.left + 300).toBeLessThanOrEqual(t.menuLeft);
+		button.dispatchEvent(new FocusEvent('focus'));
+		button.dispatchEvent(new MouseEvent('mouseenter'));
+		vi.advanceTimersByTime(TOOLTIP_DELAY_MS + 100);
+		expect(tip.hasAttribute('data-open')).toBe(false);
 	});
 
-	it('opens to the right of the menu when there is room, level with the item', () => {
-		const t = menuItem(200, 1440);
-		expect(t.left).toBeGreaterThanOrEqual(t.menuRight);
-		expect(t.top).toBe(215 - 20);
+	it('shows it again once the menu is closed', () => {
+		const button = document.createElement('button');
+		button.setAttribute('aria-expanded', 'false');
+		document.body.append(button);
+		tooltip(button, 'Actions: copy or download');
+		const tip = document.querySelector('[role="tooltip"]') as HTMLElement;
+		button.dispatchEvent(new FocusEvent('focus'));
+		expect(tip.hasAttribute('data-open')).toBe(true);
 	});
 });
 

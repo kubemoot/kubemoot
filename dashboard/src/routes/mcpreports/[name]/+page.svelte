@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { CommandHint, ResourceTabs, PageTitle } from '#lib/components/common/index.js';
+	import { ResourceTabs, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { reportUnpinCommand, reportVerdictCommand } from '#lib/cli-commands.js';
 	import { namespace as nsStore, refreshTrigger } from '#lib/stores/index.js';
 	import type { MCPServerReport } from '#lib/types/kubemoot.js';
 
@@ -143,8 +142,6 @@
 						{:else}
 							<div class="muted">No admin override. Verdict is auto-computed from trial history.</div>
 						{/if}
-						<CommandHint label="Pin a verdict (use, caution or avoid):" command={reportVerdictCommand(name, namespace)} />
-						{#if report.spec?.adminVerdict}<CommandHint label="Remove the pinned verdict:" command={reportUnpinCommand(name, namespace)} />{/if}
 					</div>
 				</div>
 
@@ -255,7 +252,7 @@
 		border-radius: 9999px;
 		font-size: 0.7rem;
 		font-weight: 600;
-		color: #000;
+		color: var(--color-on-warning);
 		text-transform: uppercase;
 	}
 

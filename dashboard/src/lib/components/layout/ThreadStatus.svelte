@@ -9,6 +9,6 @@
 
 <style>
 	.status { font-size: 0.65rem; font-weight: 500; text-transform: uppercase; color: var(--color-text-muted); }
-	.status.open { color: #10b981; }
-	.status.synthesized { color: #f59e0b; }
+	.status.open { color: var(--accent-green); }
+	.status.synthesized { color: var(--accent-amber); }
 </style>

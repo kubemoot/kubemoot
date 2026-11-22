@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { namespace } from '#lib/stores/index.js';
 	import { entryLabel, pickerLabel, technicalNameHint, type CrewEntry } from '#lib/crew-display-name.js';
 
@@ -34,7 +32,7 @@
 	{#if loading}
 		<div class="loading">Loading...</div>
 	{:else}
-		<select use:tooltip={ACTIONS.chooseCrew} id="crew-select" value={$namespace} onchange={handleChange}>
+		<select id="crew-select" value={$namespace} onchange={handleChange}>
 			<option value="" class="all-crews">All crews</option>
 			{#if crews.length}
 				<option disabled>───────────</option>
@@ -81,9 +79,7 @@
 	}
 
 	select:focus {
-		outline: none;
 		border-color: var(--color-primary);
-		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 	}
 
 	.loading {

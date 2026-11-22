@@ -119,7 +119,7 @@
 	.card:hover {
 		border-color: var(--color-primary);
 		border-left-color: var(--role-color);
-		background-color: rgba(30, 41, 59, 0.8);
+		background-color: var(--color-overlay);
 		text-decoration: none;
 	}
 

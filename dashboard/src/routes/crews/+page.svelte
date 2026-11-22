@@ -5,8 +5,7 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { namespace } from '#lib/stores/index.js';
-	import { CommandHint, PageTitle } from '#lib/components/common/index.js';
-	import { deleteCrewCommand } from '#lib/cli-commands.js';
+	import { PageTitle } from '#lib/components/common/index.js';
 	import type { Crew } from '#lib/types/kubemoot.js';
 	import { LiveList } from '#lib/client/liveList.svelte.js';
 
@@ -32,7 +31,6 @@
 {:else if live.items.length === 0}
 	<p class="status-msg">No crews found in namespace <code>{$namespace}</code></p>
 {:else}
-	<div class="hint"><CommandHint label="Remove a crew:" command={deleteCrewCommand('NAME', 'NAMESPACE')} /></div>
 	<div class="crew-grid">
 		{#each live.items as crew (crew.metadata.namespace + '/' + crew.metadata.name)}
 			{@const status = crew.status}
@@ -113,7 +111,6 @@
 
 	.crew-item { display: flex; flex-direction: column; gap: 0.4rem; }
 	.crew-item .crew-card { flex: 1; }
-	.hint { margin-bottom: 1rem; }
 	.crew-card {
 		background: var(--color-bg-secondary);
 		border: 1px solid var(--color-border);

@@ -2,11 +2,10 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import DiscussionMenu from './DiscussionMenu.svelte';
 
-const ID = 'c0838943-d097-47f1-9ca7-bd6959c3c967';
 const base = () => ({
 	showTimeline: false, showDebug: true,
 	ontoggletimeline: vi.fn(), ontoggledebug: vi.fn(), oncopydiscussion: vi.fn(), oncopythreadid: vi.fn(),
-	downloadHref: '/api/kubemoot/conversation-export?id=x', crew: 'homelab-pilot', namespace: 'crew-homelab-pilot', conversationId: ID
+	downloadHref: '/api/kubemoot/conversation-export?id=x'
 });
 const menuItems = () => [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
 const trigger = () => screen.getByRole('button', { name: 'Actions' });
@@ -28,7 +27,7 @@ describe('DiscussionMenu', () => {
 		const names = menuItems().map((e) => e.textContent?.trim());
 		expect(names).toEqual([
 			'Show timeline', 'Debug detail', 'Copy discussion', 'Copy thread id with the question',
-			'Download conversation', 'Copy kmctl follow-up command', 'Copy kmctl replay command'
+			'Download conversation'
 		]);
 		expect(screen.getByRole('menuitemcheckbox', { name: /Show timeline/ }).getAttribute('aria-checked')).toBe('false');
 		expect(screen.getByRole('menuitemcheckbox', { name: /Debug detail/ }).getAttribute('aria-checked')).toBe('true');
@@ -44,23 +43,8 @@ describe('DiscussionMenu', () => {
 		expect(screen.queryByRole('menu')).toBeNull();
 	});
 
-	it('copies the kmctl commands with the real id, crew and namespace', async () => {
-		const writeText = vi.fn().mockResolvedValue(undefined);
-		Object.assign(navigator, { clipboard: { writeText } });
-		render(DiscussionMenu, base());
-		await fireEvent.click(trigger());
-		await fireEvent.click(screen.getByRole('menuitem', { name: 'Copy kmctl follow-up command' }));
-		await fireEvent.click(trigger());
-		await fireEvent.click(screen.getByRole('menuitem', { name: 'Copy kmctl replay command' }));
-		const [ask, replay] = writeText.mock.calls.map((c) => c[0] as string);
-		expect(ask).toContain(`--conversation-id ${ID}`);
-		expect(ask).toContain('-n crew-homelab-pilot');
-		expect(ask).not.toContain('CONVERSATION_ID');
-		expect(replay).toBe(`kmctl conversation replay homelab-pilot ${ID} -n crew-homelab-pilot`);
-	});
-
-	it('omits download and kmctl items when there is no conversation', async () => {
-		render(DiscussionMenu, { ...base(), downloadHref: null, crew: undefined, conversationId: undefined });
+	it('omits download when there is no conversation, and never offers a kmctl command', async () => {
+		render(DiscussionMenu, { ...base(), downloadHref: null });
 		await fireEvent.click(trigger());
 		expect(screen.queryByText('Download conversation')).toBeNull();
 		expect(screen.queryByText(/kmctl/)).toBeNull();

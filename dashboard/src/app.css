@@ -1,4 +1,6 @@
-:root {
+:root,
+:root[data-theme='dark'] {
+	color-scheme: dark;
 	--color-bg: #0f172a;
 	--color-bg-secondary: #1e293b;
 	--color-bg-tertiary: #334155;
@@ -12,7 +14,71 @@
 	--color-border: #475569;
 	--color-purple: #a855f7;
 	--color-cyan: #06b6d4;
+	--color-on-warning: #000000;
+	--color-brand-plate: #0f172a;
+	--color-overlay: rgba(30, 41, 59, 0.8);
+	--color-surface-strong: rgba(51, 65, 85, 0.7);
+	--shadow-popup: 0 4px 12px rgba(0, 0, 0, 0.35);
+	/* Text accents: readable on their own tinted badge and chip backgrounds. */
+	--accent-green: #34d399;
+	--accent-amber: #fbbf24;
+	--accent-red: #f87171;
+	--accent-blue: #60a5fa;
+	--accent-purple: #c084fc;
+	--accent-sky: #38bdf8;
+	--accent-indigo: #818cf8;
+	--accent-violet: #a78bfa;
+	--accent-gray: #9ca3af;
+	/* YAML and JSON highlighting. */
+	--yaml-key: #93c5fd;
+	--yaml-string: #86efac;
+	--yaml-number: #fcd34d;
+	--yaml-bool: #d8b4fe;
+	--yaml-null: #94a3b8;
+	--yaml-punct: #94a3b8;
 	--font-mono: ui-monospace, 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+/*
+ * Light: every text colour here keeps at least 4.5:1 (WCAG AA) on the backgrounds it sits on,
+ * the status colours stay apart (green, amber, red, blue), and the accents are the dark
+ * accents' deep counterparts so a tinted badge reads in both themes.
+ */
+:root[data-theme='light'] {
+	color-scheme: light;
+	--color-bg: #f1f5f9;
+	--color-bg-secondary: #ffffff;
+	--color-bg-tertiary: #e2e8f0;
+	--color-text: #0f172a;
+	--color-text-muted: #475569;
+	--color-primary: #1d4ed8;
+	--color-primary-hover: #1e40af;
+	--color-success: #166534;
+	--color-warning: #92400e;
+	--color-error: #b91c1c;
+	--color-border: #cbd5e1;
+	--color-purple: #7e22ce;
+	--color-cyan: #0e7490;
+	--color-on-warning: #ffffff;
+	--color-brand-plate: #0f172a;
+	--color-overlay: rgba(255, 255, 255, 0.85);
+	--color-surface-strong: rgba(226, 232, 240, 0.8);
+	--shadow-popup: 0 4px 12px rgba(15, 23, 42, 0.18);
+	--accent-green: #166534;
+	--accent-amber: #92400e;
+	--accent-red: #b91c1c;
+	--accent-blue: #1d4ed8;
+	--accent-purple: #7e22ce;
+	--accent-sky: #0369a1;
+	--accent-indigo: #4338ca;
+	--accent-violet: #6d28d9;
+	--accent-gray: #475569;
+	--yaml-key: #1d4ed8;
+	--yaml-string: #15803d;
+	--yaml-number: #b45309;
+	--yaml-bool: #7e22ce;
+	--yaml-null: #475569;
+	--yaml-punct: #475569;
 }
 
 * {
@@ -41,6 +107,16 @@ a:hover {
 button {
 	cursor: pointer;
 	font-family: inherit;
+}
+
+/*
+ * One focus ring for every control, drawn inside its own border box. A ring outside the box is
+ * cut off by any scrolling or overflow-hidden parent (the list columns, table cells), which
+ * clipped the left and bottom edges of selects and fields.
+ */
+:where(input, select, textarea, button, summary, a, [tabindex]):focus-visible {
+	outline: 2px solid var(--color-primary);
+	outline-offset: -2px;
 }
 
 code,

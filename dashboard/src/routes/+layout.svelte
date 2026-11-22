@@ -1,14 +1,13 @@
 <script lang="ts">
 	import '../app.css';
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { identityTitle, shortIdentity } from '#lib/identity-label.js';
 	import { resolve } from '$app/paths';
 	import { showsCrewSelector } from '#lib/route-section.js';
 	import { page } from '$app/state';
 	import { Sidebar } from '#lib/components/layout/index.js';
 	import { NamespaceSelector } from '#lib/components/common/index.js';
-	import { crewDirectory, dashboardMode, loadCrewDirectory, refresh } from '#lib/stores/index.js';
+	import { onMount } from 'svelte';
+	import { crewDirectory, dashboardMode, loadCrewDirectory, refresh, themePref } from '#lib/stores/index.js';
 	import { fetchDashboardVersion } from '#lib/dashboard-version.js';
 
 	let showNamespace = $derived(showsCrewSelector(page.route.id));
@@ -24,6 +23,10 @@
 	// initialises gives the server render and the hydrated page the same controls.
 	// svelte-ignore state_referenced_locally
 	dashboardMode.set({ scoped: data.scoped });
+
+	// The appearance choice was applied before the first paint by app.html; this keeps it in step
+	// with the store and with the operating system when the choice is System.
+	onMount(() => themePref.start());
 
 	let namespacesLoading = $state(true);
 	let version = $state('...');
@@ -88,7 +91,7 @@
 				{#if data.user}
 					<span class="who" title={identityTitle(data.user.username)}>Signed in as <strong>{shortIdentity(data.user.username)}</strong></span>
 					<form method="POST" action={resolve('/signout')}>
-						<button type="submit" class="signout" use:tooltip={ACTIONS.signOut}>Sign out</button>
+						<button type="submit" class="signout">Sign out</button>
 					</form>
 				{:else if data.anonymousReadOnly}
 					<span class="who">Read-only view</span>

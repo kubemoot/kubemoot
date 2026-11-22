@@ -5,3 +5,4 @@ export { refresh, refreshTrigger } from './refresh.js';
 export { threads, sortedThreads, connected as discussionsConnected, streamReady, streamReady as historyLoaded, initDiscussions, ensureThreadLoaded, forgetThreads, loadOlder, loadingOlder, hasOlder, handleMessage as addDiscussionMessage, threadScope } from './discussions.js';
 export type { Thread } from './discussions.js';
 export { dashboardMode, scoped } from './mode.js';
+export { themePref } from './theme.js';

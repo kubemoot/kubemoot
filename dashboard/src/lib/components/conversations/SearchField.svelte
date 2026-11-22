@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
-	import HelpTooltip from '#lib/components/common/HelpTooltip.svelte';
+	import InfoPopover from '#lib/components/common/InfoPopover.svelte';
 	import { SEARCH_HELP } from '#lib/search-query.js';
 
 	interface Props {
@@ -29,8 +27,8 @@
 </script>
 
 <div class="field">
-	<input class="search" type="search" {value} oninput={typing} {placeholder} aria-label={label} use:tooltip={ACTIONS.searchConversations} />
-	<HelpTooltip text={SEARCH_HELP} />
+	<input class="search" type="search" {value} oninput={typing} {placeholder} aria-label={label} />
+	<InfoPopover label="About search" lines={[SEARCH_HELP]} />
 </div>
 
 <style>

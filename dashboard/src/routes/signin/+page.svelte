@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { PageTitle } from '#lib/components/common/index.js';
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
@@ -34,15 +32,15 @@
 		{#if form?.message}
 			<p class="error" role="alert">{form.message}</p>
 		{/if}
-		<button type="submit" disabled={working} use:tooltip={ACTIONS.signIn}>{working ? 'Checking...' : 'Sign in'}</button>
+		<button type="submit" disabled={working}>{working ? 'Checking...' : 'Sign in'}</button>
 	</form>
 
 	<details>
-		<summary use:tooltip={ACTIONS.howToGetToken}>How to get a token</summary>
-		<p>With kmctl, mint one for your account (eight hours):</p>
+		<summary>How to get a token</summary>
+		<p>With any kubectl, for a ServiceAccount you may create tokens for (twelve hours):</p>
+		<pre>{'kubectl create token <serviceaccount> -n <namespace> --duration=12h'}</pre>
+		<p>Or with kmctl, a token for your own account:</p>
 		<pre>kmctl dashboard token</pre>
-		<p>or with kubectl, for a ServiceAccount you may create tokens for:</p>
-		<pre>kubectl create token SERVICE_ACCOUNT -n NAMESPACE --duration=8h</pre>
 		<p class="muted">
 			The token stays in the dashboard server's memory for this session and is never written to disk or sent to
 			your browser's scripts. Signing out forgets it.
@@ -97,7 +95,8 @@
 		background: var(--color-bg-secondary);
 		padding: 0.5rem 0.75rem;
 		border-radius: 6px;
-		overflow-x: auto;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 		margin: 0.5rem 0 1rem;
 	}
 	details {
