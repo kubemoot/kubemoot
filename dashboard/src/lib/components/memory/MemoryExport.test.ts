@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
+import { ACTIONS } from '#lib/action-definitions.js';
 import MemoryExport from './MemoryExport.svelte';
 
 const scope = { namespace: 'pilot', crew: 'homelab-pilot' };
@@ -8,7 +9,7 @@ const answer = (body: unknown, status = 200) =>
 	vi.fn().mockResolvedValue({ ok: status < 400, status, json: async () => body });
 
 describe('MemoryExport', () => {
-	it('is one Export control that downloads the zip named for the crew when there are facts', () => {
+	it('is one Export control that downloads the zip named for the crew when there are facts', async () => {
 		render(MemoryExport, { scope, endpoint: '/api/export', hasFacts: true, fetchFn: answer(held) });
 		const links = screen.getAllByRole('link');
 		expect(links).toHaveLength(1);
@@ -17,16 +18,20 @@ describe('MemoryExport', () => {
 		expect(links[0].textContent).toBe('Export');
 		expect(links[0].getAttribute('href')).toBe('/api/export?namespace=pilot&crew=homelab-pilot');
 		expect(links[0].getAttribute('download')).toBe('homelab-pilot-memory-ompi.zip');
-		expect(links[0].getAttribute('title')).toMatch(/OMPI zip: a manifest and one JSON file per fact, with the agent that learned it and when/);
+		expect(links[0].getAttribute('title')).toBeNull();
+		await fireEvent.focus(links[0]);
+		expect((await screen.findAllByRole('tooltip')).map((t) => t.textContent)).toContain(ACTIONS.exportMemory);
+		expect(ACTIONS.exportMemory).toMatch(/OMPI zip, one JSON file per fact with who learned it and when/);
 	});
 
-	it('is disabled with the reason when there are no facts, and asks nothing', () => {
+	it('is disabled with the reason when there are no facts, and asks nothing', async () => {
 		const fetchFn = answer(held);
 		render(MemoryExport, { scope, endpoint: '/api/export', hasFacts: false, fetchFn });
-		const button = screen.getByRole<HTMLButtonElement>('button', { name: /Export/ });
-		expect(button.disabled).toBe(true);
-		expect(button.getAttribute('aria-label')).toContain('Nothing to export: this crew has not learned any facts yet');
-		expect(button.parentElement?.getAttribute('title')).toBe('Nothing to export: this crew has not learned any facts yet');
+		const button = screen.getByRole('button', { name: /Export/ });
+		expect(button.getAttribute('aria-disabled')).toBe('true');
+		expect(button.getAttribute('title')).toBeNull();
+		await fireEvent.focus(button);
+		expect((await screen.findAllByRole('tooltip')).map((t) => t.textContent)).toContain('Nothing to export: this crew has not learned any facts yet');
 		expect(screen.queryByRole('link')).toBeNull();
 		expect(fetchFn).not.toHaveBeenCalled();
 	});
@@ -42,6 +47,6 @@ describe('MemoryExport', () => {
 		render(MemoryExport, { scope, endpoint: '/api/export', hasFacts: true, fetchFn });
 		await waitFor(() => expect(fetchFn).toHaveBeenCalled());
 		expect(screen.getByRole('link', { name: 'Export' })).toBeTruthy();
-		expect(screen.queryByText(/left out/)).toBeNull();
+		expect(screen.queryByText(/The export holds/)).toBeNull();
 	});
 });
