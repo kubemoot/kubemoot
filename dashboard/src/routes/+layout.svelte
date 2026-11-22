@@ -1,5 +1,7 @@
 <script lang="ts">
 	import '../app.css';
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { showsCrewSelector } from '#lib/route-section.js';
@@ -70,7 +72,7 @@
 				{#if data.user}
 					<span class="who" title="You are signed in with your own Kubernetes token">Signed in as <strong>{data.user.username}</strong></span>
 					<form method="POST" action={resolve('/signout')}>
-						<button type="submit" class="signout">Sign out</button>
+						<button type="submit" class="signout" use:tooltip={ACTIONS.signOut}>Sign out</button>
 					</form>
 				{:else if data.anonymousReadOnly}
 					<span class="who">Read-only view</span>

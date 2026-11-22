@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
+	import { PageTitle } from '#lib/components/common/index.js';
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import type { ActionData } from './$types';
@@ -10,7 +13,7 @@
 <svelte:head><title>Sign in - Kubemoot</title></svelte:head>
 
 <div class="signin">
-	<h1>Sign in to Kubemoot</h1>
+	<PageTitle route="/signin" />
 	<p class="lead">
 		Paste a Kubernetes bearer token. The dashboard checks it with the cluster and then acts as you: what you
 		see, and which crews you may ask, is decided by your own Kubernetes permissions.
@@ -31,11 +34,11 @@
 		{#if form?.message}
 			<p class="error" role="alert">{form.message}</p>
 		{/if}
-		<button type="submit" disabled={working}>{working ? 'Checking...' : 'Sign in'}</button>
+		<button type="submit" disabled={working} use:tooltip={ACTIONS.signIn}>{working ? 'Checking...' : 'Sign in'}</button>
 	</form>
 
 	<details>
-		<summary>How to get a token</summary>
+		<summary use:tooltip={ACTIONS.howToGetToken}>How to get a token</summary>
 		<p>With kmctl, mint one for your account (eight hours):</p>
 		<pre>kmctl dashboard token</pre>
 		<p>or with kubectl, for a ServiceAccount you may create tokens for:</p>
@@ -53,10 +56,6 @@
 		max-width: 34rem;
 		margin: 8vh auto;
 		padding: 0 1.5rem;
-	}
-	h1 {
-		font-size: 1.5rem;
-		margin-bottom: 0.75rem;
 	}
 	.lead,
 	.muted {

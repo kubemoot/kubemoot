@@ -52,6 +52,23 @@ export const ACTIONS = {
 	toggleDetails: 'Details: shows how long each answer took and the tokens it used',
 	copyConversation: 'Copy conversation: its questions and answers to the clipboard as text',
 
+	// Conversations page: asking and filtering
+	newConversation: 'New conversation: clears the open one so the field below starts a new one with the selected crew',
+	sendQuestion: (replying: boolean) =>
+		replying
+			? 'Reply: sends your follow-up in this conversation as you; the crew answers in it'
+			: 'Ask: sends your question to the crew as you and starts a new conversation',
+	startNewInstead: 'Start a new conversation: sends your text as a new conversation instead of a reply',
+	filterStatus: 'Status: shows only active, closed or failed conversations; display only',
+	filterMine: 'Mine: shows only the conversations you started; display only',
+	removeFilter: 'Remove: stops filtering by this; nothing else changes',
+	loadOlderMatches: 'Load older: reads earlier discussions from the bus so the search can reach them; changes nothing',
+
+	// Signing in and out
+	signIn: 'Sign in: checks your token with the cluster, then the dashboard acts as you',
+	howToGetToken: 'How to get a token: shows the kmctl and kubectl commands that mint one',
+	signOut: 'Sign out: forgets your token on this dashboard; nothing in the cluster changes',
+
 	// Other pages
 	exportMemory: 'Export: downloads this crew\'s memory as an OMPI zip, one JSON file per fact with who learned it and when. Credential facts are left out.',
 	exportMemoryEmpty: 'Nothing to export: this crew has not learned any facts yet',

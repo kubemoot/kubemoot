@@ -156,7 +156,7 @@
 		<div class="panel-header">
 			<h2>Recent</h2>
 			{#if signedIn}
-				<button type="button" class="action-btn" onclick={startNew} disabled={!selectedScope} title={selectedScope ? 'Ask the selected crew a new question' : 'Select a crew in the top bar first'}>New conversation</button>
+				<button type="button" class="action-btn" use:tooltip={ACTIONS.newConversation} onclick={startNew} disabled={!selectedScope}>New conversation</button>
 			{/if}
 			{#if selectedScope && tickedIds.length > 0}
 				<ConversationDownload scope={selectedScope} ids={tickedIds} endpoint={exportEndpoint} />
