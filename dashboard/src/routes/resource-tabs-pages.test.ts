@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toYaml } from '#lib/yaml.js';
 import { page, setPageUrl } from '../../vitest-mocks/app-state.svelte.js';
 
-// Every Kubemoot kind a person can open on its own page. A new detail page has to be
+// Every Kubemoot kind a person can open on its own page (a Kubernetes node is not one; its page has its own test). A new detail page has to be
 // added here and show the Overview and YAML tabs; a new kind has to be added here or
 // to NO_PAGE, so the choice is made on purpose.
 const PAGES: Record<string, { route: string; kind: string }> = {
@@ -74,7 +74,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('which pages have the YAML tab', () => {
 	it('lists every detail route in the dashboard', () => {
 		const dirs = readdirSync(routesDir, { withFileTypes: true })
-			.filter((d) => d.isDirectory() && d.name !== 'api' && existsSync(join(routesDir, d.name, '[name]', '+page.svelte')))
+			.filter((d) => d.isDirectory() && d.name !== 'api' && d.name !== 'nodes' && existsSync(join(routesDir, d.name, '[name]', '+page.svelte')))
 			.map((d) => d.name)
 			.sort((a, b) => a.localeCompare(b));
 		expect(dirs).toEqual(Object.keys(PAGES).sort((a, b) => a.localeCompare(b)));

@@ -39,13 +39,18 @@ export const PAGE_DEFINITIONS = {
 	'/': {
 		title: 'Overview',
 		term: 'The overview is the summary of everything Kubemoot manages on this cluster.',
-		purpose: 'See resource counts and control plane health at a glance, then open any tile.'
+		purpose: 'See what is healthy and what needs attention, then open a tile to find out why.'
 	},
 	'/nodes': {
 		title: 'Kubernetes Nodes',
 		menu: 'Nodes',
 		term: "A Kubernetes node is a machine, physical or virtual, that runs the cluster's workloads.",
-		purpose: "See each node's state, capacity and accelerators."
+		purpose: "See which nodes are unwell and how much CPU, memory and accelerator each one uses."
+	},
+	'/nodes/[name]': {
+		title: 'Kubernetes Node',
+		term: "A Kubernetes node is a machine, physical or virtual, that runs the cluster's workloads.",
+		purpose: "Read this node's conditions, use, accelerators and pods, and its YAML."
 	},
 	'/conversations': {
 		title: 'Conversations',

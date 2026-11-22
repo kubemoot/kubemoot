@@ -32,6 +32,8 @@ const CLUSTER_SCOPED: Record<string, string> = {
 	'./health/+server.ts': 'liveness of the dashboard and API server connection; no namespaced data',
 	'./version/+server.ts': 'the dashboard build version',
 	'./nodes/+server.ts': 'nodes are cluster-scoped infrastructure; attendees can read them with kubectl',
+	'./nodes/[name]/+server.ts': 'one node with its use and pods, read with the caller token so the caller RBAC decides what pods they see; nodes are cluster-scoped',
+	'./node-usage/+server.ts': 'node CPU and memory use and pod counts, read with the caller token; nodes are cluster-scoped',
 	'./kubemoot/config/+server.ts': 'KubemootConfig is a cluster-scoped singleton (image versions, defaults)',
 	'./kubemoot/componentstatuses/+server.ts': 'operator control-plane health: name, healthy, message',
 	'./kubemoot/system-info/+server.ts': 'operator version and uptime',

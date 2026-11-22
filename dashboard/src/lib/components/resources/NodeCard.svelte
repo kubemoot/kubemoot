@@ -1,193 +1,105 @@
 <script lang="ts">
-	import type { NodeWithAccelerator } from '#lib/types/k8s.js';
-	import StatusBadge from '../common/StatusBadge.svelte';
-	import { splitCamelCase } from '#lib/text-utils.js';
-	import { nodeAccelerator } from '#lib/node-accelerator.js';
+	import { resolve } from '$app/paths';
+	import HealthBadge from '../common/HealthBadge.svelte';
+	import UsageBar from '../common/UsageBar.svelte';
+	import type { NodeSummary } from '#lib/node-summary.js';
 
 	interface Props {
-		node: NodeWithAccelerator;
+		summary: NodeSummary;
 	}
 
-	let { node }: Props = $props();
+	let { summary }: Props = $props();
 
-	const accelerator = $derived(nodeAccelerator(node));
-
-	const isReady = $derived(
-		node.status?.conditions?.find(c => c.type === 'Ready')?.status === 'True'
-	);
-
-	const status = $derived(isReady ? 'success' : 'error');
-	const statusLabel = $derived(splitCamelCase(isReady ? 'Ready' : 'NotReady'));
-
-	const internalIP = $derived(
-		node.status?.addresses?.find(a => a.type === 'InternalIP')?.address
-	);
+	const bars = $derived([summary.cpu, summary.memory, summary.pods].filter((b) => b !== undefined));
 </script>
 
-<div class="card">
+<a class="card" href={resolve('/nodes/[name]', { name: summary.name })} data-testid="node-{summary.name}">
 	<header class="header">
-		<div class="title-section">
-			<span class="kind">Node</span>
-			<h3 class="name">{node.metadata.name}</h3>
-		</div>
-		<StatusBadge {status} label={statusLabel} size="sm" />
+		<h3 class="name">{summary.name}</h3>
+		<HealthBadge health={summary.health} />
 	</header>
 
-	<div class="body">
-		<div class="info">
-			{#if internalIP}
-				<div class="row">
-					<span class="label">IP</span>
-					<span class="value mono">{internalIP}</span>
-				</div>
-			{/if}
-			{#if node.status?.nodeInfo?.kubeletVersion}
-				<div class="row">
-					<span class="label">Kubelet</span>
-					<span class="value">{node.status.nodeInfo.kubeletVersion}</span>
-				</div>
-			{/if}
-			{#if node.status?.nodeInfo?.osImage}
-				<div class="row">
-					<span class="label">OS</span>
-					<span class="value os">{node.status.nodeInfo.osImage}</span>
-				</div>
-			{/if}
-		</div>
-	</div>
+	{#if summary.problems.length > 0}
+		<ul class="problems">
+			{#each summary.problems as p (p)}<li>{p}</li>{/each}
+		</ul>
+	{/if}
 
-	{#if accelerator?.present}
-		<footer class="footer gpu">
-			<div class="gpu-info">
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<rect x="2" y="6" width="20" height="12" rx="2" />
-					<path d="M6 12h4" />
-					<path d="M14 12h4" />
-				</svg>
-				<span class="gpu-type">{accelerator.type || 'Accelerator'}</span>
-				{#if accelerator.count && accelerator.count > 1}
-					<span class="gpu-count">x{accelerator.count}</span>
-				{/if}
-				{#if accelerator.memory}
-					<span class="gpu-memory">{accelerator.memory}</span>
-				{/if}
-			</div>
+	{#if bars.length > 0}
+		<div class="bars">
+			{#each bars as b (b.label)}
+				<UsageBar label={b.label} text={b.text} fraction={b.fraction} level={b.level} />
+			{/each}
+		</div>
+	{/if}
+
+	{#if summary.accelerator}
+		<footer class="accelerator">
+			<span class="type">{summary.accelerator.label}</span>
+			{#if summary.accelerator.use}
+				<UsageBar label={summary.accelerator.use.label} text={summary.accelerator.use.text} fraction={summary.accelerator.use.fraction} level={summary.accelerator.use.level} />
+			{/if}
 		</footer>
 	{/if}
-</div>
+</a>
 
 <style>
 	.card {
 		display: flex;
 		flex-direction: column;
+		gap: 0.75rem;
 		background-color: var(--color-bg-secondary);
 		border: 1px solid var(--color-border);
 		border-radius: 0.5rem;
 		padding: 1rem;
+		color: inherit;
+		text-decoration: none;
+		transition: border-color 0.15s;
 	}
-
+	.card:hover {
+		border-color: var(--color-primary);
+		text-decoration: none;
+	}
 	.header {
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: 0.75rem;
 	}
-
-	.title-section {
-		min-width: 0;
-		flex: 1;
-	}
-
-	.kind {
-		font-size: 0.7rem;
-		font-weight: 500;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--color-text-muted);
-	}
-
 	.name {
 		font-size: 1rem;
 		font-weight: 600;
 		color: var(--color-text);
-		margin-top: 0.125rem;
+		min-width: 0;
+		overflow-wrap: anywhere;
 	}
-
-	.body {
-		margin-top: 0.875rem;
-		padding-top: 0.875rem;
-		border-top: 1px solid var(--color-border);
+	.problems {
+		list-style: none;
+		margin: 0;
+		padding: 0.4rem 0.6rem;
+		border-radius: 0.375rem;
+		background: rgba(239, 68, 68, 0.1);
+		font-size: 0.75rem;
+		color: var(--color-text);
 	}
-
-	.info {
+	.bars {
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
 	}
-
-	.row {
+	.accelerator {
 		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		font-size: 0.8rem;
-	}
-
-	.label {
-		color: var(--color-text-muted);
-	}
-
-	.value {
-		color: var(--color-text);
-	}
-
-	.value.mono {
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-	}
-
-	.value.os {
-		font-size: 0.7rem;
-		max-width: 180px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.footer {
-		margin-top: 0.75rem;
-		padding-top: 0.75rem;
-		border-top: 1px solid var(--color-border);
-	}
-
-	.footer.gpu {
-		background-color: rgba(168, 85, 247, 0.1);
-		margin: 0.75rem -1rem -1rem;
+		flex-direction: column;
+		gap: 0.4rem;
+		margin: 0 -1rem -1rem;
 		padding: 0.75rem 1rem;
-		border-radius: 0 0 0.5rem 0.5rem;
+		background-color: rgba(168, 85, 247, 0.1);
 		border-top: 1px solid rgba(168, 85, 247, 0.2);
+		border-radius: 0 0 0.5rem 0.5rem;
 	}
-
-	.gpu-info {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		color: var(--color-purple);
-		font-size: 0.8rem;
+	.type {
+		font-size: 0.78rem;
 		font-weight: 500;
-	}
-
-	.gpu-type {
-		flex: 1;
-	}
-
-	.gpu-count {
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-	}
-
-	.gpu-memory {
-		font-family: var(--font-mono);
-		font-size: 0.75rem;
-		opacity: 0.8;
+		color: var(--color-purple);
 	}
 </style>

@@ -13,6 +13,7 @@ export interface K8sNode {
 	spec: {
 		podCIDR?: string;
 		serverID?: string;
+		unschedulable?: boolean;
 		taints?: Taint[];
 	};
 	status: {

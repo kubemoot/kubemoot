@@ -1,7 +1,7 @@
 import type { K8sNode, AcceleratorInfo } from '#lib/types/k8s.js';
 
 // Extended resources that device plugins use to report accelerators.
-const ACCELERATOR_RESOURCE_KEYS = [
+export const ACCELERATOR_RESOURCE_KEYS = [
 	'nvidia.com/gpu',
 	'amd.com/gpu',
 	'intel.com/gpu',

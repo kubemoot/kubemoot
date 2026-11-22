@@ -65,8 +65,8 @@ function wrappers(node: unknown): Node[] {
 	return out;
 }
 
-// Pages whose every link opens a page and is a tile: Overview and its NATS tile.
-const TILE_FILES = new Set(['routes/+page.svelte', 'lib/components/nats/NatsTile.svelte']);
+// Pages whose every link opens a page and is a tile: the Overview.
+const TILE_FILES = new Set(['routes/+page.svelte']);
 
 const ACTION_ROLES = /^(menuitem|menuitemcheckbox|menuitemradio|tab|button)$/;
 const ACTION_TAGS = new Set(['button', 'summary', 'select']);
