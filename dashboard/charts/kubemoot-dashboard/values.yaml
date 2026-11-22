@@ -38,6 +38,10 @@ rbac:
       - apiGroups: [""]
         resources: ["nodes", "namespaces", "pods"]
         verbs: ["get", "list", "watch"]
+      # Node CPU and memory use for the Overview and Nodes pages (metrics-server)
+      - apiGroups: ["metrics.k8s.io"]
+        resources: ["nodes"]
+        verbs: ["get", "list"]
       # Pod logs - needed for verify job log streaming
       - apiGroups: [""]
         resources: ["pods/log"]

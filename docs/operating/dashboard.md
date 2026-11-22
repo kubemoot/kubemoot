@@ -87,7 +87,7 @@ How the token is kept:
 The dashboard shows only what your own Kubernetes permissions allow, so a person who signs in needs these:
 
 - **Kubemoot resources.** The operator chart ships the ClusterRole `kubemoot-viewer`: `get`, `list` and `watch` on every Kubemoot kind, and nothing else. It carries the standard aggregation labels (`rbac.authorization.k8s.io/aggregate-to-view`, `-edit` and `-admin`), so anyone who can `view` a namespace reads Kubemoot resources in it, and a ClusterRoleBinding to the built-in `view` role reads them in every namespace. It does not grant the `crews/conversations` right (see [Acting on a conversation](#acting-on-a-conversation)); that stays a separate, deliberate grant.
-- **Nodes.** The Nodes page and the accelerator panels read cluster nodes, which the built-in `view` role does not include. Grant `get`, `list` and `watch` on `nodes` (a ClusterRole and ClusterRoleBinding of your own) to the people who should see them; without it the page says you do not have permission.
+- **Nodes.** The Nodes page, a node's page and the accelerator panels read cluster nodes, which the built-in `view` role does not include. Grant `get`, `list` and `watch` on `nodes` (a ClusterRole and ClusterRoleBinding of your own) to the people who should see them; without it the page says you do not have permission. Two more reads add use to those pages: `get` and `list` on `nodes` in the `metrics.k8s.io` group (CPU and memory use, served by metrics-server) and `list` on `pods` (pods per node, and the pods on a node's page). Without one of them the page still lists the nodes and says which reading is missing; it never shows a zero in its place.
 - **The crew selector.** The top bar lists the Crew resources you can list, cluster-wide: the crews the Crews page shows, each by its display name (with the namespace only when two crews share a name). The list is read across all namespaces, so a person with `list` on `crews` in one namespace only sees an empty selector.
 - **NATS views.** The same cluster-wide `list` on `crews` (see [What runs as you](#what-runs-as-you)).
 - **Asking a crew.** `get` on the Crew, and whatever the crew's gateway requires of you.
@@ -147,13 +147,45 @@ The info icon next to the version opens the Kubemoot components panel. Its first
 
 | Section | Pages | Shows |
 |---------|-------|-------|
-| Top | Overview, Nodes | Ready-of-total counts for nodes, GPUs, crews, and every other resource type (a tile shows a small spinner until its first count arrives, never a zero); Kubernetes nodes with GPU detection and model-loading state. The first tile is NATS: whether it is connected, its server version, JetStream storage in use against its limit, message and byte totals, and a warning band when a store nears a limit; it opens the NATS page. The Overview has the same **Crew** selector as the other pages: it narrows the counts to one crew, while nodes, model servers, models, and embedding models are shared by every crew and always counted in full |
+| Top | Overview, Nodes | Whether something is wrong, and where to look. See [The Overview](#the-overview-page) and [Nodes](#nodes) |
 | Messaging | Conversations, Moot | The conversations people have had with a crew, which you can ask, follow up, stop and delete; the Moot, where the agents deliberate over each question, read-only |
 | Crews | Crews, Agents, Prompts, Memory, Fitness | Crew and agent configuration, PromptModule contents, crew memory, and fitness suite runs |
 | Models | Models, Model servers, Embeddings | ModelServer backends with their calibration (phase and, per model, fit, load time, generation, prompt, and parallel speed; an embedding model shows as skipped and a model that could not be measured as failed, each with its reason and no speeds), Model state, and EmbeddingModel configuration. Model servers belong to the cluster, so the Model servers page lists them all whatever crew is selected. The Models page also lists each ModelServer's catalog (the models a crew selects by label), because crews ship no Model resources |
 | Tools | MCP servers, MCP gateways, Catalogs, Quality policies, Reports | MCPServer instances and tools, gateway routing, quality policies, catalog discovery, and quality verdicts |
 | Knowledge | RAG Sources | RAGSource indexing status with document and chunk counts |
 | System | Config, NATS | The `KubemootConfig` cluster singleton; what NATS holds against its limits (see [NATS](#nats)) |
+
+### The Overview page
+
+The Overview answers one question: is something wrong, and where? Every tile has one state from a single health model, one figure and one line under it, and some carry a small bar where a measurement helps. A tile is as unwell as the worst thing beneath it.
+
+| State | Meaning |
+|-------|---------|
+| Healthy | Everything beneath it is ready |
+| Degraded | It works, but something needs a look: a node under pressure or cordoned, a crew not Ready yet, an MCP server Ready with fewer replicas than it asks for, a NATS store near a limit |
+| Down | It does not work: the operator or a node is not Ready, a model server failed, NATS is not connected |
+| Idle | There is nothing to run, or nothing running that should be: a model server with no model loaded (models load on demand) |
+| Unknown | The dashboard could not read the source. The tile says Unavailable; it never shows a zero in its place |
+
+When anything is Down or Degraded, a **Needs attention** list appears at the top, worst first. Each line names the thing, says what is wrong and opens the page that explains it. It lists an operator that is not ready, a model server that is down or not ready, a node that is NotReady, under pressure, cordoned or nearly out of CPU or memory, a crew that is not Ready, a discussion that is open with no message for over an hour, a NATS store near a limit, an MCP server that is Ready with fewer replicas than it asks for (servers that point at an external endpoint are not counted, since the operator runs none), and a fitness suite that failed. Four or more of one kind in one state become one line that opens the list. With nothing wrong the list is not shown.
+
+The tiles:
+
+| Tile | Figure | Bars |
+|------|--------|------|
+| Operator | Ready or Not ready, from the operator's own health report | |
+| Nodes | Ready of all nodes | CPU and memory use of the whole cluster against allocatable |
+| Accelerators | Devices on Ready nodes of all devices | |
+| Crews, Embeddings, MCP servers, MCP gateways, RAG sources, Agents | Healthy of all | |
+| Model servers | Healthy or idle of all | Accelerator memory in use per server that reports its total |
+| Models | The Model resources plus the models the servers list, as the Models page lists them | |
+| NATS | Number of stores | File storage in use against its limit, when there is one |
+
+A tile opens the page of that kind. The Overview has the same **Crew** selector as the other pages: it narrows what belongs to a crew, while nodes, model servers, models and embedding models are shared by every crew and always counted in full.
+
+### Nodes
+
+The Nodes page lists the nodes with the ones that need a look first. Each node shows whether it is Ready and why not, the conditions under pressure, CPU and memory in use against allocatable, pods against the node's pod limit, and, on an accelerator node, how many of its devices pods have asked for. A node opens its own page: its conditions with their reasons and times, capacity against allocatable against use, its accelerators, the pods on it with their phase and restarts, taints, labels, and the facts that do not change (OS image, kernel, container runtime, addresses). Its YAML is a second tab. CPU and memory use come from the cluster's metrics API with your own token; where the cluster does not serve it, or your account may not read it, the page says so.
 
 ### Refresh and resource views
 
@@ -301,7 +333,8 @@ While people sign in, the dashboard's own ServiceAccount holds one right: `creat
 
 | Resources | Verbs | Why |
 |-----------|-------|-----|
-| `nodes`, `namespaces`, `pods` | get, list, watch | Node and namespace views |
+| `nodes`, `namespaces`, `pods` | get, list, watch | Node and namespace views, pods per node |
+| `nodes` (metrics.k8s.io) | get, list | Node CPU and memory use |
 | `pods/log` | get | Log access |
 | `configmaps` | get, list | Agent prompt bundles for the Agent detail page |
 | `deployments` (apps) | get, list, watch | Operator version in the Kubemoot components panel |
@@ -333,7 +366,9 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 | `/api/gateway/<namespace>/<crew>/conversations` | GET | The conversations the signed-in person started, listed by the gateway |
 | `/api/gateway/<namespace>/<crew>/<conversationId>/stream` | GET | The answer as server-sent events, relayed from the gateway; refused for a conversation that is not theirs |
 | `/api/health`, `/api/version` | GET | Health check (open, no session needed); dashboard version |
-| `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with GPU information |
+| `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with accelerator information |
+| `/api/nodes/<name>` | GET | One node with its CPU and memory use (metrics.k8s.io) and the pods on it, as you; use and pods each say why they are missing when the cluster does not serve them or you may not read them |
+| `/api/node-usage` | GET | CPU and memory use per node and the pod count per node, as you, with the same reasons |
 | `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelservers`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `crewfitnesses` |
 | `/api/kubemoot/config`, `/api/kubemoot/system-info`, `/api/kubemoot/topology` | GET | Configuration, system information, agent topology graph |
 | `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; `<namespace>/<name>` is one suite; sub-paths under it serve `scores`, `iterations`, `transcript`, and `artifact` |

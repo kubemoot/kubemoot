@@ -1,254 +1,132 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	// Kubemoot Dashboard - Overview Page
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import { namespace, refreshTrigger } from '#lib/stores/index.js';
-	import { StatusBadge, LoadingSpinner, PageTitle } from '#lib/components/common/index.js';
-	import { nodeCounts, overviewNamespace, readyCount, type CountEntry } from '#lib/overview-counts.js';
-	import { readyCountStatus } from '#lib/resource-status.js';
-	import NatsTile from '#lib/components/nats/NatsTile.svelte';
+	import { namespace, refreshTrigger, threads, historyLoaded, initDiscussions } from '#lib/stores/index.js';
+	import { PageTitle } from '#lib/components/common/index.js';
+	import OverviewTile from '#lib/components/overview/OverviewTile.svelte';
+	import NeedsAttention from '#lib/components/overview/NeedsAttention.svelte';
+	import { overviewNamespace } from '#lib/overview-counts.js';
+	import { buildOverview, type OverviewData } from '#lib/overview-model.js';
 	import type { NatsStatus } from '#lib/nats/status.js';
 
-	type ResourceCounts = Record<string, CountEntry>;
+	// Each source is read on its own: undefined while it loads, null when it could not be read, so one
+	// failing read shows "Unavailable" on its own tile and never a zero, and never blocks the rest.
+	let data = $state<OverviewData>({
+		componentStatuses: undefined,
+		nodes: undefined,
+		metrics: undefined,
+		pods: undefined,
+		crews: undefined,
+		modelServers: undefined,
+		models: undefined,
+		embeddingModels: undefined,
+		mcpServers: undefined,
+		mcpGateways: undefined,
+		ragSources: undefined,
+		agents: undefined,
+		suites: undefined,
+		nats: undefined,
+		threads: undefined
+	});
 
-	// null until the first fetch lands: a zero would be a false value. Later
-	// refreshes swap the numbers in place.
-	let counts = $state<ResourceCounts | null>(null);
-
-	let error = $state<string | null>(null);
-
-	// Control-plane component health, served by the operator's /componentstatuses
-	// (operator self, NATS, model servers). Cluster-scoped, so it isn't filtered
-	// by the namespace selector. Degrades gracefully when the endpoint is absent.
-	interface ComponentStatus {
-		name: string;
-		healthy: boolean;
-		message: string;
-	}
-	let controlPlane = $state<ComponentStatus[] | null>(null);
-	let cpUnavailable = $state(false);
-
-	async function fetchComponentStatuses() {
+	async function read<T>(url: string, pick: (body: never) => T): Promise<T | null> {
 		try {
-			const r = await fetch(resolve('/api/kubemoot/componentstatuses'));
+			const r = await fetch(url);
 			if (!r.ok) throw new Error(`HTTP ${r.status}`);
-			controlPlane = await r.json();
-			cpUnavailable = false;
+			return pick((await r.json()) as never);
 		} catch {
-			controlPlane = null;
-			cpUnavailable = true;
+			return null;
 		}
 	}
 
-	// NATS, read from the dashboard's own server-side reads of JetStream. null until the first read;
-	// a failed request shows the tile as not connected.
-	let nats = $state<NatsStatus | null>(null);
+	const items = (body: { items?: never[] }) => body.items ?? [];
 
-	async function fetchNats() {
-		try {
-			const r = await fetch(resolve('/api/nats/status'));
-			if (!r.ok) throw new Error(`HTTP ${r.status}`);
-			nats = await r.json();
-		} catch (e) {
-			nats = {
-				connected: false,
-				error: e instanceof Error ? e.message : 'NATS status unavailable',
-				checkedAt: new Date().toISOString(),
-				stores: [],
-				absent: []
-			};
-		}
+	function listUrl(plural: string, ns: string): string {
+		return `${resolve('/api/kubemoot/crews').replace(/crews$/, plural)}?namespace=${ns}`;
 	}
 
-	// The CRD lists counted on the Overview, in card order after nodes and accelerators.
-	const CRD_PLURALS = [
-		'crews',
-		'modelservers',
-		'models',
-		'embeddingmodels',
-		'mcpservers',
-		'mcpgateways',
-		'ragsources',
-		'agents'
-	] as const;
+	async function readNats(): Promise<NatsStatus | null> {
+		return read(resolve('/api/nats/status'), (body: NatsStatus) => body);
+	}
 
-	const getJson = (url: string) => fetch(url).then((r) => r.json());
-
-	async function fetchCounts() {
-		error = null;
-
-		try {
-			const [nodes, ...lists] = await Promise.all([
-				getJson(resolve('/api/nodes')),
-				...CRD_PLURALS.map((plural) => getJson(resolve(`/api/kubemoot/${plural}`) + `?namespace=${overviewNamespace(plural, $namespace)}`))
+	async function refresh(ns: string) {
+		const own = (plural: string) => listUrl(plural, overviewNamespace(plural, ns));
+		const [componentStatuses, nodes, usage, crews, modelServers, models, embeddingModels, mcpServers, mcpGateways, ragSources, agents, suites, nats] =
+			await Promise.all([
+				read(resolve('/api/kubemoot/componentstatuses'), (b: never) => b),
+				read(resolve('/api/nodes'), (b: { nodes?: never[] }) => b.nodes ?? []),
+				read(resolve('/api/node-usage'), (b: { metrics: never; pods: never }) => b),
+				read(own('crews'), items),
+				read(own('modelservers'), items),
+				read(own('models'), items),
+				read(own('embeddingmodels'), items),
+				read(own('mcpservers'), items),
+				read(own('mcpgateways'), items),
+				read(own('ragsources'), items),
+				read(own('agents'), items),
+				read(listUrl('crewfitnesssuites', ns), items),
+				readNats()
 			]);
-			counts = {
-				...nodeCounts(nodes.nodes || []),
-				...Object.fromEntries(CRD_PLURALS.map((plural, i) => [plural, readyCount(lists[i].items)]))
-			};
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to fetch resources';
-		}
+		data = {
+			threads: undefined,
+			componentStatuses,
+			nodes,
+			metrics: usage?.metrics,
+			pods: usage?.pods,
+			crews,
+			modelServers,
+			models,
+			embeddingModels,
+			mcpServers,
+			mcpGateways,
+			ragSources,
+			agents,
+			suites,
+			nats
+		};
 	}
 
 	onMount(() => {
-		fetchCounts();
-		fetchComponentStatuses();
+		initDiscussions();
 	});
 
 	$effect(() => {
-		$namespace;
 		$refreshTrigger;
-		fetchCounts();
+		void refresh($namespace);
 	});
 
-	$effect(() => {
-		$refreshTrigger; // NATS is cluster-wide, like the control plane: refresh on the interval only
-		fetchNats();
-	});
-
-	$effect(() => {
-		$refreshTrigger; // control plane is cluster-scoped - refresh on trigger, not namespace
-		fetchComponentStatuses();
-	});
-
-	const resourceTypes = [
-		{ key: 'nodes', label: 'Nodes', href: resolve('/nodes'), icon: 'server' },
-		{ key: 'accelerators', label: 'Accelerators', href: resolve('/nodes'), icon: 'zap' },
-		{ key: 'crews', label: 'Crews', href: resolve('/crews'), icon: 'users' },
-		{ key: 'modelservers', label: 'Model servers', href: resolve('/modelservers'), icon: 'cloud' },
-		{ key: 'models', label: 'Models', href: resolve('/models'), icon: 'box' },
-		{ key: 'embeddingmodels', label: 'Embeddings', href: resolve('/embeddingmodels'), icon: 'layers' },
-		{ key: 'mcpservers', label: 'MCP servers', href: resolve('/mcpservers'), icon: 'terminal' },
-		{ key: 'mcpgateways', label: 'MCP gateways', href: resolve('/mcpgateways'), icon: 'merge' },
-		{ key: 'ragsources', label: 'RAG Sources', href: resolve('/ragsources'), icon: 'database' },
-		{ key: 'agents', label: 'Agents', href: resolve('/agents'), icon: 'cpu' }
-	] as const;
+	const overview = $derived(
+		buildOverview({ ...data, threads: $historyLoaded ? [...$threads.values()] : undefined }, Date.now())
+	);
 </script>
 
 <div class="overview">
 	<header class="header">
 		<PageTitle route="/" />
-		{#if $namespace === ''}
-			<p class="subtitle">Kubemoot resources across <em>all crews</em></p>
-		{:else}
+		{#if $namespace !== ''}
 			<p class="subtitle">
-				Kubemoot resources of crew namespace <code>{$namespace}</code>. Nodes, model servers, models, and embedding models are shared by every crew and always counted in full.
+				Crew namespace <code>{$namespace}</code>. Nodes, model servers, models, and embedding models are shared by every crew and always counted in full.
 			</p>
 		{/if}
 	</header>
 
-	{#if error}
-		<div class="error-banner">
-			<span>{error}</span>
-		</div>
-	{/if}
-
-	<section class="control-plane">
-		<h2 class="cp-title">Control plane</h2>
-		{#if controlPlane && controlPlane.length}
-			<div class="cp-row">
-				{#each controlPlane.filter((c) => c.name !== 'nats') as comp}
-					<span class="cp-item" class:bad={!comp.healthy} title={comp.message}>
-						<span class="cp-mark">{comp.healthy ? '✓' : '✗'}</span>
-						<span class="cp-name">{comp.name}</span>
-						<span class="cp-msg">{comp.message}</span>
-					</span>
-				{/each}
-			</div>
-		{:else if cpUnavailable}
-			<p class="cp-note">Component status unavailable.</p>
-		{:else}
-			<p class="cp-note">Loading…</p>
-		{/if}
-	</section>
+	<NeedsAttention findings={overview.attention} />
 
 	<div class="grid">
-		<NatsTile status={nats} href={resolve('/nats')} />
-		{#each resourceTypes as resource}
-			{@const c = counts?.[resource.key]}
-			<a use:tooltip={ACTIONS.openTile(resource.label)} href={resource.href} class="card">
-				<div class="card-header">
-					<span class="card-label">{resource.label}</span>
-					{#if c}
-						<StatusBadge
-							status={readyCountStatus(c.ready, c.total)}
-							label={`${c.ready}/${c.total}`}
-							size="sm"
-						/>
-					{/if}
-				</div>
-				{#if c}
-					<div class="card-count">{c.total}</div>
-					<div class="card-footer">
-						{c.ready} ready
-					</div>
-				{:else}
-					<div class="card-count card-loading" role="status" aria-label="Loading {resource.label}">
-						<LoadingSpinner size="sm" />
-					</div>
-				{/if}
-			</a>
+		{#each overview.tiles as tile (tile.key)}
+			<OverviewTile {tile} />
 		{/each}
 	</div>
 </div>
 
 <style>
-	.control-plane {
-		margin-bottom: 1.25rem;
-	}
-	.cp-title {
-		font-size: 0.78rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--color-text-muted);
-		margin: 0 0 0.5rem 0;
-	}
-	.cp-row {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem 0.75rem;
-	}
-	.cp-item {
-		display: inline-flex;
-		align-items: baseline;
-		gap: 0.4rem;
-		padding: 0.3rem 0.6rem;
-		border: 1px solid var(--color-border);
-		border-radius: 6px;
-		background: var(--color-bg-secondary);
-		font-size: 0.82rem;
-	}
-	.cp-mark {
-		color: var(--color-success);
-		font-weight: 700;
-	}
-	.cp-item.bad .cp-mark {
-		color: var(--color-error);
-	}
-	.cp-name {
-		font-weight: 600;
-		color: var(--color-text);
-	}
-	.cp-msg {
-		color: var(--color-text-muted);
-		font-size: 0.75rem;
-	}
-	.cp-note {
-		color: var(--color-text-muted);
-		font-size: 0.8rem;
-		font-style: italic;
-		margin: 0;
-	}
-
 	.overview {
 		max-width: 1200px;
 	}
 
 	.header {
-		margin-bottom: 2rem;
+		margin-bottom: 1.5rem;
 	}
 
 	.subtitle {
@@ -264,66 +142,9 @@
 		font-size: 0.85rem;
 	}
 
-	.error-banner {
-		background-color: rgba(239, 68, 68, 0.15);
-		border: 1px solid var(--color-error);
-		color: var(--color-error);
-		padding: 0.75rem 1rem;
-		border-radius: 0.5rem;
-		margin-bottom: 1.5rem;
-	}
-
 	.grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 		gap: 1rem;
-	}
-
-	.card {
-		background-color: var(--color-bg-secondary);
-		border: 1px solid var(--color-border);
-		border-radius: 0.5rem;
-		padding: 1.25rem;
-		transition: all 0.15s;
-		text-decoration: none;
-		color: inherit;
-	}
-
-	.card:hover {
-		border-color: var(--color-primary);
-		background-color: rgba(30, 41, 59, 0.8);
-		text-decoration: none;
-	}
-
-	.card-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 0.75rem;
-	}
-
-	.card-label {
-		font-size: 0.8rem;
-		font-weight: 500;
-		color: var(--color-text-muted);
-	}
-
-	.card-count {
-		font-size: 2.5rem;
-		font-weight: 700;
-		color: var(--color-text);
-		line-height: 1;
-	}
-
-	.card-loading {
-		min-height: 2.5rem;
-		display: flex;
-		align-items: center;
-	}
-
-	.card-footer {
-		margin-top: 0.5rem;
-		font-size: 0.75rem;
-		color: var(--color-text-muted);
 	}
 </style>
