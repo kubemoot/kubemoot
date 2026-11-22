@@ -100,6 +100,16 @@ declares none gathers data without domain context, so it adds nothing to the mat
 the narrowing by declaring domains. The coordinator reports why it convened the reviewers in the `reviewBasis` of the `review_ready` message
 (`domain`, `selected`, `primary`, `fallback-all` or `all`) and in its log.
 
+### Ratifying the answer
+
+Both roles come back after the coordinator drafts the answer. Every Tooler that agreed, raised a
+concern or blocked, and every Analyst that reviewed, is woken by the `draft` message and checks the
+draft against what it found: a Tooler against the results of its own tool calls, an Analyst against
+the data it reasoned over. They check with the tools they already have for reading a stored result
+(a search over the result, a query of it), not by rereading the draft and agreeing. An objection
+names the statement and what the results show. See
+[The Moot - Ratification](../../concepts/consensus-model/#ratification).
+
 ### How They Work Together
 
 When a user asks "Why is my pod in CrashLoopBackOff?", the Toolers, the Analyst, and the coordinator contribute in sequence:
@@ -107,7 +117,8 @@ When a user asks "Why is my pod in CrashLoopBackOff?", the Toolers, the Analyst,
 1. **k8s-workloads** (Tooler) calls `pods_get` and `events_list` to report the actual pod status, restart count, and error events
 2. **k8sgpt** (Tooler) runs the `analyze` tool for a deterministic diagnostic scan
 3. **k8s-analyst** (Analyst) receives the REVIEW-phase context, reads the Toolers' findings, and reasons over Kubernetes documentation to weight the evidence and surface the most likely causes
-4. The **coordinator** synthesizes: live data from Toolers plus reasoned interpretation from the Analyst equals a complete answer
+4. The **coordinator** synthesizes a draft: live data from Toolers plus reasoned interpretation from the Analyst equals a complete answer
+5. The Toolers and the Analyst **ratify** the draft against what they found, and the coordinator revises it once if they object
 
 Neither type alone gives the full picture. Toolers know what is happening. Analysts know what it means and what to do about it.
 

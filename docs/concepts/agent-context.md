@@ -338,9 +338,13 @@ The thread lives on the message bus on the subject
   review phase before they weigh in.
 - **Workspace references.** A contribution too large to carry inline appears as a short
   preview plus a reference to the object in the [workspace](#workspace).
+- **The draft.** After the synthesis the coordinator puts its draft answer on the thread,
+  and the agents on its roster check it against their own results ([ratification](../consensus-model/#ratification)).
+  The draft is the last message an agent reads in a turn; the replies to it are verdicts
+  and are kept out of the transcript the agents reason over.
 
 The runtime formats the thread for each agent as a labelled transcript (user question,
-advisory, responses, concerns, stand-asides, synthesis), so an agent sees which peer said
+advisory, responses, concerns, stand-asides, draft, synthesis), so an agent sees which peer said
 what. The thread is one turn long: it closes when the answer settles, and a reply
 reopens it for another round. Subjects carry the namespace and crew name, so two crews
 never see each other's threads. That is naming separation, not an access boundary; see

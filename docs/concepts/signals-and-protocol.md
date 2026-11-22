@@ -29,6 +29,22 @@ plain-text message such as `failed to list pods`), it publishes `failure` with t
 failed tools and their error text instead of an `agree`. When at least one call
 returned data, the output is posted as before, failed sections included.
 
+In `RATIFY` the same `agree`, `concern`, `block` and `failure` signals mean a verdict on the
+coordinator's `draft`, and carry `metadata.ratifies`, the round they answer, and `metadata.draftId`.
+The coordinator reads a signal in `RATIFY` only when it names the current round and draft, so a late signal from an earlier phase
+never counts. A `concern` or `block` in `RATIFY` is the objection itself: its content says which
+statement of the draft the agent's results do not support, and what they show.
+
+**The draft message.** `draft` is sent by the coordinator on the broadcast subject. `content` is the
+draft text; `metadata.round` and `metadata.maxRounds` say where the phase is, `metadata.innerCircle`
+is the roster (only those agents act on it), `metadata.draftId` names the draft (every reply echoes
+it, so a reply to an earlier draft, from before a restart or a reopened thread, never counts for a
+later one), and a revision carries `metadata.objections`, the objections it answers (each with
+`agent`, `verdict`, `round` and `content`). The final `synthesis`
+message carries `metadata.ratification`: `state` (`ratified`, `released_with_objections` or
+`not_ratified`), `rounds`, `roster`, `objections` and `failures` (agents that did not ratify), and
+its content ends with the objections that stand when there are any.
+
 Additional protocol signals facilitate the discussion itself - `triaging`,
 `evaluating`, `waiting`, `advisory`, `proposal`. An agent publishes `waiting`
 (with `metadata.model` and `metadata.reason: accelerator-busy`) once when every accelerator that can
@@ -110,11 +126,12 @@ See [Models & Scheduling](../models-and-scheduling/#when-every-accelerator-is-bu
 A discussion advances by **state**, not by a fixed timer. The coordinator runs a
 per-thread state machine with the following phases:
 
-`SUBMITTED` → `ADVISORY` → `EVALUATING` → `REVIEW` → `SYNTHESIZING` → `CLOSED`
+`SUBMITTED` -> `ADVISORY` -> `EVALUATING` -> `REVIEW` -> `SYNTHESIZING` -> `RATIFY` -> `CLOSED`
 
-A `PAUSED` state can interrupt any phase except `SYNTHESIZING` and `CLOSED`; the
+A `PAUSED` state can interrupt any phase except `SYNTHESIZING`, `RATIFY` and `CLOSED`; the
 machine resumes to the same phase when unpaused. A person's stop request forces an
-immediate transition to `SYNTHESIZING` on whatever signals exist. A human reply on a
+immediate transition to `SYNTHESIZING` on whatever signals exist; in `RATIFY` it releases the
+current draft at once with the objections so far. A human reply on a
 closed thread reopens it to `EVALUATING`.
 
 In plain terms, the flow is:
@@ -128,11 +145,16 @@ In plain terms, the flow is:
    Analysts the archetype's `review` setting names, by declared domain
    ([who reviews](../../architecture/tooler-analyst-architecture/#who-reviews)), and waits
    for every one it woke to report; there is no fast path in this phase.
-4. **SYNTHESIZING** - the coordinator composes the answer from all contributions.
-5. **CLOSED** - the answer has been delivered and the thread is clean.
+4. **SYNTHESIZING** - the coordinator composes a draft answer from all contributions.
+5. **RATIFY** - the draft is published as a `draft` message; the agents that contributed check it
+   against their own stored results and reply `agree`, `concern` or `block`. The coordinator
+   revises once on the objections and closes when the roster has ratified or the archetype's
+   rounds are used up, releasing the answer with any standing objections attached (see
+   [Ratification](../consensus-model/#ratification)).
+6. **CLOSED** - the answer has been delivered and the thread is clean.
 
 Timeouts exist only as safety nets. The normal path is driven by signal state: each
-phase has a roster (the selected Toolers in EVALUATING, the woken Analysts in REVIEW),
+phase has a roster (the selected Toolers in EVALUATING, the woken Analysts in REVIEW, the contributors in RATIFY),
 and when every roster member has published a terminal signal in that phase, the phase
 advances at once. The minimum phase times and the quiet period apply only when the
 roster is unknown or a member is still pending. GPU
@@ -234,7 +256,7 @@ Every message is an event:
 | `type` | Written when | Main `data` fields |
 |---|---|---|
 | `thread_opened` | the coordinator takes the thread up | `userQuery`, `conversationId`, `crew`, `source` (`request` or `external`), `openedAt` |
-| `phase_entered` | the thread enters ADVISORY, EVALUATING, REVIEW, SYNTHESIZING or PAUSED, or resumes | `phase`, `phaseStartedAt`, `phaseBeforePause`, `advisoryPending`, `reason` |
+| `phase_entered` | the thread enters ADVISORY, EVALUATING, REVIEW, SYNTHESIZING, RATIFY or PAUSED, or resumes | `phase`, `phaseStartedAt`, `phaseBeforePause`, `advisoryPending`, `reason` |
 | `subcommittee_convened` | the advisory step ends | `path` (`reasoning`, `fallback`, `broadcast` or `direct`), `members`, `brief` (one text for display), `sharedBrief`, `memberTasks`, `taskFallbacks`, `ignoredTasks` (see [one task per member](../../user-guides/compose-a-crew/#one-task-per-member)), `skills`, `confidence`, `tokens` |
 | `evaluation_started` | the evaluation clock resets after `advisory_ready` | `roster` (who EVALUATING waits for) |
 | `review_started` | `review_ready` is sent | `roster` (the analysts woken), `pending` (each with its deadline) |
@@ -242,7 +264,7 @@ Every message is an event:
 | `failure_recorded` | an agent reports `failure`, or its deadline passes and the coordinator records one | `agent`, `cause` (`reported` or `evaluation_timeout`), `synthesized`, `failedSources` |
 | `settled` | a phase ends | `phase`, `basis` (`roster_signalled`, `fast_path`, `quiet` or `no_pending`), `counts` |
 | `synthesis_started` | the synthesis call begins | the signal counts |
-| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `no_data`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `promptTooLarge`. A log written by an earlier release may also carry `rounds`, `filledBytes` and `delivery`; they are ignored on replay |
+| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `no_data`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `promptTooLarge`, and for a ratified answer `ratification` (the same object as on the `synthesis` message). A log written by an earlier release may also carry `rounds`, `filledBytes` and `delivery`; they are ignored on replay |
 | `thread_reopened` | a human reply reopens a closed thread | `phaseStartedAt` |
 | `thread_closed` | the thread ends | `reason` (an outcome of `synthesis_done`, `zombie`, `no_signals`, `unlogged`, or `expired`), `channel` |
 | `coordinator_resumed` | a restarted coordinator takes the thread over | `fromSeq` (the last event it read), `resumedAt` |
@@ -405,6 +427,7 @@ messages carry [ids made from the event](#write-ahead):
 | REVIEW entered, analysts have signalled | Nothing. The sweep settles |
 | PAUSED | Stays paused. A `thread_resume` message resumes it |
 | SYNTHESIZING, no answer logged | Runs the synthesis again |
+| RATIFY entered, no answer logged | Runs the synthesis again: the draft, the replies and the round are not logged, only the answer is, when the phase closes |
 | SYNTHESIZING by a direct answer, answer not logged | Writes the answer again from the logged brief |
 | Answer logged (`synthesis_done`), no close | Publishes the answer and `thread_close`, then writes `thread_closed` |
 | Closed | Nothing |
