@@ -4,7 +4,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
 	import { TopologyGraph } from '#lib/components/topology/index.js';
-	import { HelpTooltip } from '#lib/components/common/index.js';
+	import { PageTitle } from '#lib/components/common/index.js';
 	import type { TopologyNode, TopologyEdge } from '#lib/types/kubemoot.js';
 
 	let nodes = $state<TopologyNode[]>([]);
@@ -51,8 +51,7 @@
 <div class="topology-page">
 	<div class="page-header">
 		<div class="title-with-help">
-			<h1>Agent Topology</h1>
-			<HelpTooltip text="Visualizes agent relationships. Coordinator agents orchestrate work across specialists via async NATS discussions. Specialist agents have focused tools and subscribe to specific discussion channels. Peer agents operate independently." />
+			<PageTitle route="/topology" />
 		</div>
 		<div class="header-actions">
 			<button class="reset-layout-btn" onclick={handleResetLayout}>Reset Layout</button>
@@ -116,13 +115,6 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-	}
-
-	h1 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: var(--color-text);
-		margin: 0;
 	}
 
 	.header-actions {

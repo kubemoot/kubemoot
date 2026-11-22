@@ -6,7 +6,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
 	import { DetailPanel } from '#lib/components/layout/index.js';
-	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import { Section, InfoRow, StatusBadge, PageTitle } from '#lib/components/common/index.js';
 	import type { ModelServer } from '#lib/types/kubemoot.js';
 	import { calibrationBadge, calibrationRows, hasCalibration } from '#lib/server-calibration.js';
 	import { formatBytes, formatMiB } from '#lib/format.js';
@@ -67,12 +67,12 @@
 	}
 </script>
 
-<DetailPanel title={name} subtitle="Model Server" {loading} {error} resource={server}>
+<DetailPanel route="/modelservers/[name]" title={name} subtitle="Model Server" {loading} {error} resource={server}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">
 				<span class="kind">Model Server</span>
-				<h1 class="title">{name}</h1>
+				<PageTitle route="/modelservers/[name]" title={name} />
 			</div>
 			{#if server}
 				<StatusBadge {status} label={server.status?.phase || 'Unknown'} />
@@ -238,12 +238,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--color-text-muted);
-	}
-
-	.title {
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.sections {

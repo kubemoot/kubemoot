@@ -6,7 +6,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
 	import { DetailPanel } from '#lib/components/layout/index.js';
-	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import { Section, InfoRow, StatusBadge, PageTitle } from '#lib/components/common/index.js';
 	import type { MCPGateway } from '#lib/types/kubemoot.js';
 
 	let gateway = $state<MCPGateway | null>(null);
@@ -46,12 +46,12 @@
 	const status = $derived(readinessStatus(gateway?.status));
 </script>
 
-<DetailPanel title={name} subtitle="MCPGateway" {loading} {error} resource={gateway}>
+<DetailPanel route="/mcpgateways/[name]" title={name} subtitle="MCPGateway" {loading} {error} resource={gateway}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">
 				<span class="kind">MCPGateway</span>
-				<h1 class="title">{name}</h1>
+				<PageTitle route="/mcpgateways/[name]" title={name} />
 			</div>
 			{#if gateway}
 				<StatusBadge {status} label={gateway.status?.phase || 'Unknown'} />
@@ -129,12 +129,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--color-text-muted);
-	}
-
-	.title {
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.sections {

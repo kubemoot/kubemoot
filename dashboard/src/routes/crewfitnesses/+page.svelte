@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
@@ -53,7 +54,7 @@
 </script>
 
 <div class="page-header">
-	<h1>Fitness Tests</h1>
+	<PageTitle route="/crewfitnesses" />
 	<span class="count">{tests.length}</span>
 </div>
 
@@ -119,7 +120,6 @@
 	.page-header {
 		display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;
 	}
-	.page-header h1 { font-size: 1.5rem; font-weight: 600; }
 	.count {
 		background: var(--color-bg-tertiary); padding: 0.15rem 0.6rem;
 		border-radius: 999px; font-size: 0.8rem; color: var(--color-text-muted);

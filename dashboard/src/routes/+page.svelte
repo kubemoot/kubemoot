@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
-	import { StatusBadge, LoadingSpinner } from '#lib/components/common/index.js';
+	import { StatusBadge, LoadingSpinner, PageTitle } from '#lib/components/common/index.js';
 	import { nodeCounts, overviewNamespace, readyCount, type CountEntry } from '#lib/overview-counts.js';
 	import { readyCountStatus } from '#lib/resource-status.js';
 	import NatsTile from '#lib/components/nats/NatsTile.svelte';
@@ -128,7 +128,7 @@
 
 <div class="overview">
 	<header class="header">
-		<h1>Overview</h1>
+		<PageTitle route="/" />
 		{#if $namespace === ''}
 			<p class="subtitle">Kubemoot resources across <em>all crews</em></p>
 		{:else}
@@ -247,12 +247,6 @@
 
 	.header {
 		margin-bottom: 2rem;
-	}
-
-	.header h1 {
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.subtitle {

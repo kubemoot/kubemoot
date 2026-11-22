@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { PageTitle } from '#lib/components/common/index.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { crewDirectory, namespace } from '#lib/stores/index.js';
@@ -99,7 +100,7 @@
 </script>
 
 <div class="page-header">
-	<h1>Fitness Suites</h1>
+	<PageTitle route="/crewfitnesssuites" />
 	<span class="count">{live.items.length}</span>
 </div>
 
@@ -223,7 +224,6 @@
 	.page-header {
 		display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;
 	}
-	.page-header h1 { font-size: 1.5rem; font-weight: 600; }
 	.count {
 		background: var(--color-bg-tertiary); padding: 0.15rem 0.6rem;
 		border-radius: 999px; font-size: 0.8rem; color: var(--color-text-muted);

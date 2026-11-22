@@ -6,7 +6,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
 	import { DetailPanel } from '#lib/components/layout/index.js';
-	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import { Section, InfoRow, StatusBadge, PageTitle } from '#lib/components/common/index.js';
 	import type { Agent, AgentHeartbeat, MCPServer, MCPTool } from '#lib/types/kubemoot.js';
 	import { agentStateFor } from '#lib/crewScope.js';
 	import { splitCamelCase } from '#lib/text-utils.js';
@@ -131,12 +131,12 @@
 	});
 </script>
 
-<DetailPanel title={name} subtitle="Agent" {loading} {error} resource={agent}>
+<DetailPanel route="/agents/[name]" title={name} subtitle="Agent" {loading} {error} resource={agent}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">
 				<span class="kind">Agent</span>
-				<h1 class="title">{name}</h1>
+				<PageTitle route="/agents/[name]" title={name} />
 			</div>
 			{#if agent}
 				<StatusBadge {status} label={statusLabel} />
@@ -378,12 +378,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--color-text-muted);
-	}
-
-	.title {
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.sections {

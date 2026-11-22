@@ -6,7 +6,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
 	import { DetailPanel } from '#lib/components/layout/index.js';
-	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import { Section, InfoRow, StatusBadge, PageTitle } from '#lib/components/common/index.js';
 	import type { MCPCatalog } from '#lib/types/kubemoot.js';
 
 	let catalog = $state<MCPCatalog | null>(null);
@@ -46,12 +46,12 @@
 	const status = $derived(phaseStatus(catalog?.status?.phase));
 </script>
 
-<DetailPanel title={name} subtitle="MCPCatalog" {loading} {error} resource={catalog}>
+<DetailPanel route="/mcpcatalogs/[name]" title={name} subtitle="MCPCatalog" {loading} {error} resource={catalog}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">
 				<span class="kind">MCPCatalog</span>
-				<h1 class="title">{name}</h1>
+				<PageTitle route="/mcpcatalogs/[name]" title={name} />
 			</div>
 			{#if catalog}
 				<StatusBadge {status} label={catalog.status?.phase || 'Unknown'} />
@@ -164,12 +164,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--color-text-muted);
-	}
-
-	.title {
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.sections {

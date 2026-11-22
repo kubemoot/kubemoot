@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { YamlView } from '#lib/components/common/index.js';
+	import { YamlView, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -117,7 +117,7 @@
 	{#if crew}
 		{@const version = chartVersion(crew.metadata.labels)}
 		{@const technical = crewTechnicalHint(crew)}
-		<h1 title={technical}>{crewDisplayName(crew)}</h1>
+		<PageTitle mono route="/crews/[name]" title={crewDisplayName(crew)} />
 		{#if technical}
 			<span class="technical-name">{technical}</span>
 		{/if}
@@ -257,7 +257,6 @@
 		display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;
 	}
 	.back-link { color: var(--color-text-muted); font-size: 0.85rem; }
-	.detail-header h1 { font-size: 1.5rem; font-family: var(--font-mono); }
 	.technical-name { font-size: 0.85rem; font-family: var(--font-mono); color: var(--color-text-muted); }
 	.phase-badge {
 		font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.6rem;

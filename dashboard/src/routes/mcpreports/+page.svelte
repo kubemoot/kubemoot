@@ -74,11 +74,10 @@
 </script>
 
 <ResourceList
-	title="Reports"
+	route="/mcpreports"
 	count={filteredReports.length}
 	{loading}
 	{error}
-	helpText="MCP Server Reports track the test history and reliability verdict for each MCP server. Verdicts are auto-computed from trial results."
 >
 	{#snippet actions()}
 		<div class="controls">

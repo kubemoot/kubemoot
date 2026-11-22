@@ -6,7 +6,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
 	import { DetailPanel } from '#lib/components/layout/index.js';
-	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import { Section, InfoRow, StatusBadge, PageTitle } from '#lib/components/common/index.js';
 	import { authDisplay } from '#lib/mcp-auth.js';
 	import type { MCPServer } from '#lib/types/kubemoot.js';
 
@@ -49,12 +49,12 @@
 	const status = $derived(readinessStatus(server?.status));
 </script>
 
-<DetailPanel title={name} subtitle="MCPServer" {loading} {error} resource={server}>
+<DetailPanel route="/mcpservers/[name]" title={name} subtitle="MCPServer" {loading} {error} resource={server}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">
 				<span class="kind">MCPServer</span>
-				<h1 class="title">{name}</h1>
+				<PageTitle route="/mcpservers/[name]" title={name} />
 				{#if server?.spec.description}
 					<p class="description">{server.spec.description}</p>
 				{/if}
@@ -154,12 +154,6 @@
 		margin: 0.25rem 0 0;
 		max-width: 60ch;
 		color: var(--color-text-muted);
-	}
-
-	.title {
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.sections {

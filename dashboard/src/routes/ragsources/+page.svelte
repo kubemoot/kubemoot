@@ -16,7 +16,7 @@
 	});
 </script>
 
-<ResourceList title="RAG Sources" count={live.items.length} loading={live.loading} error={live.error} helpText="RAG Sources define documentation repositories that are indexed into vector stores for semantic search. Agents query these during conversations to provide grounded answers.">
+<ResourceList route="/ragsources" count={live.items.length} loading={live.loading} error={live.error}>
 	{#snippet children()}
 		{#each live.items as source (source.metadata.namespace + '/' + source.metadata.name)}
 			<RAGSourceCard {source} showNamespace={$namespace === ''} />

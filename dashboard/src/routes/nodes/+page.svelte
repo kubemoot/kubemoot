@@ -40,7 +40,7 @@
 	const gpuNodes = $derived(nodes.filter((n) => n.gpu?.present));
 </script>
 
-<ResourceList title="Nodes" count={nodes.length} {loading} {error}>
+<ResourceList route="/nodes" count={nodes.length} {loading} {error}>
 	{#snippet children()}
 		{#each nodes as node (node.metadata.name)}
 			<NodeCard {node} />

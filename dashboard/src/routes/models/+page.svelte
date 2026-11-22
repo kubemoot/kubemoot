@@ -50,7 +50,7 @@
 
 </script>
 
-<ResourceList title="Models" count={total} loading={live.loading || servers.loading} error={live.error && servers.error} helpText="Models represent LLM chat models managed by the operator. The operator ensures models are pulled and available on the server. Accelerator load state is shown on the Model Servers page.">
+<ResourceList route="/models" count={total} loading={live.loading || servers.loading} error={live.error && servers.error}>
 	{#snippet children()}
 		{#if filterActive}
 			<div class="filter-bar">

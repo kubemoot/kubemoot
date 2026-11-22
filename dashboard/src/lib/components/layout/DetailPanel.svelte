@@ -2,8 +2,12 @@
 	import type { Snippet } from 'svelte';
 	import YamlView from '../common/YamlView.svelte';
 	import type { YamlResource } from '#lib/yaml.js';
+	import PageTitle from '../common/PageTitle.svelte';
+	import type { PageRoute } from '#lib/page-definitions.js';
 
 	interface Props {
+		route: PageRoute;
+		/** The resource name shown as the heading. */
 		title?: string;
 		subtitle?: string;
 		loading?: boolean;
@@ -15,7 +19,7 @@
 		actions?: Snippet;
 	}
 
-	let { title, subtitle, loading = false, error = null, children, header, actions, resource = null }: Props = $props();
+	let { route, title, subtitle, loading = false, error = null, children, header, actions, resource = null }: Props = $props();
 </script>
 
 <div class="detail-panel">
@@ -24,7 +28,7 @@
 			{#if header}
 				{@render header()}
 			{:else}
-				<h1 class="title">{title ?? 'Unknown'}</h1>
+				<PageTitle {route} title={title ?? 'Unknown'} />
 				{#if subtitle}
 					<p class="subtitle">{subtitle}</p>
 				{/if}
@@ -79,12 +83,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
-	}
-
-	.title {
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.subtitle {

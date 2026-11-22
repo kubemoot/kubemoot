@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { refreshTrigger } from '#lib/stores/index.js';
-	import { LoadingSpinner, Section } from '#lib/components/common/index.js';
+	import { LoadingSpinner, Section, PageTitle } from '#lib/components/common/index.js';
 	import { allHistoryNotices, allWarnings, historyNoticeText, formatBytes, formatLimit, formatPercent, fraction, type AccountLimit, type NatsStatus } from '#lib/nats/status.js';
 	import { retentionLine, storeRow } from '#lib/nats/view.js';
 	import { formatCapped, type CrewStoreUsage } from '#lib/nats/crew-usage.js';
@@ -65,7 +65,7 @@
 
 <div class="nats-page">
 	<header class="header">
-		<h1>NATS</h1>
+		<PageTitle route="/nats" />
 		<p class="subtitle">
 			Everything Kubemoot keeps lives in NATS JetStream, on your cluster. This page reads it; it changes nothing.
 			Retention and limits are described in <a href="https://kubemoot.org/docs/operating/data-ownership/" target="_blank" rel="noopener noreferrer">Data ownership</a>.
@@ -196,10 +196,6 @@
 <style>
 	.nats-page {
 		max-width: 1400px;
-	}
-	.header h1 {
-		font-size: 1.75rem;
-		font-weight: 600;
 	}
 	.subtitle,
 	.note,

@@ -5,7 +5,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
 	import { DetailPanel } from '#lib/components/layout/index.js';
-	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import { Section, InfoRow, StatusBadge, PageTitle } from '#lib/components/common/index.js';
 	import type { Model } from '#lib/types/kubemoot.js';
 
 	let model = $state<Model | null>(null);
@@ -57,12 +57,12 @@
 	const statusLabel = $derived(model?.status?.state || 'Unknown');
 </script>
 
-<DetailPanel title={name} subtitle="Model" {loading} {error} resource={model}>
+<DetailPanel route="/models/[name]" title={name} subtitle="Model" {loading} {error} resource={model}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">
 				<span class="kind">Model</span>
-				<h1 class="title">{name}</h1>
+				<PageTitle route="/models/[name]" title={name} />
 			</div>
 			{#if model}
 				<div class="header-actions">
@@ -137,12 +137,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--color-text-muted);
-	}
-
-	.title {
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.sections {

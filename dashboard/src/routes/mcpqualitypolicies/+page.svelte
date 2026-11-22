@@ -16,7 +16,7 @@
 	});
 </script>
 
-<ResourceList title="Quality policies" count={live.items.length} loading={live.loading} error={live.error} helpText="Quality Policies define allow/block rules for MCP servers discovered from catalogs. Can use AI evaluation for edge cases.">
+<ResourceList route="/mcpqualitypolicies" count={live.items.length} loading={live.loading} error={live.error}>
 	{#snippet children()}
 		{#each live.items as policy (policy.metadata.namespace + '/' + policy.metadata.name)}
 			<MCPQualityPolicyCard {policy} showNamespace={$namespace === ''} />

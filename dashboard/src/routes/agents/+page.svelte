@@ -3,7 +3,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, refreshTrigger } from '#lib/stores/index.js';
 	import { AgentCard } from '#lib/components/resources/index.js';
-	import { HelpTooltip } from '#lib/components/common/index.js';
+	import { PageTitle } from '#lib/components/common/index.js';
 	import type { Agent, AgentHeartbeat } from '#lib/types/kubemoot.js';
 	import { LiveList } from '#lib/client/liveList.svelte.js';
 	import { agentStateFor } from '#lib/crewScope.js';
@@ -72,8 +72,7 @@
 <div class="agents-page">
 	<header class="page-header">
 		<div class="title-row">
-			<h2 class="title">Agents</h2>
-			<HelpTooltip text="Agents are AI assistants backed by LLM models that can use MCP tools and RAG knowledge sources. Each agent runs as a Kubernetes deployment." />
+			<PageTitle route="/agents" />
 			{#if live.items.length > 0}
 				<span class="count">{live.items.length}</span>
 			{/if}
@@ -140,12 +139,6 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-	}
-
-	.title {
-		font-size: 1.5rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.count {
