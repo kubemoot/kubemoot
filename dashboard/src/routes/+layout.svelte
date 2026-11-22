@@ -3,7 +3,6 @@
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
 	import { identityTitle, shortIdentity } from '#lib/identity-label.js';
-	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { showsCrewSelector } from '#lib/route-section.js';
 	import { page } from '$app/state';
@@ -45,14 +44,30 @@
 	// The sign-in page stands alone: no data is fetched for it.
 	const bare = $derived(page.route.id === '/signin');
 
-	onMount(async () => {
-		if (page.route.id === '/signin') return;
-		// Fetch crews (kubemoot.ai/crew-labeled namespaces) for the selector
-		await loadCrewDirectory(fetch, resolve('/api/namespaces'));
-		namespacesLoading = false;
-
-		// Fetch version
-		version = await fetchDashboardVersion(fetch, resolve('/api/version'));
+	// What the layout shows beside every page (the crews, the version) is read with the signed-in
+	// person's rights, so it is read again whenever the person changes: right after signing in
+	// (the layout was loaded on the sign-in page, before any session existed) and after signing out.
+	// A late answer for a person who has since changed is dropped.
+	let loadedFor = 0;
+	$effect(() => {
+		const who = data.user?.username ?? null;
+		const standalone = bare;
+		const run = ++loadedFor;
+		if (standalone) {
+			namespacesLoading = false;
+			if (who === null) crewDirectory.set([]);
+			return;
+		}
+		namespacesLoading = true;
+		version = '...';
+		void Promise.all([
+			loadCrewDirectory(fetch, resolve('/api/namespaces'), () => run === loadedFor).then(() => {
+				if (run === loadedFor) namespacesLoading = false;
+			}),
+			fetchDashboardVersion(fetch, resolve('/api/version')).then((found) => {
+				if (run === loadedFor) version = found;
+			})
+		]);
 	});
 </script>
 

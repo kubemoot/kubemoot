@@ -94,16 +94,19 @@ export function crewTooltip(
 	return parts.length > 0 ? parts.join(', ') : undefined;
 }
 
+/** Whether a crew in another namespace has this name: the one test for when a namespace is shown. */
+function sharesName(entries: readonly CrewEntry[], label: string, namespace: string | null | undefined): boolean {
+	return entries.some((e) => e.namespace !== namespace && entryLabel(e) === label);
+}
+
 /**
- * The text of a crew's entry in the Crew picker: the name people read, the technical
- * name when it differs, and the namespace, so two crews with one name in two
- * namespaces can be told apart.
+ * The text of a crew's entry in the Crew picker: the name people read, with the namespace only
+ * when another crew in the list has the same name, so those two can be told apart. The technical
+ * name stays in the entry's tooltip.
  */
-export function pickerLabel(entry: CrewEntry): string {
+export function pickerLabel(entry: CrewEntry, all: readonly CrewEntry[] = []): string {
 	const label = entryLabel(entry);
-	const hint = technicalNameHint(label, entry.crew);
-	const named = hint ? `${label} (${hint})` : label;
-	return entry.namespace ? `${named} [${entry.namespace}]` : named;
+	return sharesName(all, label, entry.namespace) && entry.namespace ? `${label} [${entry.namespace}]` : label;
 }
 
 /**
@@ -117,6 +120,5 @@ export function crewPillNamespace(
 	crew: string
 ): string {
 	const label = crewLabel(entries, namespace, crew);
-	const clash = entries?.some((e) => e.namespace !== namespace && entryLabel(e) === label);
-	return clash && namespace ? namespace : '';
+	return sharesName(entries ?? [], label, namespace) && namespace ? namespace : '';
 }

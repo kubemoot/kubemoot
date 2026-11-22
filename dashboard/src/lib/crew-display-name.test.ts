@@ -166,19 +166,21 @@ describe('crewTooltip', () => {
 });
 
 describe('pickerLabel', () => {
-	it('adds the namespace so equal names in two namespaces differ', () => {
-		const a: CrewEntry = { namespace: 'a-ns', crew: 'platform-ops', displayName: 'platform-ops' };
-		const b: CrewEntry = { namespace: 'b-ns', crew: 'platform-ops', displayName: 'platform-ops' };
-		expect(pickerLabel(a)).toBe('platform-ops [a-ns]');
-		expect(pickerLabel(a)).not.toBe(pickerLabel(b));
+	const a: CrewEntry = { namespace: 'a-ns', crew: 'platform-ops', displayName: 'platform-ops' };
+	const b: CrewEntry = { namespace: 'b-ns', crew: 'platform-ops', displayName: 'platform-ops' };
+
+	it('adds the namespace only when two crews share a name', () => {
+		expect(pickerLabel(a, [a, b])).toBe('platform-ops [a-ns]');
+		expect(pickerLabel(b, [a, b])).toBe('platform-ops [b-ns]');
 	});
 
-	it('keeps the technical name hint when the display name differs', () => {
+	it('shows only the display name when the name is not shared, keeping the technical name out of the label', () => {
 		const e: CrewEntry = { namespace: 'ns', crew: 'platform-ops', displayName: 'Platform Ops' };
-		expect(pickerLabel(e)).toBe('Platform Ops (platform-ops) [ns]');
+		expect(pickerLabel(e, [e, a])).toBe('Platform Ops');
+		expect(pickerLabel(e)).toBe('Platform Ops');
 	});
 
-	it('omits the namespace when it is empty and falls back to the technical name', () => {
+	it('falls back to the technical name when there is no display name', () => {
 		expect(pickerLabel({ namespace: '', crew: 'lab-ops', displayName: '' })).toBe('lab-ops');
 	});
 });

@@ -1,9 +1,8 @@
 import { getCoreApi } from './client.js';
 import type { K8sNode, NodeWithAccelerator } from '#lib/types/k8s.js';
-import { compareCodeUnits, describeError } from '#lib/text-utils.js';
+import { compareCodeUnits } from '#lib/text-utils.js';
 import { extractAcceleratorInfo } from './accelerator-info.js';
 import { listCrews } from './kubemoot-crds.js';
-import type { Crew } from '#lib/types/kubemoot.js';
 import { crewDisplayName, type CrewEntry, type CrewNameSource } from '#lib/crew-display-name.js';
 
 /**
@@ -42,32 +41,18 @@ export async function listNamespaces(): Promise<string[]> {
 /** A crew, the namespace it's deployed to, and the name people read. */
 export type CrewNamespace = CrewEntry;
 
-interface NamespaceMeta {
-	metadata?: { name?: string; labels?: Record<string, string> };
-}
-
-const crewKey = (namespace: string, crew: string) => `${namespace}/${crew}`;
-
-// crewNamespaceEntries pairs each `kubemoot.ai/crew`-labeled namespace with its
-// crew and that Crew CR's display name (the technical name when the CR is not
-// found or has none), sorted by display name, then technical name, then namespace.
-export function crewNamespaceEntries(
-	namespaces: readonly NamespaceMeta[],
-	crews: readonly CrewNameSource[]
-): CrewEntry[] {
-	const crByKey = new Map<string, CrewNameSource>();
-	for (const cr of crews) {
-		const name = cr.metadata?.name;
-		const ns = cr.metadata?.namespace;
-		if (name && ns) crByKey.set(crewKey(ns, name), cr);
-	}
-	return namespaces
-		.map((ns) => {
-			const namespace = ns.metadata?.name ?? '';
-			const crew = ns.metadata?.labels?.['kubemoot.ai/crew'] ?? '';
-			const cr = crByKey.get(crewKey(namespace, crew)) ?? { metadata: { name: crew } };
-			return { namespace, crew, displayName: crewDisplayName(cr) };
-		})
+/**
+ * The crews the person can see as Crew resources (the Crews page's own source), each with the
+ * name people read, sorted by display name, then technical name, then namespace. A Crew without
+ * a name or namespace is dropped.
+ */
+export function crewEntries(crews: readonly CrewNameSource[]): CrewEntry[] {
+	return crews
+		.map((cr) => ({
+			namespace: cr.metadata?.namespace ?? '',
+			crew: cr.metadata?.name ?? '',
+			displayName: crewDisplayName(cr)
+		}))
 		.filter((e) => e.namespace !== '' && e.crew !== '')
 		.sort(
 			(a, b) =>
@@ -77,21 +62,12 @@ export function crewNamespaceEntries(
 		);
 }
 
-// listCrewNamespaces returns only the namespaces that host a Kubemoot crew -
-// those carrying the `kubemoot.ai/crew` label - paired with the crew name and
-// display name. The dashboard's top-bar selector scopes pages by crew, so
-// non-crew namespaces (kube-system, flux-system, the shared kubemoot
-// control-plane ns, ...) are noise there and excluded. "All crews" (no
-// selection) still shows everything. When the Crew CRs cannot be listed, every
-// entry shows its technical name.
+/**
+ * The crews for the top-bar selector: the Crew resources the person may list, the same ones the
+ * Crews page shows. A namespace that merely carries the crew label, with no Crew in it, is not
+ * offered: it has no gateway to ask.
+ */
 export async function listCrewNamespaces(): Promise<CrewNamespace[]> {
-	const api = getCoreApi();
-	const [nsList, crewList] = await Promise.all([
-		api.listNamespace(),
-		listCrews('').catch((err: unknown) => {
-			console.warn(`Crew CRs not listed, showing technical crew names: ${describeError(err)}`);
-			return { items: [] as Crew[] };
-		})
-	]);
-	return crewNamespaceEntries(nsList.items, crewList.items);
+	const crews = await listCrews('');
+	return crewEntries(crews.items);
 }

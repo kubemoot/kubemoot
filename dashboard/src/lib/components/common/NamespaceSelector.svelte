@@ -38,10 +38,10 @@
 			<option value="" class="all-crews">All crews</option>
 			{#if crews.length}
 				<option disabled>───────────</option>
-				{#each crews as c (c.namespace)}
+				{#each crews as c (`${c.namespace}/${c.crew}`)}
 					{@const label = entryLabel(c)}
 					{@const hint = technicalNameHint(label, c.crew)}
-					<option value={c.namespace} title={hint}>{pickerLabel(c)}</option>
+					<option value={c.namespace} title={hint}>{pickerLabel(c, crews)}</option>
 				{/each}
 			{/if}
 		</select>
