@@ -114,6 +114,11 @@ export const PAGE_DEFINITIONS = {
 		term: 'A fitness suite repeats a crew\'s scenarios many times to measure how reliably it answers.',
 		purpose: 'Follow each suite\'s progress and pass rates.'
 	},
+	'/crewfitnesssuites/[name]': {
+		title: 'Fitness Suite',
+		term: 'A fitness suite repeats a crew\'s scenarios many times to measure how reliably it answers.',
+		purpose: 'Read this suite\'s spec, status and counts, and its YAML.'
+	},
 	'/models': {
 		title: 'Chat Models',
 		menu: 'Models',

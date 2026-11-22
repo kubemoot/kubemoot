@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CommandHint, YamlView, PageTitle } from '#lib/components/common/index.js';
+	import { CommandHint, ResourceTabs, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -73,111 +73,112 @@
 	{:else if error}
 		<div class="error">{error}</div>
 	{:else if report}
-		<div class="sections">
-			<div class="section">
-				<h2>Status</h2>
-				<div class="info-grid">
-					<div class="info-item">
-						<span class="info-label">Verdict</span>
-						<span class="verdict-badge" style="background: {verdictColor(report.status?.verdict || 'untested')}">
-							{report.status?.verdict || 'untested'}
-						</span>
-					</div>
-					<div class="info-item">
-						<span class="info-label">Success Rate</span>
-						<span>{report.status?.successRate || 'N/A'}</span>
-					</div>
-					<div class="info-item">
-						<span class="info-label">Transport</span>
-						<span>{report.status?.recommendedTransport || '-'}</span>
-					</div>
-					<div class="info-item">
-						<span class="info-label">Version</span>
-						<span>{report.status?.recommendedVersion || '-'}</span>
-					</div>
-					<div class="info-item">
-						<span class="info-label">Success / Fail</span>
-						<span>{report.status?.successCount || 0} / {report.status?.failureCount || 0}</span>
-					</div>
-					<div class="info-item">
-						<span class="info-label">Last Tested</span>
-						<span>{report.status?.lastTested ? new Date(report.status.lastTested).toLocaleString() : '-'}</span>
-					</div>
-				</div>
-			</div>
-
-			<div class="section">
-				<h2>Spec</h2>
-				<div class="info-grid">
-					<div class="info-item">
-						<span class="info-label">Server Name</span>
-						<span>{report.spec?.serverName || '-'}</span>
-					</div>
-					<div class="info-item">
-						<span class="info-label">Registry Type</span>
-						<span>{report.spec?.registryType || '-'}</span>
-					</div>
-					{#if report.spec?.githubUrl}
-						<div class="info-item full-width">
-							<span class="info-label">GitHub</span>
-							<a href={report.spec.githubUrl} target="_blank" rel="noopener">{report.spec.githubUrl}</a>
-						</div>
-					{/if}
-				</div>
-			</div>
-
-			{#if report.status?.chroniclerNotes}
+		<ResourceTabs resource={report}>
+			<div class="sections">
 				<div class="section">
-					<h2>Chronicler Notes</h2>
-					<p class="chronicler-notes">{report.status.chroniclerNotes}</p>
-				</div>
-			{/if}
-
-			<div class="section">
-				<h2>Admin Curation</h2>
-				<div class="admin-info">
-					{#if report.spec?.adminVerdict}
-						<div><strong>Pinned:</strong> {report.spec.adminVerdict} by {report.spec.adminAuthor || 'unknown'}</div>
-						<div><strong>Reason:</strong> {report.spec.adminNotes || '-'}</div>
-					{:else}
-						<div class="muted">No admin override. Verdict is auto-computed from trial history.</div>
-					{/if}
-					<CommandHint label="Pin a verdict (use, caution or avoid):" command={reportVerdictCommand(name, namespace)} />
-					{#if report.spec?.adminVerdict}<CommandHint label="Remove the pinned verdict:" command={reportUnpinCommand(name, namespace)} />{/if}
-				</div>
-			</div>
-
-			<div class="section">
-				<h2>Trial History ({report.status?.trials?.length || 0})</h2>
-				{#if report.status?.trials?.length}
-					<div class="trials">
-						{#each [...(report.status.trials)].reverse() as trial}
-							<div class="trial" class:success={trial.success} class:failure={!trial.success}>
-								<span class="trial-phase" title={trial.phase}>{phaseIcon(trial.phase)}</span>
-								<span class="trial-result">{trial.success ? 'OK' : 'FAIL'}</span>
-								<span class="trial-transport">{trial.transport}</span>
-								<span class="trial-version">{trial.version || '-'}</span>
-								<span class="trial-date">
-									{#if trial.testedAt}
-										{new Date(trial.testedAt).toLocaleString()}
-									{/if}
-								</span>
-								{#if trial.toolsFound > 0}
-									<span class="trial-tools">{trial.toolsFound} tools</span>
-								{/if}
-								{#if trial.errorMessage}
-									<div class="trial-error">{trial.errorMessage}</div>
-								{/if}
-							</div>
-						{/each}
+					<h2>Status</h2>
+					<div class="info-grid">
+						<div class="info-item">
+							<span class="info-label">Verdict</span>
+							<span class="verdict-badge" style="background: {verdictColor(report.status?.verdict || 'untested')}">
+								{report.status?.verdict || 'untested'}
+							</span>
+						</div>
+						<div class="info-item">
+							<span class="info-label">Success Rate</span>
+							<span>{report.status?.successRate || 'N/A'}</span>
+						</div>
+						<div class="info-item">
+							<span class="info-label">Transport</span>
+							<span>{report.status?.recommendedTransport || '-'}</span>
+						</div>
+						<div class="info-item">
+							<span class="info-label">Version</span>
+							<span>{report.status?.recommendedVersion || '-'}</span>
+						</div>
+						<div class="info-item">
+							<span class="info-label">Success / Fail</span>
+							<span>{report.status?.successCount || 0} / {report.status?.failureCount || 0}</span>
+						</div>
+						<div class="info-item">
+							<span class="info-label">Last Tested</span>
+							<span>{report.status?.lastTested ? new Date(report.status.lastTested).toLocaleString() : '-'}</span>
+						</div>
 					</div>
-				{:else}
-					<div class="muted">No trials recorded yet.</div>
+				</div>
+
+				<div class="section">
+					<h2>Spec</h2>
+					<div class="info-grid">
+						<div class="info-item">
+							<span class="info-label">Server Name</span>
+							<span>{report.spec?.serverName || '-'}</span>
+						</div>
+						<div class="info-item">
+							<span class="info-label">Registry Type</span>
+							<span>{report.spec?.registryType || '-'}</span>
+						</div>
+						{#if report.spec?.githubUrl}
+							<div class="info-item full-width">
+								<span class="info-label">GitHub</span>
+								<a href={report.spec.githubUrl} target="_blank" rel="noopener">{report.spec.githubUrl}</a>
+							</div>
+						{/if}
+					</div>
+				</div>
+
+				{#if report.status?.chroniclerNotes}
+					<div class="section">
+						<h2>Chronicler Notes</h2>
+						<p class="chronicler-notes">{report.status.chroniclerNotes}</p>
+					</div>
 				{/if}
+
+				<div class="section">
+					<h2>Admin Curation</h2>
+					<div class="admin-info">
+						{#if report.spec?.adminVerdict}
+							<div><strong>Pinned:</strong> {report.spec.adminVerdict} by {report.spec.adminAuthor || 'unknown'}</div>
+							<div><strong>Reason:</strong> {report.spec.adminNotes || '-'}</div>
+						{:else}
+							<div class="muted">No admin override. Verdict is auto-computed from trial history.</div>
+						{/if}
+						<CommandHint label="Pin a verdict (use, caution or avoid):" command={reportVerdictCommand(name, namespace)} />
+						{#if report.spec?.adminVerdict}<CommandHint label="Remove the pinned verdict:" command={reportUnpinCommand(name, namespace)} />{/if}
+					</div>
+				</div>
+
+				<div class="section">
+					<h2>Trial History ({report.status?.trials?.length || 0})</h2>
+					{#if report.status?.trials?.length}
+						<div class="trials">
+							{#each [...(report.status.trials)].reverse() as trial}
+								<div class="trial" class:success={trial.success} class:failure={!trial.success}>
+									<span class="trial-phase" title={trial.phase}>{phaseIcon(trial.phase)}</span>
+									<span class="trial-result">{trial.success ? 'OK' : 'FAIL'}</span>
+									<span class="trial-transport">{trial.transport}</span>
+									<span class="trial-version">{trial.version || '-'}</span>
+									<span class="trial-date">
+										{#if trial.testedAt}
+											{new Date(trial.testedAt).toLocaleString()}
+										{/if}
+									</span>
+									{#if trial.toolsFound > 0}
+										<span class="trial-tools">{trial.toolsFound} tools</span>
+									{/if}
+									{#if trial.errorMessage}
+										<div class="trial-error">{trial.errorMessage}</div>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<div class="muted">No trials recorded yet.</div>
+					{/if}
+				</div>
 			</div>
-		</div>
+		</ResourceTabs>
 	{/if}
-	<YamlView resource={report} />
 </div>
 
 <style>

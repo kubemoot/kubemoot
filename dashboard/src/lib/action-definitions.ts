@@ -18,9 +18,13 @@ export const ACTIONS = {
 	help: 'Help: explains this column or term in a short note',
 	systemInfo: 'System info: Kubemoot versions and how long each component has been up',
 	copySystemInfo: 'Copy: the versions and uptime as text, for a support request',
-	copyYaml: 'Copy: this resource\'s YAML to the clipboard',
+	copyYaml: 'Copy this resource\'s YAML, exactly as shown',
+	toggleManagedFields: 'Show or hide metadata.managedFields, the record of which tool set each field',
+	resourceTab: (tab: 'overview' | 'yaml') =>
+		tab === 'yaml'
+			? 'YAML: this resource exactly as the cluster returns it; read-only'
+			: 'Overview: this resource\'s state and settings in readable form',
 	copyCommand: 'Copy: the command to the clipboard; run it in your terminal',
-	expandYaml: 'YAML: shows this resource exactly as the cluster stores it; read-only',
 
 	chooseCrew: 'Crew: limits every list on this page to one crew, or shows all crews',
 	downloadConversations: (count: number) =>
