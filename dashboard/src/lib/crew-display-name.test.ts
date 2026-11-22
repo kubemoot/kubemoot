@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	crewPillNamespace,
 	CREW_DISPLAY_NAME_ANNOTATION,
 	crewDisplayName,
 	crewEntry,
@@ -179,5 +180,22 @@ describe('pickerLabel', () => {
 
 	it('omits the namespace when it is empty and falls back to the technical name', () => {
 		expect(pickerLabel({ namespace: '', crew: 'lab-ops', displayName: '' })).toBe('lab-ops');
+	});
+});
+
+describe('crewPillNamespace', () => {
+	const dir = [
+		{ namespace: 'a', crew: 'pilot', displayName: 'pilot' },
+		{ namespace: 'b', crew: 'pilot', displayName: 'pilot' },
+		{ namespace: 'c', crew: 'other', displayName: 'other' }
+	];
+	it('names the namespace only when two crews share a name', () => {
+		expect(crewPillNamespace(dir, 'a', 'pilot')).toBe('a');
+		expect(crewPillNamespace(dir, 'b', 'pilot')).toBe('b');
+		expect(crewPillNamespace(dir, 'c', 'other')).toBe('');
+	});
+	it('is empty for an unknown crew or an empty directory', () => {
+		expect(crewPillNamespace([], 'a', 'pilot')).toBe('');
+		expect(crewPillNamespace(undefined, 'a', 'pilot')).toBe('');
 	});
 });

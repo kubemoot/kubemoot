@@ -6,7 +6,7 @@
 	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, ensureThreadLoaded, loadOlder, loadingOlder, hasOlder, showStandAsides, showDebugDetail, namespace } from '#lib/stores/index.js';
 	import type { Thread } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
-	import { crewEntry, crewLabel, crewTooltip } from '#lib/crew-display-name.js';
+	import { crewEntry, crewLabel, crewPillNamespace, crewTooltip } from '#lib/crew-display-name.js';
 	import { AnswerPanel, DiscussionMenu, DiscussionSpanGraph, MessageStatsLine, PlacementPanel } from '#lib/components/discussions/index.js';
 	import { debugMessageCount, visibleMessages, afterAnswerMessages } from '#lib/conversation-view.js';
 	import { placementCallsOf } from '#lib/placement-panel.js';
@@ -16,7 +16,6 @@
 	import { aggregateAgents, renderAgentSummary } from '#lib/discussion-agent-summary.js';
 	import { threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
-	import { askCommand } from '#lib/cli-commands.js';
 	import { answerState } from '#lib/conversation-answer.js';
 	import { statusIcon } from '#lib/thread-status-icon.js';
 	import { browserTimeZone, exportHref, threadConversationId } from '#lib/conversation-export.js';
@@ -114,6 +113,8 @@
 			(m) => $showStandAsides || m.messageType !== 'stand_aside'
 		)
 	);
+	const selectedConversationId = $derived(selectedThread ? threadConversationId(selectedThread) : undefined);
+	const selectedThreadScope = $derived(selectedThread ? tryCrewScope(selectedThread.namespace, selectedThread.crew) : null);
 	const selectedAnswer = $derived(answerState(selectedThread?.messages ?? [], selectedThread?.status ?? 'open'));
 	const answerElapsed = $derived.by(() => {
 		if (selectedAnswer.kind !== 'answered') return '';
@@ -308,7 +309,7 @@
 					>
 						<div class="thread-header">
 							{#if thread.crew && $namespace === ''}
-								<span class="crew-badge" title={crewTooltip($crewDirectory, thread.namespace, thread.crew)}>{$namespace === '' && thread.namespace ? `${thread.namespace}/` : ''}{crewLabel($crewDirectory, thread.namespace, thread.crew)}</span>
+								<span class="crew-badge" title={crewTooltip($crewDirectory, thread.namespace, thread.crew)}>{crewLabel($crewDirectory, thread.namespace, thread.crew)}{#if crewPillNamespace($crewDirectory, thread.namespace, thread.crew)}<span class="pill-ns">{thread.namespace}</span>{/if}</span>
 							{/if}
 							{#if thread.channel !== DEFAULT_CHANNEL}
 								<span class="channel-badge" style="background-color: {channelColors[thread.channel] || '#6b7280'}">{thread.channel}</span>
@@ -341,7 +342,7 @@
 			{#if selectedThread}
 				<div class="thread-detail-header">
 					{#if selectedThread.crew && $namespace === ''}
-						<span class="crew-badge" title={crewTooltip($crewDirectory, selectedThread.namespace, selectedThread.crew)}>{selectedThread.namespace ? `${selectedThread.namespace}/` : ''}{crewLabel($crewDirectory, selectedThread.namespace, selectedThread.crew)}</span>
+						<span class="crew-badge" title={crewTooltip($crewDirectory, selectedThread.namespace, selectedThread.crew)}>{crewLabel($crewDirectory, selectedThread.namespace, selectedThread.crew)}{#if crewPillNamespace($crewDirectory, selectedThread.namespace, selectedThread.crew)}<span class="pill-ns">{selectedThread.namespace}</span>{/if}</span>
 					{/if}
 					{#if selectedThread.channel && selectedThread.channel !== DEFAULT_CHANNEL}
 						<span class="channel-badge large" style="background-color: {channelColors[selectedThread.channel] || '#6b7280'}">{selectedThread.channel}</span>
@@ -617,6 +618,8 @@
 		color: var(--color-purple);
 		font-family: var(--font-mono);
 	}
+
+	.pill-ns { margin-left: 0.35rem; font-weight: 400; opacity: 0.6; }
 
 	.channel-badge {
 		display: inline-block;

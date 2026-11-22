@@ -46,8 +46,12 @@
 		ticked = { ...ticked, [threadId]: on };
 	}
 
+	// Opening a conversation sets the top-bar Crew selector to its crew, so the page, the
+	// downloads and the commands all speak for that crew.
 	function selectChat(threadId: string | null) {
 		selectedThreadId = threadId;
+		const ns = threadId ? $threads.get(threadId)?.namespace : undefined;
+		if (ns && ns !== $namespace) namespace.set(ns);
 	}
 
 
@@ -117,7 +121,7 @@
 		<div class="chat-timeline">
 			{#if !selected}
 				<div class="empty-state">
-					<p>{selectedScope ? 'Select a conversation, or start one from a terminal.' : 'Select a crew in the top bar to see its conversations.'}</p>
+					<p>{selectedScope || chats.length > 0 ? 'Select a conversation, or start one from a terminal.' : 'Select a crew in the top bar to see its conversations.'}</p>
 				</div>
 			{:else}
 				{#each turns as turn (turn.id)}

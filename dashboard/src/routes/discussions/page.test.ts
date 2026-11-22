@@ -35,6 +35,10 @@ describe('discussions page', () => {
 		expect(screen.getAllByText(/The two GPU temperatures are 33C and 36C/).length).toBeGreaterThan(0);
 		expect(screen.getByText('gpu-0: 33C')).toBeTruthy();
 		expect(screen.getByText('Convened 1 agent')).toBeTruthy();
+		// The crew pill names the crew only, not namespace/crew.
+		const pills = [...container.querySelectorAll('.crew-badge')].map((e) => e.textContent?.trim());
+		expect(pills.length).toBeGreaterThan(0);
+		expect(pills.every((t) => t === 'demo')).toBe(true);
 	});
 
 	it('does not make the message list a scroll box of its own', () => {
