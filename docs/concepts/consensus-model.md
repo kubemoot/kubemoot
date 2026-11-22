@@ -147,12 +147,24 @@ phase.
 3. When the roster has answered (or missed its deadline), the coordinator looks at the replies. No
    `concern` or `block`: the phase closes and the draft is the answer. Some objection and a round
    left: the coordinator revises **once**, with the objections in front of it, and publishes the
-   revision as `draft` (round 2) to the same roster.
+   revision as `draft` (round 2) to the **whole roster again**, including the agents that agreed:
+   a revision rewrites statements they had checked, so no agent's earlier agreement carries over.
 4. The phase closes when the roster has ratified, or after the archetype's maximum rounds (default
    2: the draft and one revision). If the table still objects, the answer is **released with the
    objections attached and visible**: the answer text ends with the objections that stand, and the
    `synthesis` message carries them in `metadata.ratification`. An answer is never released with
    an objection hidden.
+
+**What a ratifier is asked.** The instructions are a `PromptModule` named `ratify-prompt`, written in
+ADL, that a crew's chart ships and lists in the `promptRefs` of the agents that can be on the
+roster, like its other shared modules (`discussion-protocol`, `analyst-review-protocol`). The runtime
+ends the message a ratifier answers with the marker `[RATIFY]`, and the module speaks to that
+marker. A crew overrides the wording by editing its module. An agent whose prompt does not carry a
+`ratify-prompt` module (one that opens with `DEFINE COMPONENT ratify-prompt`) is given a two-line
+default by the runtime (check against your own results; open with the verdict word), so a crew that
+has not adopted the module still ratifies. The reply must open with `AGREE`, `CONCERN` or `BLOCK`; one that
+does not is published as a `failure`, never counted as agreement. The instructions name no tool: an
+agent chooses its tools by their own descriptions.
 
 **Failure is a signal here too.** A ratifier whose call fails publishes `failure`; one that misses
 its deadline gets a `failure` the coordinator publishes for it. A failed ratifier is not an

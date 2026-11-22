@@ -111,11 +111,15 @@ class ChatServiceCallFilesTest {
 
     /** The model asks for all of {@code calls} in one turn, then answers with text. */
     private void modelCalls(ToolExecutionRequest... calls) {
+        modelCallsThenSay("done", calls);
+    }
+
+    private void modelCallsThenSay(String finalText, ToolExecutionRequest... calls) {
         var first = mock(ChatResponse.class);
         when(first.aiMessage()).thenReturn(AiMessage.from(List.of(calls)));
         when(first.tokenUsage()).thenReturn(new TokenUsage(100, 20));
         var second = mock(ChatResponse.class);
-        when(second.aiMessage()).thenReturn(new AiMessage("done"));
+        when(second.aiMessage()).thenReturn(new AiMessage(finalText));
         when(second.tokenUsage()).thenReturn(new TokenUsage(120, 5));
         when(chatModel.chat(any(ChatRequest.class))).thenReturn(first, second);
     }
@@ -130,7 +134,15 @@ class ChatServiceCallFilesTest {
 
     private ChatService.ToolLoopResult run(ChatService service, long window) {
         var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
-        return service.callWithToolLoop(question(), chatModel, "s", "test", true, window, ledger);
+        var loop = service.callWithToolLoop(question(), chatModel, "s", "test", true, window, ledger);
+        return withFiles(loop, ChatService.filesOf(loop, ledger));
+    }
+
+    /** What the agent posts: its statement leads when it wrote one, then the descriptions of its files. */
+    private static ChatService.ToolLoopResult withFiles(ChatService.ToolLoopResult loop, String files) {
+        String text = files.isEmpty() ? loop.text() : loop.text().isEmpty() ? files : loop.text() + "\n\n" + files;
+        return new ChatService.ToolLoopResult(text, loop.modelText(), loop.contributionIsToolOutput(),
+                loop.inputTokens(), loop.outputTokens(), loop.serverName(), loop.pickReason());
     }
 
     @Test
@@ -159,8 +171,8 @@ class ChatServiceCallFilesTest {
         assertFalse(Instant.parse(h.get(CallHeaders.STARTED)).isBefore(before.minusSeconds(1)));
         assertNotNull(h.get(CallHeaders.DURATION_MS));
 
-        assertTrue(result.contributionIsToolOutput());
-        assertTrue(result.text().startsWith("[WORKSPACE agent=test-agent calls=1 errors=0 prefix=test-agent/]"),
+        assertFalse(result.contributionIsToolOutput(), "the tooler's own statement leads");
+        assertTrue(result.text().startsWith("done\n\n[WORKSPACE agent=test-agent calls=1 errors=0 prefix=test-agent/]"),
                 result.text());
         assertTrue(result.text().contains("[CALL key=test-agent/001-pods_list tool=pods_list "
                 + "args={\"namespace\":\"kube-system\"} type=application/json bytes=" + store.bodies.get(key).length
@@ -284,15 +296,61 @@ class ChatServiceCallFilesTest {
     }
 
     @Test
-    void aToolersTextIsAlreadyTheDescriptionSoItAddsNone() {
+    void aToolersStatementLeadsAndTheDescriptionsOfItsFilesFollow() {
         registerTools(r -> "[{\"x\":1}]", "pods_list");
         modelCalls(call("c1", "pods_list", "{}"));
         var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
 
         var result = service().callWithToolLoop(question(), chatModel, "s", "test", true, 0L, ledger);
 
+        assertEquals("done", result.text(), "what the tooler found, in its own words");
+        assertFalse(result.contributionIsToolOutput());
+        assertTrue(ChatService.filesOf(result, ledger).startsWith("[WORKSPACE agent=test-agent calls=1"));
+    }
+
+    @Test
+    void aToolerThatDeclaresAToolGapPostsTheNeedAndNotAnAgreement() {
+        registerTools(r -> "[{\"x\":1}]", "pods_list");
+        modelCallsThenSay("TOOL_GAP: a Proxmox tool", call("c1", "pods_list", "{}"));
+
+        var result = run(service(), 0);
+
+        assertTrue(result.text().startsWith("TOOL_GAP: a Proxmox tool"), result.text());
+        assertFalse(result.contributionIsToolOutput());
+    }
+
+    @Test
+    void aToolerWhoseFinalTextEchoesItsInstructionsPostsTheDescriptionsNotTheEcho() {
+        registerTools(r -> "[{\"x\":1}]", "pods_list");
+        modelCallsThenSay("   ", call("c1", "pods_list", "{}"));
+
+        var result = run(service(), 0);
+
+        assertTrue(result.text().startsWith("[WORKSPACE agent=test-agent calls=1"), result.text());
+    }
+
+    @Test
+    void aFailedCallNextToAGoodOneStaysInThePostedDescriptionsWhateverTheToolerStated() {
+        registerTools(r -> r.name().equals("bad") ? "{\"error\": \"boom\"}" : "[{\"x\":1}]", "good", "bad");
+        modelCallsThenSay("1 pod listed", call("c1", "good", "{}"), call("c2", "bad", "{}"));
+
+        var result = run(service(), 0);
+
+        assertTrue(result.text().startsWith("1 pod listed\n\n[WORKSPACE"), result.text());
+        assertTrue(result.text().contains("error=true"), "the failure is described: " + result.text());
+        assertTrue(result.text().contains("[FAILED RESULT]"), "its error text is posted: " + result.text());
+    }
+
+    @Test
+    void aToolerThatWroteNoStatementPostsTheDescriptionsAlone() {
+        registerTools(r -> "[{\"x\":1}]", "pods_list");
+        modelCallsThenSay(" ", call("c1", "pods_list", "{}"));
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
+
+        var result = service().callWithToolLoop(question(), chatModel, "s", "test", true, 0L, ledger);
+
         assertTrue(result.contributionIsToolOutput());
-        assertEquals("", ChatService.filesOf(result, ledger));
+        assertTrue(result.text().startsWith("[WORKSPACE agent=test-agent calls=1"), result.text());
     }
 
     @Test
@@ -351,16 +409,16 @@ class ChatServiceCallFilesTest {
     }
 
     @Test
-    void aToolersDiscussionAnswerIsTheDescriptionsAndCarriesNoSeparateFiles() {
+    void aToolersDiscussionAnswerLeadsWithItsStatementThenTheDescriptions() {
         registerTools(r -> "[{\"x\":1}]", "pods_list");
         modelCalls(call("c1", "pods_list", "{}"));
 
         var result = chatInThread(serviceWithRole("tooler"), THREAD);
 
-        assertTrue(result.response().startsWith("[WORKSPACE agent=test-agent calls=1"), result.response());
-        assertEquals("", result.files());
-        assertTrue(result.response().contains("[RESULT]\n[{\"x\":1}]\n[END RESULT]"),
-                "a small result is posted with its description: " + result.response());
+        assertEquals("done", result.response(), "the statement");
+        assertTrue(result.files().startsWith("[WORKSPACE agent=test-agent calls=1"), result.files());
+        assertTrue(result.files().contains("[RESULT]\n[{\"x\":1}]\n[END RESULT]"),
+                "a small result is posted with its description: " + result.files());
     }
 
     @Test

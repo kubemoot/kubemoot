@@ -120,6 +120,10 @@ crew's coordinator as `KUBEMOOT_DISCUSS_RATIFY_ENABLED`, `KUBEMOOT_DISCUSS_RATIF
 defaults. An Agent's own `spec.deployment.env` wins over both. An edit to the block re-reconciles
 the coordinators.
 
+The operator installs a second archetype, `consent-3-unratified`, that is `consent-3` with
+`ratify.enabled: false`. A crew whose answer is a verdict that must not be revised (the
+fitness judge) names it in the `archetypeRef` of its `CrewSchedulingPolicy`.
+
 The field is optional and additive: a crew whose archetype has no `ratify` block works as before,
 now with ratification on. Apply the new CRDs before the operator chart that sets the block (see
 [Review](#review)).

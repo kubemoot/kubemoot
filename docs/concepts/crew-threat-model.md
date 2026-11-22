@@ -36,8 +36,9 @@ Each step is a place where text written by the attacker becomes text another age
 
 ### 1. Tool output reaches a specialist
 
-A tool result returns to the agent's model inside its tool loop. A Tooler may hand back
-the raw output as its contribution, so the text reaches the table unchanged. When a result
+A tool result returns to the agent's model inside its tool loop. A Tooler posts its own
+statement of what it found, followed by the description of each stored result and any small result
+whole, so the text of a small result reaches the table unchanged. When a result
 is large, the runtime stores it in the [workspace](../discussion-artifact-store/) and posts
 a reference, and an analyst reads a slice of it with the workspace tools. The analyst
 reads the attacker's text either way.

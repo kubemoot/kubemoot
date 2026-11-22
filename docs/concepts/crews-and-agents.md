@@ -81,7 +81,7 @@ Within a crew an agent plays a **role** (`spec.discussRole`):
   OFF. It calls its domain MCP tools, surfaces live data, and contributes a finding
   carrying a consensus signal (`agree`, `concern`, `stand_aside`, `block`,
   `failure`). An agent with no `discussRole` set defaults to `generic` and
-  participates as a general contributor without the Tooler raw-output contract.
+  participates as a general contributor without the Tooler contract (state what the calls found, then the stored results).
 - An **Analyst** (`discussRole: analyst`) acts in the REVIEW phase with thinking ON.
   It carries RAG sources and reasons over the data Toolers gathered, weighing the
   evidence before synthesis. Analysts hold no live MCP tools.

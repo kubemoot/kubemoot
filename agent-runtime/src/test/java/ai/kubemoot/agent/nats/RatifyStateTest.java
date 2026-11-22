@@ -196,6 +196,7 @@ class RatifyStateTest {
         assertTrue(prompt.contains("[DRAFT]\n" + DRAFT));
         assertTrue(prompt.contains("[OBJECTIONS]\n- k8s-nodes (concern): 15 is wrong"));
         assertFalse(prompt.toLowerCase().contains("workspace_"), "the protocol text names no tool");
-        assertFalse(RatifyText.ratifierInstruction().toLowerCase().contains("workspace_"));
+        assertFalse(RatifyText.ratifierInstruction(false).toLowerCase().contains("workspace_"));
+        assertEquals("[RATIFY]", RatifyText.ratifierInstruction(true), "the crew's module carries the wording");
     }
 }

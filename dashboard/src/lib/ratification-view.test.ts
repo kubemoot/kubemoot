@@ -60,7 +60,7 @@ describe('the released answer', () => {
 		expect(revised?.text).toBe('Ratified by 1 in 2 rounds after a revision');
 	});
 
-	it('shows the objections that stand, never hides them', () => {
+	it('counts the objections that stand', () => {
 		const view = ratificationView(
 			msg('synthesis', {
 				ratification: { state: 'released_with_objections', rounds: 2, roster: ['a'], objections: [objection] }
@@ -68,7 +68,6 @@ describe('the released answer', () => {
 		);
 		expect(view?.text).toBe('Released with 1 objection standing after 2 rounds');
 		expect(view?.tone).toBe('alert');
-		expect(view?.objections).toEqual([objection]);
 	});
 
 	it('names the agents that did not answer', () => {

@@ -43,7 +43,8 @@ export const LEGACY_SIGNALS: Readonly<Record<string, string>> = {
 const SIGNAL_ORDER = ['agree', 'concern', 'block', 'failure', 'stand_aside'];
 
 export function isContribution(msg: DiscussionMessage): boolean {
-	return CONTRIBUTION_SIGNALS.has(msg.messageType);
+	// A reply to the coordinator's draft is a verdict on the answer, not a contribution to it.
+	return CONTRIBUTION_SIGNALS.has(msg.messageType) && msg.metadata?.ratifies == null;
 }
 
 function signalKind(messageType: string): string {

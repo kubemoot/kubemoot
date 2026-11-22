@@ -747,7 +747,8 @@ public class DiscussionSubscriber {
         long startMs = System.currentTimeMillis();
         var heartbeat = startHeartbeat(subject, threadId);
         try {
-            var result = runMullingInference(conversation + "\n\n" + RatifyText.ratifierInstruction(), threadId,
+            var result = runMullingInference(conversation + "\n\n" + RatifyText.ratifierInstruction(
+                    chatService.systemPromptMentions(RatifyText.MODULE_SENTINEL)), threadId,
                     new ThreadCapacityWait(subject, threadId));
             publishRatification(subject, threadId, round, draftId, result, startMs);
         } catch (Exception e) {
