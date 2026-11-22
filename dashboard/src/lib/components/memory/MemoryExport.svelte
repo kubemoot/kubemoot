@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { CrewScope } from '#lib/crewScope.js';
 	import { exportFileName, exportQuery, exportSummary, fetchExportReport, type MemoryExportReport } from '#lib/crew-memory-export.js';
 
@@ -13,12 +15,6 @@
 	}
 
 	let { scope, endpoint, hasFacts, fetchFn = fetch }: Props = $props();
-
-	const emptyReason = 'Nothing to export: this crew has not learned any facts yet';
-	// What the export holds: operator/pkg/crewmemory/ompi writes manifest.json and one memories/<id>.json
-	// per fact (created_at is when it was learned, provenance names the agent), zipped by the dashboard route.
-	const tip =
-		"Download this crew's memory as an OMPI zip: a manifest and one JSON file per fact, with the agent that learned it and when. Facts that hold a credential are left out; kmctl memory export keeps them.";
 
 	let report = $state<MemoryExportReport | null>(null);
 
@@ -42,11 +38,10 @@
 <div class="export">
 	{#if leftOutNote}<span class="note">{leftOutNote}</span>{/if}
 	{#if hasFacts}
-		<a class="button" href={`${endpoint}?${exportQuery(scope, { report: false })}`} download={exportFileName(scope)} title={tip}>Export</a>
+		<a class="button" href={`${endpoint}?${exportQuery(scope, { report: false })}`} download={exportFileName(scope)} use:tooltip={ACTIONS.exportMemory}>Export</a>
 	{:else}
-		<span title={emptyReason}>
-			<button type="button" disabled aria-label={`Export. ${emptyReason}`}>Export</button>
-		</span>
+		<!-- aria-disabled, not disabled: a disabled button gets no hover or focus, so its reason could not show. -->
+		<button type="button" class="disabled" aria-disabled="true" use:tooltip={ACTIONS.exportMemoryEmpty} onclick={(e) => e.preventDefault()}>Export</button>
 	{/if}
 </div>
 
@@ -58,5 +53,5 @@
 		background: var(--color-bg-tertiary); color: var(--color-text);
 		border: 1px solid var(--color-border); border-radius: 0.375rem;
 	}
-	button:disabled { opacity: 0.5; cursor: not-allowed; }
+	button.disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

@@ -49,8 +49,8 @@ export const ACTIONS = {
 	copyConversation: 'Copy conversation: its questions and answers to the clipboard as text',
 
 	// Other pages
-	downloadMemory: 'Download: this crew\'s memory as a file in the OMPI interchange format',
-	exportMemory: 'Export: opens the export options; the memory is downloaded only when you choose Download. Format: OMPI interchange',
+	exportMemory: 'Export: downloads this crew\'s memory as an OMPI zip, one JSON file per fact with who learned it and when. Credential facts are left out.',
+	exportMemoryEmpty: 'Nothing to export: this crew has not learned any facts yet',
 	toggleStandAsides: 'Stand-asides: shows or hides agents that stood aside in a discussion; display only',
 	filterVerdict: 'Verdict: shows only servers with this reliability verdict',
 	sortReports: 'Sort: orders the reports; changes nothing in the cluster',

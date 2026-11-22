@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { crewDirectory, namespace } from '#lib/stores/index.js';
 import Page from './+page.svelte';
@@ -28,8 +28,9 @@ describe('crew memory page', () => {
 		await screen.findByText(/This crew has not learned any facts yet/);
 		expect(screen.getAllByRole('button', { name: /Export/ })).toHaveLength(1);
 		const button = screen.getByRole<HTMLButtonElement>('button', { name: /Export/ });
-		expect(button.disabled).toBe(true);
-		expect(container.innerHTML).toContain('Nothing to export: this crew has not learned any facts yet');
+		expect(button.getAttribute('aria-disabled')).toBe('true');
+		await fireEvent.focus(button);
+		expect((await screen.findAllByRole('tooltip')).map((t) => t.textContent)).toContain('Nothing to export: this crew has not learned any facts yet');
 		expect(container.textContent).not.toMatch(/kmctl/);
 	});
 
@@ -48,7 +49,9 @@ describe('crew memory page', () => {
 		const { container } = render(Page);
 		await waitFor(() => expect(container.querySelector('td.ts')).toBeTruthy());
 		const cell = container.querySelector('td.ts');
-		expect(cell?.getAttribute('title')).toBe('2026-11-22T01:00:00Z');
+		expect(cell?.getAttribute('title')).toBeNull();
+		await fireEvent.mouseEnter(cell as Element);
+		expect((await screen.findAllByRole('tooltip')).map((t) => t.textContent)).toContain('2026-11-22T01:00:00Z');
 		expect(cell?.textContent).not.toContain('2026-11-22T01:00:00Z');
 		expect(cell?.textContent).toMatch(/Nov/);
 	});

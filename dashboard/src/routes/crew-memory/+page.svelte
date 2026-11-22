@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { resolve } from '$app/paths';
 	import { crewDirectory, namespace } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
@@ -95,7 +94,7 @@
 								<td>{f.key}</td>
 								<td class="val">{f.value}</td>
 								<td>{f.learnedBy}</td>
-								<td class="ts" title={f.usedAt}>{formatTimestamp(f.usedAt) || f.usedAt}</td>
+								<td class="ts" use:tooltip={f.usedAt}>{formatTimestamp(f.usedAt) || f.usedAt}</td>
 							</tr>
 						{/each}
 					</tbody>
