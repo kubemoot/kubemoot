@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { askCommand } from '#lib/cli-commands.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
@@ -16,9 +17,7 @@
 	import { threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
 	import * as tips from '#lib/discussion-actions.js';
-	import { CommandHint, ConversationDownload } from '#lib/components/common/index.js';
-	import { askCommand, listConversationsCommand, replayConversationCommand } from '#lib/cli-commands.js';
-	import { threadConversationId } from '#lib/conversation-export.js';
+
 	import { fetchDashboardVersion, versionLabel, VERSION_UNKNOWN } from '#lib/dashboard-version.js';
 
 	// Configure marked for safe inline rendering
@@ -98,8 +97,6 @@
 	};
 
 	const selectedThread = $derived(selectedThreadId ? $threads.get(selectedThreadId) : null);
-	const selectedConversationId = $derived(selectedThread ? threadConversationId(selectedThread) : undefined);
-	const selectedThreadScope = $derived(selectedThread ? tryCrewScope(selectedThread.namespace, selectedThread.crew) : null);
 	// Per-message elapsed time, step durations, tokens and placement, and the thread's
 	// summary, derived from the selected thread's messages as they arrive.
 	const selectedStats = $derived(messageStats(selectedThread?.messages ?? []));
@@ -373,9 +370,6 @@
 								<path d="M5 6.5L3 4.5M11 6.5L13 4.5M5 9.5H2M11 9.5H14M5.5 12.5L3.5 14.5M10.5 12.5L12.5 14.5M6.5 5.5C6.5 4 7 3 8 3S9.5 4 9.5 5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
 							</svg>
 						</button>
-						{#if selectedConversationId}
-							<ConversationDownload scope={selectedThreadScope} ids={[selectedConversationId]} endpoint={resolve('/api/kubemoot/conversation-export')} label="Download conversation" />
-						{/if}
 						<button class="action-btn" onclick={copyThread} title={tips.COPY_THREAD_TOOLTIP} aria-label="Copy thread">
 							{copiedThread ? '✓' : '📋'}
 						</button>
@@ -490,15 +484,6 @@
 					{/if}
 				</div>
 
-				<div class="reply-bar">
-					<CommandHint
-						label="Ask a follow-up from a terminal (find the conversation id with {listConversationsCommand(selectedThread.crew ?? 'CREW', selectedThread.namespace)}):"
-						command={askCommand(selectedThread.crew ?? 'CREW', selectedThread.namespace, 'CONVERSATION_ID')}
-					/>
-					{#if selectedConversationId}
-						<CommandHint label="Ask this conversation's first question again, in a new conversation:" command={replayConversationCommand(selectedThread.crew ?? 'CREW', selectedConversationId, selectedThread.namespace)} />
-					{/if}
-				</div>
 			{:else}
 				<div class="no-selection">
 					Select a discussion thread to view its timeline
