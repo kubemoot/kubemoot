@@ -269,7 +269,7 @@ A single `block` outweighs any number of `agree`s. This is consent, not a vote c
 ## How a discussion settles
 
 The coordinator runs a per-thread state machine driven by signal state, not by a fixed
-timer: `SUBMITTED` → `ADVISORY` → `EVALUATING` → `REVIEW` → `SYNTHESIZING` → `CLOSED`,
+timer: `SUBMITTED` -> `ADVISORY` -> `EVALUATING` -> `REVIEW` -> `SYNTHESIZING` -> `RATIFY` -> `CLOSED`,
 with a `PAUSED` state that can interrupt most of it. The full state table, every
 transition, and the design principles behind signal-driven settling (per-agent
 deadlines calibrated from historical latency, per-phase rosters that settle a phase as
@@ -291,6 +291,24 @@ Model selection for each individual inference call, including which accelerator 
 serves it, is decided separately at the moment the call is made - the mechanics and
 the reasoning live in [Scheduler](../scheduler/#jit-per-call-server-selection).
 
+## The answer goes back to the table
+
+The coordinator's synthesis is a draft, not the answer. In `RATIFY` it is published as a `draft`
+message, and the agents whose evidence it rests on check it: each compares the names, counts and
+statuses in the draft with its own stored results, using its tools, and replies `agree`, `concern` or
+`block` with `metadata.ratifies` set to the round. The coordinator revises once on the objections,
+puts the revision to the table, and closes when the roster has ratified or the archetype's rounds
+are used up. An answer the table still objects to is released with the objections attached (the text
+ends with them, and the `synthesis` message carries them), never silently.
+
+The reason is the shape of the failure it answers: a crew can agree on an empty basis (each agent
+posts that it gathered data and nobody has read a row), and a synthesis written from that invents
+the missing detail. Evidence that reaches the table is the other half of the fix: a result too
+large for an agent's window arrives as a bounded table preview, not as a pointer
+([Workspace](../../concepts/workspace/#a-stored-result-the-agent-could-not-read)). The phase, the
+roster, the deadlines and the failure handling are in
+[The Moot - Ratification](../../concepts/consensus-model/#ratification).
+
 ## Roles inside a discussion
 
 A crew has one coordinator, some Toolers, and optionally some Analysts; what each
@@ -306,7 +324,7 @@ canonical home for the split; this page only needs the phase mapping above.
 
 The coordinator itself plays three parts in sequence rather than delegating them to
 separate agents: it generates the framing advisory, selects the subcommittee, and
-synthesizes the final answer. It doesn't impose an answer - it arbitrates. Once the
+drafts the final answer, which the table then ratifies. It doesn't impose an answer - it arbitrates. Once the
 discussion settles, it applies the plain rule from the worked example above: a `block`
 halts and gets reported; concerns are folded in as caveats on an otherwise-synthesized
 answer; clean agrees get synthesized directly; and if nothing came back at all, it

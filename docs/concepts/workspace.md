@@ -78,7 +78,7 @@ define use the convention's name; the rest sit in the `kubemoot.` namespace.
 | `kubemoot.duration_ms` | How long the call took. |
 | `kubemoot.error` | `true` or `false`. |
 | `kubemoot.bytes` | Size of the stored body. |
-| `kubemoot.rows` | Items in a JSON list, or in the `items` list of a JSON object; absent when unknown (text). |
+| `kubemoot.rows` | Items in a JSON list, or in the `items` list of a JSON object; for a `kubectl` table the lines below its header (a `#` line, the server's continue token, does not count), counted in code; absent when unknown (other text). |
 | `Content-Type` | What the stored body is, decided once when it is stored: `application/json`, `text/csv`, `text/markdown` (a Markdown table), `application/yaml`, `text/plain; profile=kubectl-table`, or `text/plain` for anything else. Every reader believes it and looks at the bytes only when it is missing (an object stored before the header existed). See [Content type](#content-type). |
 | `kubemoot.truncated` | `true` only when the result was cut at the size cap. |
 
@@ -119,7 +119,7 @@ instead, which counts against the 4,000 characters.
 Pod a-1 uses the most CPU, 0.9 cores (workspace_query over 001-pods_list).
 
 [WORKSPACE agent=k8s-workloads calls=4 errors=0 prefix=k8s-workloads/]
-[CALL key=k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} type=text/plain; profile=kubectl-table bytes=15210 rows=unknown error=false columns=name,ready,status,restarts,age]
+[CALL key=k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} type=text/plain; profile=kubectl-table bytes=15210 rows=64 error=false columns=name,ready,status,restarts,age]
 [CALL key=k8s-workloads/002-nodes_list tool=nodes_list args={} type=application/json bytes=2210 rows=3 error=false fields=metadata,spec,status]
 [CALL key=k8s-workloads/003-events_list tool=events_list args={} type=text/plain bytes=15 rows=unknown error=false]
 [RESULT]
@@ -210,7 +210,8 @@ A statement is cut at 24,000 characters; the descriptions and posted results aft
 An agent's own model keeps its normal behavior while it works: a result too large for its
 window is shown to a tooler's model as a short stand-in that names the call's key
 (`Stored as workspace artifact {key}.`), and to any other agent as an error asking for a
-narrower call. In both cases the whole result is in the file.
+narrower call. In both cases the whole result is in the file, and when the result is a table the
+agent also gets a bounded preview of it (next section).
 
 **A write that fails** is not hidden. The call gets a line
 `[NOT STORED tool=<tool> args=... error=... - the result could not be written to the workspace and is not available]`
@@ -262,6 +263,37 @@ posted, and a Jobs table of 25,662 bytes stays in its file on a 32,768-token win
 131,072-token window, where one result may take 12,288 characters). The agents that read files can
 still query the Jobs table; the synthesizer reads the CronJobs and the events from the discussion
 and reports the Jobs as unknown.
+
+### A stored result the agent could not read
+
+A result too large for an agent's window used to leave the agent with a size and a key, and for
+a wide table not even a row: the first 1,500 characters of a Kubernetes Node list are the header
+and part of one row, because each row ends in a `LABELS` column of 2,000 characters or more. An
+agent that has seen no row cannot state a count or a status, and a crew that agrees on that basis
+agrees on nothing.
+
+The runtime now builds a **table preview** in code from the result, for a `kubectl` table (the
+profile in [Content type](#content-type); a Markdown table or CSV keeps the head for now):
+
+- the header and the **leading columns** that fit a width of 160 characters (the last column counts
+  at the width of its longest row), so `NAME`, `STATUS`, `ROLES`, `AGE` and `VERSION` arrive and a
+  trailing `LABELS` column does not;
+- every row, up to 40 and up to 4,000 characters in all, each cut to those columns, and the count of rows in the result (the same
+  count the `[CALL ...]` line carries as `rows=`, so a post states how many objects a table lists
+  from what the runtime counted, not from a model reading the rows);
+- a line naming the columns left out and how to read them (a query over the key).
+
+The preview is a projection, not a cut: a row is never shown in part, the columns left out are
+named, and a result with more than 40 rows says it shows the first 40 of the total. A tooler's
+stand-in carries it in place of the first 1,500 characters; an agent that gets the error for a
+too-large result gets it with the preview. A result that is not a table keeps the old head.
+
+It reads what the tool returned, so it changes nothing in the file and nothing the other agents
+read. The size of the file itself is a property of the tool: the Kubernetes MCP server prints
+every list wide, with a `LABELS` column, and has no per-call option for fewer columns (a Node list
+of 14 nodes is about 42,000 bytes, 3,000 per row, nearly all labels). Where the server can print a
+compact table, the crew sets it in the server's own settings; where it cannot, the preview is what
+keeps the agent from reading nothing.
 
 ### Short keys
 

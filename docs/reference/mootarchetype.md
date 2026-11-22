@@ -1,7 +1,7 @@
 ---
 title: "MootArchetype CRD"
 weight: 9
-description: "The MootArchetype resource: the declared phases, signals, and state machine of a consensus archetype. A v1alpha1 API that the operator validates today and the agent runtime does not yet read."
+description: "The MootArchetype resource: the declared phases, signals, and state machine of a consensus archetype, and the review and ratify settings the agent runtime reads. A v1alpha1 API."
 ---
 
 ## Overview
@@ -58,6 +58,7 @@ spec:
 | `signals` | list of string | no | The signal types agents may emit during a discussion. An open set of names; informational. |
 | `stateMachine` | object | no | The legal phase transitions. See [State machine](#state-machine). When absent, progression is sequential in the order the phases are declared. |
 | `review` | object | no | Which analysts the coordinator convenes for review. See [Review](#review). When absent, every analyst reviews. |
+| `ratify` | object | no | Whether the contributors ratify the coordinator's draft before it is released, and how. See [Ratify](#ratify). When absent, they do. |
 
 ### Phases
 
@@ -93,6 +94,35 @@ coordinator as `KUBEMOOT_DISCUSS_REVIEW_CONVENE` and `KUBEMOOT_DISCUSS_REVIEW_FA
 re-reconciles the coordinators. An Agent's own `spec.deployment.env` wins over both.
 
 The CRD gains the `review` field, so apply the new CRDs before the operator chart that sets it. Flux installs use `crds: CreateReplace` on the HelmRelease; plain `helm` installs apply the CRDs first (`kubectl apply -f` the chart's `crds/` directory), because `helm upgrade` does not update CRDs.
+
+### Ratify
+
+After the coordinator drafts the answer, the agents that contributed check it against what they found
+(see [Ratification](../../concepts/consensus-model/#ratification)). The block declares how.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | `false` releases the draft as the answer, with no ratification (`SYNTHESIZING` goes straight to `CLOSED`). |
+| `maxRounds` | int, 1 to 5 | `2` | Most rounds the draft is put to the table: round 1 is the draft, each further round a revision on the objections. At `2` the coordinator revises once. At `1` it never revises: an objection is released with the answer. |
+| `roster` | `contributors` or `crew` | `contributors` | Who ratifies. `contributors`: every Tooler with a terminal `agree`, `concern` or `block` in the turn, and every Analyst that reviewed. `crew`: also every other Tooler and Analyst of the crew that has resumes. |
+
+```yaml
+spec:
+  ratify:
+    enabled: true
+    maxRounds: 2
+    roster: contributors
+```
+
+The operator reads the block of the crew's archetype (the same lookup as `review`) and gives it to the
+crew's coordinator as `KUBEMOOT_DISCUSS_RATIFY_ENABLED`, `KUBEMOOT_DISCUSS_RATIFY_MAX_ROUNDS` and
+`KUBEMOOT_DISCUSS_RATIFY_ROSTER`. An absent block sets nothing and the runtime ratifies with the
+defaults. An Agent's own `spec.deployment.env` wins over both. An edit to the block re-reconciles
+the coordinators.
+
+The field is optional and additive: a crew whose archetype has no `ratify` block works as before,
+now with ratification on. Apply the new CRDs before the operator chart that sets the block (see
+[Review](#review)).
 
 ### State machine
 
@@ -137,16 +167,16 @@ phase names and validity.
 
 ## What it does not do yet
 
-- **The agent runtime reads only `review`.** Editing the phases, signals or state machine of
+- **The agent runtime reads only `review` and `ratify`.** Editing the phases, signals or state machine of
   a `MootArchetype` does not change how a discussion runs; editing `review` changes which
-  analysts review.
+  analysts review, and editing `ratify` changes whether and how the draft is ratified.
 - **The discussion's phases and transitions are fixed in code.** The runtime moves a
-  discussion through its own sequence: advisory, evaluating, review, and synthesis.
+  discussion through its own sequence: advisory, evaluating, review, synthesis, and ratify.
   That sequence does not come from the archetype.
 - **The declared phases are scheduling phases.** The phases `consent-3` declares
   (`triaging`, `mulling`, `triage`, `evaluating`, `synthesis`) are the names a
   `CrewSchedulingPolicy` uses to choose a model per phase. They do not name the
-  runtime's advisory, evaluating, review, and synthesis sequence, and there is no
+  runtime's advisory, evaluating, review, synthesis, and ratify sequence, and there is no
   mapping between the two.
 - **`role`, `signals`, and `on` are informational.** The operator does not interpret
   them.
