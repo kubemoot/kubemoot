@@ -1,15 +1,17 @@
-// Maps the server ids that agents publish in span metadata to the GPU model the
+import { acceleratorModel, type CapacityLike } from './accelerator-capacity';
+
+// Maps the server ids that agents publish in span metadata to the accelerator model the
 // operator discovered on each ModelServer, for display only.
 
 interface ServerLike {
 	metadata?: { name?: string };
 	spec?: { endpoint?: string };
-	status?: { capacity?: { gpuModel?: string } };
+	status?: { capacity?: CapacityLike };
 }
 
-/** The compact GPU name: "NVIDIA GeForce RTX 5090" becomes "RTX 5090". */
-export function gpuDisplayName(gpuModel: string): string {
-	return gpuModel.replace(/^NVIDIA GeForce /, '').trim();
+/** The compact accelerator name: "NVIDIA GeForce RTX 5090" becomes "RTX 5090". */
+export function acceleratorDisplayName(model: string): string {
+	return model.replace(/^NVIDIA GeForce /, '').trim();
 }
 
 /** The namespace part of an endpoint host: "http://ollama.ollama-rig0:11434" gives "ollama-rig0". */
@@ -30,15 +32,15 @@ function serverIds(mp: ServerLike): string[] {
 }
 
 /**
- * GPU display name keyed by every id a server is published under: its CR name and
- * its endpoint namespace. Servers without a discovered GPU model are left out.
+ * Accelerator display name keyed by every id a server is published under: its CR name and
+ * its endpoint namespace. Servers without a discovered accelerator model are left out.
  */
-export function buildGpuDisplayMap(servers: ServerLike[]): Record<string, string> {
+export function buildAcceleratorDisplayMap(servers: ServerLike[]): Record<string, string> {
 	const map: Record<string, string> = {};
 	for (const mp of servers) {
-		const gpuModel = mp?.status?.capacity?.gpuModel;
-		if (!gpuModel) continue;
-		const display = gpuDisplayName(gpuModel);
+		const model = acceleratorModel(mp?.status?.capacity);
+		if (!model) continue;
+		const display = acceleratorDisplayName(model);
 		for (const id of serverIds(mp)) map[id] = display;
 	}
 	return map;

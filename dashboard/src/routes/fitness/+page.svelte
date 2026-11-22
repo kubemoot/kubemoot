@@ -6,6 +6,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, showStandAsides } from '#lib/stores/index.js';
 	import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
+	import { acceleratorOfEvent } from '#lib/accelerator-capacity.js';
 	import { CommandHint, PageTitle } from '#lib/components/common/index.js';
 	import { deleteSuiteCommand, suiteControlCommand } from '#lib/cli-commands.js';
 	import {
@@ -63,6 +64,8 @@
 		type: string;
 		agent?: string;
 		status?: string;
+		accelerator?: string;
+		/** Deprecated old name of accelerator. */
 		gpu?: string;
 		signal?: string;
 		summary?: string;
@@ -692,7 +695,7 @@
 																							{#if ev.type === 'advisory'}
 																								<div class="ev advisory"><span class="evtag">advisory</span><div class="md">{@html md(ev.content)}</div></div>
 																							{:else if ev.type === 'phase'}
-																								{#if !(ev.stood_aside && !$showStandAsides)}<div class="ev phase">{@render agentTag(ev.agent, ns)} {ev.stood_aside ? 'stood aside' : (ev.status ?? 'evaluating')}{ev.gpu ? ` · ${ev.gpu}` : ''}</div>{/if}
+																								{#if !(ev.stood_aside && !$showStandAsides)}<div class="ev phase">{@render agentTag(ev.agent, ns)} {ev.stood_aside ? 'stood aside' : (ev.status ?? 'evaluating')}{acceleratorOfEvent(ev) ? ` · ${acceleratorOfEvent(ev)}` : ''}</div>{/if}
 																							{:else if ev.type === 'finding'}
 																								{@const fkey = `${tid}:${evIdx}`}
 																								{@const full = ev.content || ev.summary || ''}

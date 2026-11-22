@@ -81,7 +81,7 @@ describe('buildAgentSpans', () => {
 			msg('homelab-sre', 'triaging', 1000),
 			msg('homelab-sre', 'agree', 4000, {
 				toolsUsed: ['pods_list', 'nodes_top'],
-				gpuLabel: 'ollama-gpu',
+				acceleratorLabel: 'ollama-gpu',
 				inferenceMs: 2500,
 				inferenceStartMs: 1500,
 				loadDurationMs: 300,
@@ -101,7 +101,7 @@ describe('buildAgentSpans', () => {
 			primarySignal: 'agree',
 			color: SIGNAL_COLORS.agree,
 			toolsUsed: ['pods_list', 'nodes_top'],
-			gpuLabel: 'ollama-gpu',
+			acceleratorLabel: 'ollama-gpu',
 			pickReason: 'warm, slot 1/2',
 			inferenceMs: 2500,
 			inferenceStartMs: 1500,
@@ -139,9 +139,9 @@ describe('buildAgentSpans', () => {
 
 describe('queueDepth', () => {
 	it('is 0 for a span without a GPU or timed inference', () => {
-		const bare = { gpuLabel: undefined, inferenceStartMs: 5, inferenceMs: 5 } as AgentSpan;
-		const untimed = { gpuLabel: 'g1', inferenceStartMs: undefined, inferenceMs: 5 } as AgentSpan;
-		const other = { gpuLabel: 'g1', inferenceStartMs: 0, inferenceMs: 100 } as AgentSpan;
+		const bare = { acceleratorLabel: undefined, inferenceStartMs: 5, inferenceMs: 5 } as AgentSpan;
+		const untimed = { acceleratorLabel: 'g1', inferenceStartMs: undefined, inferenceMs: 5 } as AgentSpan;
+		const other = { acceleratorLabel: 'g1', inferenceStartMs: 0, inferenceMs: 100 } as AgentSpan;
 		expect(queueDepth(bare, [bare, other])).toBe(0);
 		expect(queueDepth(untimed, [untimed, other])).toBe(0);
 	});
@@ -173,19 +173,31 @@ describe('buildAgentSpans placement and model', () => {
 		const [span] = buildAgentSpans([
 			msg('k8s', 'agree', 1000, { server: 'vllm-rig0', model: 'qwen3-32b' })
 		]);
-		expect(span.gpuLabel).toBe('vllm-rig0');
+		expect(span.acceleratorLabel).toBe('vllm-rig0');
 		expect(span.model).toBe('qwen3-32b');
 	});
 
 	it('falls back to the accelerator label when no server is reported', () => {
-		const [span] = buildAgentSpans([msg('k8s', 'agree', 1000, { gpuLabel: 'ollama-rig1' })]);
-		expect(span.gpuLabel).toBe('ollama-rig1');
+		const [span] = buildAgentSpans([msg('k8s', 'agree', 1000, { acceleratorLabel: 'ollama-rig1' })]);
+		expect(span.acceleratorLabel).toBe('ollama-rig1');
 		expect(span.model).toBeUndefined();
+	});
+
+	it('reads the deprecated gpuLabel from a publisher older than acceleratorLabel', () => {
+		const [span] = buildAgentSpans([msg('k8s', 'agree', 1000, { gpuLabel: 'ollama-rig1' })]);
+		expect(span.acceleratorLabel).toBe('ollama-rig1');
+	});
+
+	it('prefers acceleratorLabel when a message carries both', () => {
+		const [span] = buildAgentSpans([
+			msg('k8s', 'agree', 1000, { acceleratorLabel: 'new-label', gpuLabel: 'old-label' })
+		]);
+		expect(span.acceleratorLabel).toBe('new-label');
 	});
 
 	it('shows no placement for a call that ran on none', () => {
 		const [span] = buildAgentSpans([msg('k8s', 'agree', 1000, { gpuLabel: 'none' })]);
-		expect(span.gpuLabel).toBeUndefined();
+		expect(span.acceleratorLabel).toBeUndefined();
 	});
 });
 
@@ -251,7 +263,7 @@ describe('placement from the thread own call data', () => {
 			msg('scout', 'failure', 8, { gpuLabel: 'vllm' }),
 			msg('curator', 'agree', 7, { server: 'vllm-rig1', gpuLabel: 'vllm-rig1' })
 		]);
-		const by = Object.fromEntries(spans.map((s) => [s.agent, s.gpuLabel]));
+		const by = Object.fromEntries(spans.map((s) => [s.agent, s.acceleratorLabel]));
 		expect(by).toEqual({ coord: 'vllm-rig0', scout: undefined, curator: 'vllm-rig1' });
 	});
 
@@ -260,7 +272,7 @@ describe('placement from the thread own call data', () => {
 			msg('a', 'evaluating', 0, { modelsUsed: ['m@vllm-rig0'] }),
 			msg('a', 'agree', 5, { modelsUsed: ['m@vllm-rig0', 'm@vllm-rig1'] })
 		]);
-		expect(span.gpuLabel).toBe('vllm-rig1');
+		expect(span.acceleratorLabel).toBe('vllm-rig1');
 	});
 
 	it('keeps a reported label when it names a server of the thread', () => {
@@ -268,16 +280,16 @@ describe('placement from the thread own call data', () => {
 			msg('a', 'agree', 0, { gpuLabel: 'vllm-rig0' }),
 			msg('b', 'agree', 1, { server: 'vllm-rig0' })
 		]);
-		expect(span.gpuLabel).toBe('vllm-rig0');
+		expect(span.acceleratorLabel).toBe('vllm-rig0');
 	});
 
 	it('keeps the reported labels of a thread whose messages name no server', () => {
 		const [span] = buildAgentSpans([msg('a', 'agree', 0, { gpuLabel: 'gpu-0' })]);
-		expect(span.gpuLabel).toBe('gpu-0');
+		expect(span.acceleratorLabel).toBe('gpu-0');
 	});
 
 	it('uses a bare model name without a server', () => {
 		const [span] = buildAgentSpans([msg('a', 'agree', 0, { modelsUsed: ['qwen3:32b'] })]);
-		expect(span.gpuLabel).toBeUndefined();
+		expect(span.acceleratorLabel).toBeUndefined();
 	});
 });

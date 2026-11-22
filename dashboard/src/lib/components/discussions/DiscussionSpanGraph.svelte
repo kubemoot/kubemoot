@@ -13,7 +13,7 @@
 		userQuery = '',
 		version = '',
 		crew = '',
-		gpuDisplayMap = {}
+		acceleratorDisplayMap = {}
 	}: {
 		messages: DiscussionMessage[];
 		threadId?: string;
@@ -25,18 +25,18 @@
 		// GPU model (DCGM, e.g. "RTX 5090"). The agent publishes a stable server
 		// id in span metadata; this resolves it to the human GPU name for display
 		// only. Empty map (or unknown id) falls back to the raw server id.
-		gpuDisplayMap?: Record<string, string>;
+		acceleratorDisplayMap?: Record<string, string>;
 	} = $props();
 
-	// Resolve a published server-id gpuLabel to the discovered GPU model name
+	// Resolve a published server-id acceleratorLabel to the discovered GPU model name
 	// for display. Falls back to the raw label when the server is unknown.
 	function badgeLabel(label: string | undefined): string {
-		return gpuName(label).replace('RTX ', '');
+		return acceleratorName(label).replace('RTX ', '');
 	}
 
-	function gpuName(label: string | undefined): string {
+	function acceleratorName(label: string | undefined): string {
 		if (!label) return '';
-		return gpuDisplayMap[label] ?? label;
+		return acceleratorDisplayMap[label] ?? label;
 	}
 
 	let copiedImage = $state(false);
@@ -48,7 +48,7 @@
 	const PADDING_LEFT = 8;
 
 	// GPU colors assigned dynamically from message data - no hardcoded GPU models
-	const gpuColorPalette = ['#3b82f6', '#f97316', '#a78bfa', '#34d399', '#f472b6', '#facc15', '#22d3ee', '#fb923c'];
+	const acceleratorColorPalette = ['#3b82f6', '#f97316', '#a78bfa', '#34d399', '#f472b6', '#facc15', '#22d3ee', '#fb923c'];
 
 	const legendItems = [
 		{ label: 'Agree', color: '#34d399', tooltip: 'Agent ran tools and found relevant data to contribute' },
@@ -70,12 +70,12 @@
 
 	// The color of each server an agent's span names, in the order the spans first name them
 	const spans = $derived(buildAgentSpans(messages));
-	const gpuColors = $derived.by(() => {
+	const acceleratorColors = $derived.by(() => {
 		const map: Record<string, string> = {};
 		let idx = 0;
-		for (const { gpuLabel } of spans) {
-			if (gpuLabel && !(gpuLabel in map)) {
-				map[gpuLabel] = gpuColorPalette[idx % gpuColorPalette.length];
+		for (const { acceleratorLabel } of spans) {
+			if (acceleratorLabel && !(acceleratorLabel in map)) {
+				map[acceleratorLabel] = acceleratorColorPalette[idx % acceleratorColorPalette.length];
 				idx++;
 			}
 		}
@@ -128,7 +128,7 @@
 			})
 		)
 	);
-	const badgePx = $derived(Math.max(0, ...visibleSpans.filter((sp) => sp.gpuLabel).map((sp) => badgeWidth(badgeLabel(sp.gpuLabel)))));
+	const badgePx = $derived(Math.max(0, ...visibleSpans.filter((sp) => sp.acceleratorLabel).map((sp) => badgeWidth(badgeLabel(sp.acceleratorLabel)))));
 	const labelWidth = $derived(
 		labelColumnWidth(visibleSpans.map((sp) => sp.displayName), badgePx, containerWidth)
 	);
@@ -337,7 +337,7 @@
 			{@const overheadMs = hasInference ? Math.max(spanDuration - span.inferenceMs, 0) : 0}
 			{@const overheadWidth = hasInference ? (overheadMs / Math.max(spanDuration, 1)) * barWidth : 0}
 			{@const inferenceWidth = hasInference ? barWidth - overheadWidth : 0}
-			{@const gpuColor = span.gpuLabel ? (gpuColors[span.gpuLabel] || '#6b7280') : span.color}
+			{@const acceleratorColor = span.acceleratorLabel ? (acceleratorColors[span.acceleratorLabel] || '#6b7280') : span.color}
 			{@const loadMs = hasInference ? Math.min(span.firstTokenMs, span.inferenceMs) : 0}
 			{@const hasLoad = loadMs > 0 && inferenceWidth > 4}
 			{@const loadWidth = hasLoad ? (loadMs / Math.max(span.inferenceMs, 1)) * inferenceWidth : 0}
@@ -350,7 +350,7 @@
 
 			<!-- Agent label (right-aligned) -->
 			<text
-				x={span.gpuLabel ? labelWidth - badgePx - 14 : labelWidth - 8}
+				x={span.acceleratorLabel ? labelWidth - badgePx - 14 : labelWidth - 8}
 				y={y + ROW_HEIGHT / 2}
 				text-anchor="end"
 				dominant-baseline="central"
@@ -358,12 +358,12 @@
 				font-size="12"
 				font-weight={isHovered ? '600' : '400'}
 				font-family="ui-monospace, monospace"
-			>{fitLabel(span.displayName, labelWidth - (span.gpuLabel ? badgePx + 26 : 22))}{#if fitLabel(span.displayName, labelWidth - (span.gpuLabel ? badgePx + 26 : 22)) !== span.displayName}<title>{span.displayName}</title>{/if}</text>
+			>{fitLabel(span.displayName, labelWidth - (span.acceleratorLabel ? badgePx + 26 : 22))}{#if fitLabel(span.displayName, labelWidth - (span.acceleratorLabel ? badgePx + 26 : 22)) !== span.displayName}<title>{span.displayName}</title>{/if}</text>
 
 			<!-- GPU label badge -->
-			{#if span.gpuLabel}
-				{@const badgeColor = gpuColors[span.gpuLabel] || '#6b7280'}
-				{@const badgeText = badgeLabel(span.gpuLabel)}
+			{#if span.acceleratorLabel}
+				{@const badgeColor = acceleratorColors[span.acceleratorLabel] || '#6b7280'}
+				{@const badgeText = badgeLabel(span.acceleratorLabel)}
 				{#if span.pickReason || span.model}
 					<title>{[span.model, span.pickReason].filter(Boolean).join(' | ')}</title>
 				{/if}
@@ -442,7 +442,7 @@
 							width={Math.max(loadWidth, 1)}
 							height={BAR_HEIGHT}
 							rx={overheadWidth > 1 ? 0 : 4}
-							fill={gpuColor}
+							fill={acceleratorColor}
 							opacity={isHovered ? 0.55 : 0.35}
 						>
 							<title>First token after {formatDuration(loadMs)}{span.coldStart ? ', including the model load' : ''}</title>
@@ -454,7 +454,7 @@
 						width={Math.max(evalWidth, 4)}
 						height={BAR_HEIGHT}
 						rx={(overheadWidth > 1 || hasLoad) ? 0 : 4}
-						fill={gpuColor}
+						fill={acceleratorColor}
 						opacity={isHovered ? 0.95 : 0.75}
 					/>
 					<!-- Right cap for rounded corners -->
@@ -465,7 +465,7 @@
 							width="4"
 							height={BAR_HEIGHT}
 							rx="4"
-							fill={gpuColor}
+							fill={acceleratorColor}
 							opacity={isHovered ? 0.95 : 0.75}
 						/>
 					{/if}
@@ -550,13 +550,13 @@
 					>
 						<div class="tool-badges-row" xmlns="http://www.w3.org/1999/xhtml">
 							{#if span.model}
-								<span class="span-tool-badge">{span.model}{span.gpuLabel ? ` on ${gpuName(span.gpuLabel)}` : ''}</span>
+								<span class="span-tool-badge">{span.model}{span.acceleratorLabel ? ` on ${acceleratorName(span.acceleratorLabel)}` : ''}</span>
 							{/if}
 							{#each span.toolsUsed as tool}
 								<span class="span-tool-badge">{tool}</span>
 							{/each}
 							{#if span.queueDepth > 0}
-								<span class="span-queue-badge">queued x{span.queueDepth} on {gpuName(span.gpuLabel)}</span>
+								<span class="span-queue-badge">queued x{span.queueDepth} on {acceleratorName(span.acceleratorLabel)}</span>
 							{/if}
 						</div>
 					</foreignObject>

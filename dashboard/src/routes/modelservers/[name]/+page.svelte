@@ -10,6 +10,7 @@
 	import type { ModelServer } from '#lib/types/kubemoot.js';
 	import { calibrationBadge, calibrationRows, hasCalibration } from '#lib/server-calibration.js';
 	import { formatBytes, formatMiB } from '#lib/format.js';
+	import { acceleratorMemoryTotalMiB, acceleratorMemoryUsedMiB, loadedAcceleratorMemory } from '#lib/accelerator-capacity.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
 
 	let server = $state<ModelServer | null>(null);
@@ -114,10 +115,10 @@
 						{#if capacity.maxParallel !== undefined}
 							<InfoRow label="Max Parallel" value={capacity.maxParallel} />
 						{/if}
-						{#if capacity.vramTotalMiB !== undefined}
-							<InfoRow label="VRAM Used" value="{formatMiB(capacity.vramUsedMiB)} / {formatMiB(capacity.vramTotalMiB)}" />
-						{:else if capacity.vramUsedMiB !== undefined}
-							<InfoRow label="VRAM Used" value={formatMiB(capacity.vramUsedMiB)} />
+						{#if acceleratorMemoryTotalMiB(capacity) !== undefined}
+							<InfoRow label="VRAM Used" value="{formatMiB(acceleratorMemoryUsedMiB(capacity))} / {formatMiB(acceleratorMemoryTotalMiB(capacity))}" />
+						{:else if acceleratorMemoryUsedMiB(capacity) !== undefined}
+							<InfoRow label="VRAM Used" value={formatMiB(acceleratorMemoryUsedMiB(capacity))} />
 						{/if}
 						{#if capacity.lastProbed}
 							<InfoRow label="Last Probed" value={capacity.lastProbed} />
@@ -184,7 +185,7 @@
 								<div class="model-row">
 									<span class="model-state loaded" title="In VRAM"></span>
 									<a class="model-name mono" href={modelDetailsHref(m.name)}>{m.name}</a>
-									<span class="model-meta">{formatBytes(m.sizeVram)}</span>
+									<span class="model-meta">{formatBytes(loadedAcceleratorMemory(m))}</span>
 									{#if m.expiresAt}
 										<span class="model-meta">expires {new Date(m.expiresAt).toLocaleTimeString()}</span>
 									{/if}

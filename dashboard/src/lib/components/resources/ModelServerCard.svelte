@@ -2,6 +2,7 @@
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
 	import { formatBytes, formatMiB } from '#lib/format.js';
+	import { acceleratorMemoryTotalMiB, acceleratorMemoryUsedMiB, loadedAcceleratorMemory } from '#lib/accelerator-capacity.js';
 	import { readinessStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
 	import type { ModelServer, ModelServerLoadedModel } from '#lib/types/kubemoot.js';
@@ -58,8 +59,8 @@
 		return baseLoadedByName.has(modelName);
 	}
 
-	const vramUsed = $derived(capacity?.vramUsedMiB ?? 0);
-	const vramTotal = $derived(capacity?.vramTotalMiB ?? 0);
+	const vramUsed = $derived(acceleratorMemoryUsedMiB(capacity) ?? 0);
+	const vramTotal = $derived(acceleratorMemoryTotalMiB(capacity) ?? 0);
 	const vramPct = $derived(vramTotal > 0 ? Math.min(100, Math.round((vramUsed * 100) / vramTotal)) : 0);
 
 	function modelDetailsHref(modelName: string): string {
@@ -158,8 +159,8 @@
 										href={modelDetailsHref(entry.name)}
 										onclick={stopProp}
 									>{entry.name}</a>
-									{#if entry.loadedInfo?.sizeVram}
-										<span class="model-meta">{formatBytes(entry.loadedInfo.sizeVram)}</span>
+									{#if loadedAcceleratorMemory(entry.loadedInfo)}
+										<span class="model-meta">{formatBytes(loadedAcceleratorMemory(entry.loadedInfo))}</span>
 									{/if}
 									{#if entry.loadedInfo?.expiresAt}
 										<span class="model-meta ttl">TTL {formatRemaining(entry.loadedInfo.expiresAt, now)}</span>

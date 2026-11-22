@@ -5,9 +5,10 @@
 	import { refreshTrigger } from '#lib/stores/index.js';
 	import { ResourceList } from '#lib/components/layout/index.js';
 	import { NodeCard } from '#lib/components/resources/index.js';
-	import type { NodeWithGPU } from '#lib/types/k8s.js';
+	import type { NodeWithAccelerator } from '#lib/types/k8s.js';
+	import { nodeAccelerator } from '#lib/node-accelerator.js';
 
-	let nodes = $state<NodeWithGPU[]>([]);
+	let nodes = $state<NodeWithAccelerator[]>([]);
 	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -37,7 +38,7 @@
 		fetchNodes();
 	});
 
-	const gpuNodes = $derived(nodes.filter((n) => n.gpu?.present));
+	const acceleratorNodes = $derived(nodes.filter((n) => nodeAccelerator(n)?.present));
 </script>
 
 <ResourceList route="/nodes" count={nodes.length} {loading} {error}>
@@ -52,10 +53,10 @@
 	{/snippet}
 </ResourceList>
 
-{#if gpuNodes.length > 0}
+{#if acceleratorNodes.length > 0}
 	<div class="gpu-summary">
 		<h3>Accelerator Nodes</h3>
-		<p>{gpuNodes.length} node{gpuNodes.length !== 1 ? 's' : ''} with accelerator capability</p>
+		<p>{acceleratorNodes.length} node{acceleratorNodes.length !== 1 ? 's' : ''} with accelerator capability</p>
 	</div>
 {/if}
 
