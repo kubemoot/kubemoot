@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { CrewScope } from '#lib/crewScope.js';
 	import { browserTimeZone, exportHref, exportLabel } from '#lib/conversation-export.js';
 
@@ -22,7 +20,7 @@
 </script>
 
 {#if href}
-	<a use:tooltip={ACTIONS.downloadConversations(ids.length)}
+	<a
 		class="action-btn"
 		{href}
 		download

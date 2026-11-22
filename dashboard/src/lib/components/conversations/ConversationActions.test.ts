@@ -52,16 +52,6 @@ describe('copy actions', () => {
 		expect(clipboard).toHaveBeenCalledWith('c-1: What are the two GPU temperatures?');
 	});
 
-	it('copies one kmctl command with the real crew, namespace and id', async () => {
-		render(ConversationActions, props(mockFetch()));
-		await choose('Copy kmctl command');
-		const text = clipboard.mock.calls[0][0] as string;
-		expect(text).toContain('pilot');
-		expect(text).toContain('c-1');
-		expect(text).toContain('ns');
-		expect(text).not.toMatch(/CONVERSATION_ID|CREW\b/);
-	});
-
 	it('says so when the browser refuses to copy', async () => {
 		clipboard.mockRejectedValue(new Error('denied'));
 		render(ConversationActions, props(mockFetch()));

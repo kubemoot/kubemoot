@@ -1,10 +1,11 @@
 // The filters and the search of the conversation list. They live in the URL query, so a link
-// reproduces the view: ?status=failed&mine=1&from=2026-11-01&to=2026-11-21&q=gpu. Everything
+// reproduces the view: ?status=failed&mine=1&range=custom&from=2026-11-01T09:00&to=2026-11-21T17:30&q=gpu. Everything
 // here is a plain function of the loaded threads; the crew is the top-bar selector's.
 
-import type { Thread } from '#lib/stores/discussions.js';
+import { threadStartedAt, type Thread } from '#lib/stores/discussions.js';
 import { threadConversationId } from '#lib/conversation-export.js';
 import { matchesSearch, parseSearch } from '#lib/search-query.js';
+import { DEFAULT_RANGE, customLabel, inTimeRange, isRangeKey, parseLocal, rangeLabel, type RangeKey } from '#lib/time-range.js';
 
 export type StatusFilter = 'active' | 'closed' | 'failed';
 export const STATUSES: readonly StatusFilter[] = ['active', 'closed', 'failed'];
@@ -13,30 +14,45 @@ export interface ListFilter {
 	status: StatusFilter | null;
 	/** Only conversations the signed-in person started. */
 	mine: boolean;
-	/** Local dates, YYYY-MM-DD, both ends included. */
+	/** The time range; with custom, from and to are local date-times, YYYY-MM-DDTHH:mm, both minutes included. */
+	range: RangeKey;
 	from: string | null;
 	to: string | null;
 	/** Text to find in the question and the messages. */
 	q: string;
 }
 
-export const NO_FILTER: ListFilter = { status: null, mine: false, from: null, to: null, q: '' };
+/** Nothing filtered: every status, everyone's, any time. */
+export const NO_FILTER: ListFilter = { status: null, mine: false, range: 'any', from: null, to: null, q: '' };
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** What a list shows until a person changes it: the default time range, nothing else. */
+export const DEFAULT_FILTER: ListFilter = { ...NO_FILTER, range: DEFAULT_RANGE };
+
 const MAX_QUERY = 200;
 
-function validDate(value: string | null): string | null {
-	return value !== null && DATE.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00`)) ? value : null;
+const FILTER_KEYS = ['status', 'mine', 'range', 'from', 'to', 'q'] as const;
+
+/** Whether the query string sets any filter; without one, the viewer's remembered filter applies. */
+export function hasFilterParams(params: URLSearchParams): boolean {
+	return FILTER_KEYS.some((key) => params.has(key));
 }
 
-/** The filter a query string describes; anything unreadable is ignored. */
+/** The filter a query string describes; anything unreadable is ignored, and no range means the default. */
 export function parseFilter(params: URLSearchParams): ListFilter {
 	const status = params.get('status');
+	const asked = params.get('range');
+	const from = parseLocal(params.get('from'));
+	const to = parseLocal(params.get('to'), true);
+	// An address from before ranges existed carries only from and to: that is a custom range.
+	const legacy = from || to ? 'custom' : DEFAULT_RANGE;
+	const range = isRangeKey(asked) ? asked : legacy;
+	const custom = range === 'custom';
 	return {
 		status: STATUSES.find((s) => s === status) ?? null,
 		mine: params.get('mine') === '1',
-		from: validDate(params.get('from')),
-		to: validDate(params.get('to')),
+		range,
+		from: custom ? from : null,
+		to: custom ? to : null,
 		q: (params.get('q') ?? '').trim().slice(0, MAX_QUERY)
 	};
 }
@@ -44,11 +60,12 @@ export function parseFilter(params: URLSearchParams): ListFilter {
 /** Writes a filter into a copy of the query string, leaving other parameters (such as thread) as they are. */
 export function withFilter(params: URLSearchParams, filter: ListFilter): URLSearchParams {
 	const next = new URLSearchParams(params);
-	for (const key of ['status', 'mine', 'from', 'to', 'q']) next.delete(key);
+	for (const key of FILTER_KEYS) next.delete(key);
 	if (filter.status) next.set('status', filter.status);
 	if (filter.mine) next.set('mine', '1');
-	if (filter.from) next.set('from', filter.from);
-	if (filter.to) next.set('to', filter.to);
+	if (filter.range !== DEFAULT_RANGE) next.set('range', filter.range);
+	if (filter.range === 'custom' && filter.from) next.set('from', filter.from);
+	if (filter.range === 'custom' && filter.to) next.set('to', filter.to);
 	if (filter.q) next.set('q', filter.q);
 	return next;
 }
@@ -58,20 +75,38 @@ export interface Chip {
 	label: string;
 }
 
+/** The chip for the time range, when one is set. */
+function rangeChip(filter: ListFilter): Chip[] {
+	if (filter.range === 'any') return [];
+	if (filter.range === 'custom') return filter.from || filter.to ? [{ key: 'range', label: customLabel(filter.from, filter.to) }] : [];
+	return [{ key: 'range', label: rangeLabel(filter.range) }];
+}
+
 /** One removable chip for each filter that is set. */
 export function chipsOf(filter: ListFilter): Chip[] {
 	const chips: Chip[] = [];
 	if (filter.status) chips.push({ key: 'status', label: `Status: ${filter.status}` });
 	if (filter.mine) chips.push({ key: 'mine', label: 'Mine' });
-	if (filter.from) chips.push({ key: 'from', label: `From ${filter.from}` });
-	if (filter.to) chips.push({ key: 'to', label: `To ${filter.to}` });
+	chips.push(...rangeChip(filter));
 	if (filter.q) chips.push({ key: 'q', label: `Search: ${filter.q}` });
 	return chips;
 }
 
-/** The filter with one chip's setting cleared. */
+/** The filter with one chip's setting cleared; clearing the time range means any time. */
 export function withoutChip(filter: ListFilter, key: keyof ListFilter): ListFilter {
+	if (key === 'range') return { ...filter, range: 'any', from: null, to: null };
 	return { ...filter, [key]: NO_FILTER[key] };
+}
+
+/**
+ * Why a list that shows nothing is empty, when a filter is the reason, else null. `noun` is what
+ * the list holds, in the plural: "conversations", "discussions".
+ */
+export function emptyBecauseOfFilter(filter: ListFilter, noun: string): string | null {
+	if (filter.q) return `No ${noun} match this search.`;
+	if (filter.status || filter.mine) return `No ${noun} match these filters.`;
+	if (filter.range !== 'any') return `No ${noun} in this time range. Choose Anytime to see older ones.`;
+	return null;
 }
 
 /** active while the crew is working, failed when an agent reported a failure or the thread errored, else closed. */
@@ -81,20 +116,6 @@ export function threadState(thread: Pick<Thread, 'status' | 'messages'>): Status
 	);
 	if (failed) return 'failed';
 	return thread.status === 'open' ? 'active' : 'closed';
-}
-
-function localDate(iso: string): string | null {
-	const t = new Date(iso);
-	if (Number.isNaN(t.getTime())) return null;
-	const pad = (n: number) => String(n).padStart(2, '0');
-	return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
-}
-
-function inRange(startedAt: string, filter: ListFilter): boolean {
-	if (!filter.from && !filter.to) return true;
-	const day = localDate(startedAt);
-	if (day === null) return false;
-	return (!filter.from || day >= filter.from) && (!filter.to || day <= filter.to);
 }
 
 /** The text a search looks in: the question, then every message's content. */
@@ -113,10 +134,15 @@ export function firstHit(thread: Pick<Thread, 'userQuery' | 'messages'>, query: 
  * Whether a thread passes the filter. `mineIds` are the conversation ids the signed-in person
  * started (from the crew's gateway); with mine set and none known the thread is left out.
  */
-export function matchesFilter(thread: Thread, filter: ListFilter, mineIds: ReadonlySet<string> | null): boolean {
+export function matchesFilter(
+	thread: Thread,
+	filter: ListFilter,
+	mineIds: ReadonlySet<string> | null,
+	now: Date = new Date()
+): boolean {
 	if (filter.status && threadState(thread) !== filter.status) return false;
 	if (filter.mine && !(mineIds && mineIds.has(threadConversationId(thread) ?? ''))) return false;
-	if (!inRange(thread.startedAt, filter)) return false;
+	if (!inTimeRange(threadStartedAt(thread), { key: filter.range, from: filter.from, to: filter.to }, now)) return false;
 	return matchesSearch(searchableText(thread), parseSearch(filter.q));
 }
 

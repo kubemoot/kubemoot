@@ -4,6 +4,7 @@
 	import { ACTIONS } from '#lib/action-definitions.js';
 	import SearchField from './SearchField.svelte';
 	import { STATUSES, chipsOf, withoutChip, type ListFilter, type StatusFilter } from '#lib/conversation-filter.js';
+	import { RANGES, customLabel, isRangeKey, rangeLabel } from '#lib/time-range.js';
 
 	interface Props {
 		filter: ListFilter;
@@ -29,20 +30,49 @@
 		const value = (event.currentTarget as HTMLSelectElement).value;
 		onchange({ ...filter, status: STATUSES.find((s): s is StatusFilter => s === value) ?? null });
 	};
-	let datesOpen = $state(false);
-	let datesRoot = $state<HTMLElement | null>(null);
 
-	/** What the date button says: Dates, or the range that is set. */
-	function datesLabel(f: ListFilter): string {
-		if (!f.from && !f.to) return 'Any date';
-		return `${f.from ?? '...'} to ${f.to ?? '...'}`;
-	}
+	let customOpen = $state(false);
+	let customRoot = $state<HTMLElement | null>(null);
+	let panelTop = $state(0);
+	let panelLeft = $state(0);
 
-	const date = (key: 'from' | 'to') => (event: Event) =>
-		onchange({ ...filter, [key]: (event.currentTarget as HTMLInputElement).value || null });
+	const PANEL_WIDTH_PX = 300;
+
+	/** The panel is fixed to the window, so the list column's scrolling edge cannot cut it off. */
+	$effect(() => {
+		if (!customOpen || !customRoot) return;
+		const rect = customRoot.getBoundingClientRect();
+		panelTop = rect.bottom + 4;
+		panelLeft = Math.max(8, Math.min(rect.left, window.innerWidth - PANEL_WIDTH_PX - 8));
+	});
+
+	/** Choosing a range sets it; Custom keeps the days already chosen and opens the From and To inputs. */
+	const pickRange = (event: Event) => {
+		const value = (event.currentTarget as HTMLSelectElement).value;
+		if (!isRangeKey(value)) return;
+		if (value === 'custom') {
+			customOpen = true;
+			onchange({ ...filter, range: 'custom' });
+			return;
+		}
+		customOpen = false;
+		onchange({ ...filter, range: value, from: null, to: null });
+	};
+
+	const setEnd = (key: 'from' | 'to') => (event: Event) =>
+		onchange({ ...filter, range: 'custom', [key]: (event.currentTarget as HTMLInputElement).value || null });
+
+	const closeOnOutside = (event: MouseEvent) => {
+		if (customOpen && customRoot && !customRoot.contains(event.target as Node)) customOpen = false;
+	};
+	const closeOnEscape = (event: KeyboardEvent) => {
+		if (!customOpen || event.key !== 'Escape') return;
+		customOpen = false;
+		customRoot?.querySelector<HTMLElement>('.custom-btn, select')?.focus();
+	};
 </script>
 
-<svelte:window onclick={(e) => { if (datesOpen && datesRoot && !datesRoot.contains(e.target as Node)) datesOpen = false; }} />
+<svelte:window onclick={closeOnOutside} onkeydown={closeOnEscape} />
 
 <div class="bar">
 	<div class="search-row">
@@ -50,19 +80,24 @@
 		{#if trailing}{@render trailing()}{/if}
 	</div>
 	<div class="row">
-		<select value={filter.status ?? ''} onchange={pick} aria-label="Status" use:tooltip={ACTIONS.filterStatus}>
+		<select value={filter.status ?? ''} onchange={pick} aria-label="Status">
 			<option value="">Any status</option>
 			{#each STATUSES as s (s)}<option value={s}>{s}</option>{/each}
 		</select>
 		{#if signedIn}
-			<label class="mine"><input use:tooltip={ACTIONS.filterMine} type="checkbox" checked={filter.mine} onchange={(e) => onchange({ ...filter, mine: e.currentTarget.checked })} /> Mine</label>
+			<label class="mine" use:tooltip={ACTIONS.filterMine}><input type="checkbox" checked={filter.mine} onchange={(e) => onchange({ ...filter, mine: e.currentTarget.checked })} /> Mine</label>
 		{/if}
-		<div class="dates" bind:this={datesRoot}>
-			<button type="button" class="dates-btn" class:set={!!filter.from || !!filter.to} aria-expanded={datesOpen} use:tooltip={ACTIONS.filterDates} onclick={() => (datesOpen = !datesOpen)}>{datesLabel(filter)}</button>
-			{#if datesOpen}
-				<div class="dates-panel">
-					<label>From <input type="date" value={filter.from ?? ''} onchange={date('from')} use:tooltip={ACTIONS.filterFrom} /></label>
-					<label>To <input type="date" value={filter.to ?? ''} onchange={date('to')} use:tooltip={ACTIONS.filterTo} /></label>
+		<div class="range" bind:this={customRoot}>
+			<select value={filter.range} onchange={pickRange} aria-label="Time range">
+				{#each RANGES as r (r)}<option value={r}>{rangeLabel(r)}</option>{/each}
+			</select>
+			{#if filter.range === 'custom'}
+				<button type="button" class="custom-btn" aria-expanded={customOpen} onclick={() => (customOpen = !customOpen)}>{filter.from || filter.to ? customLabel(filter.from, filter.to) : 'Choose dates'}</button>
+			{/if}
+			{#if customOpen}
+				<div class="custom-panel" role="group" aria-label="Custom time range" style:top="{panelTop}px" style:left="{panelLeft}px">
+					<label>From <input type="datetime-local" value={filter.from ?? ''} onchange={setEnd('from')} /></label>
+					<label>To <input type="datetime-local" value={filter.to ?? ''} onchange={setEnd('to')} /></label>
 				</div>
 			{/if}
 		</div>
@@ -71,7 +106,7 @@
 	{#if chips.length > 0}
 		<div class="chips">
 			{#each chips as chip (chip.key)}
-				<button type="button" class="chip" use:tooltip={ACTIONS.removeFilter} onclick={() => onchange(withoutChip(filter, chip.key))} aria-label="Remove filter {chip.label}">
+				<button type="button" class="chip" onclick={() => onchange(withoutChip(filter, chip.key))} aria-label="Remove filter {chip.label}">
 					{chip.label} &times;
 				</button>
 			{/each}
@@ -80,32 +115,32 @@
 	{#if filter.q}
 		<p class="limit">
 			Searches the {loaded} discussions loaded from the bus.
-			{#if hasOlder}<button type="button" class="link" use:tooltip={ACTIONS.loadOlderMatches} onclick={onloadolder}>Load older</button>{/if}
+			{#if hasOlder}<button type="button" class="link" onclick={onloadolder}>Load older</button>{/if}
 		</p>
 	{/if}
 </div>
 
 <style>
 	.bar { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.4rem; }
-	select, input[type='date'] {
+	select, input[type='datetime-local'] {
 		padding: 0.25rem 0.4rem; border-radius: 0.3rem; border: 1px solid var(--color-border);
 		background: var(--color-bg-secondary); color: var(--color-text); font-size: 0.75rem; min-width: 0;
 	}
 	.search-row { display: flex; align-items: center; gap: 0.4rem; }
 	.grow { flex: 1; min-width: 0; }
 	.row { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
-	.dates { position: relative; }
-	.dates-btn {
-		padding: 0.25rem 0.5rem; border-radius: 0.3rem; border: 1px solid var(--color-border); background: var(--color-bg-secondary);
-		color: var(--color-text-muted); font-size: 0.75rem; cursor: pointer; white-space: nowrap;
+	.range { position: relative; display: flex; gap: 0.3rem; align-items: center; }
+	.custom-btn {
+		padding: 0.25rem 0.5rem; border-radius: 0.3rem; border: 1px solid var(--color-primary); background: var(--color-bg-secondary);
+		color: var(--color-text); font-size: 0.75rem; white-space: nowrap;
 	}
-	.dates-btn.set { color: var(--color-text); border-color: var(--color-primary); }
-	.dates-panel {
-		position: absolute; left: 0; top: calc(100% + 0.25rem); z-index: 10; display: flex; flex-direction: column; gap: 0.4rem;
+	.custom-panel {
+		position: fixed; z-index: 10; width: 300px; display: flex; flex-direction: column; gap: 0.4rem;
 		padding: 0.5rem 0.6rem; background: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 0.375rem;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); font-size: 0.75rem; color: var(--color-text-muted);
+		box-shadow: var(--shadow-popup); font-size: 0.75rem; color: var(--color-text-muted);
 	}
-	.dates-panel label { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+	.custom-panel label { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+	.custom-panel input { flex: 1; }
 	.mine { display: flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; color: var(--color-text-muted); }
 	.chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 	.chip {

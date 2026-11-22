@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { menuLabel, pageDefinition, type PageRoute } from '#lib/page-definitions.js';
+	import { menuLabel, type PageRoute } from '#lib/page-definitions.js';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import SystemInfoPopover from '#lib/components/common/SystemInfoPopover.svelte';
@@ -49,12 +48,6 @@
 		{ route: '/nats', href: resolve('/nats'), label: menuLabel('/nats'), icon: 'database' }
 	];
 
-	/** The same term and purpose as the page title tooltip, opened to the right of the menu. */
-	const menuTip = (route: PageRoute) => {
-		const def = pageDefinition(route);
-		return { text: `${def.term}\n${def.purpose}`, placement: 'right' as const };
-	};
-
 	const isActive = (href: string, currentPath: string) =>
 		isActivePath(href, currentPath, resolve('/'));
 
@@ -86,7 +79,7 @@
 					href={item.href}
 					class="nav-link"
 					class:active={isActive(item.href, page.url.pathname)}
-					use:tooltip={menuTip(item.route)}
+				
 				>
 					<span class="nav-icon">
 						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

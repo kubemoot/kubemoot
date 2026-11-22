@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { ErasureReport } from '#lib/conversation-actions-client.js';
 	import { removedLines } from '#lib/conversation-actions.js';
 
@@ -29,7 +27,7 @@
 		<p class="label">Not removed</p>
 		<ul class="muted">{#each report.kept as line (line)}<li>{line}</li>{/each}</ul>
 	{/if}
-	<button type="button" use:tooltip={ACTIONS.closeReport} onclick={ondismiss}>Close</button>
+	<button type="button" onclick={ondismiss}>Close</button>
 </section>
 
 <style>

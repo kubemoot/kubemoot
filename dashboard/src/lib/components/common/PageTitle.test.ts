@@ -3,9 +3,6 @@ import { describe, expect, it } from 'vitest';
 import PageTitle from './PageTitle.svelte';
 import { PAGE_DEFINITIONS } from '#lib/page-definitions.js';
 
-const tip = () => screen.getByRole('tooltip', { hidden: true });
-const isOpen = () => tip().hasAttribute('data-open');
-
 describe('PageTitle', () => {
 	it('shows the defined title as the page heading', () => {
 		render(PageTitle, { route: '/agents' });
@@ -17,31 +14,33 @@ describe('PageTitle', () => {
 		expect(screen.getByRole('heading', { level: 1 }).textContent?.trim()).toBe('homelab-coordinator');
 	});
 
-	it('describes the title with the term and the purpose for a screen reader', () => {
-		render(PageTitle, { route: '/nodes' });
-		const target = screen.getByText('Kubernetes Nodes');
-		expect(target.getAttribute('aria-describedby')).toBe(tip().id);
-		expect(tip().textContent).toContain(PAGE_DEFINITIONS['/nodes'].term);
-		expect(tip().textContent).toContain(PAGE_DEFINITIONS['/nodes'].purpose);
+	it('has no tooltip on the title, and no subtitle line', () => {
+		const { container } = render(PageTitle, { route: '/nodes' });
+		expect(screen.getByText('Kubernetes Nodes').getAttribute('aria-describedby')).toBeNull();
+		expect(container.querySelector('[role="tooltip"], [tabindex], p')).toBeNull();
+		expect(document.querySelector('[role="tooltip"]')).toBeNull();
 	});
 
-	it('can be reached with the keyboard and shows the tooltip on focus', async () => {
-		render(PageTitle, { route: '/crews' });
-		const target = screen.getByText('Crews');
-		expect(target.getAttribute('tabindex')).toBe('0');
-		expect(isOpen()).toBe(false);
-		await fireEvent.focus(target);
-		expect(isOpen()).toBe(true);
-		await fireEvent.blur(target);
-		expect(isOpen()).toBe(false);
+	it('puts an (i) beside the title that opens the term and the purpose on click', async () => {
+		render(PageTitle, { route: '/nodes' });
+		expect(screen.queryByRole('dialog')).toBeNull();
+		await fireEvent.click(screen.getByRole('button', { name: 'About Kubernetes Nodes' }));
+		const help = screen.getByRole('dialog').textContent ?? '';
+		expect(help).toContain(PAGE_DEFINITIONS['/nodes'].term);
+		expect(help).toContain(PAGE_DEFINITIONS['/nodes'].purpose);
+	});
+
+	it('names the (i) after a detail page\'s resource, and adds a page\'s notes', async () => {
+		render(PageTitle, { route: '/conversations', notes: ['An extra line.'] });
+		await fireEvent.click(screen.getByRole('button', { name: 'About Conversations' }));
+		expect(screen.getByRole('dialog').textContent).toContain('An extra line.');
 	});
 
 	it('closes on Escape', async () => {
 		render(PageTitle, { route: '/crews' });
-		const target = screen.getByText('Crews');
-		await fireEvent.focus(target);
+		await fireEvent.click(screen.getByRole('button', { name: 'About Crews' }));
 		await fireEvent.keyDown(window, { key: 'Escape' });
-		expect(isOpen()).toBe(false);
+		expect(screen.queryByRole('dialog')).toBeNull();
 	});
 
 	it('keeps the normal heading font unless it is a resource name', () => {

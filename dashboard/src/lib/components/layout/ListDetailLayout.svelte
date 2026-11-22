@@ -9,8 +9,6 @@
 	interface Props {
 		/** The route id of the page: its title and the tooltip that says what the term means come from it. */
 		route: PageRoute;
-		/** One muted line under the title. */
-		subtitle: string;
 		/** Right of the title: a status or a control for the whole page. */
 		actions?: Snippet;
 		/** The left column: the filter bar, then the cards. */
@@ -24,14 +22,13 @@
 		detailOpen?: boolean;
 	}
 
-	let { route, subtitle, actions, list, detail, onlistscroll, detailEl = $bindable(null), detailOpen = true }: Props = $props();
+	let { route, actions, list, detail, onlistscroll, detailEl = $bindable(null), detailOpen = true }: Props = $props();
 </script>
 
 <div class="list-detail" class:no-detail={!detailOpen}>
 	<div class="page-header">
 		<div class="title">
 			<PageTitle {route} />
-			<p class="subtitle">{subtitle}</p>
 		</div>
 		{#if actions}<div class="header-actions">{@render actions()}</div>{/if}
 	</div>
@@ -45,7 +42,6 @@
 <style>
 	.list-detail { display: flex; flex-direction: column; height: 100%; padding: 1.5rem; gap: 1rem; min-width: 0; }
 	.page-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
-	.subtitle { margin: 0.4rem 0 0; font-size: 0.8rem; color: var(--color-text-muted); }
 	.header-actions { display: flex; align-items: center; gap: 1rem; }
 	.columns { display: flex; gap: 1rem; flex: 1; min-height: 0; }
 	.list { width: 360px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }

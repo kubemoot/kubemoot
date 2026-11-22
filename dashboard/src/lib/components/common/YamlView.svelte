@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { displayResource, hasManagedFields, toYaml, type YamlResource } from '#lib/yaml.js';
 	import { highlightYaml } from '#lib/yaml-highlight.js';
 
@@ -35,11 +33,11 @@
 	<div class="yaml-view">
 		<div class="toolbar">
 			{#if hasManaged}
-				<button use:tooltip={ACTIONS.toggleManagedFields} type="button" class="tool" aria-pressed={showManaged} onclick={() => (showManaged = !showManaged)}>
+				<button type="button" class="tool" aria-pressed={showManaged} onclick={() => (showManaged = !showManaged)}>
 					{showManaged ? 'Hide managed fields' : 'Show managed fields'}
 				</button>
 			{/if}
-			<button use:tooltip={ACTIONS.copyYaml} type="button" class="tool copy" onclick={copy} aria-label="Copy the resource YAML to the clipboard">
+			<button type="button" class="tool copy" onclick={copy} aria-label="Copy the resource YAML to the clipboard">
 				{copied ? 'Copied' : 'Copy'}
 			</button>
 			<span class="sr-only" role="status">{copied ? 'YAML copied to the clipboard' : ''}</span>
@@ -57,12 +55,6 @@
 
 <style>
 	.yaml-view {
-		--yaml-key: #93c5fd;
-		--yaml-string: #86efac;
-		--yaml-number: #fcd34d;
-		--yaml-bool: #d8b4fe;
-		--yaml-null: #94a3b8;
-		--yaml-punct: #94a3b8;
 		border: 1px solid var(--color-border);
 		border-radius: 0.5rem;
 		background-color: var(--color-bg);

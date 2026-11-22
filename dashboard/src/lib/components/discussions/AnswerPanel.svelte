@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { marked } from 'marked';
 	import ThreadSummaryPanel from './ThreadSummaryPanel.svelte';
 	import type { AnswerState } from '#lib/conversation-answer.js';
@@ -29,7 +27,7 @@
 		{#if state.note}<p class="sources-note" role="note">{state.note}</p>{/if}
 		{#if hasSummary && summary}
 			<details class="made">
-				<summary use:tooltip={ACTIONS.howAnswerMade}>How this answer was made</summary>
+				<summary>How this answer was made</summary>
 				<ThreadSummaryPanel {summary} {agentLabel} />
 			</details>
 		{/if}

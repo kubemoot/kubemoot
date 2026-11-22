@@ -65,11 +65,9 @@
 
 <div class="nats-page">
 	<header class="header">
-		<PageTitle route="/nats" />
-		<p class="subtitle">
-			Everything Kubemoot keeps lives in NATS JetStream, on your cluster. This page reads it; it changes nothing.
-			Retention and limits are described in <a href="https://kubemoot.org/docs/operating/data-ownership/" target="_blank" rel="noopener noreferrer">Data ownership</a>.
-		</p>
+		<PageTitle route="/nats" notes={['Everything Kubemoot keeps lives in NATS JetStream, on your cluster. Retention and limits are described in Data ownership.']}>
+			{#snippet extra()}<a href="https://kubemoot.org/docs/operating/data-ownership/" target="_blank" rel="noopener noreferrer">Data ownership</a>{/snippet}
+		</PageTitle>
 	</header>
 
 	{#if !status}
@@ -197,7 +195,6 @@
 	.nats-page {
 		max-width: 1400px;
 	}
-	.subtitle,
 	.note,
 	.kind,
 	.holds {

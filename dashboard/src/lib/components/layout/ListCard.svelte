@@ -1,13 +1,9 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { tooltip, ROW_TOOLTIP_DELAY_MS } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
-
+	
 	// One card of the list: badges on top, the question, a line of facts below.
 	interface Props {
 		selected: boolean;
-		/** What the card opens, for its tooltip. */
-		kind: 'thread' | 'conversation';
 		onopen: () => void;
 		/** The badges and the status. */
 		head?: Snippet;
@@ -19,12 +15,12 @@
 		leading?: Snippet;
 	}
 
-	let { selected, kind, onopen, head, children, foot, leading }: Props = $props();
+	let { selected, onopen, head, children, foot, leading }: Props = $props();
 </script>
 
 <div class="row">
 	{#if leading}{@render leading()}{/if}
-	<button type="button" class="card" class:selected onclick={onopen} data-tooltip-placement="right" data-tooltip-delay={ROW_TOOLTIP_DELAY_MS} use:tooltip={ACTIONS.openListItem(kind)}>
+	<button type="button" class="card" class:selected onclick={onopen}>
 		{#if head}<div class="head">{@render head()}</div>{/if}
 		<div class="query">{@render children()}</div>
 		{#if foot}<div class="foot">{@render foot()}</div>{/if}

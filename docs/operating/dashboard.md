@@ -10,7 +10,7 @@ The Kubemoot Dashboard is a web UI for looking at a running Kubemoot installatio
 
 You sign in with a Kubernetes bearer token, the way you do in Headlamp, and the dashboard then acts as you: every Kubernetes call it makes for you uses your token, so your own RBAC decides what you see, and you can ask a crew a question as the same Kubernetes user `kmctl` acts as. See [Signing in](#signing-in).
 
-The dashboard acts as you and only through the crew's discussion gateway: you can ask a question, follow up, stop, pause or resume a conversation, and delete one, each with your own token, so the gateway's access rules and conversation ownership apply. It cannot edit memory, load or unload a model, or control a fitness suite; those changes are made with `kmctl` or CrewForge (`kubectl` only where `kmctl` has no command), and where a control used to be, the page shows the command to run, with a **Copy** button. See [Where changes are made](#where-changes-are-made).
+The dashboard acts as you and only through the crew's discussion gateway: you can ask a question, follow up, stop, pause or resume a conversation, and delete one, each with your own token, so the gateway's access rules and conversation ownership apply. It cannot edit memory, load or unload a model, or control a fitness suite; those changes are made with `kmctl` or CrewForge (`kubectl` only where `kmctl` has no command); the dashboard shows no command boxes or terminal tips. See [Where changes are made](#where-changes-are-made).
 
 Metrics, logs, and traces are not part of the dashboard. For those, see [Observability](../observability/).
 
@@ -63,12 +63,14 @@ The dashboard asks every visitor to sign in with a token, whether or not the cha
 
 ## Signing in
 
-Every page shows the sign-in page until you sign in. Paste a Kubernetes bearer token and press **Sign in**. The dashboard checks it with the API server (a TokenReview) and refuses one that the cluster does not accept or that has expired. With `kmctl` you can print one for your current context:
+Every page shows the sign-in page until you sign in. Paste a Kubernetes bearer token and press **Sign in**. The dashboard checks it with the API server (a TokenReview) and refuses one that the cluster does not accept or that has expired. The sign-in page leads with the way that works with any `kubectl`, for a ServiceAccount you may create tokens for, and gives the `kmctl` way second:
 
 ```bash
-kmctl dashboard token                   # eight hours, for the user the current context acts as
-kubectl create token SERVICE_ACCOUNT -n NAMESPACE --duration=8h
+kubectl create token <serviceaccount> -n <namespace> --duration=12h
+kmctl dashboard token                   # for the user the current context acts as
 ```
+
+`kmctl dashboard token` needs a `kmctl` release that has the command.
 
 Once you are signed in the top bar shows **Signed in as** your Kubernetes user name, and **Sign out** forgets the token.
 
@@ -115,7 +117,11 @@ The dashboard reaches a crew's gateway at `http://<crew>-discussion.<namespace>.
 
 ### Filtering and searching conversations
 
-The Conversations list and the Moot list share one bar above them: a search field with a **?** tooltip for its syntax, a status menu (active, closed, failed), **Mine** (once you are signed in) and a date range; the crew is the top-bar selector. **+ New** sits beside the search field on Conversations. Each filter set shows as a chip you remove with one click, and all of them live in the page address (`?status=failed&mine=1&from=2026-11-01&to=2026-11-21&q=gpu`), so a link reproduces the view. **Mine** uses the conversations each crew's gateway lists for you, for the selected crew or, with none selected, every crew; a crew you may not use adds none.
+The Conversations list and the Moot list share one bar above them: a search field with an **(i)** that opens its syntax, a status menu (active, closed, failed), **Mine** (once you are signed in; its tooltip says "Only conversations you started") and a time range menu; the crew is the top-bar selector. **+ New** sits beside the search field on Conversations. Each filter set shows as a chip you remove with one click, and all of them live in the page address (`?status=failed&mine=1&range=custom&from=2026-11-01T09:00&to=2026-11-21T17:30&q=gpu`), so a link reproduces the view.
+
+The time range menu offers Anytime, Last 10 minutes, Last hour, Last 6 hours, Today, Last 24 hours, Last 3 days, This week (from Monday), This month, Last 3 months and Custom. **Custom** opens a small popover with **From** and **To** date-and-time inputs; either end may be left empty. Both pages open on **Last 24 hours**: a conversation list is for what is happening now, and an older conversation is one menu choice away (its chip removes the range). The address carries `range=` only when it is not the default, and `range=any` for Anytime.
+
+The status, **Mine**, time range and search stick for you: they are kept in this browser (localStorage) per page, and a link that sets no filter opens on the ones you last chose. When the browser blocks storage, the lists open on the default filter and nothing is remembered. **Mine** uses the conversations each crew's gateway lists for you, for the selected crew or, with none selected, every crew; a crew you may not use adds none.
 
 The search takes a small syntax, the same on both pages. Words separated by spaces must all match, without regard to case, in the question and the messages of a conversation: `namespace` finds conversations containing "namespace". A leading `-` excludes: `namespace -smoke` keeps those matching "namespace" and drops any whose question or messages contain "smoke". A quoted phrase matches as a phrase, and `-"..."` excludes it. An empty query, or one of only exclusions such as `-smoke`, works too; a stray `-` is ignored.
 
@@ -123,7 +129,7 @@ Search runs in the browser over the discussions the page has loaded from the bus
 
 ### Acting on a conversation
 
-The **Actions** menu (the hamburger beside the open conversation's status) holds, in this order: **Show answer details**, **Copy conversation**, **Copy conversation id with the first question**, **Download conversation**, **Open in the Moot**, **Copy kmctl command** (a command with the real crew, namespace and conversation id), then **Pause** (or **Resume** while paused) and **Stop** (only while the conversation is running), then **Delete conversation**. Each goes through the crew's discussion gateway with your token, the same routes `kmctl` and CrewForge use: `POST /api/v1/discussions/{crew}/{conversationId}/stop|pause|resume` and `DELETE /api/v1/discussions/{crew}/{conversationId}`.
+The **Actions** menu (the hamburger beside the open conversation's status) holds, in this order: **Show answer details**, **Copy conversation**, **Copy conversation id with the first question**, **Download conversation**, **Open in the Moot**, then **Pause** (or **Resume** while paused) and **Stop** (only while the conversation is running), then **Delete conversation**. Each goes through the crew's discussion gateway with your token, the same routes `kmctl` and CrewForge use: `POST /api/v1/discussions/{crew}/{conversationId}/stop|pause|resume` and `DELETE /api/v1/discussions/{crew}/{conversationId}`.
 
 - **Delete** asks in the page first (Yes, delete or No), never with a browser dialog. The gateway then removes the conversation from every store that holds it, and the page shows its report: what was removed from each store (history, ownership, discussion messages, workspace files, coordinator events, scheduled follow-ups, crew memory facts), and what the gateway cannot remove (a question still queued, logs and backups). When a store could not be cleared the gateway answers 500 with the same report; the page says which stores and offers **Repeat delete**, which removes the rest.
 - A conversation that is still running answers 409. The page then offers **Stop and delete**, which asks the gateway to stop it first (`force=true`).
@@ -197,6 +203,18 @@ An MCP server reached with a key shows **key from Secret `<name>`** (from `regis
 
 The Kubemoot logo and **Powered by Kubemoot** open [kubemoot.org](https://kubemoot.org) in a new tab.
 
+### Help, tooltips and focus
+
+A small **(i)** beside a page title, or beside a larger section or concept, opens a short popover with the term and what the page is for. Click it, or press Enter when it has keyboard focus; Escape or a click outside closes it. The (i) has no tooltip of its own and pages carry no subtitle line under the title. A page's own notes, such as the default time range, sit in the same popover.
+
+Tooltips are for buttons and clickable icons only, and only where they add meaning: an icon-only button has an `aria-label` and a tooltip, a text button needs neither. Page titles, tiles, list rows, menu items, fields and selects have none, so a just-opened menu never shows one. A terse small control such as **Mine** gets a short tooltip instead of an (i). A test enforces this.
+
+Every control draws its focus ring inside its own border box, so no scrolling list or table cell clips it.
+
+### Appearance
+
+**Config** has an **Appearance** setting with three choices: **Dark** (the default), **Light**, and **System**, which follows the operating system's light or dark setting and changes with it. The choice is per viewer, kept in this browser (localStorage), and applied before the first paint, so a Light viewer never sees a dark flash. When the browser blocks storage the dashboard is Dark. The light colours keep WCAG AA contrast for text, badges and chips, and the YAML and JSON highlighting has its own light colours.
+
 ### Overview and YAML tabs
 
 Every page that shows one Kubemoot resource (a crew, agent, PromptModule, model server, MCP server, fitness suite, the `KubemootConfig`, and so on) has two tabs under its title: **Overview**, the page as described above, and **YAML**. The tab is in the URL (`?tab=yaml`), so a link opens the YAML directly; the arrow keys, Home and End move between the tabs.
@@ -239,7 +257,7 @@ When the coordinator closes a thread, a **Placement** panel follows the summary.
 
 Select **alternatives considered** on a row to see the other placements the scheduler weighed, each with its predicted total split into waiting, loading, reading the prompt and generating, and whether it was warm and could start at once. A thread whose receipt carries no placement calls shows no panel.
 
-An open discussion shows the question, then the crew's answer, then the span graph (when on) and the messages. The answer comes first: it is the synthesis with the time it took, any "some sources could not be reached" note, and a collapsed **How this answer was made** summary. With no answer yet the panel says so plainly: still working, stopped, or failed with the reason. A small status icon says whether the discussion is active, answered, failed or stopped; its tooltip also gives the crew version (without the build suffix) and who started it. The crew name shows beside it only when the top-bar crew selector is on All crews, and the channel only when it is not `general`. One **Actions** (hamburger) menu holds **Show timeline**, **Debug detail**, **Copy discussion** (as Markdown), **Copy thread id with the question**, **Download conversation** (see [Downloading conversations](#downloading-conversations)), and **Copy kmctl follow-up command** and **Copy kmctl replay command**, which copy the full command with this conversation's id, crew and namespace filled in. The menu works from the keyboard: arrow keys move between items, Escape closes it. The page cannot start, answer, pause, stop, replay or delete a discussion; the copied commands do that from a terminal, and an empty list shows the command that starts a discussion.
+An open discussion shows the question, then the crew's answer, then the span graph (when on) and the messages. The answer comes first: it is the synthesis with the time it took, any "some sources could not be reached" note, and a collapsed **How this answer was made** summary. With no answer yet the panel says so plainly: still working, stopped, or failed with the reason. A small status icon says whether the discussion is active, answered, failed or stopped; its tooltip also gives the crew version (without the build suffix) and who started it. The crew name shows beside it only when the top-bar crew selector is on All crews, and the channel only when it is not `general`. One **Actions** (hamburger) menu holds **Show timeline**, **Debug detail**, **Copy discussion** (as Markdown), **Copy thread id with the question**, **Download conversation** (see [Downloading conversations](#downloading-conversations)), The menu works from the keyboard: arrow keys move between items, Escape closes it. The page cannot start, answer, pause, stop, replay or delete a discussion.
 
 The Moot only reads: to ask, follow up, stop, pause, resume or delete, use the Conversations page, which links here with **Open in the Moot**. Its open-thread header is laid out like the Conversations page: the crew, the status, and the toolbar.
 
@@ -265,13 +283,13 @@ On an unscoped dashboard the store figures are cluster-wide totals and the tile 
 
 ### Memory
 
-Shows the working memory of the crew selected in the top bar, the same crew picker the Moot uses. Working memory is what a crew has learned about the cluster and keeps between discussions, stored as facts with a topic, a key and a value; the least recently used are dropped over time. With All crews selected the page asks you to pick a crew. A crew with no facts shows an empty state that explains this. The page only reads: facts are written by the crew's agents or by you with `kmctl`, and the page shows the commands: `kmctl memory add|edit|delete|clear CREW ...` to change facts and `kmctl memory export CREW` to take a copy.
+Shows the working memory of the crew selected in the top bar, the same crew picker the Moot uses. Working memory is what a crew has learned about the cluster and keeps between discussions, stored as facts with a topic, a key and a value; the least recently used are dropped over time. With All crews selected the page asks you to pick a crew. A crew with no facts shows an empty state that explains this. The page only reads: facts are written by the crew's agents or by you with `kmctl memory add|edit|delete|clear CREW ...`, and `kmctl memory export CREW` takes a copy.
 
 **Export** (shown whenever a crew is selected) opens a panel that downloads the crew's memory as a zip in the OMPI (Open Memory Protocol Initiative) interchange format, working spec v0.6: a manifest and one memory object per fact. The operator builds the file with the same code as `ompi-export`; the dashboard only relays it and never maps facts to the format itself. The export is always screened: a fact whose topic, key or value holds a credential is left out. Before you download, the panel shows what the export holds and a table of what it left out, each entry named by its key (an opaque id such as `<namespace>.<crew>.#1a2b3c4d` when the key itself held the credential) and the reason, for example the shape of the credential. It never shows a fact's text. The dashboard has no unscreened export: it calls the operator with its own service account, not your identity, so it cannot decide what you may see beyond the namespace scope. To export facts that hold a credential, use `kmctl memory export --allow-unscreened`, which runs with your own credentials. The same namespace scope as the rest of the page applies; a crew outside it answers 404. The dashboard sends its service account token to the operator, which checks it with a TokenReview and allows the export only when that identity may `get` the Crew (a SubjectAccessReview); the dashboard's ClusterRole already grants read on every Kubemoot kind. A caller without a valid token is refused (401) and one without that access is refused (403), so a pod that can reach the operator's report port cannot read a crew's memory. Every other report endpoint is checked the same way; see [The operator report service](#the-operator-report-service).
 
 ### Conversations
 
-Your questions and the crew's answers. The page has the same layout as the Moot: the title and a one-line subtitle top-left, the filter bar and the list of conversations on the left (each titled by its first question), and the open conversation on the right under a header with the crew, the status, a copy icon and one **Actions** menu. **+ New** starts a conversation. The open conversation shows every turn of the conversation in order, each your question then the crew's answer (markdown), with one compact field at the bottom to follow up; it updates live as the crew answers. A follow-up is a new thread under the same conversation, and the page merges them, so the list has one entry per conversation. Each list entry and the open conversation's header name the crew. The open conversation is in the page address (`?conversation=<id>`), so a link shares it and a reload keeps it, and opening one never changes the top-bar **Crew** selector, which stays as you set it. Nothing of the agents' internal discussion appears here; **Open in the Moot** shows the consensus messages and statistics. See [Asking a crew](#asking-a-crew) and [Acting on a conversation](#acting-on-a-conversation).
+Your questions and the crew's answers. The page has the same layout as the Moot: the title with its **(i)** top-left, the filter bar and the list of conversations on the left (each titled by its first question), and the open conversation on the right under a header with the crew, the status, a copy icon and one **Actions** menu. **+ New** starts a conversation. The open conversation shows every turn of the conversation in order, each your question then the crew's answer (markdown), with one compact field at the bottom to follow up; it updates live as the crew answers. A follow-up is a new thread under the same conversation, and the page merges them, so the list has one entry per conversation. Each list entry and the open conversation's header name the crew. The open conversation is in the page address (`?conversation=<id>`), so a link shares it and a reload keeps it, and opening one never changes the top-bar **Crew** selector, which stays as you set it. Nothing of the agents' internal discussion appears here; **Open in the Moot** shows the consensus messages and statistics. See [Asking a crew](#asking-a-crew) and [Acting on a conversation](#acting-on-a-conversation).
 
 The checkbox beside each conversation in the list (with a crew selected) selects several for one **Download N conversations**; see [Downloading conversations](#downloading-conversations).
 
@@ -281,15 +299,15 @@ The older address `/messages` redirects to `/conversations`.
 
 ### Crews
 
-One card per crew, linking to the crew's detail page. The dashboard does not add or remove crews: create them with CrewForge or `kmctl`, and remove one with `kmctl delete crew NAME -n NAMESPACE` (the operator's finalizer and owner references remove its Agents and open discussions). The page shows that command.
+One card per crew, linking to the crew's detail page. The dashboard does not add or remove crews: create them with CrewForge or `kmctl`, and remove one with `kmctl delete crew NAME -n NAMESPACE` (the operator's finalizer and owner references remove its Agents and open discussions).
 
 ### Reports
 
-MCPServerReport quality verdicts (`use`, `caution`, `avoid`) with the evaluation history, and any verdict an administrator pinned. The page shows the `kmctl mcp report pin REPORT --verdict use|caution|avoid` command that pins one, and `kmctl mcp report unpin REPORT` when one is pinned. Both run with your credentials, so they need `patch` on `mcpserverreports`.
+MCPServerReport quality verdicts (`use`, `caution`, `avoid`) with the evaluation history, and any verdict an administrator pinned. Pinning and unpinning a verdict is `kmctl mcp report pin REPORT --verdict use|caution|avoid` and `kmctl mcp report unpin REPORT`; both run with your credentials, so they need `patch` on `mcpserverreports`.
 
 ### Fitness
 
-CrewFitnessSuite runs and their scores. Opening a run shows the commands that control it: `kmctl fitness pause|resume|stop SUITE -n NAMESPACE`, which set `spec.suspend` (pause and resume) or `spec.cancel` (stop) (see the [CrewFitnessSuite reference](../../reference/crewfitnesssuite/#pause-resume-and-stop)), and `kmctl delete crewfitnesssuite` to remove the run with its owned CrewFitness resources. The status badge reads `Pausing` while a paused suite's last iteration finishes and `Stopping` until the operator applies a stop.
+CrewFitnessSuite runs and their scores. A run is controlled with `kmctl fitness pause|resume|stop SUITE -n NAMESPACE`, which set `spec.suspend` (pause and resume) or `spec.cancel` (stop) (see the [CrewFitnessSuite reference](../../reference/crewfitnesssuite/#pause-resume-and-stop)), and `kmctl delete crewfitnesssuite` removes the run with its owned CrewFitness resources. The **Report** column keeps its copy button and XLSX download on one line. The status badge reads `Pausing` while a paused suite's last iteration finishes and `Stopping` until the operator applies a stop.
 
 ### Downloading conversations
 

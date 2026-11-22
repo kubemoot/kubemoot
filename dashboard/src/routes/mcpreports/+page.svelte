@@ -1,14 +1,11 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { reportComparator } from '#lib/mcp-report-sort.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { refreshTrigger } from '#lib/stores/index.js';
 	import { ResourceList } from '#lib/components/layout/index.js';
-	import { CommandHint, HelpTooltip } from '#lib/components/common/index.js';
-	import { reportUnpinCommand, reportVerdictCommand } from '#lib/cli-commands.js';
+	import { InfoPopover } from '#lib/components/common/index.js';
 	import type { MCPServerReport } from '#lib/types/kubemoot.js';
 
 	let reports = $state<MCPServerReport[]>([]);
@@ -85,7 +82,7 @@
 		<div class="controls">
 			<div class="filter">
 				<label for="verdict-filter">Filter:</label>
-				<select use:tooltip={ACTIONS.filterVerdict} id="verdict-filter" bind:value={filterVerdict}>
+				<select id="verdict-filter" bind:value={filterVerdict}>
 					<option value="all">All Verdicts</option>
 					<option value="use">Use</option>
 					<option value="caution">Caution</option>
@@ -95,7 +92,7 @@
 			</div>
 			<div class="sort">
 				<label for="sort-by">Sort:</label>
-				<select use:tooltip={ACTIONS.sortReports} id="sort-by" bind:value={sortBy}>
+				<select id="sort-by" bind:value={sortBy}>
 					<option value="lastTested">Last Tested</option>
 					<option value="successRate">Success Rate</option>
 					<option value="name">Name</option>
@@ -109,24 +106,24 @@
 			<div class="table-header">
 				<span class="col-name">Server</span>
 				<span class="col-verdict">
-					Verdict <HelpTooltip text="use = reliable, passed all tests. caution = some failures, use carefully. avoid = mostly failing, not recommended. untested = no test data." />
+					Verdict <InfoPopover label="About Verdict" lines={["use = reliable, passed all tests. caution = some failures, use carefully. avoid = mostly failing, not recommended. untested = no test data."]} />
 				</span>
 				<span class="col-rate">Success%</span>
 				<span class="col-transport">
-					Transport <HelpTooltip text="stdio = standard I/O via MCP Bridge sidecar (recommended for most servers). http = direct HTTP/SSE connection." />
+					Transport <InfoPopover label="About Transport" lines={["stdio = standard I/O via MCP Bridge sidecar (recommended for most servers). http = direct HTTP/SSE connection."]} />
 				</span>
 				<span class="col-tested">Last Tested</span>
 				<span class="col-admin">
-					Admin <HelpTooltip text="auto = verdict computed from trial history. pinned = admin manually set the verdict override." />
+					Admin <InfoPopover label="About Admin" lines={["auto = verdict computed from trial history. pinned = admin manually set the verdict override."]} />
 				</span>
 			</div>
 
 			{#each filteredReports as report (report.metadata.namespace + '/' + report.metadata.name)}
 				<div class="table-row" class:expanded={expandedReport === report.metadata.name}>
-					<button use:tooltip={ACTIONS.toggleReportRow} class="row-main" onclick={() => toggleExpand(report.metadata.name)}>
+					<button class="row-main" onclick={() => toggleExpand(report.metadata.name)}>
 						<span class="col-name">
 							{#if report.spec?.githubUrl}
-								<a use:tooltip={ACTIONS.openGithub} href={report.spec.githubUrl} target="_blank" rel="noopener" class="server-link" onclick={(e) => e.stopPropagation()}>
+								<a href={report.spec.githubUrl} target="_blank" rel="noopener" class="server-link" onclick={(e) => e.stopPropagation()}>
 									{report.spec?.serverName || report.metadata.name}
 								</a>
 							{:else}
@@ -188,8 +185,6 @@
 										{:else}
 											<div class="muted">No admin override. Verdict is auto-computed from trial history.</div>
 										{/if}
-										<CommandHint label="Pin a verdict (use, caution or avoid):" command={reportVerdictCommand(report.metadata.name, report.metadata.namespace)} />
-					{#if report.spec?.adminVerdict}<CommandHint label="Remove the pinned verdict:" command={reportUnpinCommand(report.metadata.name, report.metadata.namespace)} />{/if}
 									</div>
 								</div>
 
@@ -333,7 +328,7 @@
 		border-radius: 9999px;
 		font-size: 0.7rem;
 		font-weight: 600;
-		color: #000;
+		color: var(--color-on-warning);
 	}
 
 	.admin-pin {

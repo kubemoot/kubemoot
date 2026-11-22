@@ -2,8 +2,6 @@
 	import type { Snippet } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import YamlView from './YamlView.svelte';
 	import type { YamlResource } from '#lib/yaml.js';
 	import { TABS, tabFromUrl, tabUrl, nextTab, type ResourceTab } from '#lib/resource-tab.js';
@@ -41,7 +39,7 @@
 	<div class="tablist" role="tablist" aria-label="View of this resource" tabindex="-1" onkeydown={onKeydown}>
 		{#each TABS as tab (tab.id)}
 			<button
-				use:tooltip={ACTIONS.resourceTab(tab.id)}
+			
 				bind:this={buttons[tab.id]}
 				type="button"
 				role="tab"

@@ -1,6 +1,5 @@
 // Wording for the actions of the Discussions view, kept in one place so the same
-// action reads the same everywhere it appears. The view only reads; changes to a
-// discussion are made from a terminal (see cli-commands).
+// action reads the same everywhere it appears.
 
 export const COPY_THREAD_TOOLTIP =
 	'Copy the whole discussion as Markdown to the clipboard, to paste into a ticket or a note.';

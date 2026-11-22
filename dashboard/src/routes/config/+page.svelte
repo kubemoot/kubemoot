@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
+	import { THEME_LABELS, THEME_PREFS, parseThemePref } from '#lib/theme.js';
 	import { resolve } from '$app/paths';
-	import { refreshTrigger, showStandAsides } from '#lib/stores/index.js';
+	import { refreshTrigger, showStandAsides, themePref } from '#lib/stores/index.js';
 	import { DetailPanel } from '#lib/components/layout/index.js';
 	import { Section, InfoRow, StatusBadge, PageTitle } from '#lib/components/common/index.js';
 	import type { KubemootConfig } from '#lib/types/kubemoot.js';
@@ -58,13 +57,29 @@
 
 	{#snippet children()}
 		<div class="sections pref-block">
+			<Section title="Appearance">
+				<div class="pref-row" role="radiogroup" aria-label="Appearance">
+					<span class="pref-label">
+						Theme
+						<span class="pref-hint">Dark is the default. System follows your operating system. Stored in this browser.</span>
+					</span>
+					<span class="theme-choices">
+						{#each THEME_PREFS as pref (pref)}
+							<label class="theme-choice">
+								<input type="radio" name="theme" value={pref} checked={$themePref === pref} onchange={(e) => themePref.set(parseThemePref(e.currentTarget.value))} />
+								{THEME_LABELS[pref]}
+							</label>
+						{/each}
+					</span>
+				</div>
+			</Section>
 			<Section title="Display Preferences">
 				<label class="pref-row">
 					<span class="pref-label">
 						Show agents that stand aside in consensus
 						<span class="pref-hint">When off, agents that stand aside (do no work) are hidden across the Discussions, Fitness, and span-graph views. Stored in this browser.</span>
 					</span>
-					<input use:tooltip={ACTIONS.toggleStandAsides} type="checkbox" checked={$showStandAsides} onchange={(e) => showStandAsides.set(e.currentTarget.checked)} />
+					<input type="checkbox" checked={$showStandAsides} onchange={(e) => showStandAsides.set(e.currentTarget.checked)} />
 				</label>
 			</Section>
 		</div>
@@ -159,6 +174,19 @@
 	.pref-hint {
 		font-size: 0.8rem;
 		color: var(--color-text-muted);
+	}
+
+	.theme-choices {
+		display: flex;
+		gap: 1rem;
+		flex-shrink: 0;
+	}
+
+	.theme-choice {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		cursor: pointer;
 	}
 
 	.pref-row input[type='checkbox'] {

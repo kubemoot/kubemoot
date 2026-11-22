@@ -9,10 +9,10 @@ import DetailHeader from './DetailHeader.svelte';
 const text = (content: string) => createRawSnippet(() => ({ render: () => `<span>${content}</span>` }));
 
 describe('ListDetailLayout', () => {
-	it('puts the title and the one muted line top-left, the list in one column and the open item in the other', () => {
-		const { container } = render(ListDetailLayout, { route: '/conversations', subtitle: 'A line.', list: text('the list'), detail: text('the open item') });
+	it('puts the title top-left, with no subtitle line under it, the list in one column and the open item in the other', () => {
+		const { container } = render(ListDetailLayout, { route: '/conversations', list: text('the list'), detail: text('the open item') });
 		expect(screen.getByRole('heading', { name: 'Conversations' })).toBeTruthy();
-		expect(screen.getByText('A line.')).toBeTruthy();
+		expect(container.querySelector('.subtitle')).toBeNull();
 		const header = container.querySelector('.page-header');
 		const columns = container.querySelector('.columns');
 		expect(header?.nextElementSibling).toBe(columns);
@@ -21,10 +21,10 @@ describe('ListDetailLayout', () => {
 	});
 
 	it('shows the page actions only when there are some', () => {
-		const without = render(ListDetailLayout, { route: '/conversations', subtitle: 's', list: text('l'), detail: text('d') });
+		const without = render(ListDetailLayout, { route: '/conversations', list: text('l'), detail: text('d') });
 		expect(without.container.querySelector('.header-actions')).toBeNull();
 		without.unmount();
-		const withActions = render(ListDetailLayout, { route: '/conversations', subtitle: 's', actions: text('Connected'), list: text('l'), detail: text('d') });
+		const withActions = render(ListDetailLayout, { route: '/conversations', actions: text('Connected'), list: text('l'), detail: text('d') });
 		expect(withActions.container.querySelector('.header-actions')?.textContent).toContain('Connected');
 	});
 
@@ -54,7 +54,7 @@ describe('the pages that share it', () => {
 describe('ListCard', () => {
 	it('marks the open card and reports a click', async () => {
 		let clicked = 0;
-		const { container } = render(ListCard, { selected: true, kind: 'conversation', onopen: () => clicked++, children: text('Why?') });
+		const { container } = render(ListCard, { selected: true, onopen: () => clicked++, children: text('Why?') });
 		const card = container.querySelector('.card') as HTMLElement;
 		expect(card.classList.contains('selected')).toBe(true);
 		card.click();
@@ -75,10 +75,10 @@ describe('DetailHeader', () => {
 describe('ListDetailLayout with nothing open', () => {
 	it('marks the layout so a narrow screen gives the list the whole height', () => {
 		const text2 = createRawSnippet(() => ({ render: () => '<span>x</span>' }));
-		const open = render(ListDetailLayout, { route: '/conversations', subtitle: 's', list: text2, detail: text2 });
+		const open = render(ListDetailLayout, { route: '/conversations', list: text2, detail: text2 });
 		expect(open.container.querySelector('.list-detail')?.classList.contains('no-detail')).toBe(false);
 		open.unmount();
-		const none = render(ListDetailLayout, { route: '/conversations', subtitle: 's', list: text2, detail: text2, detailOpen: false });
+		const none = render(ListDetailLayout, { route: '/conversations', list: text2, detail: text2, detailOpen: false });
 		expect(none.container.querySelector('.list-detail')?.classList.contains('no-detail')).toBe(true);
 		const css = readFileSync('src/lib/components/layout/ListDetailLayout.svelte', 'utf8');
 		expect(css).toMatch(/\.no-detail \.list \{ max-height: none; flex: 1; \}/);

@@ -21,9 +21,9 @@
 	import { groupConversations, onBus, withPending, type Conversation, type PendingAsk } from '#lib/conversation-group.js';
 	import { threadStartedAt } from '#lib/stores/discussions.js';
 	import { openRef, withOpen } from '#lib/conversation-url.js';
-	import { listAddress, mineScopesFor } from '#lib/list-scope.js';
+	import { mineScopesFor } from '#lib/list-scope.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
-	import { ConversationDownload } from '#lib/components/common/index.js';
+	import { ConversationDownload, CopyIcon } from '#lib/components/common/index.js';
 	import { CrewBadge, DetailHeader, ListCard, ListDetailLayout, ThreadStatus } from '#lib/components/layout/index.js';
 	import { browserTimeZone, conversationIds, exportHref, threadConversationId } from '#lib/conversation-export.js';
 	import { conversationTitle, runState } from '#lib/conversation-actions.js';
@@ -35,11 +35,11 @@
 	import {
 		firstHit,
 		highlight,
+		emptyBecauseOfFilter,
 		matchesFilter,
-		parseFilter,
-		snippet,
-		type ListFilter
+		snippet
 	} from '#lib/conversation-filter.js';
+	import { createListFilter } from '#lib/list-filter.svelte.js';
 
 	marked.setOptions({ breaks: true, gfm: true });
 
@@ -49,12 +49,12 @@
 	);
 	const signedIn = $derived(!!page.data.user);
 
-	// The filters and the search live in the URL query, so a link reproduces the view.
-	const filter = $derived(parseFilter(new URLSearchParams(page.url.search)));
-
-	function setFilter(next: ListFilter) {
-		void goto(listAddress('/conversations', page.url.search, next), { replace: true, reset: false });
-	}
+	// The filters and the search live in the URL query, so a link reproduces the view; a link with
+	// none opens on the filter this viewer last chose.
+	const listFilter = createListFilter('conversations', '/conversations');
+	onMount(() => listFilter.restore());
+	const filter = $derived(listFilter.filter);
+	const setFilter = listFilter.set;
 
 	// The conversations the signed-in person started, listed by each crew's gateway with their own
 	// token: the selected crew, or every crew when none is selected. A crew the person may not use
@@ -230,10 +230,10 @@
 		setTimeout(() => (copiedConversation = false), 2000);
 	}
 
-	const noConversations = $derived.by(() => {
-		if (filter.q) return 'No conversations match this search.';
-		return selectedScope ? 'No conversations with this crew yet.' : 'No conversations yet.';
-	});
+	const noConversations = $derived(
+		emptyBecauseOfFilter(filter, 'conversations') ??
+			(selectedScope ? 'No conversations with this crew yet.' : 'No conversations yet.')
+	);
 
 	const waiting = $derived.by(() => {
 		const state = runState(selected);
@@ -246,12 +246,12 @@
 	});
 </script>
 
-<ListDetailLayout route="/conversations" subtitle="Your questions and the crew's answers." detailOpen={!!selected || starting || !!live || !!erasure}>
+<ListDetailLayout route="/conversations" detailOpen={!!selected || starting || !!live || !!erasure}>
 	{#snippet list()}
 		<FilterBar {filter} {signedIn} loaded={$sortedThreads.length} hasOlder={$hasOlder} onchange={setFilter} onloadolder={() => void loadOlder()} error={mineError}>
 			{#snippet trailing()}
 				{#if signedIn}
-					<button type="button" class="new-btn" use:tooltip={ACTIONS.newConversation} onclick={startNew}>+ New</button>
+					<button type="button" class="new-btn" onclick={startNew}>+ New</button>
 				{/if}
 			{/snippet}
 		</FilterBar>
@@ -262,10 +262,10 @@
 			<p class="hint">{noConversations}</p>
 		{/if}
 		{#each chats as t (t.threadId)}
-			<ListCard kind="conversation" selected={selected?.threadId === t.threadId} onopen={() => selectChat(t)}>
+			<ListCard selected={selected?.threadId === t.threadId} onopen={() => selectChat(t)}>
 				{#snippet leading()}
 					{#if selectedScope && threadConversationId(t)}
-						<input use:tooltip={ACTIONS.selectConversation} type="checkbox" aria-label="Select this conversation for download" checked={!!ticked[t.threadId]} onchange={(e) => tick(t.threadId, e.currentTarget.checked)} />
+						<input type="checkbox" aria-label="Select this conversation for download" checked={!!ticked[t.threadId]} onchange={(e) => tick(t.threadId, e.currentTarget.checked)} />
 					{:else if selectedScope}
 						<span class="tick-space"></span>
 					{/if}
@@ -295,7 +295,7 @@
 				{/if}
 				<ThreadStatus status={selected.status} />
 				{#snippet actions()}
-					<button class="action-btn" use:tooltip={ACTIONS.copyConversation} onclick={copyConversation} aria-label="Copy conversation">{copiedConversation ? '✓' : '📋'}</button>
+					<button class="action-btn" use:tooltip={ACTIONS.copyConversation} onclick={copyConversation} aria-label="Copy conversation"><CopyIcon done={copiedConversation} /></button>
 					<ConversationActions
 						scope={selectedScopeOfThread}
 						conversationId={selectedConversationId}
@@ -352,7 +352,7 @@
 					<div class="empty-state">
 						{#if starting && !newScope}
 							<p>Which crew do you want to ask?</p>
-							<select onchange={pickCrew} aria-label="Crew to ask" use:tooltip={ACTIONS.chooseCrewToAsk}>
+							<select onchange={pickCrew} aria-label="Crew to ask">
 								<option value="">Choose a crew</option>
 								{#each $crewDirectory as entry (`${entry.namespace}/${entry.crew}`)}<option value={entry.namespace}>{pickerLabel(entry, $crewDirectory)}</option>{/each}
 							</select>
@@ -417,5 +417,5 @@
 	.error { color: var(--color-error); font-size: 0.85rem; }
 
 	.ask-bar { padding-top: 0.6rem; border-top: 1px solid var(--color-border); }
-	mark { background: var(--color-warning); color: #000; border-radius: 0.15rem; }
+	mark { background: var(--color-warning); color: var(--color-on-warning); border-radius: 0.15rem; }
 </style>

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { Snippet } from 'svelte';
 
 	interface Props {
@@ -25,7 +23,7 @@
 	<header
 		class="header"
 		class:collapsible
-		use:tooltip={ACTIONS.toggleSection(collapsible)}
+	
 		onclick={toggle}
 		role={collapsible ? 'button' : undefined}
 		tabindex={collapsible ? 0 : undefined}
@@ -77,7 +75,7 @@
 	}
 
 	.header.collapsible:hover {
-		background-color: rgba(51, 65, 85, 0.7);
+		background-color: var(--color-surface-strong);
 	}
 
 	.title {

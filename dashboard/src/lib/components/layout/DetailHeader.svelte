@@ -27,5 +27,5 @@
 		opacity: 0.7; transition: opacity 0.2s; border-radius: 0.25rem; color: var(--color-text-muted);
 	}
 	.end :global(.action-btn:hover) { opacity: 1; background-color: var(--color-bg-secondary); }
-	.end :global(.action-btn.active-toggle) { color: #3b82f6; opacity: 1; background-color: rgba(59, 130, 246, 0.1); }
+	.end :global(.action-btn.active-toggle) { color: var(--accent-blue); opacity: 1; background-color: rgba(59, 130, 246, 0.1); }
 </style>

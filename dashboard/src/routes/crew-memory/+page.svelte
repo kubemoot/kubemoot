@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
 	import { resolve } from '$app/paths';
 	import { crewDirectory, namespace } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
@@ -67,10 +66,6 @@
 			</div>
 		{/if}
 	</div>
-	<p class="sub">
-		Working memory is what a crew has learned about this cluster and keeps between conversations, such as which accelerator
-		holds which model. Facts are scoped to one crew, and the least recently used are dropped over time.
-	</p>
 
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 
@@ -94,7 +89,7 @@
 								<td>{f.key}</td>
 								<td class="val">{f.value}</td>
 								<td>{f.learnedBy}</td>
-								<td class="ts" use:tooltip={f.usedAt}>{formatTimestamp(f.usedAt) || f.usedAt}</td>
+								<td class="ts">{formatTimestamp(f.usedAt) || f.usedAt}</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -108,7 +103,6 @@
 	.page { padding: 1.5rem; max-width: 1100px; }
 	.header-actions { display: flex; gap: 0.5rem; }
 	.page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-	.sub { color: var(--color-text-muted); margin-top: 0.25rem; max-width: 70ch; }
 	.card { background: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 0.5rem; overflow-x: auto; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.9rem; color: var(--color-text); }
 	th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--color-border); vertical-align: top; }

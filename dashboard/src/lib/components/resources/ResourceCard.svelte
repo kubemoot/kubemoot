@@ -60,7 +60,7 @@
 
 	.card:hover {
 		border-color: var(--color-primary);
-		background-color: rgba(30, 41, 59, 0.8);
+		background-color: var(--color-overlay);
 		text-decoration: none;
 	}
 

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Thread } from '#lib/stores/discussions.js';
 import {
+	DEFAULT_FILTER,
 	NO_FILTER,
 	chipsOf,
 	firstHit,
+	emptyBecauseOfFilter,
+	hasFilterParams,
 	highlight,
 	matchesFilter,
 	parseFilter,
@@ -30,31 +33,78 @@ function thread(over: Partial<Thread> = {}, messages: Thread['messages'] = []): 
 
 describe('the query string', () => {
 	it('round trips every filter and keeps other parameters', () => {
-		const f = { status: 'failed', mine: true, from: '2026-11-01', to: '2026-11-21', q: 'gpu' } as const;
+		const f = { status: 'failed', mine: true, range: 'custom', from: '2026-11-01T09:00', to: '2026-11-21T17:30', q: 'gpu' } as const;
 		const params = withFilter(new URLSearchParams('thread=abc'), f);
-		expect(params.toString()).toBe('thread=abc&status=failed&mine=1&from=2026-11-01&to=2026-11-21&q=gpu');
+		expect(params.toString()).toBe('thread=abc&status=failed&mine=1&range=custom&from=2026-11-01T09%3A00&to=2026-11-21T17%3A30&q=gpu');
 		expect(parseFilter(params)).toEqual(f);
 	});
 
-	it('drops what it cannot read', () => {
-		expect(parseFilter(new URLSearchParams('status=bogus&from=yesterday&to=2026-13-45&mine=yes&q=%20%20'))).toEqual(NO_FILTER);
+	it('has no range in the address for the default, and names Anytime and a preset', () => {
+		expect(withFilter(new URLSearchParams(), DEFAULT_FILTER).toString()).toBe('');
+		expect(withFilter(new URLSearchParams(), NO_FILTER).toString()).toBe('range=any');
+		expect(withFilter(new URLSearchParams(), { ...NO_FILTER, range: '1h' }).toString()).toBe('range=1h');
+		expect(parseFilter(new URLSearchParams('range=any')).range).toBe('any');
+		expect(parseFilter(new URLSearchParams('range=1h')).range).toBe('1h');
+	});
+
+	it('shows the default range when the address says none, and drops what it cannot read', () => {
+		expect(parseFilter(new URLSearchParams(''))).toEqual(DEFAULT_FILTER);
+		expect(parseFilter(new URLSearchParams('status=bogus&range=lastcentury&from=yesterday&to=2026-13-45&mine=yes&q=%20%20'))).toEqual(DEFAULT_FILTER);
+	});
+
+	it('reads an older address that has only from and to as a custom range of whole days', () => {
+		const f = parseFilter(new URLSearchParams('from=2026-11-01&to=2026-11-21'));
+		expect(f).toMatchObject({ range: 'custom', from: '2026-11-01T00:00', to: '2026-11-21T23:59' });
+	});
+
+	it('ignores from and to unless the range is custom', () => {
+		expect(parseFilter(new URLSearchParams('range=1h&from=2026-11-01T09:00'))).toMatchObject({ range: '1h', from: null, to: null });
 	});
 
 	it('removes a filter that is cleared', () => {
-		expect(withFilter(new URLSearchParams('status=failed&q=x'), NO_FILTER).toString()).toBe('');
+		expect(withFilter(new URLSearchParams('status=failed&q=x'), DEFAULT_FILTER).toString()).toBe('');
 	});
 
 	it('bounds the search text', () => {
 		expect(parseFilter(new URLSearchParams({ q: 'x'.repeat(500) })).q).toHaveLength(200);
 	});
+
+	it('says whether the address sets any filter', () => {
+		expect(hasFilterParams(new URLSearchParams('thread=abc'))).toBe(false);
+		expect(hasFilterParams(new URLSearchParams('thread=abc&range=any'))).toBe(true);
+		expect(hasFilterParams(new URLSearchParams('q=gpu'))).toBe(true);
+	});
 });
 
 describe('chips', () => {
-	it('lists one removable chip per filter set', () => {
-		const f = { status: 'active', mine: true, from: '2026-11-01', to: null, q: 'gpu' } as const;
-		expect(chipsOf(f).map((c) => c.key)).toEqual(['status', 'mine', 'from', 'q']);
-		expect(chipsOf(withoutChip(f, 'mine')).map((c) => c.key)).toEqual(['status', 'from', 'q']);
+	it('lists one removable chip per filter set, the time range included', () => {
+		const f = { status: 'active', mine: true, range: '6h', from: null, to: null, q: 'gpu' } as const;
+		expect(chipsOf(f).map((c) => c.key)).toEqual(['status', 'mine', 'range', 'q']);
+		expect(chipsOf(f).find((c) => c.key === 'range')?.label).toBe('Last 6 hours');
+		expect(chipsOf(withoutChip(f, 'mine')).map((c) => c.key)).toEqual(['status', 'range', 'q']);
 		expect(chipsOf(NO_FILTER)).toEqual([]);
+	});
+
+	it('removing the range chip means any time, and clears a custom range', () => {
+		const custom = { ...NO_FILTER, range: 'custom', from: '2026-11-01T09:00', to: null } as const;
+		expect(withoutChip(custom, 'range')).toEqual(NO_FILTER);
+		expect(chipsOf(custom)[0].label).toMatch(/^From /);
+	});
+
+	it('shows the default range as a chip, so what hides older conversations can be removed', () => {
+		expect(chipsOf(DEFAULT_FILTER).map((c) => c.label)).toEqual(['Last 24 hours']);
+	});
+});
+
+describe('why an empty list is empty', () => {
+	it('names the search, then the other filters, then the time range', () => {
+		expect(emptyBecauseOfFilter({ ...DEFAULT_FILTER, q: 'zebra', status: 'failed' }, 'discussions')).toBe('No discussions match this search.');
+		expect(emptyBecauseOfFilter({ ...DEFAULT_FILTER, mine: true }, 'conversations')).toBe('No conversations match these filters.');
+		expect(emptyBecauseOfFilter(DEFAULT_FILTER, 'discussions')).toMatch(/^No discussions in this time range\. Choose Anytime/);
+	});
+
+	it('says nothing about filters when none is set, so the list can give its own reason', () => {
+		expect(emptyBecauseOfFilter(NO_FILTER, 'conversations')).toBeNull();
 	});
 });
 
@@ -85,12 +135,19 @@ describe('matchesFilter', () => {
 		expect(matchesFilter(thread(), { ...NO_FILTER, mine: true }, null)).toBe(false);
 	});
 
-	it('filters by date, both ends included', () => {
-		const f = (from: string | null, to: string | null) => ({ ...NO_FILTER, from, to });
-		expect(matchesFilter(thread(), f('2026-11-10', '2026-11-10'), null)).toBe(true);
-		expect(matchesFilter(thread(), f('2026-11-11', null), null)).toBe(false);
-		expect(matchesFilter(thread(), f(null, '2026-11-09'), null)).toBe(false);
-		expect(matchesFilter(thread({ startedAt: 'garbage' }), f('2026-11-01', null), null)).toBe(false);
+	it('filters by a custom range, both minutes included', () => {
+		const f = (from: string | null, to: string | null) => ({ ...NO_FILTER, range: 'custom' as const, from, to });
+		expect(matchesFilter(thread(), f('2026-11-10T12:00', '2026-11-10T12:00'), null)).toBe(true);
+		expect(matchesFilter(thread(), f('2026-11-10T12:01', null), null)).toBe(false);
+		expect(matchesFilter(thread(), f(null, '2026-11-10T11:59'), null)).toBe(false);
+		expect(matchesFilter(thread({ startedAt: 'garbage' }), f('2026-11-01T00:00', null), null)).toBe(false);
+	});
+
+	it('filters by a preset range from the given time', () => {
+		const now = new Date('2026-11-10T12:30:00');
+		expect(matchesFilter(thread(), { ...NO_FILTER, range: '1h' }, null, now)).toBe(true);
+		expect(matchesFilter(thread(), { ...NO_FILTER, range: '10m' }, null, now)).toBe(false);
+		expect(matchesFilter(thread(), { ...NO_FILTER, range: '24h' }, null, new Date('2026-11-12T12:00:00'))).toBe(false);
 	});
 
 	it('searches the question and the message text, ignoring case', () => {

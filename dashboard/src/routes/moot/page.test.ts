@@ -13,6 +13,9 @@ function msg(agentName: string, messageType: DiscussionMessage['messageType'], c
 }
 
 beforeAll(() => {
+	// The default list shows the last 24 hours, so the clock is set to just after the fixed test threads.
+	vi.useFakeTimers({ toFake: ['Date'] });
+	vi.setSystemTime(new Date('2026-11-22T06:00:00Z'));
 	vi.stubGlobal('EventSource', class { close() {} addEventListener() {} onmessage = null; onerror = null; onopen = null; });
 	vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], channels: [], messages: [] }) }));
 	const subject = 'kubemoot.discuss.crew-demo.demo.general.thread-a';

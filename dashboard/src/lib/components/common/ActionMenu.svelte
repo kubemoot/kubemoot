@@ -1,22 +1,21 @@
 <script lang="ts" module>
 	export type MenuEntry =
 		| { kind: 'separator' }
-		| { kind: 'item'; label: string; tip: string; onselect: () => void; danger?: boolean }
-		| { kind: 'check'; label: string; tip: string; checked: boolean; onselect: () => void }
-		| { kind: 'link'; label: string; tip: string; href: string; download?: boolean };
+		| { kind: 'item'; label: string; onselect: () => void; danger?: boolean }
+		| { kind: 'check'; label: string; checked: boolean; onselect: () => void }
+		| { kind: 'link'; label: string; href: string; download?: boolean };
 </script>
 
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 
 	interface Props {
 		entries: MenuEntry[];
+		/** What opening the menu offers, said in the tooltip of its button (text from ACTIONS). */
+		tip: string;
 		/** Names the menu for assistive technology. */
 		label?: string;
-		/** What opening the menu offers, said in its tooltip. */
-		tip: string;
 	}
 
 	let { entries, label = 'Actions', tip }: Props = $props();
@@ -85,7 +84,8 @@
 		type="button"
 		class="menu-button"
 		bind:this={button}
-		use:tooltip={ACTIONS.menuItem(tip)}
+		use:tooltip={tip}
+	
 		aria-label={label}
 		aria-haspopup="menu"
 		aria-expanded={open}
@@ -100,13 +100,13 @@
 				{#if entry.kind === 'separator'}
 					<hr />
 				{:else if entry.kind === 'check'}
-					<button type="button" role="menuitemcheckbox" aria-checked={entry.checked} tabindex="-1" data-tooltip-placement="menu" use:tooltip={ACTIONS.menuItem(entry.tip)} onclick={() => run(entry.onselect)}>
+					<button type="button" role="menuitemcheckbox" aria-checked={entry.checked} tabindex="-1" onclick={() => run(entry.onselect)}>
 						<span class="check" aria-hidden="true">{#if entry.checked}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>{/if}</span>{entry.label}
 					</button>
 				{:else if entry.kind === 'link'}
-					<a role="menuitem" tabindex="-1" data-tooltip-placement="menu" href={entry.href} download={entry.download ? '' : undefined} use:tooltip={ACTIONS.menuItem(entry.tip)} onclick={() => close(false)}><span class="check"></span>{entry.label}</a>
+					<a role="menuitem" tabindex="-1" href={entry.href} download={entry.download ? '' : undefined} onclick={() => close(false)}><span class="check"></span>{entry.label}</a>
 				{:else}
-					<button type="button" role="menuitem" class:danger={entry.danger} tabindex="-1" data-tooltip-placement="menu" use:tooltip={ACTIONS.menuItem(entry.tip)} onclick={() => run(entry.onselect)}><span class="check"></span>{entry.label}</button>
+					<button type="button" role="menuitem" class:danger={entry.danger} tabindex="-1" onclick={() => run(entry.onselect)}><span class="check"></span>{entry.label}</button>
 				{/if}
 			{/each}
 		</div>
@@ -125,7 +125,7 @@
 		position: absolute; right: 0; top: calc(100% + 0.25rem); z-index: 20; min-width: 15rem;
 		display: flex; flex-direction: column; padding: 0.25rem;
 		background: var(--color-bg, var(--color-bg-secondary)); border: 1px solid var(--color-border); border-radius: 0.375rem;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+		box-shadow: var(--shadow-popup);
 	}
 	.menu button, .menu a {
 		display: flex; align-items: center; gap: 0.25rem; text-align: left; padding: 0.375rem 0.625rem;

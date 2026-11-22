@@ -4,8 +4,9 @@ import { parse } from 'svelte/compiler';
 import { describe, expect, it } from 'vitest';
 import { ACTIONS } from './action-definitions.js';
 
-// Walks every Svelte file the dashboard ships and fails when an action has no
-// shared tooltip: a button, a link that acts, a menu item, a toggle or a tab.
+// Walks every Svelte file the dashboard ships and enforces where a tooltip goes: an icon-only
+// button or clickable icon needs an aria-label and a tooltip from ACTIONS; a text button needs
+// neither; tiles, list rows, menu items, tabs, fields and titles carry none.
 
 const srcDir = join(process.cwd(), 'src');
 
@@ -68,11 +69,8 @@ function wrappers(node: unknown): Node[] {
 // Pages whose every link opens a page and is a tile: the Overview.
 const TILE_FILES = new Set(['routes/+page.svelte']);
 
-const ACTION_ROLES = /^(menuitem|menuitemcheckbox|menuitemradio|tab|button)$/;
-const ACTION_TAGS = new Set(['button', 'summary', 'select']);
-
-// Popup bodies that only stop a click from reaching the close-on-outside-click handler.
-const GUARD_CLASSES = new Set(['help-popup', 'sysinfo-popup']);
+const NO_TOOLTIP_TAGS = new Set(['select', 'input', 'summary', 'tr', 'li', 'h1', 'h2', 'span', 'td']);
+const NO_TOOLTIP_ROLES = /^(menuitem|menuitemcheckbox|menuitemradio|tab)$/;
 
 type Attrs = (name: string) => string | undefined;
 const attrsOf = (el: Node): { get: Attrs; has: (name: string) => boolean } => {
@@ -81,22 +79,6 @@ const attrsOf = (el: Node): { get: Attrs; has: (name: string) => boolean } => {
 	return { get: (name) => attrText(find(name)), has: (name) => find(name) !== undefined };
 };
 
-function isControl(el: Node, a: ReturnType<typeof attrsOf>): boolean {
-	if (ACTION_TAGS.has(el.name ?? '') || ACTION_ROLES.test(a.get('role') ?? '')) return true;
-	return el.name === 'input' && ['checkbox', 'radio'].includes(a.get('type') ?? '');
-}
-
-function isActing(el: Node, file: string, a: ReturnType<typeof attrsOf>): boolean {
-	if (el.name === 'a') return TILE_FILES.has(file) || a.has('onclick') || a.has('download');
-	return a.has('onclick') && !GUARD_CLASSES.has(a.get('class') ?? '');
-}
-
-function isAction(el: Node, file: string): boolean {
-	const a = attrsOf(el);
-	return isControl(el, a) || isActing(el, file, a);
-}
-
-// A control named only by a glyph or an icon needs an aria-label, since the tooltip only describes it.
 function expressionWords(n: Node, source: string): string {
 	const literals = [...source.slice(n.start, n.end).matchAll(/'([^']*)'/g)].map((m) => m[1]);
 	return literals.length > 0 ? literals.join(' ') : 'dynamic text';
@@ -111,44 +93,79 @@ function visibleWords(root: unknown, source: string): string {
 	return words.join(' ');
 }
 
-function hasName(el: Node, source: string): boolean {
-	const attrs = el.attributes ?? [];
-	if (attrs.some((a) => a.type === 'Attribute' && (a.name === 'aria-label' || a.name === 'aria-labelledby'))) return true;
-	if (el.name === 'input' || el.name === 'select') return true;
-	return /[A-Za-z]{3,}/.test(visibleWords(el.fragment, source));
+function hasAriaLabel(el: Node): boolean {
+	return (el.attributes ?? []).some((a) => a.type === 'Attribute' && (a.name === 'aria-label' || a.name === 'aria-labelledby'));
+}
+
+// A button or acting link whose only content is a glyph or an icon.
+function isIconOnly(el: Node, source: string): boolean {
+	const a = attrsOf(el);
+	const acts = el.name === 'button' || (el.name === 'a' && (a.has('onclick') || a.has('download')));
+	return acts && !/[A-Za-z]{2,}/.test(visibleWords(el.fragment, source));
+}
+
+// The (i) info icon opens the help popover on click; it has an aria-label and, by design, no tooltip.
+function isInfoIcon(el: Node): boolean {
+	return attrsOf(el).get('aria-haspopup') === 'dialog';
+}
+
+// A terse checkbox such as Mine may carry a short tooltip, on the checkbox or its label.
+function isCheckbox(el: Node): boolean {
+	return el.name === 'input' && attrsOf(el).get('type') === 'checkbox';
+}
+
+function forbiddenReason(el: Node, file: string): string | null {
+	const a = attrsOf(el);
+	if (NO_TOOLTIP_TAGS.has(el.name ?? '') && !isCheckbox(el)) return `<${el.name}> is a field, row, title or label and carries no tooltip`;
+	if (NO_TOOLTIP_ROLES.test(a.get('role') ?? '')) return 'a menu item or tab carries no tooltip';
+	if (el.name === 'a' && TILE_FILES.has(file)) return 'a tile carries no tooltip';
+	if (a.get('class')?.split(/\s+/).includes('card')) return 'a card or list row carries no tooltip';
+	return null;
 }
 
 const files = svelteFiles(srcDir).map((path) => ({
-	file: relative(srcDir, path).replaceAll('\\','/'),
+	file: relative(srcDir, path).replaceAll('\\', '/'),
 	source: readFileSync(path, 'utf8')
 }));
 
-describe('every action has a shared tooltip', () => {
+function iconOnlyProblems(el: Node, source: string, where: string, hasUse: boolean): string[] {
+	if (!isIconOnly(el, source)) return [];
+	const problems: string[] = [];
+	if (!hasUse && !isInfoIcon(el)) problems.push(`${where}: icon-only <${el.name}> has no use:tooltip`);
+	if (!hasAriaLabel(el)) problems.push(`${where}: icon-only <${el.name}> has no aria-label`);
+	return problems;
+}
+
+function tooltipTextProblems(el: Node, use: Attr, source: string, where: string): string[] {
+	const problems: string[] = [];
+	const expr = use.expression ? source.slice(use.expression.start, use.expression.end) : '';
+	// A component may pass the tooltip text to its button as `tip`; its callers take it from ACTIONS.
+	if (!(expr.startsWith('ACTIONS.') || expr === 'tip')) problems.push(`${where}: tooltip text must come from ACTIONS (got ${expr})`);
+	if ((el.attributes ?? []).some((a) => a.type === 'Attribute' && a.name === 'title')) problems.push(`${where}: <${el.name}> keeps a native title beside the tooltip`);
+	if (isInfoIcon(el)) problems.push(`${where}: the (i) info icon carries no tooltip`);
+	return problems;
+}
+
+function checkTooltipUse(el: Node, file: string, source: string, line: number): string[] {
+	const where = `${file}:${line}`;
+	const use = (el.attributes ?? []).find((a) => a.type === 'UseDirective' && a.name === 'tooltip');
+	const problems = iconOnlyProblems(el, source, where, use !== undefined);
+	if (!use) return problems;
+	const forbidden = forbiddenReason(el, file);
+	if (forbidden) problems.push(`${where}: ${forbidden}`);
+	return [...problems, ...tooltipTextProblems(el, use, source, where)];
+}
+
+describe('tooltips go only on icon-only buttons', () => {
 	it('finds the Svelte files', () => {
 		expect(files.length).toBeGreaterThan(60);
 	});
 
 	it.each(files)('$file', ({ file, source }) => {
 		const ast = parse(source, { modern: true }) as unknown as { fragment: unknown };
-		const missing: string[] = [];
-		for (const el of elements(ast.fragment)) {
-			if (!isAction(el, file)) continue;
-			const attrs = el.attributes ?? [];
-			const use = attrs.find((a) => a.type === 'UseDirective' && a.name === 'tooltip');
-			const line = source.slice(0, el.start).split('\n').length;
-			if (!use) {
-				missing.push(`${file}:${line}: <${el.name}> has no use:tooltip`);
-				continue;
-			}
-			if (!hasName(el, source)) missing.push(`${file}:${line}: <${el.name}> shows only a glyph or icon and has no aria-label`);
-			const expr = use.expression ? source.slice(use.expression.start, use.expression.end) : '';
-			if (!/^ACTIONS\.\w+/.test(expr)) missing.push(`${file}:${line}: tooltip text must come from ACTIONS (got ${expr})`);
-			if (attrs.some((a) => a.type === 'Attribute' && a.name === 'title')) {
-				missing.push(`${file}:${line}: <${el.name}> keeps a native title beside the tooltip`);
-			}
-		}
-		for (const c of wrappers(ast.fragment)) missing.push(`${file}: <${c.name} onclick> wraps a control; give the component its own use:tooltip`);
-		expect(missing).toEqual([]);
+		const problems = elements(ast.fragment).flatMap((el) => checkTooltipUse(el, file, source, source.slice(0, el.start).split('\n').length));
+		for (const c of wrappers(ast.fragment)) problems.push(`${file}: <${c.name} onclick> wraps a control; give the component its own use:tooltip`);
+		expect(problems).toEqual([]);
 	});
 
 	it('keeps every action text short, plain and ASCII', () => {
@@ -158,5 +175,10 @@ describe('every action has a shared tooltip', () => {
 			expect(text, key).not.toMatch(/\bGPUs?\b|consultation/i);
 			expect(text.split(/\s+/).length, key).toBeLessThanOrEqual(25);
 		}
+	});
+
+	it('defines no action that no page uses', () => {
+		const used = files.map((f) => f.source).join('\n');
+		for (const key of Object.keys(ACTIONS)) expect(used, key).toContain(`ACTIONS.${key}`);
 	});
 });
