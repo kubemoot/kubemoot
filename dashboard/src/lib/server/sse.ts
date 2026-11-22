@@ -9,6 +9,8 @@
  * while `open` is still running releases the source as soon as `open` returns it.
  */
 
+import { callerEnded } from './auth/identity.js';
+
 export type SseCleanup = () => void | Promise<void>;
 
 export interface SseSink {
@@ -115,6 +117,11 @@ export function sseStream(open: SseOpen, options: SseOptions = {}): ReadableStre
 	return new ReadableStream<Uint8Array>({
 		start(controller) {
 			session = new SseSession(controller);
+			// A stream made with a person's token ends with their session: sign-out or expiry.
+			const ended = callerEnded();
+			const stop = () => session?.close();
+			if (ended?.aborted) stop();
+			else ended?.addEventListener('abort', stop, { once: true });
 			return session.open(open, options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS);
 		},
 		cancel() {

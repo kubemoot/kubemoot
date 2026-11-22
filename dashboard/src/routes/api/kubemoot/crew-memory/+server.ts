@@ -1,7 +1,8 @@
 import type { RequestHandler } from './$types';
+import { kubeFailure } from '#lib/server/k8s/errors.js';
 import { getNatsConnection, sc } from '#lib/server/nats-client.js';
 import { isNamespace, parseCrewMemoryKey, type CrewMemoryKey } from '#lib/crewScope.js';
-import { guardNamespaceOrAll, namespaceAllowedNow } from '#lib/server/scope.js';
+import { callerNamespaces, guardNamespaceOrAll, natsNamespaceAllowedNow } from '#lib/server/scope.js';
 
 /**
  * Reads crew working-memory facts (the kubemoot_crew_memory NATS KV bucket). Keys are
@@ -50,7 +51,7 @@ function matches(parsed: CrewMemoryKey | null, crew: string, namespace: string |
 		!!parsed &&
 		parsed.crew === crew &&
 		(namespace === null || parsed.namespace === namespace) &&
-		namespaceAllowedNow(parsed.namespace)
+		natsNamespaceAllowedNow(parsed.namespace)
 	);
 }
 
@@ -82,6 +83,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	const { crew, namespace } = params;
 	const denied = await guardNamespaceOrAll(namespace ?? '');
 	if (denied) return denied;
+	await callerNamespaces();
 	try {
 		const kv = await openKV();
 		const facts: unknown[] = [];
@@ -94,7 +96,6 @@ export const GET: RequestHandler = async ({ url }) => {
 		}
 		return Response.json({ namespace, crew, facts });
 	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Failed to read crew memory';
-		return Response.json({ error: message }, { status: 500 });
+		return kubeFailure(err, 'Failed to read crew memory');
 	}
 };

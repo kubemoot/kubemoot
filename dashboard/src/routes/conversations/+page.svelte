@@ -2,6 +2,7 @@
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
 	import {
@@ -10,7 +11,9 @@
 		sortedThreads,
 		initDiscussions,
 		showChatDetails,
-		namespace
+		namespace,
+		hasOlder,
+		loadOlder
 	} from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel } from '#lib/crew-display-name.js';
@@ -19,6 +22,18 @@
 	import { CommandHint, ConversationDownload, PageTitle } from '#lib/components/common/index.js';
 	import { askCommand, listConversationsCommand, replayConversationCommand } from '#lib/cli-commands.js';
 	import { conversationIds, threadConversationId } from '#lib/conversation-export.js';
+	import { page } from '$app/state';
+	import { AskBox, FilterBar } from '#lib/components/conversations/index.js';
+	import { listMyConversations } from '#lib/ask-client.js';
+	import {
+		firstHit,
+		highlight,
+		matchesFilter,
+		parseFilter,
+		snippet,
+		withFilter,
+		type ListFilter
+	} from '#lib/conversation-filter.js';
 
 	marked.setOptions({ breaks: true, gfm: true });
 
@@ -26,9 +41,70 @@
 	const selectedScope = $derived<CrewScope | null>(
 		$namespace === '' ? null : tryCrewScope($namespace, crewEntry($crewDirectory, $namespace)?.crew)
 	);
-	const chats = $derived(
-		crewThreads($sortedThreads, selectedScope).filter((t) => chatTurns(t.messages).length > 0)
+	const signedIn = $derived(!!page.data.user);
+	const emptyHint = $derived(
+		signedIn ? 'Select a conversation, or ask a new question below.' : 'Select a conversation, or start one from a terminal.'
 	);
+
+	// The filters and the search live in the URL query, so a link reproduces the view.
+	const filter = $derived(parseFilter(new URLSearchParams(page.url.search)));
+
+	function setFilter(next: ListFilter) {
+		const query = withFilter(new URLSearchParams(page.url.search), next).toString();
+		void goto(resolve('/conversations') + (query ? `?${query}` : ''), { replaceState: true });
+	}
+
+	// The conversations the signed-in person started, listed by each crew's gateway with their own
+	// token: the selected crew, or every crew when none is selected. A crew the person may not use
+	// lists nothing.
+	let mine = $state<Set<string> | null>(null);
+	let mineError = $state('');
+
+	async function loadMine(scopes: CrewScope[]) {
+		mine = null;
+		mineError = '';
+		if (!signedIn || scopes.length === 0) return;
+		const lists = await Promise.allSettled(scopes.map((s) => listMyConversations(fetch, s)));
+		mine = new Set(lists.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])));
+		const refused = lists.find((r) => r.status === 'rejected');
+		if (refused && scopes.length === 1) mineError = refused.reason?.message ?? 'Could not list your conversations.';
+	}
+
+	const mineScopes = $derived<CrewScope[]>(
+		selectedScope
+			? [selectedScope]
+			: $crewDirectory.flatMap((e) => {
+					const s = tryCrewScope(e.namespace, e.crew);
+					return s ? [s] : [];
+				})
+	);
+
+	$effect(() => {
+		void loadMine(mineScopes);
+	});
+
+	const chats = $derived(
+		crewThreads($sortedThreads, selectedScope)
+			.filter((t) => chatTurns(t.messages).length > 0)
+			.filter((t) => matchesFilter(t, filter, mine))
+	);
+
+	// A question just asked: its discussion opens as soon as the bus shows it, and its messages
+	// then arrive live like any other.
+	let askedId = $state<string | null>(null);
+	let openedFor: string | null = null;
+	$effect(() => {
+		if (!askedId || openedFor === askedId) return;
+		const found = $sortedThreads.find((t) => threadConversationId(t) === askedId);
+		if (!found) return;
+		openedFor = askedId;
+		selectedThreadId = found.threadId;
+	});
+
+	function startNew() {
+		selectedThreadId = null;
+		askedId = null;
+	}
 
 	let selectedThreadId = $state<string | null>(null);
 	const selected = $derived(selectedThreadId ? $threads.get(selectedThreadId) : undefined);
@@ -79,10 +155,15 @@
 	<div class="sidebar-panel">
 		<div class="panel-header">
 			<h2>Recent</h2>
+			{#if signedIn}
+				<button type="button" class="action-btn" onclick={startNew} disabled={!selectedScope} title={selectedScope ? 'Ask the selected crew a new question' : 'Select a crew in the top bar first'}>New conversation</button>
+			{/if}
 			{#if selectedScope && tickedIds.length > 0}
 				<ConversationDownload scope={selectedScope} ids={tickedIds} endpoint={exportEndpoint} />
 			{/if}
 		</div>
+		<FilterBar {filter} {signedIn} loaded={$sortedThreads.length} hasOlder={$hasOlder} onchange={setFilter} onloadolder={() => void loadOlder()} />
+		{#if mineError}<p class="hint" role="alert">{mineError}</p>{/if}
 		{#if chats.length === 0}
 			<p class="hint">No conversations{selectedScope ? ' with this crew' : ''} yet.</p>
 		{/if}
@@ -92,7 +173,9 @@
 				<input use:tooltip={ACTIONS.selectConversation} type="checkbox" class="chat-tick" aria-label="Select this conversation for download" checked={!!ticked[t.threadId]} onchange={(e) => tick(t.threadId, e.currentTarget.checked)} />
 			{/if}
 			<button use:tooltip={ACTIONS.openConversation} class="chat-row" class:active={t.threadId === selectedThreadId} onclick={() => selectChat(t.threadId)}>
-				<span class="chat-preview">{preview(t.threadId, t.userQuery)}</span>
+				<span class="chat-preview">
+					{#each highlight(filter.q ? snippet(firstHit(t, filter.q) ?? preview(t.threadId, t.userQuery), filter.q) : preview(t.threadId, t.userQuery), filter.q) as piece, i (i)}{#if piece.hit}<mark>{piece.text}</mark>{:else}{piece.text}{/if}{/each}
+				</span>
 				<span class="chat-meta">
 					{#if $namespace === '' && t.namespace}<span class="crew-badge">{crewLabel($crewDirectory, t.namespace, t.crew ?? '')}</span>{/if}
 					<span>{formatTimestamp(t.startedAt)}</span>
@@ -123,7 +206,7 @@
 		<div class="chat-timeline">
 			{#if !selected}
 				<div class="empty-state">
-					<p>{selectedScope || chats.length > 0 ? 'Select a conversation, or start one from a terminal.' : 'Select a crew in the top bar to see its conversations.'}</p>
+					<p>{selectedScope || chats.length > 0 ? emptyHint : 'Select a crew in the top bar to see its conversations.'}</p>
 				</div>
 			{:else}
 				{#each turns as turn (turn.id)}
@@ -148,8 +231,15 @@
 			{/if}
 		</div>
 
+		{#if signedIn}
+			<div class="ask-bar">
+				<AskBox scope={selectedScope} conversationId={selectedConversationId} showLive={!selected || selectedConversationId !== askedId} onAsked={(id) => (askedId = id)} />
+			</div>
+		{/if}
+
 		<div class="compose-bar">
 			{#if selected}
+
 				<CommandHint
 					label="Reply from a terminal (find the id with {listConversationsCommand(selected.crew ?? 'CREW', selected.namespace)}):"
 					command={askCommand(selected.crew ?? 'CREW', selected.namespace, 'CONVERSATION_ID')}
@@ -213,4 +303,6 @@
 	.waiting { color: var(--color-text-muted); font-size: 0.85rem; align-self: flex-start; }
 
 	.compose-bar { padding: 0.75rem 1rem; border-top: 1px solid var(--color-border); }
+	.ask-bar { padding: 0.5rem 1rem 0; border-top: 1px solid var(--color-border); }
+	mark { background: var(--color-warning); color: #000; border-radius: 0.15rem; }
 </style>

@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { operatorAuthHeaders, operatorReportBase } from '#lib/server/operator-report.js';
-import { guardNamespace } from '#lib/server/scope.js';
+import { guardNatsNamespace } from '#lib/server/scope.js';
 
 /**
  * GET /api/kubemoot/crewfitnesssuites/{namespace}/{name}/artifact
@@ -17,7 +17,7 @@ import { guardNamespace } from '#lib/server/scope.js';
  */
 export const GET: RequestHandler = async ({ params }) => {
 	const { namespace, name } = params;
-	const denied = await guardNamespace(namespace);
+	const denied = await guardNatsNamespace(namespace);
 	if (denied) return denied;
 	if (!namespace || !name) {
 		throw error(400, 'namespace and name are required');

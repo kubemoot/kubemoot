@@ -129,14 +129,26 @@ rules:
 | `APP_VERSION` | Version displayed in UI | From VERSION file |
 | `KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR` | Label selector (for example `kubemoot.ai/workshop-team=true`); only matching namespaces are shown, resolved against the live cluster | empty (all namespaces) |
 | `KUBEMOOT_DASHBOARD_INFRA_NAMESPACE` | With a selector set, the operator namespace whose model servers, models, embedding models, MCP catalogs and quality policies stay visible | `kubemoot` |
+| `KUBEMOOT_DASHBOARD_ANONYMOUS_READ_ONLY` | `true` lets a visitor who has not signed in see the read views with the dashboard's ServiceAccount; they can never ask or change anything | `false` |
+| `KUBEMOOT_DASHBOARD_SESSION_MAX_MINUTES` | The longest a sign-in lasts (a token that expires sooner ends it sooner) | `480` |
+| `KUBEMOOT_DASHBOARD_GATEWAY_URL` | Where a crew's discussion gateway is; `{crew}` and `{namespace}` are replaced | `http://<crew>-discussion.<namespace>.svc.cluster.local` |
 
-## Read-only
+## Sign-in and read-only
 
-The dashboard never changes anything. The server refuses every request that is not GET, HEAD or
-OPTIONS with 405, no route writes to Kubernetes or NATS, and its ServiceAccount holds get, list
-and watch only. Where a control used to be, the page shows the kmctl or kubectl command to run
-with your own credentials. A test fails if a write route, a browser write request, or a write
-verb in the chart's RBAC comes back.
+Every page shows a sign-in page until the person pastes a Kubernetes bearer token. The server checks
+it with a TokenReview and keeps it only in memory, in a session keyed by a random id held in an
+HttpOnly, Secure, SameSite=Strict cookie that ends no later than the token. Every Kubernetes call of
+a signed-in request uses that token (`src/lib/server/k8s/client.ts`), so the person's RBAC decides
+what they see; a 403 shows "you do not have permission" in the view. Asking a crew goes through the
+crew's discussion gateway with the same token. NATS reads still use the dashboard's own read-only
+connection.
+
+The server refuses every request that is not GET, HEAD or OPTIONS with 405, except sign-in,
+sign-out and asking a crew (`src/lib/server/auth/access.ts`), and every one of those must come from
+the dashboard's own origin. No route writes to Kubernetes or NATS, and the chart's ServiceAccount
+holds only `create` on tokenreviews unless anonymous read-only viewing is on, when it also holds get,
+list and watch. A test fails if a write route, a browser write request, or a write verb in the
+chart's RBAC comes back.
 
 ### Namespace-scoped mode
 

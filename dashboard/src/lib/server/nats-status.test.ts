@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ getNatsConnection: vi.fn(), listNamespace: vi.fn() }));
-vi.mock('./k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
+vi.mock('./k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }), getServiceAccountCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
 vi.mock('./nats-client.js', () => ({
 	getNatsConnection: mocks.getNatsConnection,
 	sc: { encode: (s: string) => new TextEncoder().encode(s), decode: (b: Uint8Array) => new TextDecoder().decode(b) }

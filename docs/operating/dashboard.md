@@ -8,13 +8,15 @@ weight: 2
 
 The Kubemoot Dashboard is a read-only web UI for looking at a running Kubemoot installation. It lists Kubemoot resources across namespaces, shows GPU node and model state, and streams agent discussions and NATS messages as they happen. It is a SvelteKit application that reads the Kubernetes API and the NATS bus from the server side; the browser never connects to either directly.
 
-The dashboard never changes anything. It cannot ask a crew a question, delete a discussion, edit memory, load or unload a model, or control a fitness suite. A dashboard that acted for whoever reached it would let that person do anything its own ServiceAccount and NATS connection can, so every change is made with your own credentials instead: with `kmctl` or CrewForge (`kubectl` only where `kmctl` has no command). Where a control used to be, the page shows the command to run, with a **Copy** button. See [Where changes are made](#where-changes-are-made).
+You sign in with a Kubernetes bearer token, the way you do in Headlamp, and the dashboard then acts as you: every Kubernetes call it makes for you uses your token, so your own RBAC decides what you see, and you can ask a crew a question as the same Kubernetes user `kmctl` acts as. See [Signing in](#signing-in).
+
+The dashboard changes nothing in Kubernetes or on the bus. It cannot delete a discussion, edit memory, load or unload a model, or control a fitness suite. The one thing it sends is a question to a crew's discussion gateway, with your token. Every other change is made with `kmctl` or CrewForge (`kubectl` only where `kmctl` has no command). Where a control used to be, the page shows the command to run, with a **Copy** button. See [Where changes are made](#where-changes-are-made).
 
 Metrics, logs, and traces are not part of the dashboard. For those, see [Observability](../observability/).
 
 ## Install
 
-The dashboard is an optional part of the `kubemoot-operator` chart, off by default because it has no login, so whoever reaches it can read discussions and crew memory (see [SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md)). Turn it on with one flag when you install the operator:
+The dashboard is an optional part of the `kubemoot-operator` chart, off by default. It needs a sign-in, but the NATS views still read with the dashboard's own connection (see [What runs as you](#what-runs-as-you)), so enable it on a cluster you control and read [SECURITY.md](https://github.com/kubemoot/kubemoot/blob/main/SECURITY.md). Turn it on with one flag when you install the operator:
 
 ```bash
 helm upgrade --install kubemoot-operator \
@@ -57,7 +59,61 @@ gateway:                      # nest under dashboard: in the operator chart's va
   pathPrefix: /dashboard
 ```
 
-The dashboard has no login of its own, whether or not the chart publishes the route. Put authentication in front of it at the Gateway or Ingress layer (an OAuth2 proxy or your platform's access policy).
+The dashboard asks every visitor to sign in with a token, whether or not the chart publishes the route. Serve it over HTTPS: the session cookie is `Secure`, and a token pasted over plain HTTP crosses the network readable. When a proxy ends TLS in front of the dashboard, make sure the dashboard sees the public origin (adapter-node's `ORIGIN` environment variable, or its protocol and host header variables), because every request that changes something must carry an `Origin` that matches it. Sign-in through your identity provider (OIDC behind an OAuth2 proxy) is planned and will use the same seam.
+
+## Signing in
+
+Every page shows the sign-in page until you sign in. Paste a Kubernetes bearer token and press **Sign in**. The dashboard checks it with the API server (a TokenReview) and refuses one that the cluster does not accept or that has expired. With `kmctl` you can print one for your current context:
+
+```bash
+kmctl dashboard token                   # eight hours, for the user the current context acts as
+kubectl create token SERVICE_ACCOUNT -n NAMESPACE --duration=8h
+```
+
+Once you are signed in the top bar shows **Signed in as** your Kubernetes user name, and **Sign out** forgets the token.
+
+How the token is kept:
+
+- It lives only in the dashboard server's memory, in a session keyed by a random id. The browser holds just that id, in a cookie that is `HttpOnly` (page scripts cannot read it), `Secure`, `SameSite=Strict` and limited to the dashboard's path. The token is never written to disk, a log or a trace, and never reaches the browser's scripts.
+- The session ends at the token's own expiry when the token is a JWT with one, and in any case after `auth.sessionMaxMinutes` (8 hours by default). Signing out ends it at once.
+- A restart of the dashboard pod signs everyone out. With more than one replica, use session affinity so a person's requests reach the pod that holds their session.
+- Every request that changes something (sign-in, sign-out, asking a crew) must come from the dashboard's own origin; a request from another site is refused. Behind a proxy that ends TLS, set `auth.origin` to the public origin (or `auth.trustForwardedHeaders` when the proxy sets `X-Forwarded-Proto` and `X-Forwarded-Host`); the 403 says which origin it expected.
+- Open streams (live lists, discussion streams, the answer to a question) end when the session does, whether by sign-out or expiry.
+- Signing in again replaces the browser's earlier session. One user may hold 20 sessions at once, and sign-in attempts are limited (10 a minute per client address, 120 a minute in all) because each one costs the API server a TokenReview.
+- The cookie is `Secure` except on a plain-http `localhost` port-forward, which Safari would otherwise refuse.
+
+### What runs as you
+
+Every Kubernetes API call the dashboard server makes while you are signed in uses your token, not the dashboard's ServiceAccount: lists, gets and watches of Kubemoot resources, nodes, namespaces and ConfigMaps, the operator's version panel, and the calls to the operator's [report service](#the-operator-report-service), which checks your token with a TokenReview and a SubjectAccessReview. A call your RBAC refuses shows "You do not have permission to see this" in the view, not an error page.
+
+A few things do not run as you:
+
+| What | Why |
+|------|-----|
+| NATS reads (discussions, history, streams, memory, key-value views, fitness transcripts) | The dashboard has its own read-only NATS connection, which the bus cannot tie to you. So that your RBAC still decides, a NATS-backed view shows a namespace only when your own token may list Crews there (the dashboard asks the API server with your token and rechecks every ten seconds). To see the NATS views, you need `list` on `crews` cluster-wide; without it they show nothing rather than everything. Per-crew NATS accounts, which would let the bus itself check who is reading, are a later step |
+| The sign-in check itself | The dashboard's ServiceAccount creates the TokenReview, its only right by default |
+| The health probe (`/api/health`) | It carries no data and must answer without a session |
+| The namespace scope of a [workshop instance](#a-workshop-instance) | It is the instance's own setting, resolved with that instance's ServiceAccount |
+
+### Asking a crew
+
+On the Conversations page, with a crew selected, a signed-in person gets a field to ask a new question, or to reply in the open conversation (or start a new one). The question goes through the crew's discussion gateway with your token (`Authorization: Bearer`), exactly as `kmctl conversation ask` sends it, so the gateway's access rules and conversation ownership apply and the conversation belongs to you. The dashboard also needs `get` on the Crew with your token before it sends anything. The gateway's refusals appear next to the field with their status: 401 (the crew did not accept your token), 403 (no permission to use the crew), 404 (the conversation is not yours). The answer streams back through the gateway as you, and **Only mine** limits the conversation list to the ones the gateway lists for you.
+
+The dashboard reaches a crew's gateway at `http://<crew>-discussion.<namespace>.svc.cluster.local`. That hop is plain HTTP inside the cluster, so your token crosses the pod network unencrypted; set `auth.gatewayUrl` to an `https` address (a service mesh or a gateway with TLS) when your network is not trusted. If you use network policies, allow the dashboard's namespace in the crew's `spec.network.allowedIngress`. Set `auth.gatewayUrl` to reach gateways another way.
+
+### Filtering and searching conversations
+
+A small bar above the conversation list holds a search field, a status menu (active, closed, failed), **Mine** (once you are signed in) and a date range; the crew is the top-bar selector. Each filter set shows as a chip you remove with one click, and all of them live in the page address (`?status=failed&mine=1&from=2026-11-01&to=2026-11-21&q=gpu`), so a link reproduces the view. **Mine** uses the conversations each crew's gateway lists for you, for the selected crew or, with none selected, every crew; a crew you may not use adds none. **New conversation**, at the top of the list, clears the open discussion so the field at the bottom starts a new one with the selected crew; the discussion opens as soon as the bus shows it and its messages arrive live.
+
+Search runs in the browser over the discussions the page has loaded from the bus (the newest ones, with older pages loaded on request), matching the question and every message's text without regard to case, and highlights the matching text in the list. It does not reach conversations the page has not loaded; the bar says how many it is searching and offers **Load older**. It covers only what the bus still holds, which retention limits (see [Data retention](../data-retention/)).
+
+### Anonymous read-only viewing
+
+Set `auth.anonymousReadOnly: true` (`dashboard.auth.anonymousReadOnly` in the operator chart) for a public read-only view. A visitor who has not signed in then sees the read views with the dashboard's own ServiceAccount, which the chart grants the read-only access listed under [Access the dashboard needs](#access-the-dashboard-needs). Such a visitor also reads the fitness reports and component status the operator serves, with the dashboard's ServiceAccount token. Such a visitor can never ask or change anything: the asking routes and the gateway routes need a session, and every method but GET, HEAD and OPTIONS is refused. The default is `false`, and then the chart gives the ServiceAccount only the right to create TokenReviews.
+
+### A workshop instance
+
+The workshop instance (`workshop.enabled`) keeps its port-forward use: it reads with its own scoped, read-only ServiceAccount and has anonymous read-only viewing on. Attendees may still sign in to ask.
 
 ## What it shows
 
@@ -159,7 +215,7 @@ Shows the working memory of the crew selected in the top bar, the same crew pick
 
 ### Conversations
 
-The conversations people have had with a crew. The crew picker is the same **Crew** selector in the top bar that Discussions uses. The left panel lists the crew's conversations, and the right panel shows one as a chat: the questions and the crew's answers (the synthesis on each thread). Nothing of the agents' internal discussion appears here; the **Discussion** link beside an answer opens its thread in Discussions, which shows the consensus messages and statistics. The page cannot send a message: it shows the `kmctl conversation ask` command that asks the crew a question, with `--conversation-id` for a follow-up in the same conversation, and `kmctl conversation replay CREW ID` to ask a conversation's first question again. **Download** in the page header downloads the open conversation, and the checkbox beside each conversation in the list selects several for one **Download N conversations**. See [Downloading conversations](#downloading-conversations).
+The conversations people have had with a crew. The crew picker is the same **Crew** selector in the top bar that Discussions uses. The left panel lists the crew's conversations, and the right panel shows one as a chat: the questions and the crew's answers (the synthesis on each thread). Nothing of the agents' internal discussion appears here; the **Discussion** link beside an answer opens its thread in Discussions, which shows the consensus messages and statistics. Signed in, you can ask a new question or reply here as yourself (see [Asking a crew](#asking-a-crew)). The page also shows the `kmctl conversation ask` command that asks the crew a question, with `--conversation-id` for a follow-up in the same conversation, and `kmctl conversation replay CREW ID` to ask a conversation's first question again. **Download** in the page header downloads the open conversation, and the checkbox beside each conversation in the list selects several for one **Download N conversations**. See [Downloading conversations](#downloading-conversations).
 
 The **Details** toggle is off by default and the dashboard remembers the choice per viewer. When it is on, each answer shows the time from the question to the answer and the tokens used: the agents' tokens plus the coordinator's. A figure the thread did not record is left out. The toolbar copies the conversation to the clipboard. To watch raw NATS subjects, use `kmctl` or the NATS tooling directly. When the dashboard cannot read its own version, the sidebar and an exported discussion say "version unknown".
 
@@ -196,7 +252,7 @@ The Models and Model servers pages show state only. Removing a model from the ca
 
 | What you want to do | Where to do it |
 |---------------------|----------------|
-| Ask a crew a question, or answer in a discussion | `kmctl conversation ask CREW "question" [--conversation-id ID]`, or **Ask** in CrewForge |
+| Ask a crew a question, or answer in a discussion | The Conversations page when you are signed in, `kmctl conversation ask CREW "question" [--conversation-id ID]`, or **Ask** in CrewForge |
 | Ask a past conversation's first question again | `kmctl conversation replay CREW ID` |
 | Delete, pause, resume or stop a discussion | No command yet. Each needs a gateway endpoint that does not exist |
 | Add, edit, delete or clear a crew memory fact | `kmctl memory add\|edit\|delete\|clear CREW ...`. Read memory with `kmctl memory export CREW` |
@@ -211,11 +267,11 @@ The Models and Model servers pages show state only. Removing a model from the ca
 
 Every command that changes something runs with your own credentials and accepts `--dry-run`, which has the API server check the change and your access and store nothing.
 
-A later release signs in the person and makes every dashboard call with their own token, which would let the dashboard offer these again under the caller's rights.
+Asking a crew is the one change the dashboard makes for you, through the crew's gateway with your own token. The others stay in `kmctl`; offering them in the dashboard under your rights is a later step.
 
 ## Access the dashboard needs
 
-The chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grants, all read-only:
+While people sign in, the dashboard's own ServiceAccount holds one right: `create` on `tokenreviews` (authentication.k8s.io), to check a pasted token. People read with their own token, so their access is whatever their RBAC grants. The read-only grants below are created only when `auth.anonymousReadOnly` is true (the instance then reads with its ServiceAccount for visitors who have not signed in); the chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grants:
 
 | Resources | Verbs | Why |
 |-----------|-------|-----|
@@ -225,7 +281,7 @@ The chart creates a `ClusterRole` (`kubemoot-dashboard-reader`) with these grant
 | `deployments` (apps) | get, list, watch | Operator version in the Kubemoot components panel |
 | All `kubemoot.ai` resources | get, list, watch | Every Kubemoot page |
 
-Every grant is read-only: a test fails if the chart's `ClusterRole` or `Role` holds any verb but `get`, `list` and `watch`. The server also makes no write to the Kubernetes API or NATS, apart from the short-lived read consumers it opens to read history and list objects. The dashboard never reads or displays Secret values. The container runs as a non-root user with a read-only root filesystem.
+Every grant is read-only apart from the TokenReview right: a test fails if the chart's `ClusterRole` or `Role` holds any other verb than `get`, `list` and `watch`. The server also makes no write to the Kubernetes API or NATS, apart from the short-lived read consumers it opens to read history and list objects. The dashboard never reads or displays Secret values. The container runs as a non-root user with a read-only root filesystem.
 
 ### The operator report service
 
@@ -238,15 +294,19 @@ The dashboard reads the component status, the fitness report download, and the c
 | `/conversation-export/{namespace}/{crew}?id=...` | `get` the Crew in that namespace; see [Taking a conversation away](../data-ownership/#taking-a-conversation-away) |
 | `/componentstatuses` | `list` ModelServers in all namespaces |
 
-The component status reports the operator, NATS, and how many ModelServers are ready. The ModelServer count is the only part that comes from cluster objects and it spans namespaces, so listing ModelServers is the narrowest access that fits it. The dashboard sends its service account token on every call, and its `kubemoot.ai` read grant above covers all three. A call with no valid token answers 401 with the header to send (`Authorization: Bearer <token>`), one whose identity lacks the access answers 403, and a service started without an authorizer answers 503 rather than serving. Any other client of these endpoints, such as a script in a pod, sends its own service account token and needs the same access; `kmctl` and CrewForge do not call them.
+The component status reports the operator, NATS, and how many ModelServers are ready. The ModelServer count is the only part that comes from cluster objects and it spans namespaces, so listing ModelServers is the narrowest access that fits it. The dashboard sends the signed-in person's own token on every call, so their RBAC decides; for an anonymous read-only visitor it sends its service account token, which the `kubemoot.ai` read grant above covers. A call with no valid token answers 401 with the header to send (`Authorization: Bearer <token>`), one whose identity lacks the access answers 403, and a service started without an authorizer answers 503 rather than serving. Any other client of these endpoints, such as a script in a pod, sends its own service account token and needs the same access; `kmctl` and CrewForge do not call them.
 
 ## HTTP API
 
-The SvelteKit server exposes the JSON and event-stream endpoints the pages use. Every one is a GET; any other method answers 405 with `Allow: GET, HEAD, OPTIONS`. They carry no authentication, so the same rule applies as for the UI: reach them only through an authenticating proxy. List endpoints accept a `namespace` query parameter; an empty value lists across all namespaces.
+The SvelteKit server exposes the JSON and event-stream endpoints the pages use. Every one is a GET except sign-in, sign-out and asking a crew; any other method answers 405 with `Allow: GET, HEAD, OPTIONS`. Without a session they answer 401 (the sign-in page for pages), unless anonymous read-only viewing is on, which serves reads only. A Kubernetes call the signed-in person's RBAC refuses answers 403 with a plain message. List endpoints accept a `namespace` query parameter; an empty value lists across all namespaces.
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/health`, `/api/version` | GET | Health check; dashboard version |
+| `/signin`, `/signout` | POST | Sign in with a pasted token (form field `token`); sign out. Same-origin only |
+| `/api/gateway/<namespace>/<crew>/ask` | POST | Ask the crew as the signed-in person: `{message, conversationId?, timeZone?, localDateTime?}`; answers `{conversationId, requestedAt}` or the gateway's refusal with its status |
+| `/api/gateway/<namespace>/<crew>/conversations` | GET | The conversations the signed-in person started, listed by the gateway |
+| `/api/gateway/<namespace>/<crew>/<conversationId>/stream` | GET | The answer as server-sent events, relayed from the gateway; refused for a conversation that is not theirs |
+| `/api/health`, `/api/version` | GET | Health check (open, no session needed); dashboard version |
 | `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with GPU information |
 | `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelservers`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `crewfitnesses` |
 | `/api/kubemoot/config`, `/api/kubemoot/system-info`, `/api/kubemoot/topology` | GET | Configuration, system information, agent topology graph |
@@ -260,7 +320,7 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 | `/api/nats/status`, `/api/nats/crews` | GET | The NATS tile and page: server, account and every store; each crew's share of them and its last retention cleanup |
 | `/api/nats/config`, `/api/nats/kv`, `/api/nats/stream` | GET | NATS connection status, the agent-state key-value bucket, and stream replay |
 
-The browser talks to the SvelteKit server with server-sent events. Only the server holds a NATS connection (the `nats` client over TCP), so the browser never connects to NATS directly, and the server only reads from it.
+The browser talks to the SvelteKit server with server-sent events. Only the server holds a NATS connection (the `nats` client over TCP), so the browser never connects to NATS directly, and the server only reads from it. That connection is the dashboard's own, not yours (see [What runs as you](#what-runs-as-you)).
 
 ## Related
 

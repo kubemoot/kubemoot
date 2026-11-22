@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 	crdWatchResponse: vi.fn()
 }));
 
-vi.mock('#lib/server/k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
+vi.mock('#lib/server/k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }), getServiceAccountCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
 vi.mock('#lib/server/k8s/index.js', () => ({
 	listAgents: mocks.listAgents,
 	getAgent: mocks.getAgent,

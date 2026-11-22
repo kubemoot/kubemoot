@@ -6,6 +6,7 @@
 //     is listed below as cluster-scoped on purpose, with the reason.
 import { describe, expect, it, vi } from 'vitest';
 import { handle } from '../../hooks.server';
+import { createSession } from '#lib/server/auth/session.js';
 
 const modules = import.meta.glob<Record<string, unknown>>('./**/+server.ts', { eager: true });
 const sources = import.meta.glob<string>('./**/+server.ts', {
@@ -15,6 +16,9 @@ const sources = import.meta.glob<string>('./**/+server.ts', {
 });
 
 const WRITE_EXPORTS = ['POST', 'PUT', 'PATCH', 'DELETE', 'fallback'];
+
+/** The only API write: asking a crew through its gateway as the signed-in person (the hook lists it too). */
+const ALLOWED_WRITES = ['POST ./gateway/[namespace]/[crew]/ask/+server.ts'];
 
 /** Routes that do not use the scope helper, and why that is correct. */
 const CLUSTER_SCOPED: Record<string, string> = {
@@ -51,8 +55,16 @@ function writeHandlers(): { file: string; method: string }[] {
 	);
 }
 
+// A signed-in visitor: the hook is what refuses writes, so the cases below test it as one.
+const sessionId = createSession('tester', 'test-token', Date.now() + 60_000);
+
 function eventFor(method: string, path = '/dashboard/api/anything') {
-	return { request: new Request(`http://dashboard${path}`, { method }) } as Parameters<typeof handle>[0]['event'];
+	return {
+		request: new Request(`https://dashboard${path}`, { method, headers: { origin: 'https://dashboard' } }),
+		url: new URL(`https://dashboard${path}`),
+		cookies: { get: () => sessionId, delete: () => undefined },
+		locals: {}
+	} as unknown as Parameters<typeof handle>[0]['event'];
 }
 
 async function run(method: string, path?: string) {
@@ -66,8 +78,8 @@ describe('route enumeration', () => {
 		expect(Object.keys(modules).length).toBeGreaterThan(30);
 	});
 
-	it('finds no route that exports a write handler', () => {
-		expect(writeHandlers().map((h) => `${h.method} ${h.file}`)).toEqual([]);
+	it('finds no route that exports a write handler but asking a crew', () => {
+		expect(writeHandlers().map((h) => `${h.method} ${h.file}`)).toEqual(ALLOWED_WRITES);
 	});
 });
 
@@ -102,7 +114,7 @@ describe('read-only hook', () => {
 describe('namespace scope coverage', () => {
 	it('every route uses the scope helper or is cluster-scoped on purpose', () => {
 		const unguarded = Object.entries(sources)
-			.filter(([file, text]) => !text.includes('#lib/server/scope.js') && !(file in CLUSTER_SCOPED))
+			.filter(([file, text]) => !text.includes('#lib/server/scope.js') && !text.includes('gateRequest(') && !(file in CLUSTER_SCOPED))
 			.map(([file]) => file);
 		expect(unguarded, 'use #lib/server/scope.js in these routes, or list them in CLUSTER_SCOPED with a reason').toEqual([]);
 	});

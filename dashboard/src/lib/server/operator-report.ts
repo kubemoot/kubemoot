@@ -1,4 +1,5 @@
 import { OPERATOR_REPORT_URL } from '$app/env/private';
+import { callerToken } from '#lib/server/auth/identity.js';
 import { serviceAccountToken } from '#lib/server/service-account-token.js';
 
 // The operator's report service (component health, fitness XLSX) inside the cluster.
@@ -13,11 +14,13 @@ export function operatorReportBase(): string {
 }
 
 /**
- * The dashboard's service account token as the bearer every report service endpoint checks;
- * none when it has no token, which the operator answers with a 401 that says what to send.
+ * The bearer every report service endpoint checks (a TokenReview and a SubjectAccessReview):
+ * the signed-in caller's own token, so the caller's RBAC decides what a report shows. An
+ * anonymous read-only viewer has none of their own and gets the dashboard's service account
+ * token; with no token at all the operator answers 401 and says what to send.
  * Every fetch to the report service sends these headers.
  */
 export function operatorAuthHeaders(): Record<string, string> {
-	const token = serviceAccountToken();
+	const token = callerToken()?.reveal() ?? serviceAccountToken();
 	return token ? { Authorization: `Bearer ${token}` } : {};
 }

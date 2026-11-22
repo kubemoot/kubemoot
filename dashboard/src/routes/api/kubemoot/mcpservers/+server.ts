@@ -1,4 +1,5 @@
 import type { RequestHandler } from './$types';
+import { kubeFailure } from '#lib/server/k8s/errors.js';
 import { listMCPServers } from '#lib/server/k8s/index.js';
 import { scopeList } from '#lib/server/scope.js';
 
@@ -9,7 +10,6 @@ export const GET: RequestHandler = async ({ url }) => {
 		const result = await scopeList(namespace, listMCPServers);
 		return Response.json(result);
 	} catch (e) {
-		const message = e instanceof Error ? e.message : 'Failed to list MCP servers';
-		return Response.json({ error: message }, { status: 500 });
+		return kubeFailure(e, 'Failed to list MCP servers');
 	}
 };

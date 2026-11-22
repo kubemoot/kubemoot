@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BearerToken } from './auth/bearer-token';
+import { callerToken, runWithIdentity } from './auth/identity';
 import { cachedRead } from './ttl-cache';
 
 beforeEach(() => vi.useFakeTimers());
@@ -27,5 +29,21 @@ describe('cachedRead', () => {
 		await expect(get()).rejects.toThrow('down');
 		await Promise.resolve();
 		expect(await get()).toBe(2);
+	});
+});
+
+describe('cachedRead for signed-in callers', () => {
+	const as = (username: string, token: BearerToken) => <T>(fn: () => T) =>
+		runWithIdentity({ kind: 'caller', username, token, ended: new AbortController().signal }, fn);
+
+	it('never shares a read between two different callers', async () => {
+		const read = vi.fn(async () => callerToken()?.reveal());
+		const get = cachedRead(1000, read);
+		const a = as('a', new BearerToken('ta'));
+		const b = as('b', new BearerToken('tb'));
+		expect(await a(get)).toBe('ta');
+		expect(await b(get)).toBe('tb');
+		expect(await a(get)).toBe('ta');
+		expect(read).toHaveBeenCalledTimes(2);
 	});
 });

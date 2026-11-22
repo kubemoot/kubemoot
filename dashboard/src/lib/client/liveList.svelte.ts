@@ -61,6 +61,12 @@ export class LiveList<T extends K8sObj> {
 			const listPath = resolve(`/api/kubemoot/${this.#plural}`);
 			const res = await fetch(`${listPath}?namespace=${this.#ns}`);
 			const data = await res.json();
+			if (!res.ok) {
+				// A refusal (403: not permitted, 401: sign in again) is said plainly in the view, never shown as an empty list.
+				this.items = [];
+				this.error = typeof data?.error === 'string' ? data.error : `The dashboard answered ${res.status}.`;
+				return;
+			}
 			this.items = ((data.items as T[]) || []).slice().sort(this.#cmp);
 			this.error = null;
 		} catch (e) {
@@ -76,28 +82,35 @@ export class LiveList<T extends K8sObj> {
 			`${resolve('/api/kubemoot/watch/[plural]', { plural: this.#plural })}?namespace=${this.#ns}`
 		);
 		this.#es.onmessage = (e) => {
-			let ev: { kind?: string; type?: string; object?: T };
 			try {
-				ev = JSON.parse(e.data);
+				this.#apply(JSON.parse(e.data));
 			} catch {
-				return;
-			}
-			if (!ev.kind || !ev.object) return; // 'synced' / heartbeat markers
-			const obj = ev.object;
-			const k = this.#key(obj);
-			if (ev.type === 'DELETED') {
-				this.items = this.items.filter((x) => this.#key(x) !== k);
-			} else if (ev.type === 'ADDED' || ev.type === 'MODIFIED') {
-				const i = this.items.findIndex((x) => this.#key(x) === k);
-				if (i >= 0) {
-					this.items[i] = obj;
-					this.items = [...this.items];
-				} else {
-					this.items = [...this.items, obj].sort(this.#cmp);
-				}
+				// not an event (a heartbeat or malformed line)
 			}
 		};
 		// EventSource auto-reconnects on error; no manual retry needed.
+	}
+
+	/** Folds one watch event into the list. */
+	#apply(ev: { kind?: string; type?: string; object?: T; denied?: boolean; error?: string }) {
+		if (ev.type === 'ERROR' && ev.denied && ev.error) {
+			this.error = ev.error;
+			return;
+		}
+		if (!ev.kind || !ev.object) return; // 'synced' / heartbeat markers
+		const obj = ev.object;
+		const k = this.#key(obj);
+		if (ev.type === 'DELETED') {
+			this.items = this.items.filter((x) => this.#key(x) !== k);
+		} else if (ev.type === 'ADDED' || ev.type === 'MODIFIED') {
+			const i = this.items.findIndex((x) => this.#key(x) === k);
+			if (i >= 0) {
+				this.items[i] = obj;
+				this.items = [...this.items];
+			} else {
+				this.items = [...this.items, obj].sort(this.#cmp);
+			}
+		}
 	}
 
 	#disconnect() {

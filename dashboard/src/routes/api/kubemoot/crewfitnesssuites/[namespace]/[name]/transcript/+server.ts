@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
+import { kubeFailure } from '#lib/server/k8s/errors.js';
 import { readFitnessTranscript } from '#lib/server/nats-object-store.js';
-import { guardNamespace } from '#lib/server/scope.js';
+import { guardNatsNamespace } from '#lib/server/scope.js';
 
 /**
  * GET /api/kubemoot/crewfitnesssuites/{namespace}/{name}/transcript?key=...
@@ -12,7 +13,7 @@ import { guardNamespace } from '#lib/server/scope.js';
  */
 export const GET: RequestHandler = async ({ params, url }) => {
 	const { namespace, name } = params;
-	const denied = await guardNamespace(namespace);
+	const denied = await guardNatsNamespace(namespace);
 	if (denied) return denied;
 	const key = url.searchParams.get('key');
 	if (!key) {
@@ -29,7 +30,6 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		}
 		return Response.json(transcript);
 	} catch (e) {
-		const message = e instanceof Error ? e.message : 'Failed to read transcript';
-		return Response.json({ error: message }, { status: 500 });
+		return kubeFailure(e, 'Failed to read transcript');
 	}
 };
