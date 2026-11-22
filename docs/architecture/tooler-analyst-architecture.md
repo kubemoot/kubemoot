@@ -71,7 +71,7 @@ Agent Pod                    Query Service Pod            pgvector
 
 Examples:
 - **k8s-analyst** - RAG sources covering kubectl, Kubernetes concepts, Helm, Talos, MCP tools; reasons over Toolers' findings in the REVIEW phase
-- **proxmox-analyst** - RAG sources covering Proxmox API and PVE documentation; interprets Tooler data about VM/GPU state
+- **proxmox-analyst** - RAG sources covering Proxmox API and PVE documentation; interprets Tooler data about VM/accelerator state
 
 ### Who reviews
 
@@ -171,7 +171,7 @@ looks like this:
   Every candidate agent                Agents that pass triage
   +---------------------+           +---------------------+
   | Phase 1: Triage     |           | Phase 2: Mulling    |
-  | lighter GPU tier    |   --->    | primary GPU tier    |
+  | lighter accel. tier |   --->    | primary accel. tier |
   | small triage model  | CONTRIBUTE| reasoning model     |
   | a few seconds/agent |           | tens of seconds/agent|
   | "Should I help?"    |           | Full tool-calling   |
@@ -180,7 +180,7 @@ looks like this:
      (NOTHING_TO_ADD)                  with tool results
 ```
 
-| Phase | GPU tier | Model | Purpose |
+| Phase | Accelerator tier | Model | Purpose |
 |---|---|---|---|
 | **Triage** | Lighter (RTX 4090 on the reference homelab) | Small triage model | Quick relevance assessment: "do my tools apply to this question?" |
 | **Mulling** | Primary (RTX 5090 on the reference homelab) | Reasoning model | Full inference with MCP tools: parse schemas, call tools, interpret results |

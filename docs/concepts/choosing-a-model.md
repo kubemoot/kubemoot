@@ -7,7 +7,7 @@ description: "How to pick models for a crew when accelerator memory is the bindi
 Kubemoot runs on the accelerators you choose. A crew is typically twenty or more agents sharing a
 small number of cards, so choosing a model is a capacity decision as much as a quality
 one. This page is the decision framework. For the CRD fields, the current model catalog,
-and the per-GPU fit matrix, see [Models in Kubemoot](../../reference/models/).
+and the per-accelerator fit matrix, see [Models in Kubemoot](../../reference/models/).
 
 Because an `Agent` names no model, changing your mind is cheap. Adopting a different
 model is a `Model` CR and a label, not an edit to every agent in the crew. That makes
@@ -94,7 +94,7 @@ hosted models are supported, make the choice deliberately, because it moves infe
 agents read from your cluster, off the premises. If staying local is the point of the
 deployment, the frontier tier is simply not available, and the real question becomes
 which 20B to 35B class model calls tools best on a card of that size. For a homelab budget
-in the range of a single $5,000 GPU with 24 GB to 48 GB of memory, that field is
+in the range of a single $5,000 accelerator with 24 GB to 48 GB of memory, that field is
 genuinely competitive.
 
 ### The serving runtime is a separate choice
@@ -110,7 +110,7 @@ normal case.
 | One model that several agents call at once | vLLM |
 | Several models on one accelerator, each busy at times | vLLM with sleep mode, if the host has memory to park weights; otherwise Ollama |
 | A quickstart, a CPU-only setup, or a small setup | Ollama |
-| Many models on one GPU, each loaded on demand, on a host without spare memory | Ollama |
+| Many models on one accelerator, each loaded on demand, on a host without spare memory | Ollama |
 
 vLLM batches overlapping requests on one model, so its throughput keeps rising as calls
 pile up. Ollama loads models per call, which suits many models sharing a card, but it
@@ -132,7 +132,7 @@ Terms used below:
 - **Throughput**: output tokens per second, summed across the requests in flight
   (tokens/s). Higher is better.
 
-| Model | GPU | Engine | c1 | c4 | c8 |
+| Model | Accelerator | Engine | c1 | c4 | c8 |
 |---|---|---|---|---|---|
 | Qwen3 14B | RTX 5090 | vLLM | 115.6 | 300.4 | 371.3 |
 | Qwen3 14B | RTX 5090 | Ollama | 99.6 | 145.0 | 144.7 |
@@ -170,7 +170,7 @@ first full reply, minus a normal reply's time. Each value is the median of 5 swi
 direction. Each request was a median-sized captured crew call with output capped at 16
 tokens and a unique prefix, so no prompt cache helped. There were 0 failed trials. Ollama
 ran at its normal settings (one loaded model). vLLM ran with a 16384-token context and 85%
-of GPU memory per server. The measurement ran on 2026-10-18 against the current releases
+of accelerator memory per server. The measurement ran on 2026-10-18 against the current releases
 of both engines at the time.
 
 How each engine switches:
@@ -182,7 +182,7 @@ How each engine switches:
 
 Switch cost in seconds:
 
-| Switch | GPU | Ollama | vLLM restart | vLLM sleep level 1 | vLLM sleep level 2 |
+| Switch | Accelerator | Ollama | vLLM restart | vLLM sleep level 1 | vLLM sleep level 2 |
 |---|---|---|---|---|---|
 | 8B to 14B | RTX 5090 | 2.78 | 35.6 | 0.72 | 3.33 |
 | 14B to 8B | RTX 5090 | 2.75 | 33.6 | 0.73 | 2.50 |
@@ -215,7 +215,7 @@ weights.
 Not measured yet: answer quality through vLLM, and more than two models sharing one
 accelerator.
 
-To run vLLM on a GPU node, see
+To run vLLM on an accelerator node, see
 [Run vLLM on a GPU node](../../operating/gpu-worker-nodes/#run-vllm-on-a-gpu-node). For
 which server types a `ModelServer` accepts today, see
 [Models in Kubemoot](../../reference/models/).
@@ -313,6 +313,6 @@ it is not something to fold into an experiment that is measuring something else.
 ## Related
 
 - [Models & Scheduling](../models-and-scheduling/) - loose coupling and just-in-time binding
-- [Models in Kubemoot](../../reference/models/) - CRD fields, model catalog, per-GPU fit matrix
+- [Models in Kubemoot](../../reference/models/) - CRD fields, model catalog, per-accelerator fit matrix
 - [Scheduler](../../architecture/scheduler/) - how models are placed on accelerators, several to a card when they fit
 - [Define Fitness Functions](../../user-guides/define-fitness-functions/) - building the suite you measure with

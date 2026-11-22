@@ -323,7 +323,7 @@ in the first place, including VM passthrough, is covered in
 3. **The operator discovers the rest.** It probes the server for available and loaded
    models, follows the Service to its backing pod, records that pod's node, reads
    `OLLAMA_NUM_PARALLEL`, and, when a Prometheus endpoint is configured, queries the
-   DCGM metrics for that node to learn the GPU model and its total and used VRAM (NVIDIA
+   DCGM metrics for that node to learn the accelerator model and its total and used memory (NVIDIA
    GPUs; other accelerators use the memory budget).
    Without DCGM, `spec.scheduling.memoryMiB` is the budget.
 4. **Agents choose a server per call.** At each inference call the runtime fits the

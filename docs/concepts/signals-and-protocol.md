@@ -157,7 +157,7 @@ Timeouts exist only as safety nets. The normal path is driven by signal state: e
 phase has a roster (the selected Toolers in EVALUATING, the woken Analysts in REVIEW, the contributors in RATIFY),
 and when every roster member has published a terminal signal in that phase, the phase
 advances at once. The minimum phase times and the quiet period apply only when the
-roster is unknown or a member is still pending. GPU
+roster is unknown or a member is still pending. Accelerator
 inference and model loading have unpredictable latency, so the protocol waits on
 state transitions, not wall-clock deadlines.
 

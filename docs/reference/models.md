@@ -1,10 +1,10 @@
 ---
 title: "Models in Kubemoot"
-description: "The Kubemoot model layer: the ModelServer, Model, and EmbeddingModel CRDs, how the scheduler binds agents to them, load on demand, the catalog, and GPU fit on the reference hardware."
+description: "The Kubemoot model layer: the ModelServer, Model, and EmbeddingModel CRDs, how the scheduler binds agents to them, load on demand, the catalog, and accelerator fit on the reference hardware."
 weight: 3
 ---
 
-This document covers the model layer end to end: the CRDs (ModelServer, Model, EmbeddingModel), how Agents reach a `(model, server)` binding via the scheduler, the load-on-demand principle, the model catalog, and GPU compatibility for a reference deployment.
+This document covers the model layer end to end: the CRDs (ModelServer, Model, EmbeddingModel), how Agents reach a `(model, server)` binding via the scheduler, the load-on-demand principle, the model catalog, and accelerator compatibility for a reference deployment.
 
 For the framework behind these choices - why tool-calling fidelity outranks coding benchmarks, how to budget VRAM, and how to match model size to discussion role - see [Choosing a Model](../../concepts/choosing-a-model/).
 
@@ -145,13 +145,13 @@ On Ollama the total KV cache scales with `OLLAMA_NUM_PARALLEL` times
 `OLLAMA_CONTEXT_LENGTH`, so an accelerator trades parallel slots against per-request context.
 
 Discovery always runs, because agents place every call against the models it finds; VRAM
-needs DCGM metrics in Prometheus. A server the operator cannot measure (a CPU Ollama, or a GPU host without DCGM)
+needs DCGM metrics in Prometheus. A server the operator cannot measure (a CPU Ollama, or an accelerator host without DCGM)
 declares its budget instead:
 
 ```yaml
 spec:
   scheduling:
-    memoryMiB: 6144   # VRAM on a GPU host; host RAM the server may use on a CPU host
+    memoryMiB: 6144   # accelerator memory on an accelerator host; host RAM the server may use on a CPU host
 ```
 
 A discovered VRAM total always wins over the declaration. With neither, agents refuse
@@ -788,7 +788,7 @@ Calibration above).
 
 ### Tier 1: Frontier Models (Cloud-Routed, Not Locally Hostable)
 
-These mixture-of-experts families are one to two orders of magnitude beyond a single consumer GPU. On local runtimes they generally exist only as cloud-routed tags, which resolve to the vendor's hosted infrastructure rather than your hardware. Reaching them is a deliberate decision to move inference off the premises.
+These mixture-of-experts families are one to two orders of magnitude beyond a single consumer accelerator. On local runtimes they generally exist only as cloud-routed tags, which resolve to the vendor's hosted infrastructure rather than your hardware. Reaching them is a deliberate decision to move inference off the premises.
 
 | Model | Org | Total Params | Active | Tool Calling | Ollama Tag | Self-Host Footprint |
 |-------|-----|-------------|--------|--------------|------------|---------------------|
@@ -803,7 +803,7 @@ These tiers are not reachable from Kubemoot today: hosted providers are on the [
 
 ### Tier 2: Locally Hostable Models (20B-35B Class)
 
-The working range for a single GPU with 24 GB to 48 GB of memory, which is roughly a $5,000 card. Comfortable on a 32 GB card at Q4; workable on a 24 GB card at Q4 with less KV cache headroom.
+The working range for a single accelerator with 24 GB to 48 GB of memory, which is roughly a $5,000 card. Comfortable on a 32 GB card at Q4; workable on a 24 GB card at Q4 with less KV cache headroom.
 
 > **MoE caveat:** mixture-of-experts models load **all** expert weights into VRAM, so size follows *total* params. The active-param count buys **speed**, not VRAM savings. Validate the real cold-load footprint against server capacity, not the active-param number.
 
@@ -837,7 +837,7 @@ Suitable for Tooler agents, low-priority discussion participants, or a 24 GB car
 > reasoning is disabled, because it stops planning which tool to call. Confirm the mode
 > the runtime actually sends rather than assuming the default.
 
-## GPU Compatibility
+## Accelerator Compatibility
 
 Measured on the reference homelab: an RTX 5090 node (`ollama-a`) and an RTX 4090 node
 (`ollama-b`). The quantization, VRAM, and headroom figures below are specific to that

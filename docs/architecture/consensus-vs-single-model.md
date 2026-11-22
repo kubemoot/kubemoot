@@ -82,7 +82,7 @@ The costs are real and worth naming: consensus has coordination overhead and lat
 
 ## When each shape fits
 
-A single large model with delegation is the right default when a frontier model is available, the work fits one coherent context, and simplicity matters. The distributed-consensus shape earns its complexity when you must run without a frontier model (local or cost-constrained), when capability should be composed and swapped modularly, when independent cross-checking is valuable, and when scaling horizontally across many GPUs beats scaling one model vertically.
+A single large model with delegation is the right default when a frontier model is available, the work fits one coherent context, and simplicity matters. The distributed-consensus shape earns its complexity when you must run without a frontier model (local or cost-constrained), when capability should be composed and swapped modularly, when independent cross-checking is valuable, and when scaling horizontally across many accelerators beats scaling one model vertically.
 
 ## The open question
 

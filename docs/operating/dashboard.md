@@ -1,12 +1,12 @@
 ---
 title: "Kubemoot Dashboard"
-description: "The Kubemoot Dashboard is a web UI that lists resources across namespaces, shows GPU and model state, streams live agent discussions and NATS messages, and lets a signed-in person ask a crew and manage their own conversations."
+description: "The Kubemoot Dashboard is a web UI that lists resources across namespaces, shows accelerator and model state, streams live agent discussions and NATS messages, and lets a signed-in person ask a crew and manage their own conversations."
 weight: 2
 ---
 
 ## Overview
 
-The Kubemoot Dashboard is a web UI for looking at a running Kubemoot installation. It reads, and the few changes it makes (asking a crew, and acting on a conversation) it makes as you. It lists Kubemoot resources across namespaces, shows GPU node and model state, and streams agent discussions and NATS messages as they happen. It is a SvelteKit application that reads the Kubernetes API and the NATS bus from the server side; the browser never connects to either directly.
+The Kubemoot Dashboard is a web UI for looking at a running Kubemoot installation. It reads, and the few changes it makes (asking a crew, and acting on a conversation) it makes as you. It lists Kubemoot resources across namespaces, shows accelerator node and model state, and streams agent discussions and NATS messages as they happen. It is a SvelteKit application that reads the Kubernetes API and the NATS bus from the server side; the browser never connects to either directly.
 
 You sign in with a Kubernetes bearer token, the way you do in Headlamp, and the dashboard then acts as you: every Kubernetes call it makes for you uses your token, so your own RBAC decides what you see, and you can ask a crew a question as the same Kubernetes user `kmctl` acts as. See [Signing in](#signing-in).
 
