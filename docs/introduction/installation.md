@@ -273,6 +273,24 @@ See [Namespaces a Kubernetes tool may read](../../concepts/secrets-and-tools/#na
 The MCPServer create and update rights the chart gave that server cluster-wide now apply in the
 release namespace only.
 
+### Upgrading to accelerator names
+
+Kubemoot names the accelerator, not the GPU, in its API and on the bus. Each old name keeps
+working for one release and stops working in the release after, so move to the new name now:
+
+| Old | New | Where |
+|---|---|---|
+| `Model.spec.vramMib` | `spec.acceleratorMemoryMiB` | Your Model manifests and chart values. Setting both to different values is rejected. `kmctl` and the operator's published deprecated names flag `vramMib`. |
+| `ModelServer.status.capacity.vramTotalMiB`, `vramUsedMiB` | `acceleratorMemoryTotalMiB`, `acceleratorMemoryUsedMiB` | Anything that reads the status. The operator writes both names in this release. |
+| `status.capacity.gpuModel` | `acceleratorModel` | The same. It no longer depends on DCGM: the operator takes it from the engine, DCGM, or the node's accelerator labels. |
+| `status.capacity.loadedModels[].sizeVram` | `acceleratorMemory` | The same; the unit stays bytes. |
+| Bus `gpu` (agent activity, stream events) | `accelerator` | Readers of the discussion stream. Publishers send both in this release. |
+| Bus `metadata.gpuLabel` | `metadata.acceleratorLabel` | Readers of discussion messages. Publishers send both in this release. |
+| `stand_aside` and `waiting` reason `gpu-busy` | `accelerator-busy` | Readers of those signals. Publishers send only the new value; readers in this release accept both. |
+
+A reader that takes the new name and falls back to the old one keeps working against both
+publishers. Upgrade the operator first, then move your manifests and readers.
+
 ## Verify
 
 ```bash

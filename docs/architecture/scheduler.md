@@ -196,14 +196,14 @@ When placement comes back empty, the runtime classifies the refusal:
 - **Prompt too large:** some server could hold the model in VRAM, but none gives it a context that holds the prompt (see [The context window is a hard constraint](#the-context-window-is-a-hard-constraint)). The agent stands aside at once with `metadata.reason = "prompt-too-large"`.
 - **Busy:** some server could hold the model. The agent waits.
 
-The wait is state-driven. `NatsCapacityWatch` holds KV watches on `kubemoot_server_state` and `kubemoot_server_tickets` (updates only, metadata only). Every probe publish, ticket claim, and ticket release advances a change counter; the waiter records the counter, retries the placement against fresh state, and blocks until the counter moves. While it waits, its `wait.<model>.<agent>` entry tells other agents' planners not to unload that model. It publishes `waiting` (metadata `model`, `reason: "gpu-busy"`) once, before its first block, and `evaluating` again when a retry claims an accelerator. The agent's discussion heartbeat keeps running, so the coordinator keeps its deadline alive.
+The wait is state-driven. `NatsCapacityWatch` holds KV watches on `kubemoot_server_state` and `kubemoot_server_tickets` (updates only, metadata only). Every probe publish, ticket claim, and ticket release advances a change counter; the waiter records the counter, retries the placement against fresh state, and blocks until the counter moves. While it waits, its `wait.<model>.<agent>` entry tells other agents' planners not to unload that model. It publishes `waiting` (metadata `model`, `reason: "accelerator-busy"`) once, before its first block, and `evaluating` again when a retry claims an accelerator. The agent's discussion heartbeat keeps running, so the coordinator keeps its deadline alive.
 
-Two exits give up with `stand_aside` and `metadata.reason = "gpu-busy"`:
+Two exits give up with `stand_aside` and `metadata.reason = "accelerator-busy"`:
 
 - the discussion ends (synthesis or thread close), which wakes the waiter at once; or
 - the safety limit passes: `KUBEMOOT_DISCUSS_GPU_WAIT_LIMIT_SECONDS`, defaulting to the discussion synthesis timeout (`KUBEMOOT_DISCUSS_SYNTHESIS_TIMEOUT_SECONDS`, 90 seconds).
 
-The limit is a safety net for a lost wake-up, not the normal exit. If the KV watch cannot be established, the agent stands aside with `gpu-busy` at once rather than wait without a wake source. Calls that cannot wait do not: a coordinator's advisory and synthesis calls fall back to the static endpoint, and triage calls use the static triage endpoint.
+The limit is a safety net for a lost wake-up, not the normal exit. If the KV watch cannot be established, the agent stands aside with `accelerator-busy` at once rather than wait without a wake source. Calls that cannot wait do not: a coordinator's advisory and synthesis calls fall back to the static endpoint, and triage calls use the static triage endpoint.
 
 With no server state in NATS, the direct prober checks each endpoint; when none fits, the runtime cannot tell busy from too large, so it waits, and the server-state watch wakes it when state returns.
 
@@ -211,10 +211,10 @@ A cold load onto free memory needs room beside the models already resident. When
 
 #### The crew's answer when agents could not get an accelerator
 
-The coordinator records each `waiting` signal and each `stand_aside` carrying `gpu-busy`, `model-too-large`, or `prompt-too-large`. When the discussion settles with no `agree` and no `concern`, and at least one agent stood aside for capacity or is still waiting, the coordinator skips the synthesis call and answers:
+The coordinator records each `waiting` signal and each `stand_aside` carrying `accelerator-busy`, `model-too-large`, or `prompt-too-large`. When the discussion settles with no `agree` and no `concern`, and at least one agent stood aside for capacity or is still waiting, the coordinator skips the synthesis call and answers:
 
-- `gpu-busy` or still waiting: "The crew's agents could not get a GPU: every GPU was busy with other work, so none of them could answer in time. This is the cluster's capacity, not the crew's design; ask again in a moment."
-- `model-too-large`: "No GPU in this cluster can hold the model `<model>` the agents need; add a smaller Model or a larger GPU."
+- `accelerator-busy` or still waiting: "The crew's agents could not get an accelerator: every accelerator was busy with other work, so none of them could answer in time. This is the cluster's capacity, not the crew's design; ask again in a moment."
+- `model-too-large`: "No accelerator in this cluster can hold the model `<model>` the agents need; add a smaller Model or a larger accelerator."
 - `prompt-too-large` is a distinct reason: no server gives an acceptable model a context that holds the prompt. Raise the per-request context on a server (`OLLAMA_CONTEXT_LENGTH`) or shorten what the crew sends.
 
 Both sentences appear when both reasons occurred. Otherwise the ordinary synthesis and no-contribution text apply.
@@ -346,7 +346,7 @@ The same bucket holds a residency entry for each model a call left loaded, refre
 A model's occupancy is observed first, declared second:
 
 1. **Ollama `/api/ps`** reports `size_vram` per loaded model (weights plus its KV slab). The operator probe writes the observed footprint into `ModelServer.status.capacity.loadedModelFootprints` and into NATS KV, caching the first-observed value. This KV-inclusive number is the occupancy the selector uses.
-2. **`Model.spec.vramMib`** is an optional declared override on the Model CR, used for a model never loaded anywhere so the selector still has a number; it is replaced by the observed value the first time the model loads.
+2. **`Model.spec.acceleratorMemoryMiB`** is an optional declared override on the Model CR, used for a model never loaded anywhere so the selector still has a number; it is replaced by the observed value the first time the model loads.
 
 ## Placement policy
 
@@ -648,7 +648,7 @@ When a rule has no explicit preference (no `prefer` list and no `preferFaster`) 
 | `small` | `round((1 - bias) × 100)` |
 | (no size) | `0` (no contribution) |
 
-So `bias = 0.7` ranks `large (70) > medium (60) > small (30)`; `bias = 0.3` flips it to `small (70) > medium (60) > large (30)`. The tent makes the middle tier reachable: at a bias between about a third and two thirds it is the strict winner. On equal scores the Model with the smaller declared `vramMib` wins (a Model that declares none comes after those that do), then the Model name, so a tie never depends on how Models are spelled.
+So `bias = 0.7` ranks `large (70) > medium (60) > small (30)`; `bias = 0.3` flips it to `small (70) > medium (60) > large (30)`. The tent makes the middle tier reachable: at a bias between about a third and two thirds it is the strict winner. On equal scores the Model with the smaller declared `acceleratorMemoryMiB` wins (a Model that declares none comes after those that do), then the Model name, so a tie never depends on how Models are spelled.
 
 A crew that still ships its own Models (see [Crew-local Models](#crew-local-models-replace-the-catalog)) has Models that carry the older `latencyClass` label and no size. For those, `high` is read as large, `medium` as medium and `low` as small, with the same curves, so such a crew scores as it did (a Model that carries both labels is scored by its size).
 
@@ -683,7 +683,7 @@ Five CRs participate.
 
 ### Model - labeled
 
-Labels declare what the model *is*; `spec.vramMib` declares what it *needs*; `spec.serverRef` declares where it *lives*.
+Labels declare what the model *is*; `spec.acceleratorMemoryMiB` declares what it *needs*; `spec.serverRef` declares where it *lives*.
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
@@ -700,14 +700,14 @@ metadata:
 spec:
   model: qwen3:32b              # the model identifier on the server
   serverRef: ollama-a       # where this Model is provisioned
-  vramMib: 20480                # capacity request - used by the filter step
+  acceleratorMemoryMiB: 20480   # capacity request - used by the filter step
 ```
 
 Labels are an open string set. New capabilities can be introduced without changing the CRD schema. The scheduler validates capability strings against the active `CrewSchedulingPolicy` references but does not constrain the vocabulary. The example above is a crew's own Model. A crew that selects from the cluster's catalog ships none: the cluster owner keeps the Models, and the labels a rule matches are the ones the [catalog](#the-model-catalog) produces.
 
 ### ModelServer - capacity-only
 
-`status.capacity` is the source of truth for VRAM and parallelism.
+`status.capacity` is the source of truth for accelerator memory and parallelism.
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
@@ -720,8 +720,9 @@ spec:
 status:
   ready: true
   capacity:
-    vramTotalMiB: 32768
-    vramUsedMiB: 18432
+    acceleratorMemoryTotalMiB: 32768
+    acceleratorMemoryUsedMiB: 18432
+    acceleratorModel: NVIDIA GeForce RTX 5090
     maxParallel: 1
     agentCount: 3
     loadedModels:
@@ -885,7 +886,7 @@ A candidate `Model` is feasible iff:
 
 - The Model's labels match `rule.require` (`matchLabels` and `matchExpressions`) and every `rule.requireExpressions`
 - The Model's `serverRef` resolves to a Ready ModelServer
-- The ModelServer has VRAM headroom: `Model.spec.vramMib + eviction_overhead <= ModelServer.status.capacity.vramTotalMiB`
+- The ModelServer has accelerator memory headroom: `Model.spec.acceleratorMemoryMiB + eviction_overhead <= ModelServer.status.capacity.acceleratorMemoryTotalMiB`
 - The ModelServer has parallelism headroom: `ModelServer.status.capacity.agentCount + 1 <= maxParallel * concurrency_factor`
 
 Filter is pure. No side effects.

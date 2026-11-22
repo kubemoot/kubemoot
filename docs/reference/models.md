@@ -97,9 +97,11 @@ An agent that uses a model on a `vllm` ModelServer calls that model's own vLLM s
 |-------|--------|-------------|
 | `ready` | Operator probe | Endpoint reachable + API responding (for `vllm`, at least one server answering) |
 | `vllmServers` | Operator, from `serviceRef` | For a `vllm` ModelServer with `serviceRef`: each server found, as its served name and URL. Empty with `servers`, where the spec says it. |
-| `capacity.vramTotalMiB` | DCGM Prometheus | Total accelerator memory (VRAM on a GPU) |
-| `capacity.vramUsedMiB` | Ollama `/api/ps` | VRAM consumed by loaded models |
-| `capacity.gpuModel` | DCGM metrics | e.g., "NVIDIA GeForce RTX 5090" |
+| `capacity.acceleratorMemoryTotalMiB` | DCGM Prometheus | Total accelerator memory, in MiB |
+| `capacity.acceleratorMemoryUsedMiB` | The engine's report of its loaded models (Ollama `/api/ps`) | Accelerator memory the loaded models hold, in MiB |
+| `capacity.acceleratorModel` | The first source that knows: the engine's own report, DCGM metrics, then the labels on the node the server runs on (`nvidia.com/gpu.product`, `amd.com/gpu.product-name`) | e.g., "NVIDIA GeForce RTX 5090"; empty on a host with no named accelerator |
+| `capacity.loadedModels[].acceleratorMemory` | The engine's report (Ollama `/api/ps`) | Accelerator memory one loaded model holds, in bytes |
+| `capacity.vramTotalMiB`, `capacity.vramUsedMiB`, `capacity.gpuModel`, `capacity.loadedModels[].sizeVram` | Operator | Deprecated old names of the four fields above. The operator writes both in this release; they are removed in the next. See [Upgrading](../../introduction/installation/#upgrading-to-accelerator-names). |
 | `capacity.maxParallel` | Pod env `OLLAMA_NUM_PARALLEL` | Concurrent request slots |
 | `capacity.contextLength` | Pod env `OLLAMA_CONTEXT_LENGTH` | Per-request context (tokens) each slot gives a model; unknown when the engine chooses its own default |
 | `capacity.loadedModels[].contextLength` | Ollama `/api/ps` | Context the loaded model actually runs with; takes precedence over `capacity.contextLength` |
@@ -434,7 +436,7 @@ modelServers:
         disabled: true          # keep it out of the catalog
 ```
 
-An entry may also set `parameters`, `capabilities`, `contextLength`, `vramMib` and `labels`,
+An entry may also set `parameters`, `capabilities`, `contextLength`, `acceleratorMemoryMiB` and `labels`,
 for what the server cannot report or the owner wants to add (a data-residency label, for
 example). A vLLM model served by the `kubemoot-vllm` chart needs no entry: the chart declares
 its parameters and capabilities (see below).
@@ -472,7 +474,8 @@ Declares a specific inference model on a server, **labeled** so the scheduler ca
 | `serverRef` | string | Yes | Name of the ModelServer CR |
 | `model` | string | Yes | The served name: the name every request uses to ask for this model (e.g., `qwen3:32b`), whatever engine serves it. Where the weights come from is `source`. |
 | `source` | object | No | Where the weights come from, as exactly one of `ollama` or `huggingFace`. Absent means an Ollama tag equal to `model`, so existing Models need no change. |
-| `vramMib` | int32 | For accelerator servers | Capacity request - used by the scheduler's filter step |
+| `acceleratorMemoryMiB` | int32 | For accelerator servers | Accelerator memory the model needs, in MiB - used by the scheduler's filter step |
+| `vramMib` | int32 | No | Deprecated old name of `acceleratorMemoryMiB`. It is still accepted in this release and removed in the next; set only `acceleratorMemoryMiB`, or give both the same value, because two different values are rejected. |
 | `contextLength` | int | No | Override maximum context window |
 | `quantization` | string | No | Quantization method (e.g., `q4_K_M`, `q8_0`) |
 | `parameters` | string | No | The total parameter count, such as `14B`, `0.5B` or `751M`. Declare it where the engine cannot report it (vLLM does not) or to correct a wrong report. The size class in the [model catalog](#the-model-catalog) is derived from it. |
@@ -546,7 +549,7 @@ metadata:
 spec:
   model: qwen3:32b
   serverRef: ollama-a
-  vramMib: 20480
+  acceleratorMemoryMiB: 20480
   quantization: q4_K_M
 ---
 apiVersion: kubemoot.ai/v1alpha1
@@ -561,7 +564,7 @@ metadata:
 spec:
   model: qwen3:8b
   serverRef: ollama-b
-  vramMib: 5120
+  acceleratorMemoryMiB: 5120
   quantization: q4_K_M
 ```
 

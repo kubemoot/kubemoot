@@ -151,7 +151,7 @@ the thread, and sends none while no one is:
 
 ```json
 {"type":"activity","at":"2026-10-15T12:04:37Z","agents":[
-  {"agent":"compute","doing":"evaluating","gpu":"ollama-rig0","since":"2026-10-15T12:02:36Z"},
+  {"agent":"compute","doing":"evaluating","accelerator":"ollama-rig0","gpu":"ollama-rig0","since":"2026-10-15T12:02:36Z"},
   {"agent":"rules","doing":"waiting_for_accelerator","model":"qwen3:14b","since":"2026-10-15T12:03:10Z"}]}
 ```
 
@@ -191,12 +191,13 @@ each field only when the agent sent it:
 | `modelName` | The model the agent called. |
 | `inputTokens`, `outputTokens`, `totalTokens` | Token counts of the agent's model calls for the signal. |
 | `inferenceMs` | Time spent in model calls. |
-| `gpu` | The accelerator the agent ran on (findings; phase events already had it). |
+| `accelerator` | The accelerator the agent ran on (findings; phase events already had it). |
+| `gpu` | Deprecated old name of `accelerator`, sent with it in this release and removed in the next. |
 | `toolsUsed` | The tools the agent has enabled, sent with `agree`. It lists what the agent could call, not the calls it made. |
 | `failureType`, `failedTool`, `failureCount`, `lastError` | For a `failure`: the kind of failure, the tool that failed, how many tool calls failed, and the last error. |
 
 ```json
-{"type":"finding","agent":"pilot-proxmox","signal":"agree","gpu":"rig1-gpu0",
+{"type":"finding","agent":"pilot-proxmox","signal":"agree","accelerator":"rig1-gpu0","gpu":"rig1-gpu0",
  "summary":"The cluster has three Proxmox nodes, all online.","content":"...",
  "timestamp":"2026-10-15T09:00:16.4Z","modelName":"qwen3:14b",
  "inputTokens":5210,"outputTokens":640,"totalTokens":5850,"inferenceMs":9800,
