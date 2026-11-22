@@ -28,8 +28,7 @@ const (
 // coordinatorRatifyEnvVars tells the coordinator whether and how the contributors
 // ratify its draft answer, as its crew's consensus archetype declares (the same
 // archetype lookup as the review block). Nothing is set when the archetype is
-// missing or declares no ratify block, and the runtime then ratifies with its
-// defaults.
+// missing, and the runtime then leaves ratification off.
 func (r *AgentReconciler) coordinatorRatifyEnvVars(ctx context.Context, agent *kubemootv1alpha1.Agent) []corev1.EnvVar {
 	archetype := r.crewArchetype(ctx, agent)
 	if archetype == nil {
@@ -39,14 +38,13 @@ func (r *AgentReconciler) coordinatorRatifyEnvVars(ctx context.Context, agent *k
 }
 
 // ratifyEnvVars is the coordinator environment for an archetype's ratify block.
+// Ratification is opt-in: an absent block, or a block without enabled, sets it false.
 func ratifyEnvVars(ratify *kubemootv1alpha1.ArchetypeRatify) []corev1.EnvVar {
 	if ratify == nil {
-		return nil
+		return []corev1.EnvVar{{Name: envRatifyEnabled, Value: strconv.FormatBool(false)}}
 	}
-	var env []corev1.EnvVar
-	if ratify.Enabled != nil {
-		env = append(env, corev1.EnvVar{Name: envRatifyEnabled, Value: strconv.FormatBool(*ratify.Enabled)})
-	}
+	enabled := ratify.Enabled != nil && *ratify.Enabled
+	env := []corev1.EnvVar{{Name: envRatifyEnabled, Value: strconv.FormatBool(enabled)}}
 	if ratify.MaxRounds != nil {
 		env = append(env, corev1.EnvVar{Name: envRatifyMaxRounds, Value: strconv.Itoa(int(*ratify.MaxRounds))})
 	}

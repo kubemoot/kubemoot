@@ -64,22 +64,5 @@ metadata:
 spec:
   description: "Sociocracy 3.0 consent decision-making. Coordinator runs triaging, evaluating, synthesis."
 {{- include "kubemoot-operator.consent3Spec" . }}
----
-{{- /*
-consent-3-unratified is consent-3 with ratification off: the coordinator's synthesis is
-released as the answer, with no draft put to the table. It is for a crew whose answer is a
-verdict that must not be revised (the fitness judge). Point the crew's CrewSchedulingPolicy
-archetypeRef at it. It shares every other setting with consent-3.
-*/}}
-apiVersion: kubemoot.ai/v1alpha1
-kind: MootArchetype
-metadata:
-  name: consent-3-unratified
-  labels:
-    {{- include "kubemoot-operator.labels" . | nindent 4 }}
-    kubemoot.ai/builtin: "true"
-spec:
-  description: "consent-3 without ratification: the synthesis is released as the answer."
-{{- include "kubemoot-operator.consent3Spec" . }}
   ratify:
     enabled: false

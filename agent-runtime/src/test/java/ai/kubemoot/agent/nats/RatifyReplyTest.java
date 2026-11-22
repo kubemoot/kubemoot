@@ -52,11 +52,11 @@ class RatifyReplyTest {
     }
 
     @Test
-    void anArchetypeThatDeclaresNothingRatifiesTwoRounds() {
+    void anArchetypeThatDeclaresNothingDoesNotRatify() {
         var policy = RatifyPolicy.of(Optional.empty(), Optional.empty(), Optional.empty());
 
         assertEquals(RatifyPolicy.DEFAULT, policy);
-        assertTrue(policy.enabled());
+        assertFalse(policy.enabled());
         assertEquals(2, policy.maxRounds());
         assertEquals(RatifyPolicy.Roster.CONTRIBUTORS, policy.roster());
     }
@@ -64,8 +64,9 @@ class RatifyReplyTest {
     @Test
     void theDeclaredValuesAreReadAndTheRoundsAreHeldInRange() {
         assertFalse(RatifyPolicy.of(Optional.of("false"), Optional.empty(), Optional.empty()).enabled());
-        assertTrue(RatifyPolicy.of(Optional.of("yes"), Optional.empty(), Optional.empty()).enabled(),
-                "only false turns it off");
+        assertTrue(RatifyPolicy.of(Optional.of("true"), Optional.empty(), Optional.empty()).enabled());
+        assertFalse(RatifyPolicy.of(Optional.of("yes"), Optional.empty(), Optional.empty()).enabled(),
+                "only true turns it on");
         assertEquals(1, RatifyPolicy.of(Optional.empty(), Optional.of(0), Optional.empty()).maxRounds());
         assertEquals(5, RatifyPolicy.of(Optional.empty(), Optional.of(99), Optional.empty()).maxRounds());
         assertEquals(RatifyPolicy.Roster.CREW, RatifyPolicy.of(Optional.empty(), Optional.empty(), Optional.of("crew")).roster());

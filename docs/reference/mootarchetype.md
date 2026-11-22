@@ -58,7 +58,7 @@ spec:
 | `signals` | list of string | no | The signal types agents may emit during a discussion. An open set of names; informational. |
 | `stateMachine` | object | no | The legal phase transitions. See [State machine](#state-machine). When absent, progression is sequential in the order the phases are declared. |
 | `review` | object | no | Which analysts the coordinator convenes for review. See [Review](#review). When absent, every analyst reviews. |
-| `ratify` | object | no | Whether the contributors ratify the coordinator's draft before it is released, and how. See [Ratify](#ratify). When absent, they do. |
+| `ratify` | object | no | Whether the contributors ratify the coordinator's draft before it is released, and how. See [Ratify](#ratify). Ratification is opt-in and experimental: when absent, they do not. |
 
 ### Phases
 
@@ -100,9 +100,15 @@ The CRD gains the `review` field, so apply the new CRDs before the operator char
 After the coordinator drafts the answer, the agents that contributed check it against what they found
 (see [Ratification](../../concepts/consensus-model/#ratification)). The block declares how.
 
+Ratification is **off by default** and experimental. Three problems found in measurement (a mean
+answer time of 125 s against 73 s without it, one ratifier missing its deadline in 6 of 10 runs, and
+reviewers agreeing without checking their stored results) are described under
+[Known problems](../../concepts/consensus-model/#known-problems). A crew opts in with
+`enabled: true`.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `true` | `false` releases the draft as the answer, with no ratification (`SYNTHESIZING` goes straight to `CLOSED`). |
+| `enabled` | bool | `false` | `true` turns ratification on. `false`, or omitting it, releases the draft as the answer, with no ratification (`SYNTHESIZING` goes straight to `CLOSED`). |
 | `maxRounds` | int, 1 to 5 | `2` | Most rounds the draft is put to the table: round 1 is the draft, each further round a revision on the objections. At `2` the coordinator revises once. At `1` it never revises: an objection is released with the answer. |
 | `roster` | `contributors` or `crew` | `contributors` | Who ratifies. `contributors`: every Tooler with a terminal `agree`, `concern` or `block` in the turn, and every Analyst that reviewed. `crew`: also every other Tooler and Analyst of the crew that has resumes. |
 
@@ -116,16 +122,16 @@ spec:
 
 The operator reads the block of the crew's archetype (the same lookup as `review`) and gives it to the
 crew's coordinator as `KUBEMOOT_DISCUSS_RATIFY_ENABLED`, `KUBEMOOT_DISCUSS_RATIFY_MAX_ROUNDS` and
-`KUBEMOOT_DISCUSS_RATIFY_ROSTER`. An absent block sets nothing and the runtime ratifies with the
-defaults. An Agent's own `spec.deployment.env` wins over both. An edit to the block re-reconciles
+`KUBEMOOT_DISCUSS_RATIFY_ROSTER`. An absent block, or a block without `enabled`, sets
+`KUBEMOOT_DISCUSS_RATIFY_ENABLED=false`, and a coordinator that is given no value leaves ratification off. An Agent's own `spec.deployment.env` wins over both. An edit to the block re-reconciles
 the coordinators.
 
-The operator installs a second archetype, `consent-3-unratified`, that is `consent-3` with
-`ratify.enabled: false`. A crew whose answer is a verdict that must not be revised (the
-fitness judge) names it in the `archetypeRef` of its `CrewSchedulingPolicy`.
+The shipped `consent-3` archetype sets `ratify.enabled: false`. The separate
+`consent-3-unratified` archetype is no longer installed: it differed from `consent-3` only by this
+setting, which is now the default. A policy whose `archetypeRef` names it must name `consent-3`.
 
-The field is optional and additive: a crew whose archetype has no `ratify` block works as before,
-now with ratification on. Apply the new CRDs before the operator chart that sets the block (see
+The field is optional and additive: a crew whose archetype has no `ratify` block works as it did
+before ratification existed. Apply the new CRDs before the operator chart that sets the block (see
 [Review](#review)).
 
 ### State machine

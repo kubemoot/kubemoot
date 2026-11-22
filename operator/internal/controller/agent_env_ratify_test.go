@@ -25,12 +25,24 @@ func ratifyTestArchetype(name string, ratify *kubemootv1alpha1.ArchetypeRatify) 
 	return a
 }
 
-func TestRatifyEnvVars_NoBlockSetsNothing(t *testing.T) {
-	if got := ratifyEnvVars(nil); len(got) != 0 {
-		t.Fatalf("no ratify block: want no variables (the runtime ratifies by default), got %v", got)
+func TestRatifyEnvVars_DefaultIsOff(t *testing.T) {
+	for name, block := range map[string]*kubemootv1alpha1.ArchetypeRatify{
+		"no block":        nil,
+		"empty block":     {},
+		"explicit false":  {Enabled: ptr.To(false)},
+		"rounds only set": {MaxRounds: ptr.To(int32(3))},
+	} {
+		got := ratifyEnvVars(block)
+		if v, ok := envValue(got, envRatifyEnabled); !ok || v != valueFalse {
+			t.Fatalf("%s: want %s=false, got %v", name, envRatifyEnabled, got)
+		}
 	}
-	if got := ratifyEnvVars(&kubemootv1alpha1.ArchetypeRatify{}); len(got) != 0 {
-		t.Fatalf("empty ratify block: want no variables, got %v", got)
+}
+
+func TestRatifyEnvVars_ExplicitTrueTurnsItOn(t *testing.T) {
+	got := ratifyEnvVars(&kubemootv1alpha1.ArchetypeRatify{Enabled: ptr.To(true)})
+	if v, ok := envValue(got, envRatifyEnabled); !ok || v != valueTrue {
+		t.Fatalf("want %s=true, got %v", envRatifyEnabled, got)
 	}
 }
 
@@ -56,8 +68,10 @@ func TestCoordinatorRatifyEnvVars_FollowsTheCrewsArchetype(t *testing.T) {
 		t.Fatalf("crew on the panel archetype: want ratify off, got %v", got)
 	}
 	got = r.coordinatorRatifyEnvVars(context.Background(), reviewTestCoordinatorOf(reviewTestOtherCrew))
-	if len(got) != 1 || got[0].Name != envRatifyMaxRounds || got[0].Value != "2" {
-		t.Fatalf("crew without a policy uses the default archetype: want maxRounds=2, got %v", got)
+	rounds, _ := envValue(got, envRatifyMaxRounds)
+	enabled, _ := envValue(got, envRatifyEnabled)
+	if len(got) != 2 || rounds != "2" || enabled != valueFalse {
+		t.Fatalf("crew without a policy uses the default archetype: want maxRounds=2 and ratify off, got %v", got)
 	}
 }
 

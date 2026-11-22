@@ -118,7 +118,7 @@ When a user asks "Why is my pod in CrashLoopBackOff?", the Toolers, the Analyst,
 2. **k8sgpt** (Tooler) runs the `analyze` tool for a deterministic diagnostic scan
 3. **k8s-analyst** (Analyst) receives the REVIEW-phase context, reads the Toolers' findings, and reasons over Kubernetes documentation to weight the evidence and surface the most likely causes
 4. The **coordinator** synthesizes a draft: live data from Toolers plus reasoned interpretation from the Analyst equals a complete answer
-5. The Toolers and the Analyst **ratify** the draft against what they found, and the coordinator revises it once if they object
+5. When the archetype opts in (off by default), the Toolers and the Analyst **ratify** the draft against what they found, and the coordinator revises it once if they object
 
 Neither type alone gives the full picture. Toolers know what is happening. Analysts know what it means and what to do about it.
 
