@@ -81,6 +81,33 @@ subjects:
     name: {{ $name }}
     namespace: {{ .Release.Namespace }}
 ---
+# Signing in (optional here): checking a pasted token needs the right to create TokenReviews.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}-tokenreview
+  labels:
+    {{- include "kubemoot-dashboard.workshop.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}-tokenreview
+  labels:
+    {{- include "kubemoot-dashboard.workshop.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}-tokenreview
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -135,6 +162,10 @@ spec:
               value: {{ .Values.env.nodeEnv }}
             - name: APP_VERSION
               value: {{ .Chart.AppVersion | quote }}
+            # Attendees reach this instance by port-forward and read it with its own scoped,
+            # read-only ServiceAccount with no sign-in; signing in is still offered for asking.
+            - name: KUBEMOOT_DASHBOARD_ANONYMOUS_READ_ONLY
+              value: "true"
             - name: KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR
               value: {{ required "workshop.namespaceSelector must be a label selector" .Values.workshop.namespaceSelector | quote }}
             - name: KUBEMOOT_DASHBOARD_INFRA_NAMESPACE

@@ -9,7 +9,10 @@
 // Fail closed: when the namespace list cannot be read and nothing is cached, the
 // helpers throw (routes answer 503) instead of showing everything.
 
-import { getCoreApi } from './k8s/client.js';
+import { getServiceAccountCoreApi } from './k8s/client.js';
+import { listCrews } from './k8s/kubemoot-crds.js';
+import { callerToken } from './auth/identity.js';
+import type { BearerToken } from './auth/bearer-token.js';
 import { infraNamespace, isScoped, namespaceSelector } from './mode.js';
 import type { KubemootList } from '#lib/types/kubemoot.js';
 import { parseChatSubject, parseDiscussSubject } from '#lib/crewScope.js';
@@ -37,7 +40,7 @@ let resolved: Resolved | null = null;
 let inflight: Promise<Resolved> | null = null;
 
 async function listMatching(selector: string): Promise<Set<string>> {
-	const list = await getCoreApi().listNamespace({ labelSelector: selector });
+	const list = await getServiceAccountCoreApi().listNamespace({ labelSelector: selector });
 	const names = new Set<string>();
 	for (const ns of list.items) {
 		if (ns.metadata?.name) names.add(ns.metadata.name);
@@ -110,6 +113,68 @@ export function namespaceAllowedNow(namespace: string, kind: ScopeKind = 'namesp
 	return current !== null && Date.now() - current.at < SCOPE_MAX_STALE_MS && allows(current.names, namespace, kind);
 }
 
+// ------------------------------------------------------- the caller's own rights, for NATS reads
+//
+// The NATS views read with the dashboard's own connection, which the bus cannot tie to a person.
+// So that a signed-in person's RBAC still decides, a NATS-backed read of a namespace needs the
+// person to be able to read Crews there, asked of the API server with their own token. A person
+// who may list Crews cluster-wide sees the namespaces that hold crews; one who may not sees none
+// (it fails closed). An anonymous read-only viewer has no token and keeps the instance's scope.
+
+/** How long a person's namespace set is trusted before the next request refreshes it. */
+export const CALLER_SET_TTL_MS = 10_000;
+
+interface CallerSet {
+	names: Set<string>;
+	at: number;
+}
+
+const callerSets = new WeakMap<BearerToken, CallerSet>();
+
+async function readCallerSet(): Promise<Set<string>> {
+	try {
+		const crews = await listCrews('');
+		return new Set(crews.items.flatMap((c) => (c.metadata.namespace ? [c.metadata.namespace] : [])));
+	} catch {
+		return new Set();
+	}
+}
+
+/**
+ * The namespaces whose Crews the signed-in person may read, or null when nobody is signed in.
+ * Call it once when a NATS read opens so the synchronous per-message check has a set.
+ */
+export async function callerNamespaces(): Promise<Set<string> | null> {
+	const token = callerToken();
+	if (!token) return null;
+	const held = callerSets.get(token);
+	if (held && Date.now() - held.at < CALLER_SET_TTL_MS) return held.names;
+	const names = await readCallerSet();
+	callerSets.set(token, { names, at: Date.now() });
+	return names;
+}
+
+/** Whether the signed-in person may read this namespace's crews; always true with nobody signed in. */
+export function callerAllowsNow(namespace: string): boolean {
+	const token = callerToken();
+	if (!token) return true;
+	const held = callerSets.get(token);
+	return held !== undefined && held.names.has(namespace);
+}
+
+/** namespaceAllowedNow for a NATS-backed read: the instance's scope and the caller's own rights. */
+export function natsNamespaceAllowedNow(namespace: string): boolean {
+	return namespaceAllowedNow(namespace) && callerAllowsNow(namespace);
+}
+
+/** A NATS-backed route's gate for one namespace: the instance's scope, then the caller's rights (404, as for any hidden namespace). */
+export async function guardNatsNamespace(namespace: string): Promise<Response | null> {
+	const scoped = await guardNamespace(namespace);
+	if (scoped) return scoped;
+	const names = await callerNamespaces();
+	return names === null || names.has(namespace) ? null : notFound();
+}
+
 function notFound(): Response {
 	return Response.json({ error: 'not found' }, { status: 404 });
 }
@@ -138,7 +203,8 @@ export async function guardKeyNamespace(
 	parsed: { namespace: string } | null,
 	kind: ScopeKind = 'namespaced'
 ): Promise<Response | null> {
-	return parsed ? guardNamespace(parsed.namespace, kind) : notFound();
+	if (!parsed) return notFound();
+	return kind === 'namespaced' ? guardNatsNamespace(parsed.namespace) : guardNamespace(parsed.namespace, kind);
 }
 
 /** The CRD plurals that are shared infrastructure and stay readable in the operator namespace. */
@@ -242,29 +308,31 @@ const WILDCARDS = new Set(['*', '>']);
  */
 export async function subjectFilterAllowed(subject: string): Promise<boolean> {
 	let names: Set<string> | null;
+	let mine: Set<string> | null;
 	try {
-		names = await scopedNamespaces();
+		[names, mine] = await Promise.all([scopedNamespaces(), callerNamespaces()]);
 	} catch {
 		return false;
 	}
-	if (names === null) return true;
+	if (names === null && mine === null) return true;
 	const ns = subjectNamespace(subject);
 	if (ns === null) return false;
-	return names.has(ns) || WILDCARDS.has(ns);
+	if (WILDCARDS.has(ns)) return true;
+	return (names === null || names.has(ns)) && (mine === null || mine.has(ns));
 }
 
 /** Whether one concrete message subject belongs to an allowed namespace. */
 export function messageSubjectAllowed(subject: string): boolean {
-	if (!isScoped()) return true;
+	if (!isScoped() && !callerToken()) return true;
 	const parsed = parseDiscussSubject(subject) ?? parseChatSubject(subject);
-	return parsed !== null && namespaceAllowedNow(parsed.namespace);
+	return parsed !== null && natsNamespaceAllowedNow(parsed.namespace);
 }
 
 /** Whether a KV key of the form `<namespace>.<name>...` belongs to an allowed namespace. */
 export function keyNamespaceAllowed(key: string): boolean {
-	if (!isScoped()) return true;
+	if (!isScoped() && !callerToken()) return true;
 	const ns = key.split('.')[0];
-	return ns !== '' && namespaceAllowedNow(ns);
+	return ns !== '' && natsNamespaceAllowedNow(ns);
 }
 
 /** A stream read's gate (history, stream): the stream and the subject filter must both be served. */
@@ -276,6 +344,7 @@ export async function guardStreamRead(stream: string, subject: string): Promise<
 /** The key-value read's gate: the bucket must be served, and the scope resolved to filter its keys. */
 export async function guardKvRead(bucket: string): Promise<Response | null> {
 	if (!kvBucketAllowed(bucket)) return forbidden('bucket');
+	await callerNamespaces();
 	return guardNamespaceOrAll('');
 }
 

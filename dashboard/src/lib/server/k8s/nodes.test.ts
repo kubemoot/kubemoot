@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const listNamespace = vi.fn();
 const listCrews = vi.fn();
 
-vi.mock('./client.js', () => ({ getCoreApi: () => ({ listNamespace }) }));
+vi.mock('./client.js', () => ({ getCoreApi: () => ({ listNamespace }), getServiceAccountCoreApi: () => ({ listNamespace }) }));
 vi.mock('./kubemoot-crds.js', () => ({ listCrews: (ns: string) => listCrews(ns) }));
 
 const { crewNamespaceEntries, listCrewNamespaces } = await import('./nodes');

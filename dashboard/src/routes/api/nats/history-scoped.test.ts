@@ -7,7 +7,7 @@ vi.mock('#lib/server/nats-client.js', () => ({
 	getNatsConnection: mocks.getNatsConnection,
 	sc: { decode: (b: Uint8Array) => new TextDecoder().decode(b) }
 }));
-vi.mock('#lib/server/k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
+vi.mock('#lib/server/k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }), getServiceAccountCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
 
 import { GET } from './history/+server';
 import { resetScopeCache } from '#lib/server/scope.js';

@@ -13,7 +13,7 @@
 
 	interface Props {
 		children: import('svelte').Snippet;
-		data: { scoped: boolean };
+		data: { scoped: boolean; anonymousReadOnly: boolean; user: { username: string } | null };
 	}
 
 	let { children, data }: Props = $props();
@@ -39,7 +39,11 @@
 		return () => clearInterval(ticker);
 	});
 
+	// The sign-in page stands alone: no data is fetched for it.
+	const bare = $derived(page.route.id === '/signin');
+
 	onMount(async () => {
+		if (page.route.id === '/signin') return;
 		// Fetch crews (kubemoot.ai/crew-labeled namespaces) for the selector
 		await loadCrewDirectory(fetch, resolve('/api/namespaces'));
 		namespacesLoading = false;
@@ -49,6 +53,9 @@
 	});
 </script>
 
+{#if bare}
+	{@render children()}
+{:else}
 <div class="app">
 	<Sidebar {version} />
 
@@ -60,6 +67,15 @@
 				{/if}
 			</div>
 			<div class="topbar-right">
+				{#if data.user}
+					<span class="who" title="You are signed in with your own Kubernetes token">Signed in as <strong>{data.user.username}</strong></span>
+					<form method="POST" action={resolve('/signout')}>
+						<button type="submit" class="signout">Sign out</button>
+					</form>
+				{:else if data.anonymousReadOnly}
+					<span class="who">Read-only view</span>
+					<a class="signin-link" href={resolve('/signin')}>Sign in</a>
+				{/if}
 			</div>
 		</header>
 
@@ -68,6 +84,7 @@
 		</main>
 	</div>
 </div>
+{/if}
 
 <style>
 	.app {
@@ -91,6 +108,28 @@
 		background-color: var(--color-bg-secondary);
 		border-bottom: 1px solid var(--color-border);
 		flex-shrink: 0;
+	}
+
+	.who {
+		color: var(--color-text-muted);
+		font-size: 0.875rem;
+	}
+
+	.who strong {
+		color: var(--color-text);
+	}
+
+	.signout {
+		background: transparent;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+		color: var(--color-text);
+		padding: 0.25rem 0.75rem;
+		font-size: 0.8rem;
+	}
+
+	.signin-link {
+		font-size: 0.875rem;
 	}
 
 	.topbar-left,

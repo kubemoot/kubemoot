@@ -27,8 +27,10 @@ serviceAccount:
 # RBAC configuration
 rbac:
   create: true
-  # ClusterRole for reading Kubemoot CRDs and K8s resources. The dashboard is read-only, so
-  # every rule holds get, list and watch only: a test in the operator chart fails on any other verb.
+  # Sign-in needs only the right to create TokenReviews, which the chart always grants. This
+  # ClusterRole, for reading Kubemoot CRDs and K8s resources, is created only when
+  # auth.anonymousReadOnly is true: signed-in people read with their own token. Every rule
+  # holds get, list and watch only: a test in the operator chart fails on any other verb.
   clusterRole:
     name: kubemoot-dashboard-reader
     rules:
@@ -55,6 +57,29 @@ rbac:
       - apiGroups: ["kubemoot.ai"]
         resources: ["*"]
         verbs: ["get", "list", "watch"]
+
+# Sign-in. The dashboard asks every visitor to paste a Kubernetes bearer token, checks it with a
+# TokenReview, and then makes every Kubernetes call with that token, so the person's own RBAC
+# decides what they see and which crews they may ask. The session lives in the pod's memory
+# (a restart signs everyone out; with replicaCount above 1 use session affinity).
+auth:
+  # false: no one sees anything before signing in. true: a visitor who has not signed in sees
+  # the read views with the dashboard's own ServiceAccount (the chart then creates the read-only
+  # ClusterRole below) and can never ask or change anything.
+  anonymousReadOnly: false
+  # The public origin people reach the dashboard at, for example https://dashboard.example.com.
+  # Every sign-in, sign-out and ask must carry an Origin header equal to the origin the server
+  # sees, so behind a proxy that ends TLS set this (it becomes adapter-node's ORIGIN). Empty
+  # derives the origin from the request, which suits a kubectl port-forward.
+  origin: ""
+  # Instead of origin: trust the proxy's X-Forwarded-Proto and X-Forwarded-Host headers. Only
+  # turn it on when the proxy sets them and no client can reach the dashboard around it.
+  trustForwardedHeaders: false
+  # The longest a sign-in lasts; a token that expires sooner ends it sooner.
+  sessionMaxMinutes: 480
+  # Where a crew's discussion gateway is, with {crew} and {namespace} replaced. Empty uses the
+  # crew's in-cluster Service, http://<crew>-discussion.<namespace>.svc.cluster.local.
+  gatewayUrl: ""
 
 # Service configuration
 service:

@@ -1,4 +1,5 @@
 import type { RequestHandler } from './$types';
+import { kubeFailure } from '#lib/server/k8s/errors.js';
 import { listKubemootConfigs, getKubemootConfig } from '#lib/server/k8s/index.js';
 
 export const GET: RequestHandler = async ({ url }) => {
@@ -13,7 +14,6 @@ export const GET: RequestHandler = async ({ url }) => {
 			return Response.json(result);
 		}
 	} catch (e) {
-		const message = e instanceof Error ? e.message : 'Failed to get Kubemoot config';
-		return Response.json({ error: message }, { status: 500 });
+		return kubeFailure(e, 'Failed to get Kubemoot config');
 	}
 };

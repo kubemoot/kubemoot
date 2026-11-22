@@ -4,7 +4,15 @@ const mocks = vi.hoisted(() => ({
 	config: (): Promise<unknown> => Promise.resolve({})
 }));
 
-vi.mock('#lib/server/k8s/index.js', () => ({ getKubemootConfig: () => mocks.config() }));
+vi.mock('#lib/server/k8s/index.js', () => ({
+	getKubemootConfig: () => mocks.config(),
+	getKubeConfig: () => ({
+		makeApiClient: () => ({
+			readNamespacedDeployment: async () => ({}),
+			listNamespacedPod: async () => ({ items: [] })
+		})
+	})
+}));
 vi.mock('#lib/server/mode.js', () => ({ infraNamespace: () => 'kubemoot-system' }));
 vi.mock('@kubernetes/client-node', () => {
 	class KubeConfig {

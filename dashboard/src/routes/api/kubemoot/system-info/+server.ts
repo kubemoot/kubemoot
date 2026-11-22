@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types';
 import * as k8s from '@kubernetes/client-node';
 import { infraNamespace } from '#lib/server/mode.js';
-import { getKubemootConfig } from '#lib/server/k8s/index.js';
+import { getKubeConfig, getKubemootConfig } from '#lib/server/k8s/index.js';
 import {
 	kubemootRelease,
 	oldestRunningStart,
@@ -42,16 +42,6 @@ interface SystemInfo {
 
 const OPERATOR_DEPLOYMENT = 'kubemoot-operator';
 
-function kubeConfig(): k8s.KubeConfig {
-	const kc = new k8s.KubeConfig();
-	try {
-		kc.loadFromCluster();
-	} catch {
-		kc.loadFromDefault();
-	}
-	return kc;
-}
-
 async function readDeploymentInfo(apps: k8s.AppsV1Api): Promise<OperatorDeploymentInfo> {
 	try {
 		const dep = await apps.readNamespacedDeployment({
@@ -91,7 +81,7 @@ async function readRelease(): Promise<string> {
 }
 
 export const GET: RequestHandler = async () => {
-	const kc = kubeConfig();
+	const kc = getKubeConfig();
 	const { operatorVersion, operatorImage, podSelector } = await readDeploymentInfo(
 		kc.makeApiClient(k8s.AppsV1Api)
 	);

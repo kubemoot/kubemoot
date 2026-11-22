@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { relayToSse, sseResponse, sseStream, SSE_HEADERS, type SseSink } from './sse';
+import { BearerToken } from './auth/bearer-token';
+import { runWithIdentity } from './auth/identity';
 
 const decoder = new TextDecoder();
 
@@ -200,5 +202,21 @@ describe('relayToSse', () => {
 		};
 		await relayToSse(failing, sink, (n) => n);
 		expect(sink.close).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('a stream made with a signed-in caller token', () => {
+	it('ends when the caller session ends', async () => {
+		const ended = new AbortController();
+		const cleanup = vi.fn();
+		const stream = runWithIdentity(
+			{ kind: 'caller', username: 'u', token: new BearerToken('t'), ended: ended.signal },
+			() => sseStream(async () => cleanup)
+		);
+		const reader = stream.getReader();
+		await Promise.resolve();
+		ended.abort();
+		expect((await reader.read()).done).toBe(true);
+		expect(cleanup).toHaveBeenCalledOnce();
 	});
 });

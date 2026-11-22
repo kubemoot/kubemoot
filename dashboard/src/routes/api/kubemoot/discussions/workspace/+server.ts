@@ -1,4 +1,5 @@
 import type { RequestHandler } from './$types';
+import { kubeFailure } from '#lib/server/k8s/errors.js';
 import { readDiscussionArtifact } from '#lib/server/nats-object-store.js';
 import { parseArtifactKey, type ArtifactKey } from '#lib/crewScope.js';
 import { guardKeyNamespace } from '#lib/server/scope.js';
@@ -61,7 +62,6 @@ export const GET: RequestHandler = async ({ url }) => {
 			}
 		});
 	} catch (e) {
-		const message = e instanceof Error ? e.message : 'Failed to read artifact';
-		return Response.json({ error: message }, { status: 500 });
+		return kubeFailure(e, 'Failed to read artifact');
 	}
 };

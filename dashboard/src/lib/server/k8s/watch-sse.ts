@@ -2,6 +2,7 @@ import * as k8s from '@kubernetes/client-node';
 import { getKubeConfig } from './client.js';
 import { KUBEMOOT_CRDS } from './kubemoot-crds.js';
 import { describeError } from '#lib/text-utils.js';
+import { deniedMessage, isDenied } from './errors.js';
 import { sseResponse, type SseSink } from '../sse.js';
 
 const GROUP = 'kubemoot.ai';
@@ -44,6 +45,11 @@ async function startCrdWatch(ctx: WatchContext, plural: CrdPlural): Promise<void
 				if (ctx.accept(obj)) sink.data({ kind, type, object: obj });
 			},
 			(err: unknown) => {
+				// A refusal is the caller's rights, not a glitch: say so once and stop, never retry in a loop.
+				if (isDenied(err)) {
+					sink.data({ kind, type: 'ERROR', denied: true, error: deniedMessage(err) });
+					return;
+				}
 				if (err) sink.data({ kind, type: 'ERROR', error: describeError(err) });
 				restartAfter(1000);
 			}
@@ -51,6 +57,10 @@ async function startCrdWatch(ctx: WatchContext, plural: CrdPlural): Promise<void
 		ctx.aborters.set(plural, ac);
 		if (sink.closed) ac.abort();
 	} catch (e) {
+		if (isDenied(e)) {
+			sink.data({ kind, type: 'ERROR', denied: true, error: deniedMessage(e) });
+			return;
+		}
 		sink.data({ kind, type: 'ERROR', error: e instanceof Error ? e.message : String(e) });
 		restartAfter(2000);
 	}

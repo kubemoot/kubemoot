@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { listNamespace } = vi.hoisted(() => ({ listNamespace: vi.fn() }));
-vi.mock('./k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace }) }));
+vi.mock('./k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace }), getServiceAccountCoreApi: () => ({ listNamespace }) }));
 
 import {
 	SCOPE_MAX_STALE_MS,

@@ -1,4 +1,5 @@
 import type { RequestHandler } from './$types';
+import { kubeFailure } from '#lib/server/k8s/errors.js';
 import { getModelServer } from '#lib/server/k8s/index.js';
 import { guardNamespace } from '#lib/server/scope.js';
 
@@ -12,7 +13,6 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		const result = await getModelServer(namespace, name);
 		return Response.json(result);
 	} catch (e) {
-		const message = e instanceof Error ? e.message : 'Failed to get model server';
-		return Response.json({ error: message }, { status: 500 });
+		return kubeFailure(e, 'Failed to get model server');
 	}
 };

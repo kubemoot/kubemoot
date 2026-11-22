@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ listNamespace: vi.fn(), fetch: vi.fn(), token: vi.fn() }));
 
-vi.mock('#lib/server/k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
+vi.mock('#lib/server/k8s/client.js', () => ({ getCoreApi: () => ({ listNamespace: mocks.listNamespace }), getServiceAccountCoreApi: () => ({ listNamespace: mocks.listNamespace }) }));
 vi.mock('#lib/server/service-account-token.js', () => ({ serviceAccountToken: mocks.token }));
 vi.mock('#lib/server/operator-report.js', async (original) => ({
 	...(await original<typeof import('#lib/server/operator-report.js')>()),

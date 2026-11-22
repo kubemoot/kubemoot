@@ -1,4 +1,5 @@
 import type { RequestHandler } from './$types';
+import { kubeFailure } from '#lib/server/k8s/errors.js';
 import { listNodes } from '#lib/server/k8s/index.js';
 
 export const GET: RequestHandler = async () => {
@@ -6,7 +7,6 @@ export const GET: RequestHandler = async () => {
 		const nodes = await listNodes();
 		return Response.json({ nodes });
 	} catch (e) {
-		const message = e instanceof Error ? e.message : 'Failed to list nodes';
-		return Response.json({ error: message }, { status: 500 });
+		return kubeFailure(e, 'Failed to list nodes');
 	}
 };

@@ -1,5 +1,6 @@
 import type { RequestHandler } from './$types';
 import { listCrews } from '#lib/server/k8s/index.js';
+import { kubeFailure } from '#lib/server/k8s/errors.js';
 import { scopeList } from '#lib/server/scope.js';
 import { readCrewUsage } from '#lib/server/nats-status.js';
 import { CREW_ENTRY_CAP } from '#lib/nats/crew-usage.js';
@@ -27,7 +28,6 @@ export const GET: RequestHandler = async () => {
 			{ headers: { 'Cache-Control': 'no-store' } }
 		);
 	} catch (e) {
-		const error = e instanceof Error ? e.message : 'Failed to read crew usage';
-		return Response.json({ crews: [], cap: CREW_ENTRY_CAP, error }, { status: 500 });
+		return kubeFailure(e, 'Failed to read crew usage', { crews: [], cap: CREW_ENTRY_CAP });
 	}
 };

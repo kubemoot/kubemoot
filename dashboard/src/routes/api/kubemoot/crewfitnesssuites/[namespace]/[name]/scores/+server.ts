@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
 import { listFitnessObjects, readFitnessTranscript } from '#lib/server/nats-object-store.js';
-import { guardNamespace } from '#lib/server/scope.js';
+import { guardNatsNamespace } from '#lib/server/scope.js';
 
 /**
  * GET /api/kubemoot/crewfitnesssuites/{namespace}/{name}/scores
@@ -16,7 +16,7 @@ import { guardNamespace } from '#lib/server/scope.js';
  */
 export const GET: RequestHandler = async ({ params }) => {
 	const { namespace, name } = params;
-	const denied = await guardNamespace(namespace);
+	const denied = await guardNatsNamespace(namespace);
 	if (denied) return denied;
 	const prefix = `${namespace}/${name}/`;
 	try {

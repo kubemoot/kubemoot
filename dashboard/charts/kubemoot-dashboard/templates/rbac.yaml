@@ -1,4 +1,36 @@
 {{- if .Values.rbac.create -}}
+# Sign-in: the dashboard's own ServiceAccount checks a pasted token with a TokenReview and
+# holds no other right by default. Every Kubernetes call a signed-in person causes is made
+# with that person's own token, so their RBAC decides what they see.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubemoot-dashboard.clusterRoleName" . }}-tokenreview
+  labels:
+    {{- include "kubemoot-dashboard.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubemoot-dashboard.fullname" . }}-tokenreview
+  labels:
+    {{- include "kubemoot-dashboard.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubemoot-dashboard.clusterRoleName" . }}-tokenreview
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubemoot-dashboard.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.auth.anonymousReadOnly }}
+---
+# Anonymous read-only viewing: a visitor who has not signed in sees the read views with this
+# ServiceAccount, so it can read what those views show.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -22,4 +54,5 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "kubemoot-dashboard.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- end }}
 {{- end }}
