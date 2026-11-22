@@ -134,7 +134,7 @@ changes, so the index is ready before the first question is ever asked.
 When a question arrives, the coordinator embeds it and queries that collection for the
 agents whose resumes are semantically closest - a vector pre-filter that runs *before*
 the broadcast. Because keywords live inside each resume, this semantic match subsumes
-literal keyword matching: a question about GPU "activity" matches an agent whose resume
+literal keyword matching: a question about accelerator "activity" matches an agent whose resume
 says "utilization" with no shared keyword. If the resume query service is unavailable,
 the coordinator falls back to an LLM triage call over the same resumes; either way,
 selection is the coordinator's job, performed once, centrally - not a per-agent

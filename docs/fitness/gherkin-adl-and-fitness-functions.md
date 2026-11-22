@@ -15,10 +15,10 @@ This document answers that. It is a general compare-and-contrast, not a proposal
 Gherkin is the structured natural-language dialect used by Cucumber (and ports such as `behave` for Python and `godog` for Go). A `.feature` file reads:
 
 ```gherkin
-Feature: GPU metrics reporting
-  Scenario: A crew reports live GPU utilization
-    Given a crew with GPU-metrics tools
-    When asked "What is the current GPU utilization?"
+Feature: Accelerator metrics reporting
+  Scenario: A crew reports live accelerator utilization
+    Given a crew with accelerator-metrics tools
+    When asked "What is the current accelerator utilization?"
     Then the answer cites real DCGM metrics
     And the answer invents no values
 ```

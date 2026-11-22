@@ -586,7 +586,7 @@ Each shape pulls a different subset of tools, a different prompt voice ("be conc
 
 Symptoms:
 - 5+ tools spanning several question shapes.
-- One-sentence purpose statement is hard to write ("it answers GPU-related questions" - too broad).
+- One-sentence purpose statement is hard to write ("it answers accelerator-related questions" - too broad).
 - Resume-match scores hover around 0.5-0.7 across many topics - neither clearly relevant nor clearly out-of-scope.
 - Latency varies wildly call-to-call because some questions use 1 tool and others use 4 in a loop.
 - Per-iteration prompt is large; the model spends tokens choosing among tools that have nothing to do with the current question.
