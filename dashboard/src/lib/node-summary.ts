@@ -2,7 +2,7 @@
 // has used, and how much of its accelerator is in use. Everything else lives on the node's page.
 
 import { nodeAccelerator } from './node-accelerator.js';
-import { cores, gib, nodeHealth, nodeProblems, nodeUse, usageOf, type NodeMetric, type NodeUse } from './node-usage.js';
+import { cores, gib, isOffline, nodeHealth, nodeProblems, nodeUse, usageOf, type NodeMetric, type NodeUse } from './node-usage.js';
 import { severityRank, type Health } from './health.js';
 import type { PodCount } from './reading.js';
 import { bar, usageBar, type TileBar } from './usage-bar.js';
@@ -20,6 +20,8 @@ export interface NodeSummary {
 	health: Health;
 	/** Why the node is not healthy; empty when it is. */
 	problems: string[];
+	/** Taken out on purpose (cordoned and not Ready): drawn quietly, not as a fault. */
+	offline: boolean;
 	cpu?: TileBar;
 	memory?: TileBar;
 	pods?: TileBar;
@@ -55,6 +57,7 @@ export function summarizeNode(
 		name: node.metadata.name,
 		health: nodeHealth(node, use),
 		problems: nodeProblems(node, use).map((p) => p.text),
+		offline: isOffline(node),
 		cpu: use.cpu && usageBar('CPU', use.cpu, cores, ' cores'),
 		memory: use.memory && usageBar('Memory', use.memory, gib),
 		pods: podsRead ? podBar(node, pods) : undefined,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clusterUse, formatCores, formatUse, isNodeReady, nodeHealth, nodeProblems, nodeUse, parseQuantity, pressures, usageOf } from './node-usage';
+import { clusterUse, formatCores, formatUse, isNodeReady, isOffline, nodeHealth, nodeProblems, nodeUse, parseQuantity, pressures, usageOf } from './node-usage';
 
 const ready = { type: 'Ready', status: 'True' as const };
 const node = (over: object = {}, conditions: { type: string; status: 'True' | 'False' | 'Unknown'; reason?: string }[] = [ready]) => ({
@@ -94,6 +94,18 @@ describe('node conditions', () => {
 		const hot = nodeUse(node(), { cpu: '7.5', memory: '1Gi' });
 		expect(nodeProblems(node(), hot).map((p) => p.text)).toEqual(['CPU nearly all in use']);
 		expect(nodeHealth(node(), hot)).toBe('degraded');
+	});
+
+	it('is idle and offline, not down, when cordoned and not Ready', () => {
+		const n = node({ spec: { unschedulable: true } }, [{ type: 'Ready', status: 'Unknown' }, { type: 'MemoryPressure', status: 'Unknown' }]);
+		expect(isOffline(n)).toBe(true);
+		expect(nodeProblems(n)).toEqual([{ health: 'idle', text: 'Offline (cordoned)' }]);
+		expect(nodeHealth(n)).toBe('idle');
+	});
+
+	it('is not offline when not cordoned or when Ready', () => {
+		expect(isOffline(node({}, [{ type: 'Ready', status: 'False' }]))).toBe(false);
+		expect(isOffline(node({ spec: { unschedulable: true } }))).toBe(false);
 	});
 
 	it('stays down when not Ready and also under pressure', () => {

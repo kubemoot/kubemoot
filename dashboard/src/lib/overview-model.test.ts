@@ -189,10 +189,11 @@ describe('needs attention', () => {
 	});
 
 	it('names a failed fitness suite and ignores a completed one', () => {
+		const done = ago(2 * HOUR);
 		const suites = [
-			{ metadata: meta('bad', 'crew-x'), spec: {}, status: { phase: 'Failed', error: 'judge unreachable' } },
-			{ metadata: meta('smoke', 'crew-x'), spec: {}, status: { phase: 'ToolSmokeFailed' } },
-			{ metadata: meta('good', 'crew-x'), spec: {}, status: { phase: 'Completed' } }
+			{ metadata: meta('bad', 'crew-x'), spec: { crewRef: 'a' }, status: { phase: 'Failed', error: 'judge unreachable', completedAt: done } },
+			{ metadata: meta('smoke', 'crew-x'), spec: { crewRef: 'b' }, status: { phase: 'ToolSmokeFailed', completedAt: done } },
+			{ metadata: meta('good', 'crew-x'), spec: { crewRef: 'c' }, status: { phase: 'Completed', completedAt: done } }
 		];
 		const o = buildOverview(data({ suites: suites as never }), NOW);
 		expect(o.attention.map((f) => [f.subject, f.problem])).toEqual([
@@ -220,6 +221,57 @@ describe('needs attention', () => {
 			NOW
 		);
 		expect(o.attention.map((f) => f.health)).toEqual(['down', 'degraded']);
+	});
+});
+
+describe('failed fitness suites', () => {
+	const suite = (name: string, crew: string, phase: string, created: string, completedAt?: string) => ({
+		metadata: { ...meta(name, 'crew-x'), creationTimestamp: created },
+		spec: { crewRef: crew },
+		status: { phase, completedAt }
+	});
+
+	it('raises a failure that is the newest suite of its crew and finished within a day', () => {
+		const o = buildOverview(data({ suites: [suite('s1', 'a', 'Failed', ago(3 * HOUR), ago(2 * HOUR))] as never }), NOW);
+		expect(o.attention.map((f) => f.subject)).toEqual(['Fitness suite s1']);
+	});
+
+	it('drops a failure that finished more than a day ago', () => {
+		const o = buildOverview(data({ suites: [suite('s1', 'a', 'Failed', ago(30 * HOUR), ago(25 * HOUR))] as never }), NOW);
+		expect(o.attention).toEqual([]);
+	});
+
+	it('drops a failure once a newer suite of the same crew exists, whatever its result', () => {
+		const suites = [suite('old', 'a', 'Failed', ago(5 * HOUR), ago(4 * HOUR)), suite('new', 'a', 'Completed', ago(2 * HOUR), ago(HOUR))];
+		expect(buildOverview(data({ suites: suites as never }), NOW).attention).toEqual([]);
+	});
+
+	it('keeps a failure of one crew when only another crew has a newer suite', () => {
+		const suites = [suite('a1', 'a', 'Failed', ago(5 * HOUR), ago(4 * HOUR)), suite('b1', 'b', 'Completed', ago(2 * HOUR), ago(HOUR))];
+		expect(buildOverview(data({ suites: suites as never }), NOW).attention.map((f) => f.subject)).toEqual(['Fitness suite a1']);
+	});
+});
+
+describe('a node taken out on purpose', () => {
+	const cordonedOff = { ...node('gpu-3', { ready: false }), spec: { unschedulable: true } };
+
+	it('is Idle and offline, is not listed, and does not turn the Nodes or Accelerators tiles red', () => {
+		const gpu = { present: true, count: 1 };
+		const o = buildOverview(data({ nodes: [node('n1'), { ...cordonedOff, accelerator: gpu }, node('gpu-2', { accelerator: gpu })] as never }), NOW);
+		expect(o.attention).toEqual([]);
+		expect(tile(o, 'nodes')).toMatchObject({ health: 'healthy', figure: '2/3', line: '1 offline (cordoned)' });
+		expect(tile(o, 'accelerators').health).toBe('healthy');
+	});
+
+	it('stays Down when the node is NotReady and not cordoned', () => {
+		const o = buildOverview(data({ nodes: [node('n1'), node('n2', { ready: false })] as never }), NOW);
+		expect(tile(o, 'nodes').health).toBe('down');
+		expect(o.attention.map((f) => f.subject)).toEqual(['Node n2']);
+	});
+
+	it('is still Degraded when cordoned but Ready', () => {
+		const o = buildOverview(data({ nodes: [{ ...node('n1'), spec: { unschedulable: true } }] as never }), NOW);
+		expect(o.attention).toEqual([expect.objectContaining({ health: 'degraded', problem: 'Cordoned, no new pods' })]);
 	});
 });
 

@@ -116,7 +116,8 @@ export function pressures(node: NodeLike): NodeCondition[] {
 
 /** One reason a node is not healthy, in words a person reads. */
 export interface NodeProblem {
-	health: 'down' | 'degraded';
+	/** Idle is a node taken out on purpose: nothing is wrong. */
+	health: 'down' | 'degraded' | 'idle';
 	text: string;
 }
 
@@ -134,8 +135,17 @@ function useProblems(use: NodeUse): NodeProblem[] {
 	];
 }
 
-/** Why a node is not healthy: not Ready, a pressure, cordoned, or CPU or memory nearly all in use. Empty when healthy. */
+/** A node that is cordoned and not Ready was taken out on purpose, such as an accelerator node whose VM is off. */
+export function isOffline(node: NodeLike): boolean {
+	return node.spec?.unschedulable === true && !isNodeReady(node);
+}
+
+/**
+ * Why a node is not healthy: not Ready, a pressure, cordoned, or CPU or memory nearly all in use.
+ * Empty when healthy. A cordoned node that is not Ready is offline on purpose: its one entry is idle.
+ */
 export function nodeProblems(node: NodeLike, use: NodeUse = {}): NodeProblem[] {
+	if (isOffline(node)) return [{ health: 'idle', text: 'Offline (cordoned)' }];
 	return [
 		...readinessProblems(node),
 		...pressures(node).map((c) => ({ health: 'degraded' as const, text: c.type })),
@@ -144,11 +154,12 @@ export function nodeProblems(node: NodeLike, use: NodeUse = {}): NodeProblem[] {
 	];
 }
 
-/** The node's health: down when not Ready, degraded for any other problem, else healthy. */
+/** The node's health: down when not Ready, degraded for any other problem, idle when offline on purpose, else healthy. */
 export function nodeHealth(node: NodeLike, use: NodeUse = {}): Health {
 	const problems = nodeProblems(node, use);
 	if (problems.some((p) => p.health === 'down')) return 'down';
-	return problems.length > 0 ? 'degraded' : 'healthy';
+	if (problems.some((p) => p.health === 'degraded')) return 'degraded';
+	return problems.length > 0 ? 'idle' : 'healthy';
 }
 
 /** CPU in cores as a bare number, for a bar: "1.5". */

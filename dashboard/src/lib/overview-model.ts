@@ -3,7 +3,7 @@
 // measurement helps, a small bar. The "Needs attention" list is every finding that is down or
 // degraded, each pointing at the page that explains it. Pure: the page fetches, this decides.
 
-import { clusterUse, cores, gib, nodeProblems, nodeUse, type NodeMetric } from './node-usage.js';
+import { clusterUse, cores, gib, nodeHealth, nodeProblems, nodeUse, type NodeMetric } from './node-usage.js';
 import type { PodCount, Reading } from './reading.js';
 import { nodeAccelerator } from './node-accelerator.js';
 import { readyHealth, worstHealth, type Health } from './health.js';
@@ -130,18 +130,19 @@ function pending(key: string, label: string, link: Link, source: unknown): Tile 
 }
 
 /** "2 down, 1 degraded", or "All healthy" when nothing is wrong. */
-function summaryLine(judged: readonly Judged[], allWell: string): string {
+function summaryLine(judged: readonly Judged[], allWell: string, idleLabel?: string): string {
 	const count = (h: Health) => judged.filter((j) => j.health === h).length;
 	const parts = [
 		count('down') > 0 ? `${count('down')} down` : '',
 		count('degraded') > 0 ? `${count('degraded')} degraded` : '',
-		count('unknown') > 0 ? `${count('unknown')} unknown` : ''
+		count('unknown') > 0 ? `${count('unknown')} unknown` : '',
+		idleLabel && count('idle') > 0 ? `${count('idle')} ${idleLabel}` : ''
 	].filter(Boolean);
 	return parts.length > 0 ? parts.join(', ') : allWell;
 }
 
 /** A tile counting judged things: healthy (or idle) of all, in the worst state beneath it. */
-function countTile(key: string, label: string, link: Link, judged: readonly Judged[], extra: Partial<Tile> = {}): Tile {
+function countTile(key: string, label: string, link: Link, judged: readonly Judged[], extra: Partial<Tile> = {}, idleLabel?: string): Tile {
 	const well = judged.filter((j) => j.health === 'healthy' || j.health === 'idle').length;
 	return {
 		key,
@@ -150,7 +151,7 @@ function countTile(key: string, label: string, link: Link, judged: readonly Judg
 		phase: 'ready',
 		health: judged.length === 0 ? 'idle' : worstHealth(judged.map((j) => j.health)),
 		figure: judged.length === 0 ? '0' : `${well}/${judged.length}`,
-		line: judged.length === 0 ? 'None yet' : summaryLine(judged, 'All healthy'),
+		line: judged.length === 0 ? 'None yet' : summaryLine(judged, 'All healthy', idleLabel),
 		bars: [],
 		...extra
 	};
@@ -165,8 +166,10 @@ function judgeNodes(nodes: NodeWithAccelerator[], metrics: Record<string, NodeMe
 		const name = node.metadata.name;
 		const problems = nodeProblems(node, nodeUse(node, metrics?.[name]));
 		if (problems.length === 0) return OK;
-		const health = problems.some((p) => p.health === 'down') ? 'down' : 'degraded';
-		return problem(health, `Node ${name}`, problems.map((p) => p.text).join(', '), nodeLink(name));
+		const health = nodeHealth(node, nodeUse(node, metrics?.[name]));
+		// A node taken out on purpose is idle and is not listed as a problem.
+		if (health === 'idle') return { health };
+		return problem(health === 'down' ? 'down' : 'degraded', `Node ${name}`, problems.map((p) => p.text).join(', '), nodeLink(name));
 	});
 }
 
@@ -186,7 +189,7 @@ function nodeTiles(data: OverviewData): Tile[] {
 		note = data.metrics.available ? undefined : data.metrics.reason;
 	}
 	const figure = `${nodeCounts(nodes).nodes.ready}/${nodes.length}`;
-	return [countTile('nodes', 'Nodes', link, judged, { bars, note, figure }), acceleratorTile(nodes, judged)];
+	return [countTile('nodes', 'Nodes', link, judged, { bars, note, figure }, 'offline (cordoned)'), acceleratorTile(nodes, judged)];
 }
 
 /** The accelerator devices on Ready nodes against all of them; the tile is as unwell as the worst accelerator node. */
@@ -354,9 +357,25 @@ function natsTile(status: Source<NatsStatus>): Tile {
 	};
 }
 
-function suiteFindings(suites: CrewFitnessSuite[]): Finding[] {
-	return suites
-		.filter((s) => s.status?.phase && s.status.phase in SUITE_FAILED)
+/** A failed suite is raised only while it is the newest suite of its crew and finished this recently. */
+export const SUITE_FAILURE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const suiteCrew = (s: CrewFitnessSuite) => `${s.metadata.namespace ?? ''}/${s.spec.crewRef}`;
+const startedOf = (s: CrewFitnessSuite) => Date.parse(s.metadata.creationTimestamp ?? s.status?.startedAt ?? '') || 0;
+const finishedOf = (s: CrewFitnessSuite) => Date.parse(s.status?.completedAt ?? s.status?.startedAt ?? s.metadata.creationTimestamp ?? '') || 0;
+
+function newestPerCrew(suites: CrewFitnessSuite[]): CrewFitnessSuite[] {
+	const newest = new Map<string, CrewFitnessSuite>();
+	for (const s of suites) {
+		const known = newest.get(suiteCrew(s));
+		if (!known || startedOf(s) > startedOf(known)) newest.set(suiteCrew(s), s);
+	}
+	return [...newest.values()];
+}
+
+function suiteFindings(suites: CrewFitnessSuite[], now: number): Finding[] {
+	return newestPerCrew(suites)
+		.filter((s) => s.status?.phase && s.status.phase in SUITE_FAILED && now - finishedOf(s) < SUITE_FAILURE_WINDOW_MS)
 		.map((s) => ({
 			health: 'degraded' as const,
 			subject: `Fitness suite ${s.metadata.name}`,
@@ -449,7 +468,7 @@ function findingsFor(data: OverviewData, j: Judgments, now: number): Finding[] {
 		...(data.componentStatuses ? componentFindings(data.componentStatuses) : []),
 		...findingsOf(resources),
 		...(data.nats ? natsFindings(data.nats) : []),
-		...(data.suites ? suiteFindings(data.suites) : []),
+		...(data.suites ? suiteFindings(data.suites, now) : []),
 		...(data.threads ? stuckFindings(data.threads, now) : [])
 	];
 }

@@ -32,6 +32,13 @@ describe('summarizeNode', () => {
 		expect(s.pods).toBeUndefined();
 	});
 
+	it('shows a cordoned node that is not Ready as offline, not as a fault', () => {
+		const s = summarizeNode(node('g3', { conditions: [{ type: 'Ready', status: 'Unknown' }] }), undefined, undefined, false);
+		expect(s).toMatchObject({ health: 'down', offline: false });
+		const off = summarizeNode({ ...(node('g3', { conditions: [{ type: 'Ready', status: 'Unknown' }] }) as object), spec: { unschedulable: true } } as never, undefined, undefined, false);
+		expect(off).toMatchObject({ health: 'idle', offline: true, problems: ['Offline (cordoned)'] });
+	});
+
 	it('says why a node is not healthy and marks high use', () => {
 		const down = summarizeNode(node('n1', { conditions: [{ type: 'Ready', status: 'False', reason: 'KubeletNotReady' }] }), undefined, undefined, false);
 		expect(down).toMatchObject({ health: 'down', problems: ['Not Ready (KubeletNotReady)'] });
