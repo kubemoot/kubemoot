@@ -146,7 +146,7 @@ In plain terms, the flow is:
    ([who reviews](../../architecture/tooler-analyst-architecture/#who-reviews)), and waits
    for every one it woke to report; there is no fast path in this phase.
 4. **SYNTHESIZING** - the coordinator composes a draft answer from all contributions.
-5. **RATIFY** - the draft is published as a `draft` message; the agents that contributed check it
+5. **RATIFY** (opt-in, off by default) - the draft is published as a `draft` message; the agents that contributed check it
    against their own stored results and reply `agree`, `concern` or `block`. The coordinator
    revises once on the objections and closes when the roster has ratified or the archetype's
    rounds are used up, releasing the answer with any standing objections attached (see

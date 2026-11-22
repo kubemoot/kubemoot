@@ -236,7 +236,7 @@ public interface AgentProperties {
         /**
          * Whether the contributors ratify the coordinator's draft before it is released
          * ({@code true} or {@code false}). Set on the coordinator
-         * (KUBEMOOT_DISCUSS_RATIFY_ENABLED) from the crew's consensus archetype; absent means true.
+         * (KUBEMOOT_DISCUSS_RATIFY_ENABLED) from the crew's consensus archetype; absent means false (ratification is opt-in).
          */
         Optional<String> ratifyEnabled();
 

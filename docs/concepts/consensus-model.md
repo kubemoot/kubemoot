@@ -121,6 +121,10 @@ signal, see [Agentic Consensus](../../architecture/agentic-consensus/).
 
 ## Ratification
 
+> **Opt-in and experimental.** Ratification is off by default. A crew turns it on with
+> `ratify.enabled: true` on its archetype. Three problems found in measurement are open (see
+> [Known problems](#known-problems)); until they are fixed, leave it off unless you are testing it.
+
 Nobody at the table should see an answer for the first time when the person does. After
 `SYNTHESIZING` the coordinator's synthesis is a **draft**: it is published to the table as a
 `draft` message and the agents that produced the evidence check it against that evidence before
@@ -177,10 +181,27 @@ never consent: an answer is `ratified` only when every agent on the roster agree
 is published, refreshed by its `heartbeat`). The round advances the moment the roster has
 answered, never on a clock; the deadline is the safety net for an agent that crashed.
 
-**On by default.** Ratification is the premise of the moot, so an archetype that declares no
-`ratify` block ratifies. A crew turns it off with `ratify.enabled: false` (a crew whose answers are
-checked elsewhere, or a fitness judge whose verdict must not be revised). With it off,
-`SYNTHESIZING` goes straight to `CLOSED`.
+**Off by default.** An archetype that declares no `ratify` block, or a block without `enabled`,
+does not ratify: `SYNTHESIZING` goes straight to `CLOSED` and the draft is the answer. A crew opts
+in with `ratify.enabled: true`.
+
+### Known problems
+
+The first measurement ran one question about node health 10 times without ratification and 10
+times with it, on the same crew. Ratification invented no nodes in either run, but it did not
+yet earn its cost:
+
+- **Slower, and not more accurate.** The mean time per answer rose from 73 s to 125 s. Answers
+  with a wrong count went from 1 to 2 of 10.
+- **Missed deadlines.** One ratifier missed its deadline in 6 of the 10 runs, so those answers
+  went out with that agent named as not having checked them.
+- **Agreement without checking.** Ratifiers agreed with wrong counts without comparing the draft
+  against their stored results, which is the check the phase exists for.
+- **Internal text in answers.** Released answers carried the phase's own bookkeeping, such as a
+  list of agents that did not answer and the coordinator's account of how an objection was
+  resolved, instead of only the answer.
+
+Ratification stays opt-in until these are fixed.
 
 **What is not ratified.** Answers written in code, not by the synthesis call, go out as they are:
 the capacity message, the no-data answer, a fallback after a failed synthesis, a direct answer, and

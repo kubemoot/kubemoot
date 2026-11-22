@@ -54,7 +54,7 @@ type MootArchetypeSpec struct {
 
 	// Ratify declares whether the agents that contributed to a turn ratify the
 	// coordinator's draft answer before it is released, and how. Optional;
-	// absent means they do, with the defaults of ArchetypeRatify.
+	// absent means they do not: ratification is opt-in and experimental.
 	// +optional
 	Ratify *ArchetypeRatify `json:"ratify,omitempty"`
 
@@ -136,10 +136,10 @@ const (
 // roster has ratified or the rounds are used up, with any standing objection
 // attached.
 type ArchetypeRatify struct {
-	// Enabled turns ratification on or off. Ratification is on when the block
-	// is absent, since it is what makes an answer the crew's; false releases the
-	// draft as the answer.
-	// +kubebuilder:default=true
+	// Enabled turns ratification on or off. Ratification is off by default,
+	// whether the block is absent or omits this field; true opts the crew in,
+	// and the draft is otherwise released as the answer.
+	// +kubebuilder:default=false
 	// +optional
 	Enabled *bool `json:"enabled,omitempty"`
 
