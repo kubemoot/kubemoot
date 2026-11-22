@@ -237,6 +237,7 @@
 			</div>
 		{/if}
 
+		{#if !signedIn}
 		<div class="compose-bar">
 			{#if selected}
 
@@ -251,6 +252,7 @@
 				<CommandHint label="Ask a crew from a terminal:" command={askCommand(selectedScope?.crew ?? 'CREW', selectedScope?.namespace ?? 'NAMESPACE')} />
 			{/if}
 		</div>
+		{/if}
 	</div>
 </div>
 
