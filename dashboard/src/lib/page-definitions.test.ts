@@ -19,6 +19,7 @@ function routeId(file: string): string {
 }
 
 const pages = pageFiles(routesDir).map((file) => ({ file, route: routeId(file), source: readFileSync(file, 'utf8') }));
+const escapeRegExp = (text: string) => text.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 const sentences = (text: string) => text.split(/(?<=\.)\s+/).filter(Boolean);
 
 describe('page definitions', () => {
@@ -31,7 +32,7 @@ describe('page definitions', () => {
 	});
 
 	it.each(pages)('$route renders the page title component', ({ route, source }) => {
-		const used = new RegExp(String.raw`<(PageTitle|ResourceList|DetailPanel)[^>]*\sroute="${route.replaceAll(/[[\]]/g, '\\$&')}"`);
+		const used = new RegExp(String.raw`<(PageTitle|ResourceList|DetailPanel)[^>]*\sroute="${escapeRegExp(route)}"`);
 		expect(source).toMatch(used);
 	});
 
