@@ -1,6 +1,15 @@
 import type { K8sNode, GPUInfo } from '#lib/types/k8s.js';
 
-const GPU_RESOURCE_KEYS = ['nvidia.com/gpu', 'amd.com/gpu', 'intel.com/gpu'];
+// Extended resources that device plugins use to report accelerators.
+const GPU_RESOURCE_KEYS = [
+	'nvidia.com/gpu',
+	'amd.com/gpu',
+	'intel.com/gpu',
+	'gpu.intel.com/i915',
+	'gpu.intel.com/xe',
+	'google.com/tpu',
+	'habana.ai/gaudi'
+];
 
 /** The GPU model from the NVIDIA feature-discovery labels: product, else family. */
 function gpuTypeFromLabels(labels: Record<string, string>): string | undefined {

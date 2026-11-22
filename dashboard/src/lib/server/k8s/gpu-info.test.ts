@@ -55,6 +55,13 @@ describe('extractGPUInfo', () => {
 		expect(info).toMatchObject({ present: true, count: 3 });
 	});
 
+	it.each(['gpu.intel.com/i915', 'gpu.intel.com/xe', 'google.com/tpu', 'habana.ai/gaudi'])(
+		'finds an accelerator reported as %s',
+		(resource) => {
+			expect(extractGPUInfo(node({ [resource]: '4' }))).toMatchObject({ present: true, count: 4 });
+		}
+	);
+
 	it('reports no GPU when no GPU resource has capacity', () => {
 		expect(extractGPUInfo(node({ cpu: '8' }))).toEqual({ present: false });
 		expect(extractGPUInfo(node({ 'nvidia.com/gpu': 'x' }))).toEqual({ present: false });

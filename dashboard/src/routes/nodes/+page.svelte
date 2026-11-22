@@ -54,8 +54,8 @@
 
 {#if gpuNodes.length > 0}
 	<div class="gpu-summary">
-		<h3>GPU Nodes</h3>
-		<p>{gpuNodes.length} node{gpuNodes.length !== 1 ? 's' : ''} with GPU capability</p>
+		<h3>Accelerator Nodes</h3>
+		<p>{gpuNodes.length} node{gpuNodes.length !== 1 ? 's' : ''} with accelerator capability</p>
 	</div>
 {/if}
 
