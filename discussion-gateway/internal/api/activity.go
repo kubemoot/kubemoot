@@ -83,7 +83,7 @@ var terminalSignals = map[bus.DiscussionMessageMessageType]bool{
 // agentStep is the step an agent is in on a thread.
 type agentStep struct {
 	doing, accelerator, model string
-	since             time.Time
+	since                     time.Time
 }
 
 // threadActivity is what the thread's own messages say about who is working on it.

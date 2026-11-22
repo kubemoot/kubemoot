@@ -30,6 +30,7 @@ const (
 	reasonGPUBusy  = "gpu-busy"
 	testRulesAgent = "rules"
 	testGPU        = "ollama-rig1"
+	testOtherID    = "other" // a thread or label that belongs to someone else
 	testStamp      = "2026-10-15T12:00:00Z"
 	testArtifact   = "ns/pilot/t1/k8s/agree-1"
 	keyMessageID   = "messageId"
@@ -197,7 +198,7 @@ func TestThreadFinderReplaysBufferedMessagesOfItsThread(t *testing.T) {
 	var events []SSEEvent
 	emit := func(e SSEEvent) { events = append(events, e) }
 	for i := 0; i < maxBufferedMessages+5; i++ {
-		tf.process(discussMsg{data: bus.DiscussionMessage{MessageType: signalAgree, ThreadID: "other"}, seq: uint64(i + 1)}, emit)
+		tf.process(discussMsg{data: bus.DiscussionMessage{MessageType: signalAgree, ThreadID: testOtherID}, seq: uint64(i + 1)}, emit)
 	}
 	if len(tf.buf) != maxBufferedMessages {
 		t.Fatalf("buffer = %d, want %d", len(tf.buf), maxBufferedMessages)
@@ -285,7 +286,7 @@ func TestTranslateAndEmit_WaitingAndStandAsideReasons(t *testing.T) {
 			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseDone, StoodAside: true, Signal: signalStandAside}},
 		{phaseEvaluating, bus.DiscussionMessage{MessageType: phaseEvaluating, AgentName: testRulesAgent, Metadata: map[string]interface{}{"gpuLabel": testGPU}},
 			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseEvaluating, Accelerator: testGPU, GPU: testGPU}},
-		{"evaluating, new key", bus.DiscussionMessage{MessageType: phaseEvaluating, AgentName: testRulesAgent, Metadata: map[string]interface{}{"acceleratorLabel": testGPU, "gpuLabel": "other"}},
+		{"evaluating, new key", bus.DiscussionMessage{MessageType: phaseEvaluating, AgentName: testRulesAgent, Metadata: map[string]interface{}{"acceleratorLabel": testGPU, metaGPULabel: testOtherID}},
 			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseEvaluating, Accelerator: testGPU, GPU: testGPU}},
 		{"stand_aside with the new reason", bus.DiscussionMessage{MessageType: signalStandAside, AgentName: testRulesAgent, Metadata: map[string]interface{}{metaReason: "accelerator-busy"}},
 			SSEEvent{Type: eventPhase, Agent: testRulesAgent, Status: phaseDone, StoodAside: true, Signal: signalStandAside, Reason: "accelerator-busy"}},

@@ -458,7 +458,7 @@ func TestTheSecondCopyOfTheMessageAResumeStartedAtIsNotSentAgain(t *testing.T) {
 	m := msgOf("t1", "same-id", msgSynthesis, "x")
 	first := publishDiscuss(t, js, m)
 	publishOn(t, js, "kubemoot.discuss.ns.pilot.web.t1", m)
-	publishDiscuss(t, js, msgOf("t1", "other", msgSynthesis, "y"))
+	publishDiscuss(t, js, msgOf("t1", testOtherID, msgSynthesis, "y"))
 
 	feed := openEvents(t, srv.URL, "", "", "Last-Event-ID", strconv.FormatUint(first, 10))
 	ev := feed.next(t)
