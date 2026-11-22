@@ -30,6 +30,8 @@ class DiscussionOrchestratorControlTest {
     @Test
     void stop_ignoredOncePastSynthesis() {
         assertFalse(DiscussionOrchestrator.canForceSynthesis(Phase.SYNTHESIZING));
+        assertFalse(DiscussionOrchestrator.canForceSynthesis(Phase.RATIFY),
+                "a stop in RATIFY releases the draft; it does not synthesize again");
         assertFalse(DiscussionOrchestrator.canForceSynthesis(Phase.CLOSED));
     }
 
@@ -49,6 +51,7 @@ class DiscussionOrchestratorControlTest {
         assertFalse(DiscussionOrchestrator.canPause(Phase.CLOSED));
         assertFalse(DiscussionOrchestrator.canPause(Phase.SYNTHESIZING),
                 "do not pause once synthesis has started");
+        assertFalse(DiscussionOrchestrator.canPause(Phase.RATIFY), "the draft is on the table; no pause");
     }
 
     // ---- resumeTarget ----

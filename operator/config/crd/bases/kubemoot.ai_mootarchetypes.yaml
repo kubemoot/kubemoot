@@ -98,6 +98,39 @@ spec:
                   type: object
                 minItems: 1
                 type: array
+              ratify:
+                description: |-
+                  Ratify declares whether the agents that contributed to a turn ratify the
+                  coordinator's draft answer before it is released, and how. Optional;
+                  absent means they do, with the defaults of ArchetypeRatify.
+                properties:
+                  enabled:
+                    default: true
+                    description: |-
+                      Enabled turns ratification on or off. Ratification is on when the block
+                      is absent, since it is what makes an answer the crew's; false releases the
+                      draft as the answer.
+                    type: boolean
+                  maxRounds:
+                    default: 2
+                    description: |-
+                      MaxRounds is the most rounds the draft is put to the table: round 1 is
+                      the draft and each further round a revision on the objections. The default
+                      of 2 revises once.
+                    format: int32
+                    maximum: 5
+                    minimum: 1
+                    type: integer
+                  roster:
+                    default: contributors
+                    description: |-
+                      Roster is "contributors" (the agents that contributed to the turn) or
+                      "crew" (every Tooler and Analyst of the crew).
+                    enum:
+                    - contributors
+                    - crew
+                    type: string
+                type: object
               review:
                 description: |-
                   Review declares which analysts the coordinator convenes for the review

@@ -558,9 +558,10 @@ class DiscussionOrchestratorReasoningSelectTest {
         assertEquals(
                 java.util.Set.of(DiscussionOrchestrator.Phase.ADVISORY,
                         DiscussionOrchestrator.Phase.EVALUATING,
-                        DiscussionOrchestrator.Phase.REVIEW),
+                        DiscussionOrchestrator.Phase.REVIEW,
+                        DiscussionOrchestrator.Phase.RATIFY),
                 java.util.Set.copyOf(phases),
-                "exactly ADVISORY, EVALUATING, REVIEW auto-advance; terminal/paused phases have no auto edge");
+                "exactly ADVISORY, EVALUATING, REVIEW, RATIFY auto-advance; terminal/paused phases have no auto edge");
     }
 
     // --- Hard-ceiling watchdog: a discussion must never hang ---
@@ -568,12 +569,13 @@ class DiscussionOrchestratorReasoningSelectTest {
 
     @Test
     void hardCeiling_exceedsTheSumOfPhaseBudgets_soItNeverTripsAHealthyRun() {
-        // 120 cold-grace + 10 advisory + 15 eval + 15 review + 90 synth + 180 margin.
+        // 120 cold-grace + 10 advisory + 15 eval + 15 review + 90 synth + two ratify rounds
+        // (a 120 s ratifier deadline and a 90 s revision call each) + 180 margin.
         long ceiling = orchestrator.hardCeilingSeconds();
         assertTrue(ceiling >= 120 + 10 + 15 + 15 + 90,
                 "ceiling must sit above the phase budgets + cold-start grace");
-        assertEquals(120 + 10 + 15 + 15 + 90 + 180, ceiling,
-                "ceiling = coldGrace + advisory + eval + review + synth + margin");
+        assertEquals(120 + 10 + 15 + 15 + 90 + 2 * (120 + 90) + 180, ceiling,
+                "ceiling = coldGrace + advisory + eval + review + synth + ratify rounds + margin");
     }
 
     @Test

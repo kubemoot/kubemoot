@@ -52,6 +52,12 @@ type MootArchetypeSpec struct {
 	// +optional
 	Review *ArchetypeReview `json:"review,omitempty"`
 
+	// Ratify declares whether the agents that contributed to a turn ratify the
+	// coordinator's draft answer before it is released, and how. Optional;
+	// absent means they do, with the defaults of ArchetypeRatify.
+	// +optional
+	Ratify *ArchetypeRatify `json:"ratify,omitempty"`
+
 	// StateMachine declares the legal phase transitions. Optional; absence
 	// implies sequential progression through Phases in declaration order.
 	// +optional
@@ -110,6 +116,47 @@ type ArchetypeReview struct {
 	// +kubebuilder:default=primary
 	// +optional
 	Fallback ReviewFallback `json:"fallback,omitempty"`
+}
+
+// RatifyRoster says who ratifies the draft.
+// +kubebuilder:validation:Enum=contributors;crew
+type RatifyRoster string
+
+const (
+	// RatifyRosterContributors asks every Tooler with a terminal agree, concern
+	// or block in the turn and every Analyst that reviewed.
+	RatifyRosterContributors RatifyRoster = "contributors"
+	// RatifyRosterCrew also asks every other Tooler and Analyst of the crew.
+	RatifyRosterCrew RatifyRoster = "crew"
+)
+
+// ArchetypeRatify declares how the draft answer is ratified. The coordinator's
+// synthesis is a draft: the roster checks it against what they found, the
+// coordinator revises on their objections, and the answer is released when the
+// roster has ratified or the rounds are used up, with any standing objection
+// attached.
+type ArchetypeRatify struct {
+	// Enabled turns ratification on or off. Ratification is on when the block
+	// is absent, since it is what makes an answer the crew's; false releases the
+	// draft as the answer.
+	// +kubebuilder:default=true
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// MaxRounds is the most rounds the draft is put to the table: round 1 is
+	// the draft and each further round a revision on the objections. The default
+	// of 2 revises once.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=5
+	// +kubebuilder:default=2
+	// +optional
+	MaxRounds *int32 `json:"maxRounds,omitempty"`
+
+	// Roster is "contributors" (the agents that contributed to the turn) or
+	// "crew" (every Tooler and Analyst of the crew).
+	// +kubebuilder:default=contributors
+	// +optional
+	Roster RatifyRoster `json:"roster,omitempty"`
 }
 
 // ArchetypeStateMachine declares the legal phase transitions.

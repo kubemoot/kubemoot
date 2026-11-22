@@ -36,12 +36,22 @@ const (
 // none sets one). Nothing is set when the archetype is missing or declares no
 // review block, and the runtime then convenes every analyst.
 func (r *AgentReconciler) coordinatorReviewEnvVars(ctx context.Context, agent *kubemootv1alpha1.Agent) []corev1.EnvVar {
+	archetype := r.crewArchetype(ctx, agent)
+	if archetype == nil {
+		return nil
+	}
+	return reviewEnvVars(archetype.Spec.Review)
+}
+
+// crewArchetype is the consensus archetype that governs the agent's crew, or nil when it is
+// not installed. The coordinator's review and ratify settings both come from it.
+func (r *AgentReconciler) crewArchetype(ctx context.Context, agent *kubemootv1alpha1.Agent) *kubemootv1alpha1.MootArchetype {
 	archetype := &kubemootv1alpha1.MootArchetype{}
 	name := crewArchetypeName(r.matchingPolicies(ctx, agent))
 	if err := r.Get(ctx, types.NamespacedName{Name: name}, archetype); err != nil {
 		return nil
 	}
-	return reviewEnvVars(archetype.Spec.Review)
+	return archetype
 }
 
 // crewArchetypeName is the archetypeRef of the first policy (policies are ordered

@@ -234,6 +234,26 @@ public interface AgentProperties {
         Optional<String> reviewFallback();
 
         /**
+         * Whether the contributors ratify the coordinator's draft before it is released
+         * ({@code true} or {@code false}). Set on the coordinator
+         * (KUBEMOOT_DISCUSS_RATIFY_ENABLED) from the crew's consensus archetype; absent means true.
+         */
+        Optional<String> ratifyEnabled();
+
+        /**
+         * Most rounds the draft is put to the table (1 to 5): round 1 is the draft, each further
+         * round a revision on the objections. Set on the coordinator
+         * (KUBEMOOT_DISCUSS_RATIFY_MAX_ROUNDS); absent means 2.
+         */
+        Optional<Integer> ratifyMaxRounds();
+
+        /**
+         * Who ratifies: {@code contributors} or {@code crew}. Set on the coordinator
+         * (KUBEMOOT_DISCUSS_RATIFY_ROSTER); absent means contributors.
+         */
+        Optional<String> ratifyRoster();
+
+        /**
          * Max re-prompts the synthesis makes when its draft under-enumerates an
          * inventory answer (lists fewer entities than the gathered data contains).
          * The completeness contract names the omitted entries and asks for the full

@@ -8,7 +8,8 @@ import java.nio.charset.StandardCharsets;
  * whole, so its model never needs to read the result: it only judges whether the call
  * returned what it asked for and then stops or calls another tool. The stand-in is
  * built in code from the result alone: the tool name, that the full result is kept
- * for the crew, its size, and a bounded head to judge it by.
+ * for the crew, its size, and a bounded view to judge it by: a {@link TablePreview} of a table
+ * (every row, by its leading columns), else its first lines.
  */
 final class ToolResultStandIn {
 
@@ -77,12 +78,22 @@ final class ToolResultStandIn {
             out.append("Stored as workspace artifact ").append(artifactKey).append(".\n");
         }
         if (withHead) {
-            out.append("First ").append(HEAD_LINES).append(" lines (cut at ").append(HEAD_CHARS)
-                    .append(" characters):\n").append(head(text)).append('\n');
+            appendView(out, text);
         }
         out.append("If this is the data you asked for, stop: the crew receives all of it. ")
                 .append("Call another tool only for different data.");
         return out.toString();
+    }
+
+    /** A table is shown by its leading columns for every row; anything else by its first lines. */
+    private static void appendView(StringBuilder out, String text) {
+        String table = TablePreview.of(text);
+        if (table != null) {
+            out.append("Table preview: ").append(table).append('\n');
+        } else {
+            out.append("First ").append(HEAD_LINES).append(" lines (cut at ").append(HEAD_CHARS)
+                    .append(" characters):\n").append(head(text)).append('\n');
+        }
     }
 
     /** The first {@link #HEAD_LINES} lines of {@code text}, at most {@link #HEAD_CHARS} characters. */

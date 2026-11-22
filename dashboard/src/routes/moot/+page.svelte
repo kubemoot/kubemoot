@@ -20,6 +20,7 @@
 	import { threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
 	import { buildAcceleratorDisplayMap } from '#lib/accelerator-display.js';
 	import { answerState } from '#lib/conversation-answer.js';
+	import { badgeLabel, draftObjections, draftSummary, ratificationView, ratifiesRound } from '#lib/ratification-view.js';
 	import { statusIcon } from '#lib/thread-status-icon.js';
 	import { browserTimeZone, exportHref, threadConversationId } from '#lib/conversation-export.js';
 	import { FilterBar, ThreadDeleteDialog } from '#lib/components/conversations/index.js';
@@ -117,6 +118,7 @@
 		advisory_ready: 'Evaluate',
 		subcommittee: 'Subcommittee',
 		review_ready: 'Review',
+		draft: 'Draft',
 		agree: 'Agree',
 		concern: 'Concern',
 		block: 'Block',
@@ -445,6 +447,8 @@
 							class:advisory={msg.messageType === 'advisory'}
 							class:advisory_ready={msg.messageType === 'advisory_ready'}
 							class:review_ready={msg.messageType === 'review_ready'}
+							class:draft={msg.messageType === 'draft'}
+							class:ratify={ratifiesRound(msg) !== null}
 							class:concern={msg.messageType === 'concern'}
 							class:block={msg.messageType === 'block'}
 							class:proposal={msg.messageType === 'proposal'}
@@ -458,8 +462,8 @@
 								<span class="agent-name" class:human-name={msg.agentName === 'human'}>
 									{agentLabel(msg.agentName)}
 								</span>
-								<span class="message-type-badge {msg.messageType}">
-									{messageTypeLabels[msg.messageType] || msg.messageType}
+								<span class="message-type-badge {msg.messageType}" class:ratify={ratifiesRound(msg) !== null}>
+									{badgeLabel(msg, messageTypeLabels[msg.messageType] || msg.messageType)}
 								</span>
 								{#if msg.messageType === 'stand_aside' && msg.metadata?.reason}
 									<span class="decline-reason">({msg.metadata.reason})</span>
@@ -478,6 +482,14 @@
 									{/each}
 								</div>
 							{/if}
+							{#if draftSummary(msg)}
+								<div class="ratify-line">{draftSummary(msg)}</div>
+								{#each draftObjections(msg) as o}
+									<div class="ratify-objection {o.verdict}">
+										<strong>{agentLabel(o.agent)}</strong> ({o.verdict}, round {o.round}): {o.content || 'no reason given'}
+									</div>
+								{/each}
+							{/if}
 							{#if msg.content}
 								{@const skey = `${msgIdx}`}
 								{@const isSynthesis = msg.messageType === 'synthesis'}
@@ -486,6 +498,24 @@
 								<div class="message-content markdown synth-body" class:collapsed={synthLong && !openSynthesis[skey]}>{@html marked.parse(msg.content)}</div>
 								{#if synthLong}<button class="finding-toggle" onclick={() => (openSynthesis[skey] = !openSynthesis[skey])}>{openSynthesis[skey] ? 'show less' : '… more'}</button>{/if}
 								{#if aKey}<a class="artifact-dl" href={artifactHref(aKey)} download>download</a>{/if}
+							{/if}
+							{#if ratificationView(msg)}
+								{@const rv = ratificationView(msg)}
+								{#if rv}
+									<div class="ratify-result {rv.tone}">
+										{rv.text}
+										{#each rv.objections as o}
+											<div class="ratify-objection {o.verdict}">
+												<strong>{agentLabel(o.agent)}</strong> ({o.verdict}): {o.content || 'no reason given'}
+											</div>
+										{/each}
+										{#if rv.failures.length > 0}
+											<div class="ratify-objection failure">
+												Did not answer: {rv.failures.map(agentLabel).join(', ')}
+											</div>
+										{/if}
+									</div>
+								{/if}
 							{/if}
 							{#if msg.metadata?.toolsUsed && msg.metadata.toolsUsed.length > 0}
 								<div class="tools-used">
@@ -690,6 +720,45 @@
 		background: rgba(245, 158, 11, 0.05);
 	}
 
+	.message-card.draft {
+		border-color: #f59e0b;
+		border-style: dashed;
+		background: rgba(245, 158, 11, 0.05);
+	}
+
+	.message-card.ratify {
+		margin-left: 1rem;
+	}
+
+	.ratify-line {
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
+		margin-bottom: 0.25rem;
+	}
+
+	.ratify-objection {
+		font-size: 0.8rem;
+		border-left: 3px solid #f59e0b;
+		padding: 0.125rem 0.5rem;
+		margin-top: 0.25rem;
+	}
+
+	.ratify-objection.block, .ratify-objection.failure { border-left-color: #ef4444; }
+
+	.ratify-result {
+		font-size: 0.8rem;
+		font-weight: 600;
+		margin-top: 0.5rem;
+		padding: 0.375rem 0.5rem;
+		border-radius: 0.375rem;
+		background: rgba(16, 185, 129, 0.1);
+		color: var(--accent-green);
+	}
+
+	.ratify-result.warn { background: rgba(245, 158, 11, 0.12); color: var(--accent-amber); }
+	.ratify-result.alert { background: rgba(239, 68, 68, 0.12); color: var(--accent-red); }
+	.ratify-result .ratify-objection { font-weight: 400; color: var(--color-text); }
+
 	.message-card.concern {
 		border-color: #f59e0b;
 		background: rgba(245, 158, 11, 0.05);
@@ -751,6 +820,8 @@
 	.message-type-badge.advisory { background: rgba(168, 85, 247, 0.2); color: var(--accent-purple); }
 	.message-type-badge.advisory_ready { background: rgba(14, 165, 233, 0.2); color: var(--accent-sky); }
 	.message-type-badge.review_ready { background: rgba(245, 158, 11, 0.15); color: var(--accent-amber); }
+	.message-type-badge.draft { background: rgba(245, 158, 11, 0.2); color: var(--accent-amber); }
+	.message-type-badge.ratify { outline: 1px solid currentColor; }
 	.message-type-badge.agree, .message-type-badge.contribution { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); }
 	.message-type-badge.concern { background: rgba(245, 158, 11, 0.2); color: var(--accent-amber); }
 	.message-type-badge.block { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }

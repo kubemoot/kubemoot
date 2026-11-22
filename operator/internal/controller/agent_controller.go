@@ -1117,6 +1117,7 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 		env = append(env, r.coordinatorResumeEnvVars()...)
 		env = append(env, r.coordinatorLeaseEnvVars()...)
 		env = append(env, r.coordinatorReviewEnvVars(ctx, agent)...)
+		env = append(env, r.coordinatorRatifyEnvVars(ctx, agent)...)
 		// If the crew declares any analyst-role agent, the coordinator must run
 		// the REVIEW phase (where analysts self-select) rather than taking the
 		// single-agree fast path that skips it.
