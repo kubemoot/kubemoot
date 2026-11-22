@@ -49,7 +49,7 @@ func TestCoordinatorRatifyEnvVars_FollowsTheCrewsArchetype(t *testing.T) {
 	r := reviewTestReconciler(t,
 		ratifyTestArchetype(defaultArchetypeName, &kubemootv1alpha1.ArchetypeRatify{MaxRounds: ptr.To(int32(2))}),
 		ratifyTestArchetype(reviewTestPanel, &kubemootv1alpha1.ArchetypeRatify{Enabled: ptr.To(false)}),
-		reviewTestPolicyFor(testCrewName, reviewTestPanel),
+		reviewTestPolicyFor(reviewTestPanel),
 	)
 	got := r.coordinatorRatifyEnvVars(context.Background(), reviewTestCoordinatorOf(testCrewName))
 	if len(got) != 1 || got[0].Name != envRatifyEnabled || got[0].Value != valueFalse {
