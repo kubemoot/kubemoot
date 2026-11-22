@@ -357,7 +357,7 @@
 				font-size="12"
 				font-weight={isHovered ? '600' : '400'}
 				font-family="ui-monospace, monospace"
-			>{fitLabel(span.displayName, labelWidth - (span.gpuLabel ? badgePx + 18 : 14))}{#if fitLabel(span.displayName, labelWidth - (span.gpuLabel ? badgePx + 18 : 14)) !== span.displayName}<title>{span.displayName}</title>{/if}</text>
+			>{fitLabel(span.displayName, labelWidth - (span.gpuLabel ? badgePx + 26 : 22))}{#if fitLabel(span.displayName, labelWidth - (span.gpuLabel ? badgePx + 26 : 22)) !== span.displayName}<title>{span.displayName}</title>{/if}</text>
 
 			<!-- GPU label badge -->
 			{#if span.gpuLabel}

@@ -3,7 +3,7 @@
 
 /** Average width of one character of the graph's 12px monospace label font. */
 const CHAR_PX = 7.4;
-const LABEL_PADDING_PX = 36;
+const LABEL_PADDING_PX = 48;
 const MIN_LABEL_PX = 160;
 const MAX_LABEL_SHARE = 0.45;
 

@@ -105,3 +105,18 @@ export function pickerLabel(entry: CrewEntry): string {
 	const named = hint ? `${label} (${hint})` : label;
 	return entry.namespace ? `${named} [${entry.namespace}]` : named;
 }
+
+/**
+ * The namespace to show beside a crew's name in a pill: only when another crew in a
+ * different namespace has the same name, so those two can be told apart. Otherwise ''
+ * (the namespace stays in the tooltip).
+ */
+export function crewPillNamespace(
+	entries: readonly CrewEntry[] | null | undefined,
+	namespace: string | null | undefined,
+	crew: string
+): string {
+	const label = crewLabel(entries, namespace, crew);
+	const clash = entries?.some((e) => e.namespace !== namespace && entryLabel(e) === label);
+	return clash && namespace ? namespace : '';
+}
