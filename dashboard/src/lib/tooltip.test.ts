@@ -148,3 +148,29 @@ describe('tooltip', () => {
 		expect(Number.parseInt(tip().style.left, 10)).toBeGreaterThanOrEqual(208);
 	});
 });
+
+describe('placement asked for by the control', () => {
+	const rect = { left: 100, right: 300, top: 50, bottom: 90, width: 200, height: 40, x: 100, y: 50, toJSON: () => ({}) } as DOMRect;
+
+	function opened(placement?: string) {
+		const node = document.createElement('button');
+		if (placement) node.dataset.tooltipPlacement = placement;
+		node.getBoundingClientRect = () => rect;
+		document.body.append(node);
+		tooltip(node, 'Open: reads it');
+		node.dispatchEvent(new FocusEvent('focus'));
+		return document.getElementById(node.getAttribute('aria-describedby') ?? '') as HTMLElement;
+	}
+
+	it('opens beside a control that says data-tooltip-placement="right", clear of the control', () => {
+		const tip = opened('right');
+		expect(tip.hasAttribute('data-open')).toBe(true);
+		expect(Number.parseFloat(tip.style.left)).toBeGreaterThanOrEqual(rect.right);
+	});
+
+	it('opens under a control that does not ask', () => {
+		const tip = opened();
+		expect(Number.parseFloat(tip.style.top)).toBeGreaterThanOrEqual(rect.bottom);
+		expect(Number.parseFloat(tip.style.left)).toBe(rect.left);
+	});
+});

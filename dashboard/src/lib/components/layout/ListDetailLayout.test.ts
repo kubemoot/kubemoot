@@ -71,3 +71,17 @@ describe('DetailHeader', () => {
 		expect(lead?.nextElementSibling).toBe(end);
 	});
 });
+
+describe('ListDetailLayout with nothing open', () => {
+	it('marks the layout so a narrow screen gives the list the whole height', () => {
+		const text2 = createRawSnippet(() => ({ render: () => '<span>x</span>' }));
+		const open = render(ListDetailLayout, { route: '/conversations', subtitle: 's', list: text2, detail: text2 });
+		expect(open.container.querySelector('.list-detail')?.classList.contains('no-detail')).toBe(false);
+		open.unmount();
+		const none = render(ListDetailLayout, { route: '/conversations', subtitle: 's', list: text2, detail: text2, detailOpen: false });
+		expect(none.container.querySelector('.list-detail')?.classList.contains('no-detail')).toBe(true);
+		const css = readFileSync('src/lib/components/layout/ListDetailLayout.svelte', 'utf8');
+		expect(css).toMatch(/\.no-detail \.list \{ max-height: none; flex: 1; \}/);
+		expect(css).toMatch(/\.no-detail \.detail \{ display: none; \}/);
+	});
+});

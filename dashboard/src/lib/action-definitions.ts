@@ -83,6 +83,7 @@ export const ACTIONS = {
 	searchConversations: 'Search: words must all match, -word leaves out matches, "a phrase" matches as written; display only',
 	filterStatus: 'Status: shows only active, closed or failed conversations; display only',
 	filterMine: 'Mine: shows only the conversations you started; display only',
+	filterDates: 'Dates: opens the From and To days; shows only conversations started in that range; display only',
 	filterFrom: 'From: shows only conversations started on or after this day; display only',
 	filterTo: 'To: shows only conversations started on or before this day; display only',
 	removeFilter: 'Remove: stops filtering by this; nothing else changes',

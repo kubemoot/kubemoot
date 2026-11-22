@@ -20,12 +20,14 @@
 		onlistscroll?: (event: Event) => void;
 		/** The open item's scroll container, for a page that follows new content. */
 		detailEl?: HTMLElement | null;
+		/** Something is open on the right. When nothing is, a narrow screen gives the list the whole height. */
+		detailOpen?: boolean;
 	}
 
-	let { route, subtitle, actions, list, detail, onlistscroll, detailEl = $bindable(null) }: Props = $props();
+	let { route, subtitle, actions, list, detail, onlistscroll, detailEl = $bindable(null), detailOpen = true }: Props = $props();
 </script>
 
-<div class="list-detail">
+<div class="list-detail" class:no-detail={!detailOpen}>
 	<div class="page-header">
 		<div class="title">
 			<PageTitle {route} />
@@ -53,6 +55,8 @@
 	@media (max-width: 1100px) {
 		.columns { flex-direction: column; }
 		.list { width: 100%; max-height: 30vh; flex-shrink: 0; }
+		.no-detail .list { max-height: none; flex: 1; }
+		.no-detail .detail { display: none; }
 		.detail { flex: 1; min-height: 0; }
 	}
 </style>

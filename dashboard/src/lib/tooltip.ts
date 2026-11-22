@@ -25,9 +25,11 @@ let counter = 0;
 // The tooltip that is open now; opening another closes it, however either was opened.
 let openNow: (() => void) | null = null;
 
-function normalize(param: TooltipParam): Required<TooltipOptions> {
+/** A control can ask for its tooltip beside it with data-tooltip-placement="right", as a list row does. */
+function normalize(param: TooltipParam, node: HTMLElement): Required<TooltipOptions> {
 	const opts = typeof param === 'string' ? { text: param } : param;
-	return { placement: 'below', delay: TOOLTIP_DELAY_MS, ...opts };
+	const asked = node.dataset.tooltipPlacement === 'right' ? 'right' : 'below';
+	return { placement: asked, delay: TOOLTIP_DELAY_MS, ...opts };
 }
 
 function fillText(tip: HTMLElement, text: string) {
@@ -58,7 +60,7 @@ function place(tip: HTMLElement, node: HTMLElement, placement: 'below' | 'right'
 export const HOVER_GRACE_MS = 150;
 
 export function tooltip(node: HTMLElement, param: TooltipParam) {
-	let opts = normalize(param);
+	let opts = normalize(param, node);
 	const tip = document.createElement('div');
 	tip.id = `km-tip-${++counter}`;
 	tip.setAttribute('role', 'tooltip');
@@ -131,7 +133,7 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 
 	return {
 		update(next: TooltipParam) {
-			opts = normalize(next);
+			opts = normalize(next, node);
 			fillText(tip, opts.text);
 			if (tip.hasAttribute('data-open')) place(tip, node, opts.placement);
 		},

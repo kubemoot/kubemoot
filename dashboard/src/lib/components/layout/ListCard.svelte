@@ -24,7 +24,7 @@
 
 <div class="row">
 	{#if leading}{@render leading()}{/if}
-	<button type="button" class="card" class:selected onclick={onopen} use:tooltip={ACTIONS.openListItem(kind)}>
+	<button type="button" class="card" class:selected onclick={onopen} data-tooltip-placement="right" use:tooltip={ACTIONS.openListItem(kind)}>
 		{#if head}<div class="head">{@render head()}</div>{/if}
 		<div class="query">{@render children()}</div>
 		{#if foot}<div class="foot">{@render foot()}</div>{/if}

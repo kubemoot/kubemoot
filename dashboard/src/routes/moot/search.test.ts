@@ -2,9 +2,15 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleMessage } from '#lib/stores/discussions.js';
 import { namespace } from '#lib/stores/namespace.js';
-import { setPage } from '../../../vitest-mocks/app-state';
+import { setPageData, setPageUrl } from '../../../vitest-mocks/app-state.svelte';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import Page from './+page.svelte';
+
+
+function setPage(address: string, data: Record<string, unknown> = {}) {
+	setPageUrl(address);
+	setPageData(data);
+}
 
 let seq = 0;
 function start(threadId: string, question: string, at: string) {
