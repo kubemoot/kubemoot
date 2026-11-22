@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ getCrew: vi.fn() }));
 vi.mock('./k8s/kubemoot-crds.js', () => ({ getCrew: mocks.getCrew }));
 vi.mock('./scope.js', () => ({ guardNamespace: async () => null }));
 
-import { callGateway, describeRefusal, gateRequest, gatewayUrl, parseAsk, relayRefusal, requireCrewAccess } from './gateway';
+import { accessReasonHeaders, callGateway, describeRefusal, gateRequest, gatewayUrl, parseAsk, relayRefusal, requireCrewAccess } from './gateway';
 
 const asCaller = <T>(fn: () => T) =>
 	runWithIdentity({ kind: 'caller', username: 'u', token: new BearerToken('callers-token'), ended: new AbortController().signal }, fn);
@@ -115,4 +115,22 @@ describe('parseAsk', () => {
 			expect(parseAsk(input).ok).toBe(false);
 		}
 	);
+});
+
+describe('accessReasonHeaders', () => {
+	const request = (reason?: string) => new Request('https://x/', { headers: reason === undefined ? {} : { 'Kubemoot-Access-Reason': reason } });
+
+	it('passes no header when the request carries none', () => {
+		expect(accessReasonHeaders(request())).toEqual({ ok: true, headers: {} });
+	});
+
+	it('passes a trimmed reason of 1 to 200 characters', () => {
+		expect(accessReasonHeaders(request('  ticket 42  '))).toEqual({ ok: true, headers: { 'Kubemoot-Access-Reason': 'ticket 42' } });
+		expect(accessReasonHeaders(request('x'.repeat(200))).ok).toBe(true);
+	});
+
+	it('refuses a blank or a too long reason', () => {
+		expect(accessReasonHeaders(request('   ')).ok).toBe(false);
+		expect(accessReasonHeaders(request('x'.repeat(201))).ok).toBe(false);
+	});
 });

@@ -56,8 +56,27 @@ describe('with a session', () => {
 		expect(decide({ method: 'POST', path: '/signout', ...on })).toEqual({ action: 'allow' });
 	});
 
+	it('allows acting on a conversation: stop, pause, resume and delete', () => {
+		for (const action of ['stop', 'pause', 'resume']) {
+			expect(decide({ method: 'POST', path: `/api/gateway/ns/crew/abc/${action}`, ...on })).toEqual({ action: 'allow' });
+		}
+		expect(decide({ method: 'DELETE', path: '/api/gateway/ns/crew/abc', ...on })).toEqual({ action: 'allow' });
+	});
+
+	it('allows only the method each write route is for', () => {
+		expect(decide({ method: 'POST', path: '/api/gateway/ns/crew/abc', ...on })).toMatchObject({ status: 405 });
+		expect(decide({ method: 'PUT', path: '/api/gateway/ns/crew/abc', ...on })).toMatchObject({ status: 405 });
+		expect(decide({ method: 'DELETE', path: '/api/gateway/ns/crew/abc/stop', ...on })).toMatchObject({ status: 405 });
+		expect(decide({ method: 'POST', path: '/api/gateway/ns/crew/conversations', ...on })).toMatchObject({ status: 405 });
+	});
+
+	it('asks a visitor who is not signed in to sign in before acting on a conversation', () => {
+		expect(decide({ method: 'DELETE', path: '/api/gateway/ns/crew/abc' })).toMatchObject({ status: 401 });
+		expect(decide({ method: 'POST', path: '/api/gateway/ns/crew/abc/stop', anonymousReadOnly: true })).toMatchObject({ status: 401 });
+	});
+
 	it('still refuses every other write with 405', () => {
-		for (const path of ['/api/nats/publish', '/api/kubemoot/crews/x', '/crews', '/api/gateway/ns/crew/abc/stop']) {
+		for (const path of ['/api/nats/publish', '/api/kubemoot/crews/x', '/crews', '/api/gateway/ns/crew/abc/restart', '/api/gateway/ns/crew/abc/stop/now']) {
 			expect(decide({ method: 'DELETE', path, ...on })).toMatchObject({ action: 'deny', status: 405 });
 			expect(decide({ method: 'POST', path, ...on })).toMatchObject({ action: 'deny', status: 405 });
 		}

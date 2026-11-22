@@ -4,6 +4,7 @@
 
 import type { Thread } from '#lib/stores/discussions.js';
 import { threadConversationId } from '#lib/conversation-export.js';
+import { matchesSearch, parseSearch } from '#lib/search-query.js';
 
 export type StatusFilter = 'active' | 'closed' | 'failed';
 export const STATUSES: readonly StatusFilter[] = ['active', 'closed', 'failed'];
@@ -101,10 +102,11 @@ export function searchableText(thread: Pick<Thread, 'userQuery' | 'messages'>): 
 	return [thread.userQuery, ...thread.messages.map((m) => m.content ?? '')].filter((t) => t !== '');
 }
 
-/** The first text of the thread that holds the query, case-insensitively, or undefined. */
+/** The first text of the thread that holds one of the query's words or phrases, or undefined. */
 export function firstHit(thread: Pick<Thread, 'userQuery' | 'messages'>, query: string): string | undefined {
-	const needle = query.trim().toLowerCase();
-	return needle === '' ? undefined : searchableText(thread).find((t) => t.toLowerCase().includes(needle));
+	const { include } = parseSearch(query);
+	if (include.length === 0) return undefined;
+	return searchableText(thread).find((t) => include.some((term) => t.toLowerCase().includes(term)));
 }
 
 /**
@@ -115,7 +117,7 @@ export function matchesFilter(thread: Thread, filter: ListFilter, mineIds: Reado
 	if (filter.status && threadState(thread) !== filter.status) return false;
 	if (filter.mine && !(mineIds && mineIds.has(threadConversationId(thread) ?? ''))) return false;
 	if (!inRange(thread.startedAt, filter)) return false;
-	return filter.q === '' || firstHit(thread, filter.q) !== undefined;
+	return matchesSearch(searchableText(thread), parseSearch(filter.q));
 }
 
 export interface Piece {
@@ -123,17 +125,32 @@ export interface Piece {
 	hit: boolean;
 }
 
-/** A text cut into pieces, those that match the query marked; for highlighting with no HTML. */
+/** The ranges of the text that hold a word or phrase of the query, in order and not overlapping. */
+function hitRanges(lower: string, terms: readonly string[]): [number, number][] {
+	const ranges: [number, number][] = [];
+	for (const term of terms) {
+		for (let i = lower.indexOf(term); i !== -1; i = lower.indexOf(term, i + term.length)) ranges.push([i, i + term.length]);
+	}
+	ranges.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+	const merged: [number, number][] = [];
+	for (const range of ranges) {
+		const last = merged.at(-1);
+		if (last && range[0] < last[1]) last[1] = Math.max(last[1], range[1]);
+		else merged.push([...range]);
+	}
+	return merged;
+}
+
+/** A text cut into pieces, those that match a word or phrase of the query marked; for highlighting with no HTML. */
 export function highlight(text: string, query: string): Piece[] {
-	const needle = query.trim().toLowerCase();
-	if (needle === '') return [{ text, hit: false }];
-	const lower = text.toLowerCase();
+	const ranges = hitRanges(text.toLowerCase(), parseSearch(query).include);
+	if (ranges.length === 0) return [{ text, hit: false }];
 	const pieces: Piece[] = [];
 	let at = 0;
-	for (let i = lower.indexOf(needle); i !== -1; i = lower.indexOf(needle, at)) {
-		if (i > at) pieces.push({ text: text.slice(at, i), hit: false });
-		pieces.push({ text: text.slice(i, i + needle.length), hit: true });
-		at = i + needle.length;
+	for (const [start, end] of ranges) {
+		if (start > at) pieces.push({ text: text.slice(at, start), hit: false });
+		pieces.push({ text: text.slice(start, end), hit: true });
+		at = end;
 	}
 	if (at < text.length) pieces.push({ text: text.slice(at), hit: false });
 	return pieces;
@@ -141,9 +158,9 @@ export function highlight(text: string, query: string): Piece[] {
 
 /** A short passage around the first match, so a long message shows what matched. */
 export function snippet(text: string, query: string, radius = 60): string {
-	const i = text.toLowerCase().indexOf(query.trim().toLowerCase());
-	if (i < 0 || text.length <= radius * 2) return text;
-	const start = Math.max(0, i - radius);
-	const end = Math.min(text.length, i + query.trim().length + radius);
+	const first = hitRanges(text.toLowerCase(), parseSearch(query).include)[0];
+	if (!first || text.length <= radius * 2) return text;
+	const start = Math.max(0, first[0] - radius);
+	const end = Math.min(text.length, first[1] + radius);
 	return `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`;
 }

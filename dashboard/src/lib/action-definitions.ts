@@ -52,15 +52,39 @@ export const ACTIONS = {
 	toggleDetails: 'Details: shows how long each answer took and the tokens it used',
 	copyConversation: 'Copy conversation: its questions and answers to the clipboard as text',
 
-	// Conversations page: asking and filtering
-	newConversation: 'New conversation: clears the open one so the field below starts a new one with the selected crew',
+	// Conversations page: asking, following up, acting on a conversation, filtering
+	newConversation: '+ New: starts a conversation with a crew; nothing is sent until you ask a question',
 	sendQuestion: (replying: boolean) =>
 		replying
 			? 'Reply: sends your follow-up in this conversation as you; the crew answers in it'
 			: 'Ask: sends your question to the crew as you and starts a new conversation',
-	startNewInstead: 'Start a new conversation: sends your text as a new conversation instead of a reply',
+	chooseCrewToAsk: 'Crew to ask: where this new conversation goes; the top-bar Crew selection is not changed',
+	conversationActions: 'Actions: copy, download, stop, pause, resume or delete this conversation',
+	openListItem: (kind: 'thread' | 'conversation') =>
+		kind === 'thread'
+			? 'Open: reads how the agents settled this question; changes nothing'
+			: 'Open: shows this conversation\'s questions and answers',
+	menuItem: (text: string) => text,
+	showAnswerDetails: 'Show answer details: how long each answer took and the tokens it used; display only',
+	copyConversationId: 'Copy conversation id: the id with the first question, to paste into a report or a command',
+	openInMoot: 'Open in the Moot: reads how the agents settled this question; changes nothing',
+	pauseConversation: 'Pause: holds the crew\'s work on this conversation until you resume it',
+	resumeConversation: 'Resume: lets the crew carry on with the paused conversation',
+	stopConversation: 'Stop: ends the crew\'s work on this conversation now; it cannot be resumed',
+	deleteConversation: 'Delete: asks first, then erases this conversation from every store that holds it',
+	confirmDelete: 'Yes, delete: erases the conversation from every store now; this cannot be undone',
+	cancelDelete: 'No: keeps the conversation; nothing is changed',
+	stopAndDelete: 'Stop and delete: stops the running discussion, then erases the conversation from every store',
+	repeatDelete: 'Repeat delete: tries again to clear the stores that failed',
+	continueWithReason: 'Continue: does the action on this conversation and records your reason in the gateway audit log',
+	cancelAction: 'Cancel: closes this question; nothing is changed',
+	dismissNotice: 'Dismiss: closes this message; nothing is changed',
+	closeReport: 'Close: hides this report; the deletion stays done',
+	searchConversations: 'Search: words must all match, -word leaves out matches, "a phrase" matches as written; display only',
 	filterStatus: 'Status: shows only active, closed or failed conversations; display only',
 	filterMine: 'Mine: shows only the conversations you started; display only',
+	filterFrom: 'From: shows only conversations started on or after this day; display only',
+	filterTo: 'To: shows only conversations started on or before this day; display only',
 	removeFilter: 'Remove: stops filtering by this; nothing else changes',
 	loadOlderMatches: 'Load older: reads earlier discussions from the bus so the search can reach them; changes nothing',
 

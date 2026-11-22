@@ -19,12 +19,24 @@ export interface AccessInput {
 /** Reachable without a session: the sign-in page, and the probes and static files that carry no data. */
 const PUBLIC: readonly RegExp[] = [/^\/(signin|api\/health|_app)(\/|$)/, /^\/favicon/];
 
-/** The writes the dashboard server accepts: signing in and out, and asking a crew. */
-const WRITE_ROUTES: readonly RegExp[] = [
-	/^\/signin\/?$/,
-	/^\/signout\/?$/,
-	/^\/api\/gateway\/[^/]+\/[^/]+\/ask\/?$/
+/** The writes the dashboard server accepts: signing in and out, asking a crew, and acting on a conversation. */
+interface WriteRoute {
+	method: string;
+	pattern: RegExp;
+}
+
+const WRITE_ROUTES: readonly WriteRoute[] = [
+	{ method: 'POST', pattern: /^\/signin\/?$/ },
+	{ method: 'POST', pattern: /^\/signout\/?$/ },
+	{ method: 'POST', pattern: /^\/api\/gateway\/[^/]+\/[^/]+\/ask\/?$/ },
+	// stop, pause, resume and delete a conversation, as the signed-in person
+	{ method: 'POST', pattern: /^\/api\/gateway\/[^/]+\/[^/]+\/[^/]+\/(stop|pause|resume)\/?$/ },
+	{ method: 'DELETE', pattern: /^\/api\/gateway\/[^/]+\/[^/]+\/[^/]+\/?$/ }
 ];
+
+function isWriteRoute(method: string, path: string): boolean {
+	return WRITE_ROUTES.some((r) => r.method === method.toUpperCase() && r.pattern.test(path));
+}
 
 /** Routes that act as the signed-in person at a crew's gateway: no session, no access, even in anonymous read-only mode. */
 const CALLER_ONLY: readonly RegExp[] = [/^\/api\/gateway\//];
@@ -51,7 +63,7 @@ export function pathInApp(pathname: string, base: string): string {
 }
 
 function writeDecision(input: AccessInput): Decision {
-	if (!matches(input.path, WRITE_ROUTES)) {
+	if (!isWriteRoute(input.method, input.path)) {
 		return {
 			action: 'deny',
 			status: 405,

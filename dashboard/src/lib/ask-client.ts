@@ -33,7 +33,7 @@ const listPath = (s: CrewScope) =>
 	resolve('/api/gateway/[namespace]/[crew]/conversations', { namespace: s.namespace, crew: s.crew });
 
 /** Why an answer was refused, in the words the server gave, with a plain fallback. */
-async function refusalOf(res: Response): Promise<AskRefused> {
+export async function refusalOf(res: Response): Promise<AskRefused> {
 	const text = await res
 		.json()
 		.then((body: unknown) => {
@@ -85,6 +85,19 @@ export async function listMyConversations(fetchFn: typeof fetch, scope: CrewScop
 	if (!res.ok) throw await refusalOf(res);
 	const body = (await res.json()) as { conversations?: { conversationId?: string }[] };
 	return (body.conversations ?? []).flatMap((c) => (c.conversationId ? [c.conversationId] : []));
+}
+
+/**
+ * The conversation ids the signed-in person started with any of the crews, each listed by its
+ * own gateway. A crew the person may not use lists nothing; with a single crew its refusal is
+ * returned in words, so the list can say why "Mine" is empty.
+ */
+export async function listMine(fetchFn: typeof fetch, scopes: CrewScope[]): Promise<{ ids: Set<string>; error: string }> {
+	const lists = await Promise.allSettled(scopes.map((s) => listMyConversations(fetchFn, s)));
+	const ids = new Set(lists.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])));
+	const refused = lists.find((r) => r.status === 'rejected');
+	const error = refused && scopes.length === 1 ? (refused.reason?.message ?? 'Could not list your conversations.') : '';
+	return { ids, error };
 }
 
 // ------------------------------------------------------------------ the answer, as it streams

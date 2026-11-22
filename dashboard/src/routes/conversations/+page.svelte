@@ -1,57 +1,58 @@
 <script lang="ts">
-	import { tooltip } from '#lib/tooltip.js';
-	import { ACTIONS } from '#lib/action-definitions.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import {
 		crewDirectory,
-		threads,
 		sortedThreads,
 		initDiscussions,
+		forgetThreads,
 		showChatDetails,
 		namespace,
 		hasOlder,
 		loadOlder
 	} from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
-	import { crewEntry, crewLabel } from '#lib/crew-display-name.js';
-	import { chatAsText, chatTurns, crewThreads, detailsLine, plainPreview } from '#lib/chat-view.js';
+	import { crewEntry, crewLabel, crewTooltip, pickerLabel } from '#lib/crew-display-name.js';
+	import { chatAsText, chatTurns, crewThreads, detailsLine } from '#lib/chat-view.js';
+	import { groupConversations, type Conversation } from '#lib/conversation-group.js';
+	import { openRef, withOpen } from '#lib/conversation-url.js';
+	import { listAddress, mineScopesFor } from '#lib/list-scope.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
-	import { CommandHint, ConversationDownload, PageTitle } from '#lib/components/common/index.js';
-	import { askCommand, listConversationsCommand, replayConversationCommand } from '#lib/cli-commands.js';
-	import { conversationIds, threadConversationId } from '#lib/conversation-export.js';
+	import { ConversationDownload } from '#lib/components/common/index.js';
+	import { CrewBadge, DetailHeader, ListCard, ListDetailLayout, ThreadStatus } from '#lib/components/layout/index.js';
+	import { browserTimeZone, conversationIds, exportHref, threadConversationId } from '#lib/conversation-export.js';
+	import { conversationTitle, runState } from '#lib/conversation-actions.js';
+	import type { ErasureReport } from '#lib/conversation-actions-client.js';
 	import { page } from '$app/state';
-	import { AskBox, FilterBar } from '#lib/components/conversations/index.js';
-	import { listMyConversations } from '#lib/ask-client.js';
+	import { AskBox, ConversationActions, ErasureReport as ErasureReportPanel, FilterBar } from '#lib/components/conversations/index.js';
+	import type { Live } from '#lib/components/conversations/AskBox.svelte';
+	import { listMine } from '#lib/ask-client.js';
 	import {
 		firstHit,
 		highlight,
 		matchesFilter,
 		parseFilter,
 		snippet,
-		withFilter,
 		type ListFilter
 	} from '#lib/conversation-filter.js';
 
 	marked.setOptions({ breaks: true, gfm: true });
 
-	// The crew picker is the top-bar "Crew:" selector, the same one Discussions uses.
+	// The crew picker is the top-bar "Crew:" selector, the same one the Moot uses.
 	const selectedScope = $derived<CrewScope | null>(
 		$namespace === '' ? null : tryCrewScope($namespace, crewEntry($crewDirectory, $namespace)?.crew)
 	);
 	const signedIn = $derived(!!page.data.user);
-	const emptyHint = $derived(
-		signedIn ? 'Select a conversation, or ask a new question below.' : 'Select a conversation, or start one from a terminal.'
-	);
 
 	// The filters and the search live in the URL query, so a link reproduces the view.
 	const filter = $derived(parseFilter(new URLSearchParams(page.url.search)));
 
 	function setFilter(next: ListFilter) {
-		const query = withFilter(new URLSearchParams(page.url.search), next).toString();
-		void goto(resolve('/conversations') + (query ? `?${query}` : ''), { replaceState: true });
+		void goto(listAddress('/conversations', page.url.search, next), { replace: true, reset: false });
 	}
 
 	// The conversations the signed-in person started, listed by each crew's gateway with their own
@@ -64,58 +65,117 @@
 		mine = null;
 		mineError = '';
 		if (!signedIn || scopes.length === 0) return;
-		const lists = await Promise.allSettled(scopes.map((s) => listMyConversations(fetch, s)));
-		mine = new Set(lists.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])));
-		const refused = lists.find((r) => r.status === 'rejected');
-		if (refused && scopes.length === 1) mineError = refused.reason?.message ?? 'Could not list your conversations.';
+		const found = await listMine(fetch, scopes);
+		mine = found.ids;
+		mineError = found.error;
 	}
 
-	const mineScopes = $derived<CrewScope[]>(
-		selectedScope
-			? [selectedScope]
-			: $crewDirectory.flatMap((e) => {
-					const s = tryCrewScope(e.namespace, e.crew);
-					return s ? [s] : [];
-				})
-	);
+	const mineScopes = $derived(mineScopesFor(selectedScope, $crewDirectory));
 
 	$effect(() => {
 		void loadMine(mineScopes);
 	});
 
+	// One entry per conversation: a follow-up is a new thread under the same conversation id.
+	// The open one is looked up among every conversation, so a link opens it whatever crew the
+	// top-bar selector shows; the selector is only ever the person's own choice.
+	const conversations = $derived(groupConversations($sortedThreads));
 	const chats = $derived(
-		crewThreads($sortedThreads, selectedScope)
+		crewThreads(conversations, selectedScope)
 			.filter((t) => chatTurns(t.messages).length > 0)
 			.filter((t) => matchesFilter(t, filter, mine))
 	);
 
-	// A question just asked: its discussion opens as soon as the bus shows it, and its messages
-	// then arrive live like any other.
+	let selectedThreadId = $state<string | null>(null);
+	const selected = $derived(selectedThreadId ? conversations.find((c) => c.threadIds.includes(selectedThreadId ?? '')) : undefined);
+
+	// The open conversation is in the address (?conversation=<id>): a link shares it and a reload
+	// keeps it. The address is read again whenever it changes, once the conversation has loaded.
+	const wanted = $derived(openRef(new URLSearchParams(page.url.search)));
+	let appliedFromUrl = '';
+	$effect(() => {
+		const key = wanted.conversation ?? wanted.thread ?? '';
+		if (key === '' || key === appliedFromUrl) return;
+		const found = conversations.find((c) => (wanted.conversation ? threadConversationId(c) === wanted.conversation : c.threadIds.includes(wanted.thread ?? '')));
+		if (!found) return;
+		appliedFromUrl = key;
+		openConversation(found, true);
+	});
+
+	function showInUrl(item: { conversationId?: string; threadId: string } | null) {
+		const next = withOpen(new URLSearchParams(page.url.search), item);
+		appliedFromUrl = item ? (item.conversationId ?? item.threadId) : '';
+		const query = next.toString();
+		void goto(resolve('/conversations') + (query ? `?${query}` : ''), { replace: true, reset: false });
+	}
+	const turns = $derived(selected ? chatTurns(selected.messages) : []);
+	const selectedScopeOfThread = $derived(selected ? tryCrewScope(selected.namespace, selected.crew) : null);
+	const selectedConversationId = $derived(selected ? threadConversationId(selected) : undefined);
+
+	// A new conversation: the question field at the bottom starts one with the selected crew; the
+	// conversation opens as soon as the bus shows it, and its answer arrives live like any other.
+	let starting = $state(false);
+	let live = $state<Live | null>(null);
 	let askedId = $state<string | null>(null);
 	let openedFor: string | null = null;
+
 	$effect(() => {
 		if (!askedId || openedFor === askedId) return;
-		const found = $sortedThreads.find((t) => threadConversationId(t) === askedId);
+		if (selectedConversationId === askedId) {
+			openedFor = askedId;
+			return;
+		}
+		const found = conversations.find((c) => threadConversationId(c) === askedId);
 		if (!found) return;
 		openedFor = askedId;
-		selectedThreadId = found.threadId;
+		openConversation(found);
 	});
+
+	// The crew a new conversation goes to: the top-bar selection, or one chosen here when the
+	// selector shows all crews. Choosing here never changes the selector.
+	let chosenNamespace = $state('');
+	const newScope = $derived<CrewScope | null>(
+		selectedScope ?? (chosenNamespace === '' ? null : tryCrewScope(chosenNamespace, crewEntry($crewDirectory, chosenNamespace)?.crew))
+	);
 
 	function startNew() {
 		selectedThreadId = null;
 		askedId = null;
+		live = null;
+		erasure = null;
+		starting = true;
+		showInUrl(null);
 	}
 
-	let selectedThreadId = $state<string | null>(null);
-	const selected = $derived(selectedThreadId ? $threads.get(selectedThreadId) : undefined);
-	const turns = $derived(selected ? chatTurns(selected.messages) : []);
+	// The one way a conversation opens: by a click, by the address, or because the person just asked it.
+	function openConversation(item: Conversation, fromUrl = false) {
+		selectedThreadId = item.threadId;
+		starting = false;
+		erasure = null;
+		if (!fromUrl) showInUrl({ conversationId: threadConversationId(item), threadId: item.threadId });
+	}
 
-	let copied = $state(false);
+	function selectChat(item: Conversation) {
+		live = null;
+		openConversation(item);
+	}
 
-	// The conversation of the open thread, and the ones ticked in the list. A download is for
-	// one crew, so ticking is offered when a crew is selected.
-	const selectedScopeOfThread = $derived(selected ? tryCrewScope(selected.namespace, selected.crew) : null);
-	const selectedConversationId = $derived(selected ? threadConversationId(selected) : undefined);
+	function pickCrew(event: Event) {
+		chosenNamespace = (event.currentTarget as HTMLSelectElement).value;
+	}
+
+	// A deleted conversation leaves the list at once, and the page says what was removed.
+	let erasure = $state<{ report: ErasureReport; question: string } | null>(null);
+
+	function deleted(report: ErasureReport) {
+		erasure = { report, question: selected ? conversationTitle(selected) : '' };
+		forgetThreads([...(report.threads ?? []), ...(selected?.threadIds ?? [])]);
+		selectedThreadId = null;
+		showInUrl(null);
+	}
+
+	// The conversations ticked in the list, for a download of several. A download is for one crew,
+	// so ticking is offered when a crew is selected.
 	let ticked = $state<Record<string, boolean>>({});
 	const tickedIds = $derived(conversationIds(chats.filter((t) => ticked[t.threadId])));
 	const exportEndpoint = resolve('/api/kubemoot/conversation-export');
@@ -124,187 +184,204 @@
 		ticked = { ...ticked, [threadId]: on };
 	}
 
-	// Opening a conversation sets the top-bar Crew selector to its crew, so the page, the
-	// downloads and the commands all speak for that crew.
-	function selectChat(threadId: string | null) {
-		selectedThreadId = threadId;
-		const ns = threadId ? $threads.get(threadId)?.namespace : undefined;
-		if (ns && ns !== $namespace) namespace.set(ns);
-	}
+	const downloadHref = $derived(
+		selectedConversationId ? exportHref(exportEndpoint, selectedScopeOfThread, [selectedConversationId], browserTimeZone()) : null
+	);
 
+	let copiedConversation = $state(false);
 
-	async function copyChat() {
+	async function copyConversation() {
 		await navigator.clipboard.writeText(chatAsText(turns, $showChatDetails));
-		copied = true;
-		setTimeout(() => {
-			copied = false;
-		}, 2000);
+		copiedConversation = true;
+		setTimeout(() => (copiedConversation = false), 2000);
 	}
 
-	function preview(threadId: string, fallback: string): string {
-		const first = $threads.get(threadId);
-		return plainPreview(chatTurns(first?.messages ?? [])[0]?.text || fallback);
-	}
+	const noConversations = $derived.by(() => {
+		if (filter.q) return 'No conversations match this search.';
+		return selectedScope ? 'No conversations with this crew yet.' : 'No conversations yet.';
+	});
+
+	const waiting = $derived.by(() => {
+		const state = runState(selected);
+		if (!state.running) return '';
+		return state.paused ? 'Paused. Resume it from the menu to continue.' : 'The crew is working on an answer...';
+	});
 
 	onMount(() => {
 		initDiscussions();
 	});
 </script>
 
-<div class="conversations-page">
-	<div class="sidebar-panel">
-		<div class="panel-header">
-			<h2>Recent</h2>
-			{#if signedIn}
-				<button type="button" class="action-btn" use:tooltip={ACTIONS.newConversation} onclick={startNew} disabled={!selectedScope}>New conversation</button>
-			{/if}
-			{#if selectedScope && tickedIds.length > 0}
-				<ConversationDownload scope={selectedScope} ids={tickedIds} endpoint={exportEndpoint} />
-			{/if}
-		</div>
-		<FilterBar {filter} {signedIn} loaded={$sortedThreads.length} hasOlder={$hasOlder} onchange={setFilter} onloadolder={() => void loadOlder()} />
-		{#if mineError}<p class="hint" role="alert">{mineError}</p>{/if}
+<ListDetailLayout route="/conversations" subtitle="Your questions and the crew's answers.">
+	{#snippet list()}
+		<FilterBar {filter} {signedIn} loaded={$sortedThreads.length} hasOlder={$hasOlder} onchange={setFilter} onloadolder={() => void loadOlder()} error={mineError}>
+			{#snippet trailing()}
+				{#if signedIn}
+					<button type="button" class="new-btn" use:tooltip={ACTIONS.newConversation} onclick={startNew}>+ New</button>
+				{/if}
+			{/snippet}
+		</FilterBar>
+		{#if selectedScope && tickedIds.length > 0}
+			<div class="download-row"><ConversationDownload scope={selectedScope} ids={tickedIds} endpoint={exportEndpoint} /></div>
+		{/if}
 		{#if chats.length === 0}
-			<p class="hint">No conversations{selectedScope ? ' with this crew' : ''} yet.</p>
+			<p class="hint">{noConversations}</p>
 		{/if}
 		{#each chats as t (t.threadId)}
-			<div class="chat-item">
-			{#if selectedScope && threadConversationId(t)}
-				<input use:tooltip={ACTIONS.selectConversation} type="checkbox" class="chat-tick" aria-label="Select this conversation for download" checked={!!ticked[t.threadId]} onchange={(e) => tick(t.threadId, e.currentTarget.checked)} />
-			{/if}
-			<button use:tooltip={ACTIONS.openConversation} class="chat-row" class:active={t.threadId === selectedThreadId} onclick={() => selectChat(t.threadId)}>
-				<span class="chat-preview">
-					{#each highlight(filter.q ? snippet(firstHit(t, filter.q) ?? preview(t.threadId, t.userQuery), filter.q) : preview(t.threadId, t.userQuery), filter.q) as piece, i (i)}{#if piece.hit}<mark>{piece.text}</mark>{:else}{piece.text}{/if}{/each}
-				</span>
-				<span class="chat-meta">
-					{#if $namespace === '' && t.namespace}<span class="crew-badge">{crewLabel($crewDirectory, t.namespace, t.crew ?? '')}</span>{/if}
-					<span>{formatTimestamp(t.startedAt)}</span>
-				</span>
-			</button>
-			</div>
-		{/each}
-	</div>
-
-	<div class="main-panel">
-		<div class="main-header">
-			<PageTitle route="/conversations" />
-			<div class="header-controls">
-				<label class="details-toggle" title="Show how long each answer took and the tokens it used">
-					<input use:tooltip={ACTIONS.toggleDetails} type="checkbox" checked={$showChatDetails} onchange={() => showChatDetails.toggle()} />
-					Details
-				</label>
-				{#if selected}
-					<a class="action-btn" href="{resolve('/discussions')}?thread={selected.threadId}" title="Open this thread in Discussions to see the agents' internal discussion">Discussion</a>
-					{#if selectedConversationId}
-						<ConversationDownload scope={selectedScopeOfThread} ids={[selectedConversationId]} endpoint={exportEndpoint} label="Download" />
+			<ListCard kind="conversation" selected={selected?.threadId === t.threadId} onopen={() => selectChat(t)}>
+				{#snippet leading()}
+					{#if selectedScope && threadConversationId(t)}
+						<input use:tooltip={ACTIONS.selectConversation} type="checkbox" aria-label="Select this conversation for download" checked={!!ticked[t.threadId]} onchange={(e) => tick(t.threadId, e.currentTarget.checked)} />
+					{:else if selectedScope}
+						<span class="tick-space"></span>
 					{/if}
-					<button aria-label="Copy conversation" use:tooltip={ACTIONS.copyConversation} class="action-btn" onclick={copyChat}>{copied ? '✓' : '📋'}</button>
-				{/if}
-			</div>
-		</div>
+				{/snippet}
+				{#snippet head()}
+					{#if t.namespace && t.crew}
+						<CrewBadge label={crewLabel($crewDirectory, t.namespace, t.crew ?? '')} title={crewTooltip($crewDirectory, t.namespace, t.crew ?? '')} />
+					{:else}
+						<span></span>
+					{/if}
+					<ThreadStatus status={t.status} />
+				{/snippet}
+				{#each highlight(filter.q ? snippet(firstHit(t, filter.q) ?? conversationTitle(t), filter.q) : conversationTitle(t), filter.q) as piece, i (i)}{#if piece.hit}<mark>{piece.text}</mark>{:else}{piece.text}{/if}{/each}
+				{#snippet foot()}
+					<span></span>
+					<span title={t.startedAt}>{formatTimestamp(t.startedAt)}</span>
+				{/snippet}
+			</ListCard>
+		{/each}
+	{/snippet}
 
-		<div class="chat-timeline">
-			{#if !selected}
-				<div class="empty-state">
-					<p>{selectedScope || chats.length > 0 ? emptyHint : 'Select a crew in the top bar to see its conversations.'}</p>
-				</div>
-			{:else}
-				{#each turns as turn (turn.id)}
-					<div class="bubble {turn.from}" id="message-{turn.id}" tabindex="-1">
-						<div class="bubble-head">
-							<span class="who">{turn.from === 'you' ? 'You' : crewLabel($crewDirectory, selected.namespace, selected.crew ?? '') || 'Crew'}</span>
-							<span class="when">{formatTimestamp(turn.timestamp)}</span>
-						</div>
-						{#if turn.from === 'crew'}
-							<div class="markdown">{@html marked.parse(turn.text)}</div>
-							{#if $showChatDetails && detailsLine(turn.details)}
-								<div class="answer-details">{detailsLine(turn.details)}</div>
+	{#snippet detail()}
+		{#if selected}
+			<DetailHeader>
+				{#if selected.crew}
+					<CrewBadge label={crewLabel($crewDirectory, selected.namespace, selected.crew)} title={crewTooltip($crewDirectory, selected.namespace, selected.crew)} />
+				{/if}
+				<ThreadStatus status={selected.status} />
+				{#snippet actions()}
+					<button class="action-btn" use:tooltip={ACTIONS.copyConversation} onclick={copyConversation} aria-label="Copy conversation">{copiedConversation ? '✓' : '📋'}</button>
+					<ConversationActions
+						scope={selectedScopeOfThread}
+						conversationId={selectedConversationId}
+						question={conversationTitle(selected)}
+						running={runState(selected)}
+						copyText={() => chatAsText(turns, $showChatDetails)}
+						showDetails={$showChatDetails}
+						ontoggledetails={() => showChatDetails.toggle()}
+						{downloadHref}
+						discussionHref="{resolve('/moot')}?thread={selected.latestThreadId}"
+						ondeleted={deleted}
+					/>
+				{/snippet}
+			</DetailHeader>
+		{/if}
+
+		<div class="conversation">
+			<div class="chat-timeline">
+				{#if erasure}
+					<ErasureReportPanel report={erasure.report} question={erasure.question} ondismiss={() => (erasure = null)} />
+				{:else if selected}
+					{#each turns as turn (turn.id)}
+						<div class="bubble {turn.from}" id="message-{turn.id}" tabindex="-1">
+							<div class="bubble-head">
+								<span class="who">{turn.from === 'you' ? 'You' : crewLabel($crewDirectory, selected.namespace, selected.crew ?? '') || 'Crew'}</span>
+								<span class="when">{formatTimestamp(turn.timestamp)}</span>
+							</div>
+							{#if turn.from === 'crew'}
+								<div class="markdown">{@html marked.parse(turn.text)}</div>
+								{#if $showChatDetails && detailsLine(turn.details)}
+									<div class="answer-details">{detailsLine(turn.details)}</div>
+								{/if}
+							{:else}
+								<div class="plain">{turn.text}</div>
 							{/if}
+						</div>
+					{/each}
+					{#if waiting}
+						<div class="waiting">{waiting}</div>
+					{/if}
+				{:else if live}
+					<div class="bubble you"><div class="bubble-head"><span class="who">You</span></div><div class="plain">{live.question}</div></div>
+					<div class="bubble crew">
+						<div class="bubble-head"><span class="who">{newScope ? crewLabel($crewDirectory, newScope.namespace, newScope.crew) : 'Crew'}</span></div>
+						{#if live.answer.answer}
+							<div class="markdown">{@html marked.parse(live.answer.answer)}</div>
+						{:else if live.answer.phase === 'error'}
+							<div class="error" role="alert">{live.answer.error}</div>
 						{:else}
-							<div class="plain">{turn.text}</div>
+							<div class="waiting">The crew is working on an answer{live.answer.agents.length ? ` (${live.answer.agents.join(', ')})` : ''}...</div>
 						{/if}
 					</div>
-				{/each}
-				{#if selected.status === 'open'}
-					<div class="waiting">The crew is working on an answer...</div>
+				{:else}
+					<div class="empty-state">
+						{#if starting && !newScope}
+							<p>Which crew do you want to ask?</p>
+							<select onchange={pickCrew} aria-label="Crew to ask" use:tooltip={ACTIONS.chooseCrewToAsk}>
+								<option value="">Choose a crew</option>
+								{#each $crewDirectory as entry (entry.namespace)}<option value={entry.namespace}>{pickerLabel(entry)}</option>{/each}
+							</select>
+						{:else if starting && newScope}
+							<p>New conversation with {crewLabel($crewDirectory, newScope.namespace, newScope.crew)}</p>
+						{:else}
+							<p>{signedIn ? 'Select a conversation, or start one with + New.' : 'Select a conversation.'}</p>
+						{/if}
+					</div>
 				{/if}
-			{/if}
-		</div>
-
-		{#if signedIn}
-			<div class="ask-bar">
-				<AskBox scope={selectedScope} conversationId={selectedConversationId} showLive={!selected || selectedConversationId !== askedId} onAsked={(id) => (askedId = id)} />
 			</div>
-		{/if}
 
-		{#if !signedIn}
-		<div class="compose-bar">
-			{#if selected}
-
-				<CommandHint
-					label="Reply from a terminal (find the id with {listConversationsCommand(selected.crew ?? 'CREW', selected.namespace)}):"
-					command={askCommand(selected.crew ?? 'CREW', selected.namespace, 'CONVERSATION_ID')}
-				/>
-				{#if selectedConversationId}
-					<CommandHint label="Ask this conversation's first question again, in a new conversation:" command={replayConversationCommand(selected.crew ?? 'CREW', selectedConversationId, selected.namespace)} />
-				{/if}
-			{:else}
-				<CommandHint label="Ask a crew from a terminal:" command={askCommand(selectedScope?.crew ?? 'CREW', selectedScope?.namespace ?? 'NAMESPACE')} />
+			{#if signedIn && !erasure}
+				<div class="ask-bar">
+					<AskBox
+						scope={selected ? selectedScopeOfThread : newScope}
+						conversationId={selectedConversationId}
+						bind:live
+						focus={starting}
+						onAsked={(id) => (askedId = id)}
+					/>
+				</div>
 			{/if}
 		</div>
-		{/if}
-	</div>
-</div>
+	{/snippet}
+</ListDetailLayout>
 
 <style>
-	.conversations-page { display: flex; height: 100%; overflow: hidden; }
-	.sidebar-panel {
-		width: 260px; border-right: 1px solid var(--color-border); display: flex;
-		flex-direction: column; padding: 1rem; flex-shrink: 0; overflow-y: auto; gap: 0.4rem;
-	}
-	.panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
-	.panel-header h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); }
 	.hint { color: var(--color-text-muted); font-size: 0.85rem; }
-	.chat-row {
-		display: flex; flex-direction: column; gap: 0.2rem; text-align: left; background: none;
-		border: 1px solid transparent; border-radius: 0.4rem; padding: 0.5rem; cursor: pointer; color: var(--color-text);
+	.new-btn {
+		background: none; border: 1px solid var(--color-border); border-radius: 0.3rem; padding: 0.25rem 0.55rem;
+		cursor: pointer; color: var(--color-text); font-size: 0.8rem; white-space: nowrap;
 	}
-	.chat-row:hover { background: var(--color-bg-tertiary); }
-	.chat-row.active { background: var(--color-bg-tertiary); border-color: var(--color-primary); }
-	.chat-preview { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
-	.chat-meta { display: flex; flex-wrap: wrap; gap: 0 0.5rem; white-space: nowrap; font-size: 0.7rem; color: var(--color-text-muted); }
-	.crew-badge { font-family: var(--font-mono); }
+	.new-btn:hover { border-color: var(--color-primary); }
+	.download-row { display: flex; }
+	.tick-space { display: inline-block; width: 13px; flex-shrink: 0; }
 
-	.main-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-	.main-header {
-		display: flex; justify-content: space-between; align-items: center; gap: 1rem;
-		padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border);
+	.conversation { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+	.chat-timeline { flex: 1; overflow-y: auto; padding: 0.25rem 0; display: flex; flex-direction: column; gap: 0.75rem; }
+	.empty-state { margin: auto; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+	.empty-state select {
+		padding: 0.3rem 0.5rem; border-radius: 0.3rem; border: 1px solid var(--color-border);
+		background: var(--color-bg-secondary); color: var(--color-text); max-width: 24rem;
 	}
-	.main-header h1 { font-size: 1.25rem; font-weight: 600; }
-	.header-controls { display: flex; align-items: center; gap: 0.5rem; }
-	.details-toggle { display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; color: var(--color-text-muted); cursor: pointer; }
-	.action-btn {
-		background: none; border: 1px solid var(--color-border); border-radius: 0.3rem;
-		padding: 0.15rem 0.5rem; cursor: pointer; color: var(--color-text-muted); font-size: 0.8rem; text-decoration: none;
-	}
-	.action-btn:hover { border-color: var(--color-primary); text-decoration: none; }
-
-	.chat-item { display: flex; align-items: center; }
-	.chat-item .chat-row { flex: 1; min-width: 0; }
-	.chat-tick { margin: 0 0.25rem 0 0.5rem; }
-
-	.chat-timeline { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
-	.empty-state { margin: auto; color: var(--color-text-muted); }
-	.bubble { max-width: 75%; border-radius: 0.6rem; padding: 0.6rem 0.9rem; border: 1px solid var(--color-border); }
-	.bubble.you { align-self: flex-end; background: var(--color-bg-tertiary); }
-	.bubble.crew { align-self: flex-start; background: var(--color-bg-secondary); }
+	.bubble { border-radius: 0.6rem; padding: 0.6rem 0.9rem; border: 1px solid var(--color-border); min-width: 0; overflow-wrap: anywhere; }
+	.bubble.you { align-self: flex-end; max-width: 75%; background: var(--color-bg-tertiary); }
+	.bubble.crew { align-self: flex-start; max-width: 90%; background: var(--color-bg-secondary); }
 	.bubble-head { display: flex; gap: 0.75rem; font-size: 0.7rem; color: var(--color-text-muted); margin-bottom: 0.3rem; }
 	.who { font-weight: 600; }
 	.plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+	/* The crew's answer is markdown: lists stay inside the bubble and long lines and code wrap. */
+	.markdown :global(p) { margin: 0 0 0.5rem; }
+	.markdown :global(> :last-child) { margin-bottom: 0; }
+	.markdown :global(ul), .markdown :global(ol) { margin: 0 0 0.5rem; padding-left: 1.4rem; }
+	.markdown :global(li) { margin: 0.1rem 0; }
+	.markdown :global(pre) { max-width: 100%; overflow-x: auto; padding: 0.5rem; border-radius: 0.3rem; background: var(--color-bg-tertiary); }
+	.markdown :global(code) { font-family: var(--font-mono); font-size: 0.85em; }
+	.markdown :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+	.markdown :global(th), .markdown :global(td) { border: 1px solid var(--color-border); padding: 0.2rem 0.5rem; }
 	.answer-details { margin-top: 0.4rem; font-size: 0.72rem; color: var(--color-text-muted); font-family: var(--font-mono); }
 	.waiting { color: var(--color-text-muted); font-size: 0.85rem; align-self: flex-start; }
+	.error { color: var(--color-error); font-size: 0.85rem; }
 
-	.compose-bar { padding: 0.75rem 1rem; border-top: 1px solid var(--color-border); }
-	.ask-bar { padding: 0.5rem 1rem 0; border-top: 1px solid var(--color-border); }
+	.ask-bar { padding-top: 0.6rem; border-top: 1px solid var(--color-border); }
 	mark { background: var(--color-warning); color: #000; border-radius: 0.15rem; }
 </style>

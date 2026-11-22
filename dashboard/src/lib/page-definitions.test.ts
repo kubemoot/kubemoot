@@ -32,7 +32,7 @@ describe('page definitions', () => {
 	});
 
 	it.each(pages)('$route renders the page title component', ({ route, source }) => {
-		const used = new RegExp(String.raw`<(PageTitle|ResourceList|DetailPanel)[^>]*\sroute="${escapeRegExp(route)}"`);
+		const used = new RegExp(String.raw`<(PageTitle|ResourceList|DetailPanel|ListDetailLayout)[^>]*\sroute="${escapeRegExp(route)}"`);
 		expect(source).toMatch(used);
 	});
 

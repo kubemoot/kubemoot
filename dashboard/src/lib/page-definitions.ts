@@ -52,9 +52,9 @@ export const PAGE_DEFINITIONS = {
 		term: 'A conversation holds your own questions to a crew and the crew\'s answers.',
 		purpose: 'Ask a question, follow up, stop an answer in progress, or delete a conversation.'
 	},
-	'/discussions': {
-		title: 'Moot',
-		menu: 'Discussions',
+	'/moot': {
+		title: 'The Moot',
+		menu: 'Moot',
 		term: 'A moot is the agents of a crew deliberating over one question until they settle on an answer.',
 		purpose: 'Read how the agents reached each answer, message by message. This page is read-only.'
 	},

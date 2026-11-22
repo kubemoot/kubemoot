@@ -12,7 +12,7 @@ export function routeSection(routeId: string | null): string | null {
 const SECTIONS_WITHOUT_CREW = new Set(['nodes', 'verify', 'config']);
 
 /**
- * Whether the top bar shows the Crew selector on a page. The Overview, Discussions and
+ * Whether the top bar shows the Crew selector on a page. The Overview, Moot and
  * Conversations are crew-scoped, so they show it; an error page (no matched route) shows it too.
  */
 export function showsCrewSelector(routeId: string | null): boolean {

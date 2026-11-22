@@ -1,6 +1,8 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
+	import SearchField from './SearchField.svelte';
 	import { STATUSES, chipsOf, withoutChip, type ListFilter, type StatusFilter } from '#lib/conversation-filter.js';
 
 	interface Props {
@@ -13,18 +15,15 @@
 		hasOlder: boolean;
 		onchange: (filter: ListFilter) => void;
 		onloadolder: () => void;
+		/** A control beside the search field, such as + New. */
+		trailing?: Snippet;
+		/** Why "Mine" could not be worked out, in words. */
+		error?: string;
 	}
 
-	let { filter, signedIn, loaded, hasOlder, onchange, onloadolder }: Props = $props();
+	let { filter, signedIn, loaded, hasOlder, onchange, onloadolder, trailing, error = '' }: Props = $props();
 
-	let timer: ReturnType<typeof setTimeout> | undefined;
 	const chips = $derived(chipsOf(filter));
-
-	function typing(event: Event) {
-		const text = (event.currentTarget as HTMLInputElement).value;
-		clearTimeout(timer);
-		timer = setTimeout(() => onchange({ ...filter, q: text.trim() }), 250);
-	}
 
 	const pick = (event: Event) => {
 		const value = (event.currentTarget as HTMLSelectElement).value;
@@ -35,14 +34,10 @@
 </script>
 
 <div class="bar">
-	<input
-		class="search"
-		type="search"
-		value={filter.q}
-		oninput={typing}
-		placeholder="Search questions and messages"
-		aria-label="Search questions and messages"
-	/>
+	<div class="search-row">
+		<div class="grow"><SearchField value={filter.q} onchange={(q) => onchange({ ...filter, q })} /></div>
+		{#if trailing}{@render trailing()}{/if}
+	</div>
 	<div class="row">
 		<select value={filter.status ?? ''} onchange={pick} aria-label="Status" use:tooltip={ACTIONS.filterStatus}>
 			<option value="">Any status</option>
@@ -51,9 +46,10 @@
 		{#if signedIn}
 			<label class="mine"><input use:tooltip={ACTIONS.filterMine} type="checkbox" checked={filter.mine} onchange={(e) => onchange({ ...filter, mine: e.currentTarget.checked })} /> Mine</label>
 		{/if}
-		<input type="date" value={filter.from ?? ''} onchange={date('from')} aria-label="From date" />
-		<input type="date" value={filter.to ?? ''} onchange={date('to')} aria-label="To date" />
+		<input type="date" value={filter.from ?? ''} onchange={date('from')} aria-label="From date" use:tooltip={ACTIONS.filterFrom} />
+		<input type="date" value={filter.to ?? ''} onchange={date('to')} aria-label="To date" use:tooltip={ACTIONS.filterTo} />
 	</div>
+	{#if error}<p class="limit" role="alert">{error}</p>{/if}
 	{#if chips.length > 0}
 		<div class="chips">
 			{#each chips as chip (chip.key)}
@@ -73,12 +69,14 @@
 
 <style>
 	.bar { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.4rem; }
-	.search, select, input[type='date'] {
+	select, input[type='date'] {
 		padding: 0.25rem 0.4rem; border-radius: 0.3rem; border: 1px solid var(--color-border);
 		background: var(--color-bg-secondary); color: var(--color-text); font-size: 0.75rem; min-width: 0;
 	}
+	.search-row { display: flex; align-items: center; gap: 0.4rem; }
+	.grow { flex: 1; min-width: 0; }
 	.row { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
-	input[type='date'] { width: 7.2rem; }
+	input[type='date'] { width: 6.6rem; padding: 0.25rem 0.2rem; }
 	.mine { display: flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; color: var(--color-text-muted); }
 	.chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 	.chip {

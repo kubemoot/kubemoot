@@ -107,3 +107,16 @@ describe('discussions handleMessage', () => {
 		expect(thread('nsOld')?.namespace).toBeUndefined();
 	});
 });
+
+describe('forgetThreads', () => {
+	it('drops the threads of a deleted conversation and leaves the rest', async () => {
+		const { forgetThreads, handleMessage, threads } = await import('./discussions.js');
+		const { get } = await import('svelte/store');
+		const start = (threadId: string) => ({ messageId: `m-${threadId}`, threadId, agentName: 'human', messageType: 'thread_start', content: 'q', channel: 'general', timestamp: '2026-11-21T10:00:00Z' }) as never;
+		handleMessage(start('forget-a'));
+		handleMessage(start('forget-b'));
+		forgetThreads(['forget-a', 'never-there']);
+		expect(get(threads).has('forget-a')).toBe(false);
+		expect(get(threads).has('forget-b')).toBe(true);
+	});
+});

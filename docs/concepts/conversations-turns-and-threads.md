@@ -107,7 +107,7 @@ back on your next message to continue the same conversation. Stream the delibera
 with `GET /api/v1/discussions/{crew}/{conversationId}/stream` and the thread is surfaced directly (a `thread_found` event,
 followed by per-phase events) as it unfolds. See [Quickstart](../../introduction/quickstart/)
 for the request and response shapes, and [Dashboard](../../operating/dashboard/) for
-the live `/discussions` view that renders each thread. Every event of the stream, and
+the live Moot (`/moot`) view that renders each thread. Every event of the stream, and
 the request and response bodies of these endpoints, are defined in the
 [bus contract](../signals-and-protocol/#the-bus-contract): `StreamEvent`,
 `PostDiscussionRequest`, `PostDiscussionResponse`, `ConversationList`,

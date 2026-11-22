@@ -10,3 +10,5 @@ export { default as YamlView } from './YamlView.svelte';
 export { default as ResourceTabs } from './ResourceTabs.svelte';
 export { default as CommandHint } from './CommandHint.svelte';
 export { default as ConversationDownload } from './ConversationDownload.svelte';
+export { default as ActionMenu } from './ActionMenu.svelte';
+export type { MenuEntry } from './ActionMenu.svelte';

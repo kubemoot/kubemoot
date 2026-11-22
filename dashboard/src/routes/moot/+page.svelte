@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
-	import { PageTitle } from '#lib/components/common/index.js';
 	import { askCommand } from '#lib/cli-commands.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { marked } from 'marked';
 	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, ensureThreadLoaded, loadOlder, loadingOlder, hasOlder, showStandAsides, showDebugDetail, namespace } from '#lib/stores/index.js';
 	import type { Thread } from '#lib/stores/index.js';
@@ -22,6 +23,11 @@
 	import { answerState } from '#lib/conversation-answer.js';
 	import { statusIcon } from '#lib/thread-status-icon.js';
 	import { browserTimeZone, exportHref, threadConversationId } from '#lib/conversation-export.js';
+	import { FilterBar } from '#lib/components/conversations/index.js';
+	import { ListCard, ListDetailLayout } from '#lib/components/layout/index.js';
+	import { listMine } from '#lib/ask-client.js';
+	import { listAddress, mineScopesFor } from '#lib/list-scope.js';
+	import { matchesFilter, parseFilter, type ListFilter } from '#lib/conversation-filter.js';
 	import { fetchDashboardVersion, versionLabel, VERSION_UNKNOWN } from '#lib/dashboard-version.js';
 
 	// Configure marked for safe inline rendering
@@ -49,8 +55,35 @@
 			: tryCrewScope($namespace, crewEntry($crewDirectory, $namespace)?.crew)
 	);
 	const selectedCrew = $derived(selectedScope?.crew ?? null);
+
+	// The filters and the search are the Conversations page's, in the URL like its own, so a link
+	// reproduces the list; the open thread stays in ?thread=.
+	const filter = $derived(parseFilter(new URLSearchParams(page.url.search)));
+	const signedIn = $derived(!!page.data.user);
+
+	function setFilter(next: ListFilter) {
+		void goto(listAddress('/moot', page.url.search, next), { replace: true, reset: false });
+	}
+
+	// The conversations the signed-in person started, for the Mine filter.
+	let mine = $state<Set<string> | null>(null);
+	let mineError = $state('');
+	const mineScopes = $derived(mineScopesFor(selectedScope, $crewDirectory));
+	$effect(() => {
+		const scopes = mineScopes;
+		mine = null;
+		mineError = '';
+		if (!signedIn || !filter.mine || scopes.length === 0) return;
+		void listMine(fetch, scopes).then((found) => {
+			mine = found.ids;
+			mineError = found.error;
+		});
+	});
+
 	const visibleThreads = $derived(
-		$namespace === '' ? $sortedThreads : $sortedThreads.filter((t) => t.namespace === $namespace)
+		($namespace === '' ? $sortedThreads : $sortedThreads.filter((t) => t.namespace === $namespace)).filter((t) =>
+			matchesFilter(t, filter, mine)
+		)
 	);
 
 	// Per-synthesis expand toggle (keyed by thread:messageId): a long synthesis
@@ -259,7 +292,7 @@
 		loadChannels();
 		loadAcceleratorLabels();
 		fetchDashboardVersion(fetch, resolve('/api/version')).then((v) => { dashboardVersion = v; });
-		// A link from Conversations opens its thread: /discussions?thread=<id>
+		// A link from Conversations opens its thread: /moot?thread=<id>
 		selectedThreadId = new URLSearchParams(location.search).get('thread') ?? selectedThreadId;
 		// Auto-select first thread once history loads (if nothing selected)
 		const unsub = sortedThreads.subscribe((sorted) => {
@@ -273,38 +306,31 @@
 	});
 </script>
 
-<div class="discussions-page">
-	<div class="page-header">
-		<PageTitle route="/discussions" />
-		<div class="header-actions">
-			<div class="connection-status" class:connected={$discussionsConnected}>
-				<span class="status-dot"></span>
-				{$discussionsConnected ? 'Connected' : 'Disconnected'}
-			</div>
+<ListDetailLayout route="/moot" subtitle="The agents deliberating over each question. Read-only." onlistscroll={onListScroll} bind:detailEl>
+	{#snippet actions()}
+		<div class="connection-status" class:connected={$discussionsConnected}>
+			<span class="status-dot"></span>
+			{$discussionsConnected ? 'Connected' : 'Disconnected'}
 		</div>
-	</div>
-
-	<div class="discussions-layout">
-		<div class="thread-list" onscroll={onListScroll}>
+	{/snippet}
+	{#snippet list()}
+			<FilterBar {filter} {signedIn} loaded={$sortedThreads.length} hasOlder={$hasOlder} onchange={setFilter} onloadolder={() => void loadOlder()} error={mineError} />
 			{#if !$historyLoaded && $sortedThreads.length === 0}
 				<div class="empty-state">Loading discussion history...</div>
 			{:else if visibleThreads.length === 0}
 				<div class="empty-state">
-					{#if selectedCrew}
+					{#if filter.q || filter.status || filter.mine || filter.from || filter.to}
+						No discussions match these filters.
+					{:else if selectedCrew}
 						No discussions for crew "{crewLabel($crewDirectory, $namespace, selectedCrew)}". Pick "All crews" to see all.
 					{:else}
 						No discussions yet. Start one with <code>{askCommand(selectedScope?.crew ?? 'CREW', selectedScope?.namespace ?? 'NAMESPACE')}</code>.
 					{/if}
 				</div>
 			{:else}
-				{#each visibleThreads as thread}
-					<div class="thread-row">
-					<button use:tooltip={ACTIONS.openThread}
-						class="thread-card"
-						class:selected={selectedThreadId === thread.threadId}
-						onclick={() => selectThread(thread.threadId)}
-					>
-						<div class="thread-header">
+				{#each visibleThreads as thread (thread.threadId)}
+					<ListCard kind="thread" selected={selectedThreadId === thread.threadId} onopen={() => selectThread(thread.threadId)}>
+						{#snippet head()}
 							{#if thread.crew && $namespace === ''}
 								<span class="crew-badge" title={crewTooltip($crewDirectory, thread.namespace, thread.crew)}>{crewLabel($crewDirectory, thread.namespace, thread.crew)}{#if crewPillNamespace($crewDirectory, thread.namespace, thread.crew)}<span class="pill-ns">{thread.namespace}</span>{/if}</span>
 							{/if}
@@ -316,16 +342,15 @@
 								class:closed={thread.status === 'closed'}>
 								{statusLabel(thread.status)}
 							</span>
-						</div>
-						<div class="thread-query">{thread.userQuery}</div>
-						<div class="thread-meta">
+						{/snippet}
+						{thread.userQuery}
+						{#snippet foot()}
 							<span>
 								{thread.agreeCount} agree{#if thread.concernCount > 0}, {thread.concernCount} concern{thread.concernCount !== 1 ? 's' : ''}{/if}{#if thread.blockCount > 0}, {thread.blockCount} block{thread.blockCount !== 1 ? 's' : ''}{/if}{#if thread.standAsideCount > 0}, {thread.standAsideCount} aside{/if}
 							</span>
 							<span title={thread.startedAt}>{formatTimestamp(thread.startedAt)}</span>
-						</div>
-					</button>
-					</div>
+						{/snippet}
+					</ListCard>
 				{/each}
 				{#if $hasOlder}
 					<button use:tooltip={ACTIONS.loadOlder} class="load-older" disabled={$loadingOlder} onclick={() => loadOlder()}>
@@ -333,9 +358,8 @@
 					</button>
 				{/if}
 			{/if}
-		</div>
-
-		<div class="thread-detail" bind:this={detailEl}>
+	{/snippet}
+	{#snippet detail()}
 			{#if selectedThread}
 				<div class="thread-detail-header">
 					{#if selectedThread.crew && $namespace === ''}
@@ -490,31 +514,12 @@
 					Select a discussion thread to view its timeline
 				</div>
 			{/if}
-		</div>
-	</div>
-</div>
+	{/snippet}
+</ListDetailLayout>
 
 <style>
-	.discussions-page {
-		display: flex;
-		flex-direction: column;
-		height: 100%;
-		padding: 1.5rem;
-		gap: 1rem;
-	}
 
-	.page-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		flex-shrink: 0;
-	}
 
-	.header-actions {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-	}
 
 	.connection-status {
 		display: flex;
@@ -535,21 +540,7 @@
 		background-color: #10b981;
 	}
 
-	.discussions-layout {
-		display: flex;
-		gap: 1rem;
-		flex: 1;
-		min-height: 0;
-	}
 
-	.thread-list {
-		width: 360px;
-		flex-shrink: 0;
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
 
 	.load-older {
 		background: transparent;
@@ -568,35 +559,9 @@
 		font-size: 0.875rem;
 	}
 
-	.thread-card {
-		background: var(--color-bg-secondary);
-		border: 1px solid var(--color-border);
-		border-radius: 0.5rem;
-		padding: 0.75rem;
-		cursor: pointer;
-		text-align: left;
-		width: 100%;
-		transition: all 0.15s;
-		color: var(--color-text);
-		font-family: inherit;
-		font-size: inherit;
-	}
 
-	.thread-card:hover {
-		border-color: var(--color-primary);
-	}
 
-	.thread-card.selected {
-		border-color: var(--color-primary);
-		background: rgba(59, 130, 246, 0.1);
-	}
 
-	.thread-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 0.5rem;
-	}
 
 	.crew-badge {
 		display: inline-block;
@@ -637,31 +602,8 @@
 	.thread-status.synthesized { color: #f59e0b; }
 	.thread-status.closed { color: var(--color-text-muted); }
 
-	.thread-query {
-		font-size: 0.8rem;
-		color: var(--color-text);
-		margin-bottom: 0.5rem;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
-	}
 
-	.thread-meta {
-		display: flex;
-		justify-content: space-between;
-		font-size: 0.7rem;
-		color: var(--color-text-muted);
-	}
 
-	.thread-detail {
-		flex: 1;
-		min-width: 0;
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
 
 	.thread-detail-header {
 		display: flex;
@@ -1104,11 +1046,5 @@
 		color: #3b82f6;
 		opacity: 1;
 		background-color: rgba(59, 130, 246, 0.1);
-	}
-
-	/* A narrow window stacks the list above the open discussion instead of squeezing both. */
-	@media (max-width: 1100px) {
-		.discussions-layout { flex-direction: column; }
-		.thread-list { width: 100%; max-height: 30vh; flex-shrink: 0; }
 	}
 </style>
