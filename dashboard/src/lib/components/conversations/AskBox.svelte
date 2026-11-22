@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { marked } from 'marked';
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import type { CrewScope } from '#lib/crewScope.js';
 	import { AskRefused, WORKING, askCrew, followAnswer, type AnswerState } from '#lib/ask-client.js';
 
@@ -102,11 +104,11 @@
 			aria-label="Your question"
 		></textarea>
 		<div class="row">
-			<button type="button" class="send" onclick={send} disabled={sending || text.trim() === ''}>
+			<button type="button" class="send" use:tooltip={ACTIONS.sendQuestion(replying)} onclick={send} disabled={sending || text.trim() === ''}>
 				{sendLabel}
 			</button>
 			{#if conversationId}
-				<label class="new"><input type="checkbox" bind:checked={startNew} /> Start a new conversation instead</label>
+				<label class="new"><input use:tooltip={ACTIONS.startNewInstead} type="checkbox" bind:checked={startNew} /> Start a new conversation instead</label>
 			{/if}
 			<span class="hint">Asked as you. Ctrl+Enter sends.</span>
 		</div>

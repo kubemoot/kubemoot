@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { tooltip } from '#lib/tooltip.js';
+	import { ACTIONS } from '#lib/action-definitions.js';
 	import { STATUSES, chipsOf, withoutChip, type ListFilter, type StatusFilter } from '#lib/conversation-filter.js';
 
 	interface Props {
@@ -42,12 +44,12 @@
 		aria-label="Search questions and messages"
 	/>
 	<div class="row">
-		<select value={filter.status ?? ''} onchange={pick} aria-label="Status">
+		<select value={filter.status ?? ''} onchange={pick} aria-label="Status" use:tooltip={ACTIONS.filterStatus}>
 			<option value="">Any status</option>
 			{#each STATUSES as s (s)}<option value={s}>{s}</option>{/each}
 		</select>
 		{#if signedIn}
-			<label class="mine"><input type="checkbox" checked={filter.mine} onchange={(e) => onchange({ ...filter, mine: e.currentTarget.checked })} /> Mine</label>
+			<label class="mine"><input use:tooltip={ACTIONS.filterMine} type="checkbox" checked={filter.mine} onchange={(e) => onchange({ ...filter, mine: e.currentTarget.checked })} /> Mine</label>
 		{/if}
 		<input type="date" value={filter.from ?? ''} onchange={date('from')} aria-label="From date" />
 		<input type="date" value={filter.to ?? ''} onchange={date('to')} aria-label="To date" />
@@ -55,7 +57,7 @@
 	{#if chips.length > 0}
 		<div class="chips">
 			{#each chips as chip (chip.key)}
-				<button type="button" class="chip" onclick={() => onchange(withoutChip(filter, chip.key))} aria-label="Remove filter {chip.label}">
+				<button type="button" class="chip" use:tooltip={ACTIONS.removeFilter} onclick={() => onchange(withoutChip(filter, chip.key))} aria-label="Remove filter {chip.label}">
 					{chip.label} &times;
 				</button>
 			{/each}
@@ -64,7 +66,7 @@
 	{#if filter.q}
 		<p class="limit">
 			Searches the {loaded} discussions loaded from the bus.
-			{#if hasOlder}<button type="button" class="link" onclick={onloadolder}>Load older</button>{/if}
+			{#if hasOlder}<button type="button" class="link" use:tooltip={ACTIONS.loadOlderMatches} onclick={onloadolder}>Load older</button>{/if}
 		</p>
 	{/if}
 </div>

@@ -30,6 +30,12 @@ const TERMS = {
 };
 
 export const PAGE_DEFINITIONS = {
+	'/signin': {
+		title: 'Sign in to Kubemoot',
+		menu: 'Sign in',
+		term: 'Signing in tells the dashboard who you are, using a Kubernetes bearer token.',
+		purpose: 'Paste a token so the dashboard acts as you and your own permissions apply.'
+	},
 	'/': {
 		title: 'Overview',
 		term: 'The overview is the summary of everything Kubemoot manages on this cluster.',
