@@ -4,7 +4,9 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// The dashboard server only reads. Its Kubernetes and NATS calls are scanned here so a
+// The dashboard server only reads, with one exception: deleting a Crew or a CrewFitnessSuite as the
+// signed-in person, in lib/server/k8s/delete.ts alone (the operator's finalizer does the cleanup).
+// Its Kubernetes and NATS calls are scanned here so a
 // write added later fails the test: no create, patch, replace or delete of a Kubernetes
 // object, no NATS publish, purge, stream change, or key-value and object-store write. The
 // short-lived consumers the history and stream routes open to read (`consumers.add` and
@@ -53,12 +55,26 @@ describe('writesIn', () => {
 	});
 });
 
+/** The one file that may call a Kubernetes delete, and only of the custom resources it names. */
+const DELETE_FILE = join('lib', 'server', 'k8s', 'delete.ts');
+
 describe('dashboard server code', () => {
-	it('makes no Kubernetes or NATS write', () => {
-		const offenders = SERVER_DIRS.flatMap(serverSources).flatMap((file) =>
-			writesIn(readFileSync(file, 'utf8')).map((name) => `${relative(SRC, file)}: ${name}`)
-		);
+	it('makes no Kubernetes or NATS write outside the delete file', () => {
+		const offenders = SERVER_DIRS.flatMap(serverSources)
+			.filter((file) => relative(SRC, file) !== DELETE_FILE)
+			.flatMap((file) =>
+				writesIn(readFileSync(file, 'utf8')).map((name) => `${relative(SRC, file)}: ${name}`)
+			);
 		expect(offenders).toEqual([]);
+	});
+
+	it('lets the delete file do nothing but delete Crews and CrewFitnessSuites as the caller', () => {
+		const text = readFileSync(join(SRC, DELETE_FILE), 'utf8');
+		expect(writesIn(text)).toEqual(['Kubernetes create/patch/replace/delete']);
+		expect(text.match(/\.(create|patch|replace|delete)\w*\(/g)).toEqual(['.deleteNamespacedCustomObject(']);
+		expect(text).toContain('getCustomObjectsApi()');
+		expect(text).not.toContain('serviceAccountKubeConfig');
+		expect([...text.matchAll(/^\t(\w+): '[a-z ]+',?$/gm)].map((m) => m[1])).toEqual(['crews', 'crewfitnesssuites']);
 	});
 
 	it('finds the server sources it scans', () => {

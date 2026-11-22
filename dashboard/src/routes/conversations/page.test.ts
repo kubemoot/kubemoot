@@ -120,10 +120,98 @@ describe('an open conversation', () => {
 		await fireEvent.click([...container.querySelectorAll<HTMLElement>('.card')].find((r) => r.textContent?.includes('GPU temperatures')) as HTMLElement);
 		await fireEvent.click(screen.getByRole('button', { name: 'Conversation actions' }));
 		await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete conversation' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 		expect(await screen.findByText('Conversation deleted')).toBeTruthy();
 		expect(screen.getByText('3 discussion messages')).toBeTruthy();
 		expect(titles(container).join(' ')).not.toContain('GPU temperatures');
+	});
+});
+
+describe('the hover icon bars', () => {
+	const writeText = vi.fn();
+	const openNs = async () => {
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThanOrEqual(2));
+		await fireEvent.click([...container.querySelectorAll<HTMLElement>('.card')].find((r) => r.textContent?.includes('namespace is the pod')) as HTMLElement);
+		return container;
+	};
+	beforeEach(() => {
+		writeText.mockReset().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+	});
+
+	it('puts a bar on the question and on the answer, shown only on hover or focus by the page style', async () => {
+		const container = await openNs();
+		const bubbles = [...container.querySelectorAll('.bubble')];
+		expect(bubbles).toHaveLength(2);
+		for (const bubble of bubbles) {
+			expect(bubble.classList.contains('has-hover-actions')).toBe(true);
+			expect(bubble.querySelector('[role="toolbar"][aria-label="Message actions"]')).toBeTruthy();
+		}
+	});
+
+	it('copies the text of the question and of the answer', async () => {
+		const container = await openNs();
+		const [question, answer] = [...container.querySelectorAll('.bubble')];
+		await fireEvent.click(question.querySelector('button[aria-label="Copy message"]') as HTMLElement);
+		await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('Which namespace is the pod in?'));
+		await fireEvent.click(answer.querySelector('button[aria-label="Copy message"]') as HTMLElement);
+		await waitFor(() => expect(writeText).toHaveBeenLastCalledWith('It runs in the default namespace.\n\n1. first\n2. second'));
+	});
+
+	it('offers Edit on the person\'s question only, and it fills the ask field as a follow-up', async () => {
+		const container = await openNs();
+		const [question, answer] = [...container.querySelectorAll('.bubble')];
+		expect(answer.querySelector('button[aria-label="Edit question"]')).toBeNull();
+		await fireEvent.click(question.querySelector('button[aria-label="Edit question"]') as HTMLElement);
+		const field = await screen.findByLabelText<HTMLTextAreaElement>('Your question');
+		await waitFor(() => expect(field.value).toBe('Which namespace is the pod in?'));
+		expect(document.activeElement).toBe(field);
+	});
+
+	it('offers no Edit to a visitor who is not signed in', async () => {
+		setPage('/dashboard/conversations', {});
+		const container = await openNs();
+		expect(container.querySelector('button[aria-label="Edit question"]')).toBeNull();
+		expect(container.querySelector('button[aria-label="Copy message"]')).toBeTruthy();
+	});
+
+	it('puts Copy id and Delete on each list row, with names and tooltips', async () => {
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThanOrEqual(2));
+		const row = [...container.querySelectorAll<HTMLElement>('.row')].find((r) => r.textContent?.includes('namespace is the pod')) as HTMLElement;
+		expect(row.classList.contains('has-hover-actions')).toBe(true);
+		const bar = row.querySelector('[role="toolbar"][aria-label="Row actions"]') as HTMLElement;
+		expect([...bar.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))).toEqual(['Copy id', 'Delete conversation']);
+		await fireEvent.click(bar.querySelector('button[aria-label="Copy id"]') as HTMLElement);
+		await waitFor(() => expect(writeText).toHaveBeenCalledWith('c-t-ns: Which namespace is the pod in?'));
+		expect(row.querySelector('.card.selected')).toBeNull();
+	});
+
+	it('offers no row Delete to a visitor who is not signed in', async () => {
+		setPage('/dashboard/conversations', {});
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThanOrEqual(2));
+		expect(container.querySelector('button[aria-label="Delete conversation"]')).toBeNull();
+		expect(container.querySelector('button[aria-label="Copy id"]')).toBeTruthy();
+	});
+
+	it('deletes a row\'s conversation after asking, leaving the open one alone', async () => {
+		conversation('t-del', 'Delete-me question?', 'Delete-me answer.', '09:00:00');
+		const report = { conversationId: 'c-t-del', threads: ['t-del'], deleted: { history: 1 }, kept: [] };
+		const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => (init?.method === 'DELETE' ? new Response(JSON.stringify(report)) : new Response(JSON.stringify({ conversations: [] }))));
+		vi.stubGlobal('fetch', fetchMock);
+		const container = await openNs();
+		const row = [...container.querySelectorAll<HTMLElement>('.row')].find((r) => r.textContent?.includes('Delete-me question')) as HTMLElement;
+		await fireEvent.click(row.querySelector('button[aria-label="Delete conversation"]') as HTMLElement);
+		const dialog = screen.getByRole('alertdialog');
+		expect(dialog.textContent).toContain('Delete-me question?');
+		expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+		await waitFor(() => expect(titles(container).join(' ')).not.toContain('Delete-me'));
+		expect(container.querySelectorAll('.bubble')).toHaveLength(2);
+		expect(screen.queryByText('Conversation deleted')).toBeNull();
+		expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/c-t-del'), expect.objectContaining({ method: 'DELETE' }));
 	});
 });
 

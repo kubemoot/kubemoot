@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ResourceTabs, PageTitle } from '#lib/components/common/index.js';
+	import { ResourceView, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { yesNo } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
@@ -74,7 +74,7 @@
 {:else if error}
 	<p class="status-msg error">{error}</p>
 {:else if module}
-	<ResourceTabs resource={module}>
+	<ResourceView resource={module}>
 		<div class="meta-row">
 			<span><strong>Namespace:</strong> <code>{module.metadata.namespace}</code></span>
 			<span><strong>Size:</strong> {(module.spec?.content?.length ?? 0).toLocaleString()} chars</span>
@@ -105,7 +105,7 @@
 				</tbody>
 			</table>
 		{/if}
-	</ResourceTabs>
+	</ResourceView>
 {/if}
 
 <style>

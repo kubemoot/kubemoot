@@ -23,13 +23,16 @@
 	import { openRef, withOpen } from '#lib/conversation-url.js';
 	import { mineScopesFor } from '#lib/list-scope.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
-	import { ConversationDownload, CopyIcon } from '#lib/components/common/index.js';
+	import { ConversationDownload, CopyIcon, HoverActions } from '#lib/components/common/index.js';
+	import { copyText } from '#lib/clipboard.js';
+	import { rowActions } from '#lib/row-actions.js';
+	import type { HoverAction } from '#lib/hover-actions.js';
 	import { CrewBadge, DetailHeader, ListCard, ListDetailLayout, ThreadStatus } from '#lib/components/layout/index.js';
 	import { browserTimeZone, conversationIds, exportHref, threadConversationId } from '#lib/conversation-export.js';
 	import { conversationTitle, runState } from '#lib/conversation-actions.js';
 	import type { ErasureReport } from '#lib/conversation-actions-client.js';
 	import { page } from '$app/state';
-	import { AskBox, ConversationActions, ErasureReport as ErasureReportPanel, FilterBar } from '#lib/components/conversations/index.js';
+	import { AskBox, ConversationActions, ThreadDeleteDialog, ErasureReport as ErasureReportPanel, FilterBar } from '#lib/components/conversations/index.js';
 	import type { Live } from '#lib/components/conversations/AskBox.svelte';
 	import { listMine } from '#lib/ask-client.js';
 	import {
@@ -196,17 +199,32 @@
 		chosenNamespace = (event.currentTarget as HTMLSelectElement).value;
 	}
 
-	// A deleted conversation leaves the list at once, and the page says what was removed.
+	// A deleted conversation leaves the list at once. When it was the open one, the page says what was removed.
 	let erasure = $state<{ report: ErasureReport; question: string } | null>(null);
 
-	function deleted(report: ErasureReport) {
-		erasure = { report, question: selected ? conversationTitle(selected) : '' };
-		forgetThreads([...(report.threads ?? []), ...(selected?.threadIds ?? [])]);
+	function deleted(report: ErasureReport, item: Conversation | undefined = selected) {
+		const wasOpen = !!item && item === selected;
+		forgetThreads([...(report.threads ?? []), ...(item?.threadIds ?? [])]);
 		asks = asks.filter((a) => a.conversationId !== report.conversationId);
+		if (!wasOpen) return;
+		erasure = { report, question: item ? conversationTitle(item) : '' };
 		selectedThreadId = null;
 		selectedConversation = null;
 		showInUrl(null);
 	}
+
+	// The icon bars: one on every message (copy; edit for a question of the person's own) and one on every list row.
+	let askBox = $state<{ fill: (text: string) => Promise<void> } | null>(null);
+
+	function messageActions(turn: { from: string; text: string }): HoverAction[] {
+		const actions: HoverAction[] = [{ label: 'Copy message', id: 'copy-message', icon: 'copy', run: () => copyText(turn.text) }];
+		if (turn.from === 'you' && signedIn) actions.push({ label: 'Edit question', id: 'edit-question', icon: 'edit', run: () => void askBox?.fill(turn.text) });
+		return actions;
+	}
+
+	let deletingRow = $state<Conversation | null>(null);
+
+	const rowActionsOf = (t: Conversation) => rowActions(t, conversationTitle(t), { canDelete: signedIn, ondelete: () => { deletingRow = t; } });
 
 	// The conversations ticked in the list, for a download of several. A download is for one crew,
 	// so ticking is offered when a crew is selected.
@@ -262,7 +280,7 @@
 			<p class="hint">{noConversations}</p>
 		{/if}
 		{#each chats as t (t.threadId)}
-			<ListCard selected={selected?.threadId === t.threadId} onopen={() => selectChat(t)}>
+			<ListCard selected={selected?.threadId === t.threadId} onopen={() => selectChat(t)} actions={rowActionsOf(t)}>
 				{#snippet leading()}
 					{#if selectedScope && threadConversationId(t)}
 						<input type="checkbox" aria-label="Select this conversation for download" checked={!!ticked[t.threadId]} onchange={(e) => tick(t.threadId, e.currentTarget.checked)} />
@@ -318,7 +336,8 @@
 					<ErasureReportPanel report={erasure.report} question={erasure.question} ondismiss={() => (erasure = null)} />
 				{:else if selected}
 					{#each turns as turn (turn.id)}
-						<div class="bubble {turn.from}" id="message-{turn.id}" tabindex="-1">
+						<div class="bubble {turn.from} has-hover-actions" id="message-{turn.id}" tabindex="-1">
+							<HoverActions actions={messageActions(turn)} label="Message actions" />
 							<div class="bubble-head">
 								<span class="who">{turn.from === 'you' ? 'You' : crewLabel($crewDirectory, selected.namespace, selected.crew ?? '') || 'Crew'}</span>
 								<span class="when">{formatTimestamp(turn.timestamp)}</span>
@@ -337,8 +356,9 @@
 						<div class="waiting">{waiting}</div>
 					{/if}
 				{:else if live}
-					<div class="bubble you"><div class="bubble-head"><span class="who">You</span></div><div class="plain">{live.question}</div></div>
-					<div class="bubble crew">
+					<div class="bubble you has-hover-actions"><HoverActions actions={messageActions({ from: 'you', text: live.question })} label="Message actions" /><div class="bubble-head"><span class="who">You</span></div><div class="plain">{live.question}</div></div>
+					<div class="bubble crew has-hover-actions">
+						{#if live.answer.answer}<HoverActions actions={messageActions({ from: 'crew', text: live.answer.answer })} label="Message actions" />{/if}
 						<div class="bubble-head"><span class="who">{newScope ? crewLabel($crewDirectory, newScope.namespace, newScope.crew) : 'Crew'}</span></div>
 						{#if live.answer.answer}
 							<div class="markdown">{@html marked.parse(live.answer.answer)}</div>
@@ -368,6 +388,7 @@
 			{#if signedIn && !erasure}
 				<div class="ask-bar">
 					<AskBox
+						bind:this={askBox}
 						scope={selected ? selectedScopeOfThread : newScope}
 						conversationId={selectedConversationId}
 						bind:live
@@ -380,6 +401,19 @@
 	{/snippet}
 </ListDetailLayout>
 
+{#if deletingRow}
+	{@const target = deletingRow}
+	<ThreadDeleteDialog
+		thread={target}
+		title={conversationTitle(target)}
+		onclose={() => (deletingRow = null)}
+		ondeleted={(report) => {
+			deletingRow = null;
+			deleted(report, target);
+		}}
+	/>
+{/if}
+
 <style>
 	.hint { color: var(--color-text-muted); font-size: 0.85rem; }
 	.new-btn {
@@ -391,13 +425,14 @@
 	.tick-space { display: inline-block; width: 13px; flex-shrink: 0; }
 
 	.conversation { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-	.chat-timeline { flex: 1; overflow-y: auto; padding: 0.25rem 0; display: flex; flex-direction: column; gap: 0.75rem; }
+	.chat-timeline { flex: 1; overflow-y: auto; padding: 1rem 0 0.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
 	.empty-state { margin: auto; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
 	.empty-state select {
 		padding: 0.3rem 0.5rem; border-radius: 0.3rem; border: 1px solid var(--color-border);
 		background: var(--color-bg-secondary); color: var(--color-text); max-width: 24rem;
 	}
-	.bubble { border-radius: 0.6rem; padding: 0.6rem 0.9rem; border: 1px solid var(--color-border); min-width: 0; overflow-wrap: anywhere; }
+	/* The icon bar floats over the bubble's top edge, so it never covers the text. */
+	.bubble { --hover-actions-top: -0.9rem; --hover-actions-right: 0.6rem; position: relative; border-radius: 0.6rem; padding: 0.6rem 0.9rem; border: 1px solid var(--color-border); min-width: 0; overflow-wrap: anywhere; }
 	.bubble.you { align-self: flex-end; max-width: 75%; background: var(--color-bg-tertiary); }
 	.bubble.crew { align-self: flex-start; max-width: 90%; background: var(--color-bg-secondary); }
 	.bubble-head { display: flex; gap: 0.75rem; font-size: 0.7rem; color: var(--color-text-muted); margin-bottom: 0.3rem; }

@@ -7,7 +7,7 @@ import { toYaml } from '#lib/yaml.js';
 import { page, setPageUrl } from '../../vitest-mocks/app-state.svelte.js';
 
 // Every Kubemoot kind a person can open on its own page (a Kubernetes node is not one; its page has its own test). A new detail page has to be
-// added here and show the Overview and YAML tabs; a new kind has to be added here or
+// added here and show the Description, YAML and JSON views; a new kind has to be added here or
 // to NO_PAGE, so the choice is made on purpose.
 const PAGES: Record<string, { route: string; kind: string }> = {
 	agents: { route: '/agents/demo', kind: 'Agent' },
@@ -26,7 +26,7 @@ const PAGES: Record<string, { route: string; kind: string }> = {
 	ragsources: { route: '/ragsources/demo', kind: 'RAGSource' }
 };
 const SINGLETON_PAGES = { config: 'KubemootConfig' };
-// Kinds with no page in the dashboard, so nothing to put a tab on.
+// Kinds with no page in the dashboard, so nothing to put a view on.
 const NO_PAGE = ['CrewSchedulingPolicy', 'MootArchetype', 'NotificationSink', 'Skill'];
 
 // vitest runs from the dashboard directory.
@@ -71,7 +71,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe('which pages have the YAML tab', () => {
+describe('which pages have the resource views', () => {
 	it('lists every detail route in the dashboard', () => {
 		const dirs = readdirSync(routesDir, { withFileTypes: true })
 			.filter((d) => d.isDirectory() && d.name !== 'api' && d.name !== 'nodes' && existsSync(join(routesDir, d.name, '[name]', '+page.svelte')))
@@ -96,7 +96,7 @@ describe('which pages have the YAML tab', () => {
 	});
 });
 
-describe('every Kubemoot detail page offers Overview and YAML', () => {
+describe('every Kubemoot detail page offers Description, YAML and JSON', () => {
 	const entries = [
 		...Object.entries(PAGES).map(([dir, p]) => ({ file: `./${dir}/[name]/+page.svelte`, route: p.route, kind: p.kind })),
 		{ file: './config/+page.svelte', route: '/config', kind: SINGLETON_PAGES.config }
@@ -107,20 +107,26 @@ describe('every Kubemoot detail page offers Overview and YAML', () => {
 		const load = modules[file];
 		expect(load, `${file} is not found`).toBeTruthy();
 		const Page = (await load()).default;
-		setPageUrl(`${route}?namespace=kubemoot&tab=yaml`);
+		setPageUrl(`${route}?namespace=kubemoot&view=yaml`);
 		page.params = { name: 'demo' };
 
 		const { container } = render(Page);
-		await waitFor(() => expect(screen.getByRole('tab', { name: 'YAML' })).toBeTruthy());
-		expect(screen.getByRole('tab', { name: 'Overview' })).toBeTruthy();
-		expect(screen.getByRole('tab', { name: 'YAML' }).getAttribute('aria-selected')).toBe('true');
+		await waitFor(() => expect(screen.getByRole('combobox', { name: 'View' })).toBeTruthy());
+		const select = screen.getByRole<HTMLSelectElement>('combobox', { name: 'View' });
+		expect([...select.options].map((o) => o.textContent)).toEqual(['Description', 'YAML', 'JSON']);
+		expect(select.value).toBe('yaml');
 
-		const shown = container.querySelector('pre.yaml')?.textContent ?? '';
+		const shown = container.querySelector('pre.code.yaml')?.textContent ?? '';
 		const metadata = { name: body.metadata.name, namespace: body.metadata.namespace };
 		expect(shown).toBe(toYaml({ ...body, metadata }));
 		expect(shown).toContain(`kind: ${kind}`);
 		expect(shown).toContain('marker: spec-value');
 		expect(shown).not.toContain('managedFields');
 		expect(body.metadata.managedFields).toHaveLength(1);
+
+		// The same resource as JSON, from the same selector.
+		setPageUrl(`${route}?namespace=kubemoot&view=json`);
+		await waitFor(() => expect(container.querySelector('pre.code.json')).toBeTruthy());
+		expect(JSON.parse(container.querySelector('pre.code.json')?.textContent ?? '')).toEqual({ ...body, metadata });
 	});
 });

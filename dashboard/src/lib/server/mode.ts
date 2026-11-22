@@ -1,10 +1,12 @@
 // Deployment switches read from the environment on every call, so a test can set
 // them and a restart is the only way a running dashboard changes mode.
 //
-// The dashboard never writes to Kubernetes or NATS: the server hook refuses every request that
-// is not GET, HEAD or OPTIONS, except sign-in, sign-out and asking a crew, which a signed-in
-// person does through the crew's discussion gateway with their own token. Other changes are
-// made with kmctl, CrewForge or kubectl under the caller's own identity.
+// The dashboard never writes to NATS, and writes to Kubernetes only to delete a Crew or a
+// CrewFitnessSuite as the signed-in person: the server hook refuses every request that is not
+// GET, HEAD or OPTIONS, except sign-in, sign-out, the asking and conversation actions a signed-in
+// person does through the crew's discussion gateway with their own token, and those two deletes
+// with their own token. Other changes are made with kmctl, CrewForge or kubectl under the
+// caller's own identity.
 //
 //   KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR=<label selector>   (e.g. kubemoot.ai/workshop-team=true)
 //       Only namespaces matching the selector are shown. Empty means all namespaces.

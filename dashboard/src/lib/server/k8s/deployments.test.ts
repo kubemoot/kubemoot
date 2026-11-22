@@ -6,7 +6,9 @@ vi.mock('./client.js', () => ({ getAppsApi: () => ({ readNamespacedDeployment })
 
 const { readAgentReplicas } = await import('./deployments.js');
 
-beforeEach(() => readNamespacedDeployment.mockReset());
+beforeEach(() => {
+	readNamespacedDeployment.mockReset();
+});
 
 describe('readAgentReplicas', () => {
 	it('reads the Deployment named for the agent and reports its target and ready counts', async () => {

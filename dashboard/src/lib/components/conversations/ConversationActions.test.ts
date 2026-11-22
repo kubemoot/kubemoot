@@ -101,8 +101,8 @@ describe('delete', () => {
 		render(ConversationActions, props(fetchFn));
 		await choose('Delete conversation');
 		expect(screen.getByText(/Delete this conversation/)).toBeTruthy();
-		await fireEvent.click(screen.getByRole('button', { name: 'No, keep the conversation' }));
-		expect(screen.queryByText(/Delete this conversation/)).toBeNull();
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
+		expect(screen.queryByRole('alertdialog')).toBeNull();
 		expect(fetchFn).not.toHaveBeenCalled();
 		expect(confirm).not.toHaveBeenCalled();
 	});
@@ -112,7 +112,7 @@ describe('delete', () => {
 		const p = props(fetchFn);
 		render(ConversationActions, p);
 		await choose('Delete conversation');
-		await fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 		await waitFor(() => expect(p.ondeleted).toHaveBeenCalledWith(report));
 		expect(calls(fetchFn)[0][1].method).toBe('DELETE');
 		expect(calls(fetchFn)[0][0]).toBe('/api/gateway/ns/pilot/c-1');
@@ -125,8 +125,9 @@ describe('delete', () => {
 		const p = props(fetchFn);
 		render(ConversationActions, p);
 		await choose('Delete conversation');
-		await fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
-		await fireEvent.click(await screen.findByRole('button', { name: 'Stop and delete' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+		expect(await screen.findByText('This conversation is still running. Stop it and delete it?')).toBeTruthy();
+		await fireEvent.click(screen.getByRole('button', { name: 'Stop and delete' }));
 		await waitFor(() => expect(p.ondeleted).toHaveBeenCalledWith(report));
 		expect(calls(fetchFn)[1][0]).toBe('/api/gateway/ns/pilot/c-1?force=true');
 	});
@@ -138,10 +139,10 @@ describe('delete', () => {
 		const p = props(fetchFn);
 		render(ConversationActions, p);
 		await choose('Delete conversation');
-		await fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
-		expect(await screen.findByText(/workspace could not be cleared/)).toBeTruthy();
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+		expect((await screen.findByRole('alert')).textContent).toContain('workspace could not be cleared');
 		expect(p.ondeleted).not.toHaveBeenCalled();
-		await fireEvent.click(screen.getByRole('button', { name: 'Repeat delete' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 		await waitFor(() => expect(p.ondeleted).toHaveBeenCalledWith(report));
 	});
 });
@@ -171,8 +172,8 @@ describe('acting on someone else\'s conversation', () => {
 		const fetchFn = mockFetch().mockResolvedValueOnce(needReason());
 		render(ConversationActions, props(fetchFn));
 		await choose('Delete conversation');
-		await fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
-		const field = await screen.findByLabelText<HTMLInputElement>(/Say why you are acting/);
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+		const field = await screen.findByLabelText<HTMLInputElement>(/Say why you are deleting/);
 		expect(field.maxLength).toBe(200);
 	});
 
@@ -180,7 +181,7 @@ describe('acting on someone else\'s conversation', () => {
 		const fetchFn = mockFetch(async () => json({ error: 'Not found, or not yours: you can only see conversations you started.' }, 404));
 		render(ConversationActions, props(fetchFn));
 		await choose('Delete conversation');
-		await fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 		expect((await screen.findByRole('alert')).textContent).toContain('not yours');
 	});
 });

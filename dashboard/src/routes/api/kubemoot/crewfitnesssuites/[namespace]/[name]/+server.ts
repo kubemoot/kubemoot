@@ -1,5 +1,5 @@
 import type { RequestHandler } from './$types';
-import { getCrewFitnessSuite } from '#lib/server/k8s/index.js';
+import { deleteAs, getCrewFitnessSuite } from '#lib/server/k8s/index.js';
 import { guardNamespace } from '#lib/server/scope.js';
 
 /** GET /api/kubemoot/crewfitnesssuites/{namespace}/{name}: the one suite as Kubernetes returns it. */
@@ -14,4 +14,15 @@ export const GET: RequestHandler = async ({ params }) => {
 		const message = e instanceof Error ? e.message : 'Failed to get fitness suite';
 		return Response.json({ error: message }, { status: 500 });
 	}
+};
+
+/**
+ * DELETE /api/kubemoot/crewfitnesssuites/{namespace}/{name}: deletes the suite as the signed-in
+ * person. The operator's finalizer removes its XLSX report and artifacts; its runs go with it.
+ */
+export const DELETE: RequestHandler = async ({ params }) => {
+	const { namespace, name } = params;
+	const denied = await guardNamespace(namespace);
+	if (denied) return denied;
+	return deleteAs('crewfitnesssuites', namespace, name);
 };

@@ -1,7 +1,8 @@
-import { act, render, screen, waitFor } from '@testing-library/svelte';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { readFileSync } from 'node:fs';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleMessage } from '#lib/stores/discussions.js';
+import { setPageData } from '../../../vitest-mocks/app-state.svelte.js';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import Page from './+page.svelte';
 
@@ -90,5 +91,56 @@ describe('the Moot list order', () => {
 		expect(at('Question ord-notime?')).toBeLessThan(at('Question ord-old?'));
 		expect(rows.filter((r) => r.includes('Question ord-notime?'))).toHaveLength(1);
 		expect(rows[at('Question ord-notime?')]).toMatch(/Nov \d+, \d+:\d+:\d+/);
+	});
+});
+
+describe('the hover icon bars', () => {
+	const writeText = vi.fn();
+	beforeEach(() => {
+		writeText.mockReset().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+		setPageData({ user: { username: 'alice' } });
+		history.replaceState({}, '', '/dashboard/moot?thread=thread-a');
+	});
+
+	it('puts a Copy bar on every message of an open discussion and copies that message\'s text', async () => {
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.message-card').length).toBeGreaterThanOrEqual(4));
+		const card = [...container.querySelectorAll<HTMLElement>('.message-card')].find((c) => c.textContent?.includes('gpu-0: 33C')) as HTMLElement;
+		expect(card.classList.contains('has-hover-actions')).toBe(true);
+		const buttons = card.querySelectorAll('[role="toolbar"] button');
+		expect([...buttons].map((b) => b.getAttribute('aria-label'))).toEqual(['Copy message']);
+		await fireEvent.click(buttons[0]);
+		await waitFor(() => expect(writeText).toHaveBeenCalledWith('gpu-0: 33C'));
+	});
+
+	it('gives every list row Copy id and, to a signed-in person, Delete', async () => {
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.row').length).toBeGreaterThan(0));
+		const row = [...container.querySelectorAll<HTMLElement>('.row')].find((r) => r.textContent?.includes('What are the two GPU temperatures?')) as HTMLElement;
+		expect([...row.querySelectorAll('[role="toolbar"] button')].map((b) => b.getAttribute('aria-label'))).toEqual(['Copy id', 'Delete conversation']);
+		await fireEvent.click(row.querySelector('button[aria-label="Copy id"]') as HTMLElement);
+		await waitFor(() => expect(writeText).toHaveBeenCalledWith('c-1: What are the two GPU temperatures?'));
+	});
+
+	it('leaves Delete off the rows of a visitor who is not signed in', async () => {
+		setPageData({});
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.row').length).toBeGreaterThan(0));
+		expect(container.querySelector('button[aria-label="Delete conversation"]')).toBeNull();
+		expect(container.querySelector('button[aria-label="Copy id"]')).toBeTruthy();
+	});
+
+	it('asks before deleting a row\'s conversation and deletes nothing until told', async () => {
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], channels: [], messages: [] }) });
+		vi.stubGlobal('fetch', fetchMock);
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.row').length).toBeGreaterThan(0));
+		const row = [...container.querySelectorAll<HTMLElement>('.row')].find((r) => r.textContent?.includes('What are the two GPU temperatures?')) as HTMLElement;
+		await fireEvent.click(row.querySelector('button[aria-label="Delete conversation"]') as HTMLElement);
+		expect(screen.getByRole('alertdialog').textContent).toContain('What are the two GPU temperatures?');
+		expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'DELETE')).toBe(false);
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
+		expect(screen.queryByRole('alertdialog')).toBeNull();
 	});
 });

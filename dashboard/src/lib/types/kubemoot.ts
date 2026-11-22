@@ -622,6 +622,8 @@ export interface K8sMetadata {
 	uid?: string;
 	resourceVersion?: string;
 	creationTimestamp?: string;
+	/** Set while the resource is being deleted and its finalizers run. */
+	deletionTimestamp?: string;
 	labels?: Record<string, string>;
 	annotations?: Record<string, string>;
 }

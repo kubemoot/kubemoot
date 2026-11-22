@@ -6,7 +6,7 @@
 	import { page } from '$app/state';
 	import { marked } from 'marked';
 	import { threadStartedAt } from '#lib/stores/discussions.js';
-	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, ensureThreadLoaded, loadOlder, loadingOlder, hasOlder, showStandAsides, showDebugDetail, namespace } from '#lib/stores/index.js';
+	import { crewDirectory, forgetThreads, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, ensureThreadLoaded, loadOlder, loadingOlder, hasOlder, showStandAsides, showDebugDetail, namespace } from '#lib/stores/index.js';
 	import type { Thread } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewPillNamespace, crewTooltip } from '#lib/crew-display-name.js';
@@ -22,7 +22,11 @@
 	import { answerState } from '#lib/conversation-answer.js';
 	import { statusIcon } from '#lib/thread-status-icon.js';
 	import { browserTimeZone, exportHref, threadConversationId } from '#lib/conversation-export.js';
-	import { FilterBar } from '#lib/components/conversations/index.js';
+	import { FilterBar, ThreadDeleteDialog } from '#lib/components/conversations/index.js';
+	import { HoverActions } from '#lib/components/common/index.js';
+	import { copyText } from '#lib/clipboard.js';
+	import type { HoverAction } from '#lib/hover-actions.js';
+	import { rowActions } from '#lib/row-actions.js';
 	import { ListCard, ListDetailLayout } from '#lib/components/layout/index.js';
 	import { listMine } from '#lib/ask-client.js';
 	import { mineScopesFor } from '#lib/list-scope.js';
@@ -254,6 +258,15 @@
 		}
 	}
 
+	// The icon bars: Copy on every message, and Copy id and Delete on every list row.
+	function messageActions(content: string): HoverAction[] {
+		return [{ label: 'Copy message', id: 'copy-message', icon: 'copy', run: () => copyText(content) }];
+	}
+
+	let deletingRow = $state<Thread | null>(null);
+
+	const rowActionsOf = (thread: Thread) => rowActions(thread, thread.userQuery, { canDelete: signedIn, ondelete: () => { deletingRow = thread; } });
+
 	let detailEl = $state<HTMLElement | null>(null);
 	let copiedThreadId = $state(false);
 
@@ -329,7 +342,7 @@
 				</div>
 			{:else}
 				{#each visibleThreads as thread (thread.threadId)}
-					<ListCard selected={selectedThreadId === thread.threadId} onopen={() => selectThread(thread.threadId)}>
+					<ListCard selected={selectedThreadId === thread.threadId} onopen={() => selectThread(thread.threadId)} actions={rowActionsOf(thread)}>
 						{#snippet head()}
 							{#if thread.crew && $namespace === ''}
 								<span class="crew-badge" title={crewTooltip($crewDirectory, thread.namespace, thread.crew)}>{crewLabel($crewDirectory, thread.namespace, thread.crew)}{#if crewPillNamespace($crewDirectory, thread.namespace, thread.crew)}<span class="pill-ns">{thread.namespace}</span>{/if}</span>
@@ -426,7 +439,7 @@
 					{#each timelineMessages as msg, msgIdx}
 						{@const stats = selectedStats.get(msg) ?? {}}
 						<div
-							class="message-card {msg.messageType}"
+							class="message-card has-hover-actions {msg.messageType}"
 							class:synthesis={msg.messageType === 'synthesis'}
 							class:decline={msg.messageType === 'stand_aside'}
 							class:advisory={msg.messageType === 'advisory'}
@@ -440,6 +453,7 @@
 							id="message-{msg.messageId}"
 							tabindex="-1"
 						>
+							{#if msg.content}<HoverActions actions={messageActions(msg.content)} label="Message actions" />{/if}
 							<div class="message-header">
 								<span class="agent-name" class:human-name={msg.agentName === 'human'}>
 									{agentLabel(msg.agentName)}
@@ -512,6 +526,19 @@
 			{/if}
 	{/snippet}
 </ListDetailLayout>
+
+{#if deletingRow}
+	{@const target = deletingRow}
+	<ThreadDeleteDialog
+		thread={target}
+		title={target.userQuery}
+		onclose={() => (deletingRow = null)}
+		ondeleted={(report) => {
+			deletingRow = null;
+			forgetThreads([...(report.threads ?? []), target.threadId]);
+		}}
+	/>
+{/if}
 
 <style>
 
@@ -636,6 +663,7 @@
 	}
 
 	.message-card {
+		position: relative;
 		background: var(--color-bg-secondary);
 		border: 1px solid var(--color-border);
 		border-radius: 0.5rem;

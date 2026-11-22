@@ -19,12 +19,15 @@ const WRITE_EXPORTS = ['POST', 'PUT', 'PATCH', 'DELETE', 'fallback'];
 
 /**
  * The only API writes: asking a crew, and stopping, pausing, resuming or deleting its
- * conversations, all through the crew's gateway as the signed-in person (the hook lists them too).
+ * conversations, all through the crew's gateway as the signed-in person; and deleting a crew or a
+ * fitness run, as the signed-in person, leaving the cleanup to the operator's finalizer (the hook lists them too).
  */
 const ALLOWED_WRITES = [
 	'DELETE ./gateway/[namespace]/[crew]/[conversationId]/+server.ts',
 	'POST ./gateway/[namespace]/[crew]/[conversationId]/[control]/+server.ts',
-	'POST ./gateway/[namespace]/[crew]/ask/+server.ts'
+	'POST ./gateway/[namespace]/[crew]/ask/+server.ts',
+	'DELETE ./kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts',
+	'DELETE ./kubemoot/crews/[name]/+server.ts'
 ];
 
 /** Routes that do not use the scope helper, and why that is correct. */
@@ -53,8 +56,6 @@ const FORMER_WRITE_ROUTES = [
 	['POST', './kubemoot/modelservers/[name]/unload/+server.ts', '/kubemoot/modelservers/x/unload'],
 	['POST', './kubemoot/modelservers/[name]/delete/+server.ts', '/kubemoot/modelservers/x/delete'],
 	['PATCH', './kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts', '/kubemoot/crewfitnesssuites/ns/x'],
-	['DELETE', './kubemoot/crewfitnesssuites/[namespace]/[name]/+server.ts', '/kubemoot/crewfitnesssuites/ns/x'],
-	['DELETE', './kubemoot/crews/[name]/+server.ts', '/kubemoot/crews/x'],
 	['PATCH', './kubemoot/mcpserverreports/[name]/+server.ts', '/kubemoot/mcpserverreports/x']
 ] as const;
 
@@ -87,7 +88,7 @@ describe('route enumeration', () => {
 		expect(Object.keys(modules).length).toBeGreaterThan(30);
 	});
 
-	it('finds no route that exports a write handler but the conversation actions', () => {
+	it('finds no route that exports a write handler but the allowed writes', () => {
 		expect(writeHandlers().map((h) => `${h.method} ${h.file}`)).toEqual(ALLOWED_WRITES);
 	});
 });

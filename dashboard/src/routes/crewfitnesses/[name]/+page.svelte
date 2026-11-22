@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ResourceTabs, PageTitle } from '#lib/components/common/index.js';
+	import { ResourceView, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -57,7 +57,7 @@
 {:else if error}
 	<p class="status-msg error">{error}</p>
 {:else if test}
-	<ResourceTabs resource={test}>
+	<ResourceView resource={test}>
 		{@const s = test.status}
 		<div class="detail-grid">
 			<div class="detail-section">
@@ -110,7 +110,7 @@
 				</table>
 			</div>
 		{/if}
-	</ResourceTabs>
+	</ResourceView>
 {/if}
 
 <style>
