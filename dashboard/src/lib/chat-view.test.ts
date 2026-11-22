@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import type { Thread } from '#lib/stores/discussions.js';
-import { chatAsText, chatMessages, chatTurns, crewThreads, detailsLine } from './chat-view';
+import { chatAsText, chatMessages, chatTurns, crewThreads, detailsLine, plainPreview } from './chat-view';
 
 let n = 0;
 function msg(agentName: string, messageType: string, at: string, extra: Partial<DiscussionMessage> = {}): DiscussionMessage {
@@ -140,5 +140,18 @@ describe('crewThreads', () => {
 	it('returns all threads with no crew selected', () => {
 		const list = [t('a', 'x')];
 		expect(crewThreads(list, null)).toEqual(list);
+	});
+});
+
+describe('plainPreview', () => {
+	it('drops markdown marks from an answer preview', () => {
+		expect(plainPreview('The two GPU temperatures are:\n\n- **gpu-0**: 33C\n- **gpu-1**: 36C')).toBe('The two GPU temperatures are: gpu-0: 33C gpu-1: 36C');
+	});
+	it('keeps link text and drops headings', () => {
+		expect(plainPreview('## Title\nsee [the docs](https://x.y/z)')).toBe('Title see the docs');
+	});
+	it('leaves plain text and empty input alone', () => {
+		expect(plainPreview('plain text')).toBe('plain text');
+		expect(plainPreview('')).toBe('');
 	});
 });

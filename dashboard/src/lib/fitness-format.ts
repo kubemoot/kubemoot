@@ -111,3 +111,10 @@ export function suiteMarkdown(
 		.filter(Boolean)
 		.join('\n');
 }
+
+/** A phase name as a person reads it: "ToolSmokeFailed" becomes "Tool smoke failed"; no phase is "-". */
+export function phaseLabel(phase?: string): string {
+	if (!phase) return '-';
+	const spaced = phase.replaceAll(/([a-z])([A-Z])/g, '$1 $2');
+	return spaced.charAt(0) + spaced.slice(1).toLowerCase();
+}

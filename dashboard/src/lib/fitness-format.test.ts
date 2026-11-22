@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
 import { NO_VALUE } from './resource-status';
 import {
+	phaseLabel,
 	durTitle,
 	fmtDateTime,
 	fmtDur,
@@ -163,5 +164,16 @@ describe('iterDurText', () => {
 	it('shows 0s in the first second of a run', () => {
 		expect(iterDurText({ running: true, startedAt: start }, t0)).toBe('0s');
 		expect(iterDurText({ running: true, startedAt: start }, t0 + 999)).toBe('0s');
+	});
+});
+
+describe('phaseLabel', () => {
+	it('spaces a CamelCase phase and lowercases the rest', () => {
+		expect(phaseLabel('ToolSmokeFailed')).toBe('Tool smoke failed');
+		expect(phaseLabel('Completed')).toBe('Completed');
+	});
+	it('prints a dash for no phase', () => {
+		expect(phaseLabel()).toBe('-');
+		expect(phaseLabel('')).toBe('-');
 	});
 });

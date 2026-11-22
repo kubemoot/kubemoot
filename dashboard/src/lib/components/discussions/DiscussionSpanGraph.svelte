@@ -2,6 +2,7 @@
 	import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 	import { showStandAsides } from '#lib/stores/index.js';
 	import { buildAgentSpans, type AgentSpan } from '#lib/discussion-spans.js';
+	import { badgeWidth, fitLabel, formatSpanDuration, labelColumnWidth, labelPx, spanTimingLabel } from '#lib/span-graph-format.js';
 	import { versionLabel } from '#lib/dashboard-version.js';
 
 	let {
@@ -27,6 +28,10 @@
 
 	// Resolve a published server-id gpuLabel to the discovered GPU model name
 	// for display. Falls back to the raw label when the server is unknown.
+	function badgeLabel(label: string | undefined): string {
+		return gpuName(label).replace('RTX ', '');
+	}
+
 	function gpuName(label: string | undefined): string {
 		if (!label) return '';
 		return gpuDisplayMap[label] ?? label;
@@ -34,11 +39,10 @@
 
 	let copiedImage = $state(false);
 
-	const LABEL_WIDTH = 160;
-	const ROW_HEIGHT = 36;
+		const ROW_HEIGHT = 36;
 	const BAR_HEIGHT = 20;
 	const PADDING_TOP = 30;
-	const PADDING_RIGHT = 60;
+	const MIN_PADDING_RIGHT = 60;
 	const PADDING_LEFT = 8;
 
 	// GPU colors assigned dynamically from message data - no hardcoded GPU models
@@ -110,18 +114,31 @@
 		return result;
 	});
 
-	const chartWidth = $derived(containerWidth - LABEL_WIDTH - PADDING_RIGHT - PADDING_LEFT);
+	// Room right of the axis for the longest timing label, so none runs off the graph.
+	const paddingRight = $derived(
+		Math.max(
+			MIN_PADDING_RIGHT,
+			...visibleSpans.map((sp) => {
+				const ms = sp.endMs - sp.startMs;
+				if (!sp.timed) return 0;
+				const inference = ms > 0 ? sp.inferenceMs : 0;
+				return labelPx(spanTimingLabel(ms, inference, sp.firstTokenMs)) + 14;
+			})
+		)
+	);
+	const badgePx = $derived(Math.max(0, ...visibleSpans.filter((sp) => sp.gpuLabel).map((sp) => badgeWidth(badgeLabel(sp.gpuLabel)))));
+	const labelWidth = $derived(
+		labelColumnWidth(visibleSpans.map((sp) => sp.displayName), badgePx, containerWidth)
+	);
+	const chartWidth = $derived(containerWidth - labelWidth - paddingRight - PADDING_LEFT);
 	const svgHeight = $derived(PADDING_TOP + visibleSpans.length * ROW_HEIGHT + 8);
 
 	function msToX(ms: number): number {
 		const maxTick = ticks[ticks.length - 1] * 1000;
-		return LABEL_WIDTH + PADDING_LEFT + (ms / maxTick) * chartWidth;
+		return labelWidth + PADDING_LEFT + (ms / maxTick) * chartWidth;
 	}
 
-	function formatDuration(ms: number): string {
-		if (ms < 1000) return `${ms}ms`;
-		return `${(ms / 1000).toFixed(1)}s`;
-	}
+	const formatDuration = formatSpanDuration;
 
 	$effect(() => {
 		if (!containerEl) return;
@@ -332,7 +349,7 @@
 
 			<!-- Agent label (right-aligned) -->
 			<text
-				x={span.gpuLabel ? LABEL_WIDTH - 48 : LABEL_WIDTH - 8}
+				x={span.gpuLabel ? labelWidth - badgePx - 14 : labelWidth - 8}
 				y={y + ROW_HEIGHT / 2}
 				text-anchor="end"
 				dominant-baseline="central"
@@ -340,26 +357,26 @@
 				font-size="12"
 				font-weight={isHovered ? '600' : '400'}
 				font-family="ui-monospace, monospace"
-			>{span.displayName}</text>
+			>{fitLabel(span.displayName, labelWidth - (span.gpuLabel ? badgePx + 18 : 14))}{#if fitLabel(span.displayName, labelWidth - (span.gpuLabel ? badgePx + 18 : 14)) !== span.displayName}<title>{span.displayName}</title>{/if}</text>
 
 			<!-- GPU label badge -->
 			{#if span.gpuLabel}
 				{@const badgeColor = gpuColors[span.gpuLabel] || '#6b7280'}
-				{@const badgeText = gpuName(span.gpuLabel).replace('RTX ', '')}
+				{@const badgeText = badgeLabel(span.gpuLabel)}
 				{#if span.pickReason || span.model}
 					<title>{[span.model, span.pickReason].filter(Boolean).join(' | ')}</title>
 				{/if}
 				<rect
-					x={LABEL_WIDTH - 42}
+					x={labelWidth - badgePx - 6}
 					y={y + ROW_HEIGHT / 2 - 8}
-					width="36"
+					width={badgePx}
 					height="16"
 					rx="3"
 					fill={badgeColor}
 					opacity="0.2"
 				/>
 				<text
-					x={LABEL_WIDTH - 24}
+					x={labelWidth - 6 - badgePx / 2}
 					y={y + ROW_HEIGHT / 2}
 					text-anchor="middle"
 					dominant-baseline="central"
@@ -373,7 +390,7 @@
 			{#if !span.timed}
 				<!-- No message of this agent carries a timestamp: nothing to place on the axis -->
 				<text
-					x={LABEL_WIDTH + PADDING_LEFT}
+					x={labelWidth + PADDING_LEFT}
 					y={y + ROW_HEIGHT / 2}
 					dominant-baseline="central"
 					fill="#9ca3af"
@@ -476,6 +493,7 @@
 					{/if}
 
 					<!-- Duration label with inference breakdown -->
+					{@const timing = spanTimingLabel(spanDuration, span.inferenceMs, hasLoad ? loadMs : undefined)}
 					<text
 						x={barStartX + barWidth + 6}
 						y={y + ROW_HEIGHT / 2}
@@ -483,7 +501,7 @@
 						fill="#9ca3af"
 						font-size="10"
 						font-family="ui-monospace, monospace"
-					>{formatDuration(spanDuration)}<tspan fill="#6b7280" font-size="9"> ({formatDuration(span.inferenceMs)} inf{#if hasLoad}, {formatDuration(loadMs)} to first token{/if})</tspan></text>
+					>{timing}</text>
 				{:else}
 					<!-- Agent: solid bar (no inference data or stand_aside) -->
 					<rect

@@ -12,7 +12,7 @@
 	} from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel } from '#lib/crew-display-name.js';
-	import { chatAsText, chatTurns, crewThreads, detailsLine } from '#lib/chat-view.js';
+	import { chatAsText, chatTurns, crewThreads, detailsLine, plainPreview } from '#lib/chat-view.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
 	import { CommandHint, ConversationDownload } from '#lib/components/common/index.js';
 	import { askCommand, listConversationsCommand, replayConversationCommand } from '#lib/cli-commands.js';
@@ -61,7 +61,7 @@
 
 	function preview(threadId: string, fallback: string): string {
 		const first = $threads.get(threadId);
-		return chatTurns(first?.messages ?? [])[0]?.text || fallback;
+		return plainPreview(chatTurns(first?.messages ?? [])[0]?.text || fallback);
 	}
 
 	onMount(() => {
@@ -174,7 +174,7 @@
 	.chat-row:hover { background: var(--color-bg-tertiary); }
 	.chat-row.active { background: var(--color-bg-tertiary); border-color: var(--color-primary); }
 	.chat-preview { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
-	.chat-meta { display: flex; gap: 0.5rem; font-size: 0.7rem; color: var(--color-text-muted); }
+	.chat-meta { display: flex; flex-wrap: wrap; gap: 0 0.5rem; white-space: nowrap; font-size: 0.7rem; color: var(--color-text-muted); }
 	.crew-badge { font-family: var(--font-mono); }
 
 	.main-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }

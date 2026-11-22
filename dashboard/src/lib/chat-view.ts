@@ -150,3 +150,42 @@ export function chatAsText(turns: ChatTurn[], showDetails: boolean): string {
 		})
 		.join('\n\n');
 }
+
+const LINE_MARKERS = ['######', '#####', '####', '###', '##', '#', '-', '*', '+', '>'];
+
+/** A line without its leading heading, bullet, quote or number marker. */
+function stripLineMarker(line: string): string {
+	const text = line.trim();
+	const marker = LINE_MARKERS.find((m) => text.startsWith(`${m} `));
+	if (marker) return text.slice(marker.length + 1);
+	const dot = text.indexOf('. ');
+	return dot > 0 && /^\d+$/.test(text.slice(0, dot)) ? text.slice(dot + 2) : text;
+}
+
+/** A line with each [text](url) link reduced to its text. */
+function stripLinks(line: string): string {
+	let out = '';
+	let rest = line;
+	for (let open = rest.indexOf('['); open >= 0; open = rest.indexOf('[')) {
+		const mid = rest.indexOf('](', open);
+		const end = mid < 0 ? -1 : rest.indexOf(')', mid);
+		if (end < 0) break;
+		out += rest.slice(0, open) + rest.slice(open + 1, mid);
+		rest = rest.slice(end + 1);
+	}
+	return out + rest;
+}
+
+/** Markdown as one line of plain text, for a list preview: no emphasis marks, bullets, headings or link syntax. */
+export function plainPreview(markdown: string): string {
+	return markdown
+		.split('\n')
+		.map(stripLinks)
+		.join('\n')
+		.split('\n')
+		.map(stripLineMarker)
+		.join(' ')
+		.replaceAll(/[*_`~]/g, '')
+		.replaceAll(/\s+/g, ' ')
+		.trim();
+}

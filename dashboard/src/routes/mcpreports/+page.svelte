@@ -261,12 +261,13 @@
 	.reports-table {
 		border: 1px solid var(--color-border);
 		border-radius: 8px;
-		overflow: hidden;
+		overflow-x: auto;
 		width: 100%;
 	}
 
 	.table-header {
 		display: grid;
+		min-width: 710px;
 		grid-template-columns: minmax(180px, 3fr) minmax(100px, 1fr) minmax(80px, 1fr) minmax(90px, 1fr) minmax(90px, 1fr) 70px;
 		column-gap: 0.75rem;
 		padding: 0.5rem 1rem;
@@ -296,6 +297,7 @@
 		grid-template-columns: minmax(180px, 3fr) minmax(100px, 1fr) minmax(80px, 1fr) minmax(90px, 1fr) minmax(90px, 1fr) 70px;
 		column-gap: 0.75rem;
 		width: 100%;
+		min-width: 710px;
 		padding: 0.65rem 1rem;
 		background: none;
 		border: none;

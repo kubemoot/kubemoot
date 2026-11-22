@@ -3,14 +3,16 @@
 
 const CHART_VERSION_SUFFIX = /-(\d[^-]*)$/;
 
+import { formatCrewVersion } from '#lib/crew-version.js';
+
 type Labels = Record<string, string> | undefined;
 
-/** The chart version from helm.sh/chart, else app.kubernetes.io/version, else null. */
+/** The chart version from helm.sh/chart, else app.kubernetes.io/version, else null; without a build suffix. */
 export function chartVersion(labels: Labels): string | null {
 	const helmChart = labels?.['helm.sh/chart'];
 	const m = helmChart ? CHART_VERSION_SUFFIX.exec(helmChart) : null;
-	if (m) return m[1];
-	return labels?.['app.kubernetes.io/version'] ?? null;
+	const raw = m ? m[1] : labels?.['app.kubernetes.io/version'];
+	return raw ? formatCrewVersion(raw) || null : null;
 }
 
 /** The chart name: helm.sh/chart without its trailing version, or null without the label. */

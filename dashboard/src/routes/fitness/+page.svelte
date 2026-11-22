@@ -13,7 +13,7 @@
 		type SuiteAction
 	} from '#lib/fitness-suite-controls.js';
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
-	import { durTitle, fmtDateTime, fmtDur, formatBytes, iterDurText, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
+	import { durTitle, fmtDateTime, fmtDur, formatBytes, iterDurText, phaseLabel, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
 	import { etaText, meanDurationMs, suiteEta } from '#lib/fitness-eta.js';
 	import {
 		SUITE_LABEL,
@@ -519,7 +519,7 @@
 	{#if phase === 'Running'}
 		<span class="badge phase-running running-badge" title="Running"><span class="spin"></span>Running</span>
 	{:else}
-		<span class="badge {phaseClass(phase)}">{phase ?? '-'}</span>
+		<span class="badge {phaseClass(phase)}">{phaseLabel(phase)}</span>
 	{/if}
 {/snippet}
 
@@ -560,7 +560,7 @@
 					</td>
 					<td class="name">
 						{name}
-						<div class="desc">Crew: {suite.spec.crewRef}{#if s?.startedAt} · Started {fmtDateTime(s.startedAt)}{/if}</div>
+						<div class="desc">Crew: {suite.spec.crewRef}{#if s?.startedAt}{` · Started ${fmtDateTime(s.startedAt)}`}{/if}</div>
 						{#if suite.spec.description}<div class="desc">{suite.spec.description}</div>{/if}
 					</td>
 					<td class="mono"><span class="passed">{s?.passed ?? 0}</span>/<span class="failed">{s?.failed ?? 0}</span>/<span class="errored">{s?.errored ?? 0}</span></td>
@@ -737,7 +737,7 @@
 			<tbody>
 				{#each standaloneTests as t (t.metadata.namespace + '/' + t.metadata.name)}
 					<tr>
-						<td><span class="badge {phaseClass(t.status?.phase)}">{t.status?.phase ?? '-'}</span></td>
+						<td><span class="badge {phaseClass(t.status?.phase)}">{phaseLabel(t.status?.phase)}</span></td>
 						<td class="name">{t.metadata.name}</td>
 						<td class="mono muted small">{t.spec?.testRef ?? ''}</td>
 						<td class="mono">{fmtDur(t.status?.durationMs)}</td>
