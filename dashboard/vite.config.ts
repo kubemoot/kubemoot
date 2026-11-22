@@ -13,7 +13,10 @@ export default defineConfig({
 				envPrefix: ''
 			}),
 			paths: {
-				base: '/dashboard'
+				base: '/dashboard',
+				// resolve() answers an absolute path everywhere: the sign-in gate builds its redirects and
+				// cookie path from it, and a path relative to the request would loop on /signin
+				relative: false
 			}
 		})
 	],

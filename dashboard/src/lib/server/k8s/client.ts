@@ -12,19 +12,19 @@ function initKubeConfig(): k8s.KubeConfig {
 
 	kubeConfig = new k8s.KubeConfig();
 
-	// Try in-cluster config first (when running in K8s)
-	try {
+	// In-cluster config when running in K8s (the client library loads it without error anywhere,
+	// so the cluster's own marker decides); the default kubeconfig for local development
+	if (process.env.KUBERNETES_SERVICE_HOST) {
 		kubeConfig.loadFromCluster();
 		console.log('Loaded in-cluster Kubernetes config');
-	} catch {
-		// Fall back to default config (local development)
-		try {
-			kubeConfig.loadFromDefault();
-			console.log('Loaded default Kubernetes config');
-		} catch (e) {
-			console.error('Failed to load Kubernetes config:', e);
-			throw new Error('Unable to load Kubernetes configuration', { cause: e });
-		}
+		return kubeConfig;
+	}
+	try {
+		kubeConfig.loadFromDefault();
+		console.log('Loaded default Kubernetes config');
+	} catch (e) {
+		console.error('Failed to load Kubernetes config:', e);
+		throw new Error('Unable to load Kubernetes configuration', { cause: e });
 	}
 
 	return kubeConfig;
