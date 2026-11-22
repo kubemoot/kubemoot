@@ -35,6 +35,31 @@ These flags apply to every command:
 
 `-A` (`--all-namespaces`) and `-o` (`--output`) are not global. They belong to the commands that list or print resources, and their meaning varies by command (for example, `-o` is a directory for `kmctl create` and a file for `kmctl fitness download`).
 
+## Commands that change state need a Kubernetes context
+
+Every `kmctl` command that changes Kubemoot state needs a usable Kubernetes context:
+
+- `apply` and `delete`
+- `model add`
+- `fitness run`, `pause`, `resume` and `stop`
+- `mcp report pin` and `unpin`
+- `conversation ask`, `replay`, `stop`, `pause`, `resume` and `delete`
+- `memory add`, `edit`, `delete` and `clear`
+
+Before it sends anything, the command checks the context: the kubeconfig is readable, the
+context in effect (`--context`, else the current context) exists in it, the context's
+user carries credentials, and the API server is reachable and accepts them. The last
+check is one read-only request to the API server. When a check fails, the command stops
+before it does anything and prints what is missing and the fix: `kubectl config use-context NAME`,
+`--context NAME`, or `--kubeconfig PATH`. A process running in a pod with a service
+account and no kubeconfig context uses the service account as its identity.
+
+These commands also refuse `--nats-url`, because it would write to a server that does not
+check who you are. `memory export` still accepts `--nats-url`.
+
+Commands that only read, and the local commands `create`, `version` and `completion`,
+do not run this check.
+
 ## Output formats
 
 Commands that list or print resources take `-o`. The default is a table. `-o yaml` and `-o json` print the full object. `-o kyaml` prints KYAML, the strict YAML subset that `kubectl get -o kyaml` prints: every string is quoted, maps use `{ }`, and lists use `[ ]`. KYAML is valid YAML, so any YAML parser reads it, and it removes the ambiguities of unquoted values such as `no` or `on` and of indentation.
@@ -1337,8 +1362,10 @@ Commands for a crew's long-term memory (the facts it learned, see
 [Agent context](../../concepts/agent-context/#memory)): export them, or add, edit,
 delete and clear them. Memory lives in a NATS key-value bucket, so every command opens a
 port-forward to the NATS Service with your kubeconfig credentials (it needs `create` on
-`pods/portforward` in the NATS namespace), or connects to the server you name with
-`--nats-url`.
+`pods/portforward` in the NATS namespace). `export` can instead connect to the server you
+name with `--nats-url`; `add`, `edit`, `delete` and `clear` change state, need a usable
+Kubernetes context (see [Commands that change state need a Kubernetes context](#commands-that-change-state-need-a-kubernetes-context)),
+and refuse `--nats-url`.
 
 ### kmctl memory export
 
@@ -1417,7 +1444,7 @@ underscore, and the command says so.
 Agents read and trust facts, so a value that holds a credential (a bearer token, an API
 key, a password in a URL, a private key header) is refused. `--allow-unscreened` stores
 it anyway; use it only when you accept that. `--dry-run` writes nothing. The NATS flags
-are those of `export`: `--nats-namespace`, `--nats-service`, `--nats-url` and `--creds`.
+are those of `export`: `--nats-namespace`, `--nats-service` and `--creds`. `--nats-url` is refused.
 
 ```bash
 kmctl memory add homelab-pilot hardware gpu0 "RTX 5090, 32 GiB" -n crew-homelab-pilot
