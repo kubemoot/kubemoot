@@ -14,7 +14,7 @@
 	import { crewEntry, crewLabel } from '#lib/crew-display-name.js';
 	import { chatAsText, chatTurns, crewThreads, detailsLine, plainPreview } from '#lib/chat-view.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
-	import { CommandHint, ConversationDownload } from '#lib/components/common/index.js';
+	import { CommandHint, ConversationDownload, PageTitle } from '#lib/components/common/index.js';
 	import { askCommand, listConversationsCommand, replayConversationCommand } from '#lib/cli-commands.js';
 	import { conversationIds, threadConversationId } from '#lib/conversation-export.js';
 
@@ -102,7 +102,7 @@
 
 	<div class="main-panel">
 		<div class="main-header">
-			<h1>Conversations</h1>
+			<PageTitle route="/conversations" />
 			<div class="header-controls">
 				<label class="details-toggle" title="Show how long each answer took and the tokens it used">
 					<input type="checkbox" checked={$showChatDetails} onchange={() => showChatDetails.toggle()} />

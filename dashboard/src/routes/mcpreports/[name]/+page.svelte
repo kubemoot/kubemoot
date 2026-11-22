@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CommandHint, YamlView } from '#lib/components/common/index.js';
+	import { CommandHint, YamlView, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -65,7 +65,7 @@
 <div class="detail-page">
 	<div class="header">
 		<a href="{resolve('/mcpreports')}" class="back-link">Back to Reports</a>
-		<h1>{name}</h1>
+		<PageTitle route="/mcpreports/[name]" title={name} />
 	</div>
 
 	{#if loading}
@@ -195,12 +195,6 @@
 	}
 
 	.back-link:hover { text-decoration: underline; }
-
-	h1 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		margin: 0.5rem 0 0;
-	}
 
 	.loading, .error {
 		text-align: center;

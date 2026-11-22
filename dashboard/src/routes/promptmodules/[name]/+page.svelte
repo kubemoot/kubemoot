@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { YamlView } from '#lib/components/common/index.js';
+	import { YamlView, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { yesNo } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
@@ -64,7 +64,7 @@
 <div class="detail-header">
 	<a href="{resolve('/promptmodules')}" class="back-link">&larr; Prompt Modules</a>
 	{#if module}
-		<h1>{module.metadata.name}</h1>
+		<PageTitle mono route="/promptmodules/[name]" title={module.metadata.name} />
 		<span class="order-badge">order {module.spec?.order ?? '-'}</span>
 	{/if}
 </div>
@@ -121,12 +121,6 @@
 		text-decoration: none;
 	}
 	.back-link:hover { text-decoration: underline; }
-	.detail-header h1 {
-		font-size: 1.5rem;
-		font-family: var(--font-mono);
-		font-weight: 600;
-	}
-
 	.order-badge {
 		font-size: 0.75rem;
 		font-family: var(--font-mono);

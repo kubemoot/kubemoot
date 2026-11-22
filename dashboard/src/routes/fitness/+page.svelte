@@ -4,7 +4,7 @@
 	import { resolve } from '$app/paths';
 	import { namespace, showStandAsides } from '#lib/stores/index.js';
 	import type { CrewFitnessSuite } from '#lib/types/kubemoot.js';
-	import { CommandHint } from '#lib/components/common/index.js';
+	import { CommandHint, PageTitle } from '#lib/components/common/index.js';
 	import { deleteSuiteCommand, suiteControlCommand } from '#lib/cli-commands.js';
 	import {
 		availableSuiteActions,
@@ -503,7 +503,7 @@
 </script>
 
 <div class="page-header">
-	<h1>Fitness</h1>
+	<PageTitle route="/fitness" />
 	<span class="count">{suites.length} suites · {standaloneTests.length} tests</span>
 </div>
 
@@ -750,7 +750,6 @@
 
 <style>
 	.page-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.4rem; }
-	.page-header h1 { font-size: 1.5rem; font-weight: 600; }
 	.count { background: var(--color-bg-tertiary); padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.8rem; color: var(--color-text-muted); }
 	.section { font-size: 0.95rem; font-weight: 600; color: var(--color-text-muted); margin: 1.5rem 0 0.5rem; }
 

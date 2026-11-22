@@ -3,7 +3,7 @@
 	import { crewDirectory, namespace } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry } from '#lib/crew-display-name.js';
-	import { CommandHint } from '#lib/components/common/index.js';
+	import { CommandHint, PageTitle } from '#lib/components/common/index.js';
 	import { memoryAddCommand, memoryClearCommand, memoryDeleteCommand, memoryEditCommand, memoryExportCommand } from '#lib/cli-commands.js';
 	import MemoryExportPanel from '#lib/components/memory/MemoryExportPanel.svelte';
 
@@ -60,7 +60,7 @@
 
 <div class="page">
 	<div class="page-header">
-		<h1>Crew Memory</h1>
+		<PageTitle route="/crew-memory" />
 		{#if scope}
 			<div class="header-actions">
 				<button onclick={() => (exportOpen = !exportOpen)} aria-expanded={exportOpen} title="Download this crew's memory in the OMPI interchange format">Export</button>
@@ -119,7 +119,6 @@
 	.page { padding: 1.5rem; max-width: 1100px; }
 	.header-actions { display: flex; gap: 0.5rem; }
 	.page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-	h1 { color: var(--color-text); }
 	.sub { color: var(--color-text-muted); margin-top: 0.25rem; max-width: 70ch; }
 	.card { background: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 0.5rem; overflow-x: auto; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.9rem; color: var(--color-text); }

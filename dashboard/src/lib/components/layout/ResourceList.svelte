@@ -1,28 +1,25 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { HelpTooltip } from '#lib/components/common/index.js';
+	import { PageTitle } from '#lib/components/common/index.js';
+	import type { PageRoute } from '#lib/page-definitions.js';
 
 	interface Props {
-		title: string;
+		route: PageRoute;
 		count?: number;
 		loading?: boolean;
 		error?: string | null;
-		helpText?: string;
 		children: Snippet;
 		empty?: Snippet;
 		actions?: Snippet;
 	}
 
-	let { title, count, loading = false, error = null, helpText, children, empty, actions }: Props = $props();
+	let { route, count, loading = false, error = null, children, empty, actions }: Props = $props();
 </script>
 
 <div class="resource-list">
 	<header class="header">
 		<div class="title-row">
-			<h2 class="title">{title}</h2>
-			{#if helpText}
-				<HelpTooltip text={helpText} />
-			{/if}
+			<PageTitle {route} />
 			{#if count !== undefined}
 				<span class="count">{count}</span>
 			{/if}
@@ -79,12 +76,6 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-	}
-
-	.title {
-		font-size: 1.5rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.count {

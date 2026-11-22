@@ -4,7 +4,7 @@
 	import { resolve } from '$app/paths';
 	import { refreshTrigger, showStandAsides } from '#lib/stores/index.js';
 	import { DetailPanel } from '#lib/components/layout/index.js';
-	import { Section, InfoRow, StatusBadge } from '#lib/components/common/index.js';
+	import { Section, InfoRow, StatusBadge, PageTitle } from '#lib/components/common/index.js';
 	import type { KubemootConfig } from '#lib/types/kubemoot.js';
 
 	let config = $state<KubemootConfig | null>(null);
@@ -41,12 +41,12 @@
 	const status = $derived(config?.status?.ready ? 'success' : 'pending');
 </script>
 
-<DetailPanel title="Kubemoot Config" subtitle="Cluster-scoped configuration" {loading} {error} resource={config}>
+<DetailPanel route="/config" title="Kubemoot Config" subtitle="Cluster-scoped configuration" {loading} {error} resource={config}>
 	{#snippet header()}
 		<div class="header-content">
 			<div class="title-section">
 				<span class="kind">KubemootConfig</span>
-				<h1 class="title">{config?.metadata.name || 'Kubemoot Config'}</h1>
+				<PageTitle route="/config" title={config?.metadata.name || 'Kubemoot Config'} />
 			</div>
 			{#if config}
 				<StatusBadge {status} label={config.status?.ready ? 'Active' : 'Pending'} />
@@ -127,12 +127,6 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: var(--color-text-muted);
-	}
-
-	.title {
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: var(--color-text);
 	}
 
 	.sections {

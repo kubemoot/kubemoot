@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { YamlView } from '#lib/components/common/index.js';
+	import { YamlView, PageTitle } from '#lib/components/common/index.js';
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -44,7 +44,7 @@
 <div class="detail-header">
 	<a href="{resolve('/crewfitnesses')}" class="back-link">&larr; Fitness Tests</a>
 	{#if test}
-		<h1>{test.metadata.name}</h1>
+		<PageTitle mono route="/crewfitnesses/[name]" title={test.metadata.name} />
 		{@const phase = test.status?.phase ?? 'Unknown'}
 		<span class="phase-badge" class:pass={phase === 'Passed'} class:fail={phase === 'Failed' || phase === 'Error'} class:running={phase === 'Running'}>
 			{phase}
@@ -117,7 +117,6 @@
 		display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;
 	}
 	.back-link { color: var(--color-text-muted); font-size: 0.85rem; }
-	.detail-header h1 { font-size: 1.5rem; font-family: var(--font-mono); }
 	.phase-badge {
 		font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.6rem;
 		border-radius: 999px; text-transform: uppercase;

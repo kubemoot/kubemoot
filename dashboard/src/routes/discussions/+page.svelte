@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { PageTitle } from '#lib/components/common/index.js';
 	import { askCommand } from '#lib/cli-commands.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
@@ -278,7 +279,7 @@
 
 <div class="discussions-page">
 	<div class="page-header">
-		<h1>Agent Discussions</h1>
+		<PageTitle route="/discussions" />
 		<div class="header-actions">
 			<div class="connection-status" class:connected={$discussionsConnected}>
 				<span class="status-dot"></span>
@@ -511,13 +512,6 @@
 		align-items: center;
 		justify-content: space-between;
 		flex-shrink: 0;
-	}
-
-	h1 {
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: var(--color-text);
-		margin: 0;
 	}
 
 	.header-actions {
