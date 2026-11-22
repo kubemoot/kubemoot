@@ -53,3 +53,11 @@ describe('loadCrewDirectory', () => {
 		expect(get(crewDirectory)).toEqual([]);
 	});
 });
+
+describe('loadCrewDirectory, late answers', () => {
+	it('drops an answer once it is no longer the current one', async () => {
+		crewDirectory.set([]);
+		await loadCrewDirectory(respond({ crews: [pilot] }), '/x', () => false);
+		expect(get(crewDirectory)).toEqual([]);
+	});
+});

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { marked } from 'marked';
@@ -18,7 +18,8 @@
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewTooltip, pickerLabel } from '#lib/crew-display-name.js';
 	import { chatAsText, chatTurns, crewThreads, detailsLine } from '#lib/chat-view.js';
-	import { groupConversations, type Conversation } from '#lib/conversation-group.js';
+	import { groupConversations, onBus, withPending, type Conversation, type PendingAsk } from '#lib/conversation-group.js';
+	import { threadStartedAt } from '#lib/stores/discussions.js';
 	import { openRef, withOpen } from '#lib/conversation-url.js';
 	import { listAddress, mineScopesFor } from '#lib/list-scope.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
@@ -79,15 +80,34 @@
 	// One entry per conversation: a follow-up is a new thread under the same conversation id.
 	// The open one is looked up among every conversation, so a link opens it whatever crew the
 	// top-bar selector shows; the selector is only ever the person's own choice.
-	const conversations = $derived(groupConversations($sortedThreads));
+	// A question the crew has just taken is listed at once, from what the page knows, until the bus
+	// shows its thread.
+	let asks = $state<PendingAsk[]>([]);
+	const conversations = $derived(groupConversations(withPending($sortedThreads, asks)));
+
+	// The gateway's own stream feeds the stand-in its answer and state; a stand-in the bus now shows is dropped.
+	$effect(() => {
+		const current = live;
+		const id = askedId;
+		const known = untrack(() => asks);
+		const kept = known.filter((a) => !onBus(a, $sortedThreads));
+		const next = current && id ? kept.map((a) => (a.conversationId === id && (a.answer !== current.answer.answer || a.state !== current.answer.phase) ? { ...a, answer: current.answer.answer, state: current.answer.phase } : a)) : kept;
+		if (next.length !== known.length || next.some((a, i) => a !== known[i])) asks = next;
+	});
 	const chats = $derived(
 		crewThreads(conversations, selectedScope)
 			.filter((t) => chatTurns(t.messages).length > 0)
 			.filter((t) => matchesFilter(t, filter, mine))
 	);
 
+	// The open conversation is followed by its id when it has one, so it stays open when the
+	// stand-in for a just-asked question gives way to the crew's own thread.
 	let selectedThreadId = $state<string | null>(null);
-	const selected = $derived(selectedThreadId ? conversations.find((c) => c.threadIds.includes(selectedThreadId ?? '')) : undefined);
+	let selectedConversation = $state<string | null>(null);
+	const selected = $derived(
+		(selectedThreadId ? conversations.find((c) => c.threadIds.includes(selectedThreadId ?? '')) : undefined) ??
+			(selectedConversation ? conversations.find((c) => threadConversationId(c) === selectedConversation) : undefined)
+	);
 
 	// The open conversation is in the address (?conversation=<id>): a link shares it and a reload
 	// keeps it. The address is read again whenever it changes, once the conversation has loaded.
@@ -131,6 +151,16 @@
 		openConversation(found);
 	});
 
+	// The crew has taken a question: list it at once, open it, and put it in the address.
+	function asked(id: string, question: string, requestedAt?: string) {
+		const crew = selected ? selectedScopeOfThread : newScope;
+		if (crew) {
+			const fresh: PendingAsk = { conversationId: id, question, namespace: crew.namespace, crew: crew.crew, askedAt: requestedAt ?? new Date().toISOString(), state: 'working' };
+			asks = [...asks.filter((a) => a.conversationId !== id || a.question !== question), fresh];
+		}
+		askedId = id;
+	}
+
 	// The crew a new conversation goes to: the top-bar selection, or one chosen here when the
 	// selector shows all crews. Choosing here never changes the selector.
 	let chosenNamespace = $state('');
@@ -140,6 +170,7 @@
 
 	function startNew() {
 		selectedThreadId = null;
+		selectedConversation = null;
 		askedId = null;
 		live = null;
 		erasure = null;
@@ -150,6 +181,7 @@
 	// The one way a conversation opens: by a click, by the address, or because the person just asked it.
 	function openConversation(item: Conversation, fromUrl = false) {
 		selectedThreadId = item.threadId;
+		selectedConversation = threadConversationId(item) ?? null;
 		starting = false;
 		erasure = null;
 		if (!fromUrl) showInUrl({ conversationId: threadConversationId(item), threadId: item.threadId });
@@ -170,7 +202,9 @@
 	function deleted(report: ErasureReport) {
 		erasure = { report, question: selected ? conversationTitle(selected) : '' };
 		forgetThreads([...(report.threads ?? []), ...(selected?.threadIds ?? [])]);
+		asks = asks.filter((a) => a.conversationId !== report.conversationId);
 		selectedThreadId = null;
+		selectedConversation = null;
 		showInUrl(null);
 	}
 
@@ -247,7 +281,7 @@
 				{#each highlight(filter.q ? snippet(firstHit(t, filter.q) ?? conversationTitle(t), filter.q) : conversationTitle(t), filter.q) as piece, i (i)}{#if piece.hit}<mark>{piece.text}</mark>{:else}{piece.text}{/if}{/each}
 				{#snippet foot()}
 					<span></span>
-					<span title={t.startedAt}>{formatTimestamp(t.startedAt)}</span>
+					<span title={threadStartedAt(t)}>{formatTimestamp(threadStartedAt(t))}</span>
 				{/snippet}
 			</ListCard>
 		{/each}
@@ -320,7 +354,7 @@
 							<p>Which crew do you want to ask?</p>
 							<select onchange={pickCrew} aria-label="Crew to ask" use:tooltip={ACTIONS.chooseCrewToAsk}>
 								<option value="">Choose a crew</option>
-								{#each $crewDirectory as entry (entry.namespace)}<option value={entry.namespace}>{pickerLabel(entry)}</option>{/each}
+								{#each $crewDirectory as entry (`${entry.namespace}/${entry.crew}`)}<option value={entry.namespace}>{pickerLabel(entry, $crewDirectory)}</option>{/each}
 							</select>
 						{:else if starting && newScope}
 							<p>New conversation with {crewLabel($crewDirectory, newScope.namespace, newScope.crew)}</p>
@@ -338,7 +372,7 @@
 						conversationId={selectedConversationId}
 						bind:live
 						focus={starting}
-						onAsked={(id) => (askedId = id)}
+						onAsked={asked}
 					/>
 				</div>
 			{/if}

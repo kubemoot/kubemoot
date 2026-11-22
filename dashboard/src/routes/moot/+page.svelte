@@ -7,6 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { marked } from 'marked';
+	import { threadStartedAt } from '#lib/stores/discussions.js';
 	import { crewDirectory, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, ensureThreadLoaded, loadOlder, loadingOlder, hasOlder, showStandAsides, showDebugDetail, namespace } from '#lib/stores/index.js';
 	import type { Thread } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
@@ -348,7 +349,7 @@
 							<span>
 								{thread.agreeCount} agree{#if thread.concernCount > 0}, {thread.concernCount} concern{thread.concernCount !== 1 ? 's' : ''}{/if}{#if thread.blockCount > 0}, {thread.blockCount} block{thread.blockCount !== 1 ? 's' : ''}{/if}{#if thread.standAsideCount > 0}, {thread.standAsideCount} aside{/if}
 							</span>
-							<span title={thread.startedAt}>{formatTimestamp(thread.startedAt)}</span>
+							<span title={threadStartedAt(thread)}>{formatTimestamp(threadStartedAt(thread))}</span>
 						{/snippet}
 					</ListCard>
 				{/each}

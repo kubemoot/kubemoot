@@ -18,7 +18,7 @@ describe('AskBox', () => {
 		render(AskBox, { scope, fetchFn, onAsked });
 		await type('What are the two GPU temperatures?');
 		await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
-		await waitFor(() => expect(onAsked).toHaveBeenCalledWith('c-9'));
+		await waitFor(() => expect(onAsked).toHaveBeenCalledWith('c-9', 'What are the two GPU temperatures?', 't'));
 		const body = JSON.parse(calls(fetchFn)[0][1].body as string);
 		expect(body.message).toBe('What are the two GPU temperatures?');
 		expect(body.conversationId).toBeUndefined();

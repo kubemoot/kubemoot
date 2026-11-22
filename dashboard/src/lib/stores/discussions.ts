@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/env';
 import { resolve } from '$app/paths';
+import { compareCodeUnits } from '#lib/text-utils.js';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import {
 	DISCUSS_ALL,
@@ -397,14 +398,41 @@ export async function ensureThreadLoaded(threadId: string): Promise<void> {
 
 const HYDRATE_CONCURRENCY = 4;
 
+// The partial threads being read now. The lists leave them out until their own read is done, so a
+// thread is listed once, whole, with its question and date, and never as a nameless entry that
+// merges into another a moment later.
+const hydrating = writable<Set<string>>(new Set());
+
+function setHydrating(change: (ids: Set<string>) => void) {
+	hydrating.update((current) => {
+		const next = new Set(current);
+		change(next);
+		return next;
+	});
+}
+
 /** Reads the partial threads at the edge of a page, a few at a time. */
 async function completePartialThreads(): Promise<void> {
-	const ids = [...get(threadsMap).values()].filter(isPartial).map((t) => t.threadId);
+	const busy = get(hydrating);
+	const ids = [...get(threadsMap).values()].filter((t) => isPartial(t) && !busy.has(t.threadId)).map((t) => t.threadId);
+	setHydrating((set) => ids.forEach((id) => set.add(id)));
 	let next = 0;
 	const worker = async () => {
-		while (next < ids.length) await ensureThreadLoaded(ids[next++]);
+		while (next < ids.length) {
+			const id = ids[next++];
+			try {
+				await ensureThreadLoaded(id);
+			} finally {
+				setHydrating((set) => set.delete(id));
+			}
+		}
 	};
-	await Promise.all(Array.from({ length: Math.min(HYDRATE_CONCURRENCY, ids.length) }, worker));
+	try {
+		await Promise.all(Array.from({ length: Math.min(HYDRATE_CONCURRENCY, ids.length) }, worker));
+	} finally {
+		// Whatever a failed worker left unread is listed as it is, never hidden for good.
+		setHydrating((set) => ids.forEach((id) => set.delete(id)));
+	}
 }
 
 function noteWindow(page: HistoryPage) {
@@ -459,8 +487,33 @@ export const threads = {
 	subscribe: threadsMap.subscribe
 };
 
-export const sortedThreads = derived(threadsMap, ($threads) =>
-	Array.from($threads.values()).sort(
-		(a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
-	)
+/** The time of a thread's newest message, or of its start; 0 when nothing carries a usable time. */
+export function threadActivity(thread: Pick<Thread, 'messages' | 'startedAt'>): number {
+	let latest = 0;
+	for (const m of thread.messages) latest = Math.max(latest, timeOf(m.timestamp));
+	return Math.max(latest, timeOf(thread.startedAt));
+}
+
+/** When a thread started: its own start time, else its earliest message; '' when none has a time. */
+export function threadStartedAt(thread: Pick<Thread, 'messages' | 'startedAt'>): string {
+	if (timeOf(thread.startedAt) > 0) return thread.startedAt;
+	const times = thread.messages.flatMap((m) => (m.timestamp && timeOf(m.timestamp) > 0 ? [m.timestamp] : []));
+	const earliest = times.toSorted((a, b) => timeOf(a) - timeOf(b));
+	return earliest[0] ?? '';
+}
+
+function timeOf(iso: string | undefined): number {
+	const t = Date.parse(iso ?? '');
+	return Number.isNaN(t) ? 0 : t;
+}
+
+/** Newest activity first; threads with equal times keep one fixed order, so a reload lists them alike. */
+export function byLatestActivity(a: Thread, b: Thread): number {
+	return threadActivity(b) - threadActivity(a) || compareCodeUnits(a.threadId, b.threadId);
+}
+
+export const sortedThreads = derived([threadsMap, hydrating], ([$threads, $hydrating]) =>
+	Array.from($threads.values())
+		.filter((t) => !$hydrating.has(t.threadId))
+		.sort(byLatestActivity)
 );

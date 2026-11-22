@@ -1,0 +1,37 @@
+# Read access to every Kubemoot kind, joined to the built-in view, edit and admin roles by the
+# standard aggregation labels: anyone who can `view` a namespace reads Kubemoot resources in it,
+# and a ClusterRoleBinding to `view` reads them everywhere. Read verbs only. Each kind is named,
+# never a wildcard: a wildcard would also grant the crews/conversations subresource, which is
+# the separate, audited kubemoot-conversation-reader grant.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubemoot-viewer
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+  - apiGroups: ["kubemoot.ai"]
+    resources:
+      - agents
+      - crewfitnesses
+      - crewfitnesssuites
+      - crews
+      - crewschedulingpolicies
+      - embeddingmodels
+      - kubemootconfigs
+      - mcpcatalogs
+      - mcpgateways
+      - mcpqualitypolicies
+      - mcpserverreports
+      - mcpservers
+      - models
+      - modelservers
+      - mootarchetypes
+      - notificationsinks
+      - promptmodules
+      - ragsources
+      - skills
+    verbs: ["get", "list", "watch"]

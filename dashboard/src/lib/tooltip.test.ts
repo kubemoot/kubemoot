@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HOVER_GRACE_MS, TOOLTIP_DELAY_MS, tooltip } from './tooltip.js';
+import { HOVER_GRACE_MS, ROW_TOOLTIP_DELAY_MS, TOOLTIP_DELAY_MS, tooltip } from './tooltip.js';
 
 afterEach(() => {
 	vi.useRealTimers();
@@ -150,7 +150,7 @@ describe('tooltip', () => {
 });
 
 describe('placement asked for by the control', () => {
-	const rect = { left: 100, right: 300, top: 50, bottom: 90, width: 200, height: 40, x: 100, y: 50, toJSON: () => ({}) } as DOMRect;
+	const rect = { left: 100, right: 300, top: 50, bottom: 90, width: 200, height: 40, x: 100, y: 50, toJSON: () => ({}) };
 
 	function opened(placement?: string) {
 		const node = document.createElement('button');
@@ -172,5 +172,80 @@ describe('placement asked for by the control', () => {
 		const tip = opened();
 		expect(Number.parseFloat(tip.style.top)).toBeGreaterThanOrEqual(rect.bottom);
 		expect(Number.parseFloat(tip.style.left)).toBe(rect.left);
+	});
+});
+
+function rect(left: number, top: number, width: number, height: number): DOMRect {
+	return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) };
+}
+
+describe('a menu item tooltip', () => {
+	// A menu 240px wide at x=1100..1340 with an item at y=200..230, and a tooltip 300px wide.
+	function menuItem(menuLeft: number, viewport: number) {
+		vi.stubGlobal('innerWidth', viewport);
+		const menu = document.createElement('div');
+		menu.setAttribute('role', 'menu');
+		const item = document.createElement('button');
+		item.dataset.tooltipPlacement = 'menu';
+		menu.append(item);
+		document.body.append(menu);
+		menu.getBoundingClientRect = () => rect(menuLeft, 150, 240, 200);
+		item.getBoundingClientRect = () => rect(menuLeft, 200, 240, 30);
+		tooltip(item, 'Copy conversation: puts the text on the clipboard');
+		const tip = document.querySelector('[role="tooltip"]') as HTMLElement;
+		Object.defineProperty(tip, 'offsetWidth', { value: 300 });
+		Object.defineProperty(tip, 'offsetHeight', { value: 40 });
+		item.dispatchEvent(new FocusEvent('focus'));
+		return { left: Number.parseFloat(tip.style.left), top: Number.parseFloat(tip.style.top), menuLeft, menuRight: menuLeft + 240 };
+	}
+
+	it('opens to the left of the menu when the right has no room, never over it', () => {
+		const t = menuItem(1100, 1440);
+		expect(t.left + 300).toBeLessThanOrEqual(t.menuLeft);
+	});
+
+	it('opens to the right of the menu when there is room, level with the item', () => {
+		const t = menuItem(200, 1440);
+		expect(t.left).toBeGreaterThanOrEqual(t.menuRight);
+		expect(t.top).toBe(215 - 20);
+	});
+});
+
+describe('a list row tooltip', () => {
+	it('waits the longer pause its data-tooltip-delay asks for', () => {
+		vi.useFakeTimers();
+		const row = document.createElement('button');
+		row.dataset.tooltipDelay = String(ROW_TOOLTIP_DELAY_MS);
+		document.body.append(row);
+		tooltip(row, 'Open: shows this conversation');
+		const tip = document.querySelector('[role="tooltip"]') as HTMLElement;
+		row.dispatchEvent(new MouseEvent('mouseenter'));
+		vi.advanceTimersByTime(TOOLTIP_DELAY_MS + 100);
+		expect(tip.hasAttribute('data-open')).toBe(false);
+		vi.advanceTimersByTime(ROW_TOOLTIP_DELAY_MS);
+		expect(tip.hasAttribute('data-open')).toBe(true);
+	});
+});
+
+describe('a tooltip under a control near the bottom of the page', () => {
+	function below(controlTop: number) {
+		vi.stubGlobal('innerHeight', 800);
+		const button = document.createElement('button');
+		document.body.append(button);
+		button.getBoundingClientRect = () => rect(100, controlTop, 40, 30);
+		tooltip(button, 'Reply: sends your follow-up');
+		const tip = document.querySelector('[role="tooltip"]') as HTMLElement;
+		Object.defineProperty(tip, 'offsetWidth', { value: 200 });
+		Object.defineProperty(tip, 'offsetHeight', { value: 60 });
+		button.dispatchEvent(new FocusEvent('focus'));
+		return Number.parseFloat(tip.style.top);
+	}
+
+	it('opens under the control when there is room', () => {
+		expect(below(100)).toBe(138);
+	});
+
+	it('opens above the control when the page ends first, so it is not cut off', () => {
+		expect(below(740)).toBe(740 - 8 - 60);
 	});
 });

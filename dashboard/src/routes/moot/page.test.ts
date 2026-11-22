@@ -69,3 +69,23 @@ describe('following a live discussion', () => {
 		expect(container.querySelector('.answer-body')?.textContent).toContain('Final live answer.');
 	});
 });
+
+describe('the Moot list order', () => {
+	it('lists each discussion once, newest activity first, with a date even when its start message has none', async () => {
+		const subject = (id: string) => `kubemoot.discuss.crew-demo.demo.general.${id}`;
+		const start = (id: string, at: string | undefined) => msg('human', 'thread_start', `Question ${id}?`, { threadId: id, timestamp: at, metadata: { crew: 'demo' } });
+		handleMessage(start('ord-old', '2026-11-22T01:00:00.000Z'), subject('ord-old'));
+		handleMessage(start('ord-new', '2026-11-22T05:00:00.000Z'), subject('ord-new'));
+		handleMessage(start('ord-notime', undefined), subject('ord-notime'));
+		handleMessage(msg('coordinator', 'synthesis', 'done', { threadId: 'ord-notime', timestamp: '2026-11-22T03:00:00.000Z' }), subject('ord-notime'));
+		history.replaceState({}, '', '/dashboard/moot');
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThan(2));
+		const rows = [...container.querySelectorAll('.card')].map((c) => c.textContent ?? '');
+		const at = (q: string) => rows.findIndex((r) => r.includes(q));
+		expect(at('Question ord-new?')).toBeLessThan(at('Question ord-notime?'));
+		expect(at('Question ord-notime?')).toBeLessThan(at('Question ord-old?'));
+		expect(rows.filter((r) => r.includes('Question ord-notime?'))).toHaveLength(1);
+		expect(rows[at('Question ord-notime?')]).toMatch(/Nov \d+, \d+:\d+:\d+/);
+	});
+});

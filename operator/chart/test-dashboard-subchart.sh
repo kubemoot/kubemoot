@@ -123,6 +123,28 @@ b="$(yq -N 'select(.metadata.name == "kubemoot-operator-dashboard*" and .metadat
 render kubemoot-operator --set dashboard.enabled=true --set dashboard.workshop.enabled=true \
   --set dashboard.workshop.namespaceSelector= >/dev/null 2>&1 && fail "empty workshop selector was accepted"
 
+# kubemoot-viewer: anyone with `view` reads Kubemoot resources. It joins view, edit and admin by
+# the standard aggregation labels, names every CRD kind (and only kinds: no wildcard, which would
+# also reach the audited crews/conversations subresource), and holds read verbs only.
+viewer="$(render kubemoot-operator | yq -N 'select(.kind == "ClusterRole" and .metadata.name == "kubemoot-viewer")')"
+[ -n "$viewer" ] || fail "the chart renders no kubemoot-viewer ClusterRole"
+for target in view edit admin; do
+  [ "$(yq -N ".metadata.labels[\"rbac.authorization.k8s.io/aggregate-to-$target\"]" <<<"$viewer")" = "true" ] || fail "kubemoot-viewer is not aggregated to $target"
+done
+viewer_verbs="$(yq -N '.rules[].verbs[]' <<<"$viewer" | sort -u | tr '\n' ' ')"
+[ "$viewer_verbs" = "get list watch " ] || fail "kubemoot-viewer verbs are '$viewer_verbs', want only get list watch"
+viewer_groups="$(yq -N '.rules[].apiGroups[]' <<<"$viewer" | sort -u | tr '\n' ' ')"
+[ "$viewer_groups" = "kubemoot.ai " ] || fail "kubemoot-viewer reaches '$viewer_groups', want only kubemoot.ai"
+viewer_resources="$(yq -N '.rules[].resources[]' <<<"$viewer")"
+if grep -q '[*/]' <<<"$viewer_resources"; then fail "kubemoot-viewer names a wildcard or subresource"; fi
+for crd in "$chart"/crds/*.yaml; do
+  plural="$(yq -N '.spec.names.plural' "$crd")"
+  grep -qx "$plural" <<<"$viewer_resources" || fail "kubemoot-viewer does not read $plural"
+done
+# The check must be able to fail: a write verb added to the rendered role is caught.
+bad="$(yq -N '.rules[0].verbs += ["delete"]' <<<"$viewer" | yq -N '.rules[].verbs[]' | sort -u | tr '\n' ' ')"
+[ "$bad" != "get list watch " ] || fail "the viewer verbs check accepted a delete verb"
+
 # Standalone chart keeps its own defaults.
 standalone="$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard")"
 grep -q 'image: ghcr.io/kubemoot/dashboard:' <<<"$standalone" || fail "standalone dashboard image changed"

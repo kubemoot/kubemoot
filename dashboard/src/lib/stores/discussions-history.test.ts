@@ -191,3 +191,51 @@ describe('older history', () => {
 		expect(historyCalls(asked)).toHaveLength(1);
 	});
 });
+
+describe('a thread cut by the window', () => {
+	const cut = (url: URL): Reply =>
+		url.searchParams.get('subject') === T1
+			? { messages: [entry(100, T1, 't1', 'thread_start', 'the question'), entry(950, T1, 't1', 'synthesis')] }
+			: { messages: [entry(950, T1, 't1', 'synthesis'), entry(951, T2, 't2', 'thread_start', 'other')], lastSeq: 951, windowStart: 751, hasMore: true };
+
+	it('is not listed until its own read is done, so a thread is listed once and whole', async () => {
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((r) => (release = r));
+		const fn = vi.fn(async (input: string) => {
+			const url = new URL(input, 'https://dashboard');
+			if (url.pathname.endsWith('/stream')) return new Response('', { status: 404 });
+			if (url.searchParams.get('subject') === T1) await gate;
+			return Response.json(cut(url));
+		});
+		vi.stubGlobal('fetch', fn);
+		vi.stubGlobal('EventSource', class { onopen = null; onmessage = null; onerror = null; close() {} });
+		const store = await fresh();
+		store.initDiscussions();
+		await flush();
+		expect(get(store.sortedThreads).map((t) => t.threadId)).toEqual(['t2']);
+		release();
+		await flush();
+		await flush();
+		const listed = get(store.sortedThreads);
+		expect(listed.map((t) => t.threadId).sort((a, b) => a.localeCompare(b))).toEqual(['t1', 't2']);
+		expect(listed.find((t) => t.threadId === 't1')?.userQuery).toBe('the question');
+	});
+});
+
+describe('a failed read of a cut thread', () => {
+	it('lists the thread as it is instead of hiding it for good', async () => {
+		const fn = vi.fn(async (input: string) => {
+			const url = new URL(input, 'https://dashboard');
+			if (url.pathname.endsWith('/stream')) return new Response('', { status: 404 });
+			if (url.searchParams.get('subject') === T1) throw new Error('read failed');
+			return Response.json({ messages: [entry(950, T1, 't1', 'synthesis')], lastSeq: 950, windowStart: 751, hasMore: false });
+		});
+		vi.stubGlobal('fetch', fn);
+		vi.stubGlobal('EventSource', class { onopen = null; onmessage = null; onerror = null; close() {} });
+		const store = await fresh();
+		store.initDiscussions();
+		await flush();
+		await flush();
+		expect(get(store.sortedThreads).map((t) => t.threadId)).toEqual(['t1']);
+	});
+});

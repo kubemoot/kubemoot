@@ -82,6 +82,18 @@ How the token is kept:
 - Signing in again replaces the browser's earlier session. One user may hold 20 sessions at once, and sign-in attempts are limited (10 a minute per client address, 120 a minute in all) because each one costs the API server a TokenReview.
 - The cookie is `Secure` except on a plain-http `localhost` port-forward, which Safari would otherwise refuse.
 
+### What a person needs
+
+The dashboard shows only what your own Kubernetes permissions allow, so a person who signs in needs these:
+
+- **Kubemoot resources.** The operator chart ships the ClusterRole `kubemoot-viewer`: `get`, `list` and `watch` on every Kubemoot kind, and nothing else. It carries the standard aggregation labels (`rbac.authorization.k8s.io/aggregate-to-view`, `-edit` and `-admin`), so anyone who can `view` a namespace reads Kubemoot resources in it, and a ClusterRoleBinding to the built-in `view` role reads them in every namespace. It does not grant the `crews/conversations` right (see [Acting on a conversation](#acting-on-a-conversation)); that stays a separate, deliberate grant.
+- **Nodes.** The Nodes page and the accelerator panels read cluster nodes, which the built-in `view` role does not include. Grant `get`, `list` and `watch` on `nodes` (a ClusterRole and ClusterRoleBinding of your own) to the people who should see them; without it the page says you do not have permission.
+- **The crew selector.** The top bar lists the Crew resources you can list, cluster-wide: the crews the Crews page shows, each by its display name (with the namespace only when two crews share a name). The list is read across all namespaces, so a person with `list` on `crews` in one namespace only sees an empty selector.
+- **NATS views.** The same cluster-wide `list` on `crews` (see [What runs as you](#what-runs-as-you)).
+- **Asking a crew.** `get` on the Crew, and whatever the crew's gateway requires of you.
+
+A token for a ServiceAccount works the same way: bind the ServiceAccount to `view`, and add the node role for the Nodes page.
+
 ### What runs as you
 
 Every Kubernetes API call the dashboard server makes while you are signed in uses your token, not the dashboard's ServiceAccount: lists, gets and watches of Kubemoot resources, nodes, namespaces and ConfigMaps, the operator's version panel, and the calls to the operator's [report service](#the-operator-report-service), which checks your token with a TokenReview and a SubjectAccessReview. A call your RBAC refuses shows "You do not have permission to see this" in the view, not an error page.
@@ -97,7 +109,7 @@ A few things do not run as you:
 
 ### Asking a crew
 
-On the Conversations page a signed-in person starts a conversation with **+ New** (the crew comes from the top-bar selector; with none selected the page asks which crew) and asks or follows up from one compact field at the bottom of an open conversation (Enter sends, Shift+Enter starts a new line). The question goes through the crew's discussion gateway with your token (`Authorization: Bearer`), exactly as `kmctl conversation ask` sends it, so the gateway's access rules and conversation ownership apply and the conversation belongs to you. The dashboard also needs `get` on the Crew with your token before it sends anything. The gateway's refusals appear next to the field with their status: 401 (the crew did not accept your token), 403 (no permission to use the crew), 404 (the conversation is not yours). The answer streams back through the gateway as you, and the conversation opens as soon as the bus shows it. **Mine** limits the conversation list to the ones the gateway lists for you.
+On the Conversations page a signed-in person starts a conversation with **+ New** (the crew comes from the top-bar selector; with none selected the page asks which crew) and asks or follows up from one compact field at the bottom of an open conversation (Enter sends, Shift+Enter starts a new line). The question goes through the crew's discussion gateway with your token (`Authorization: Bearer`), exactly as `kmctl conversation ask` sends it, so the gateway's access rules and conversation ownership apply and the conversation belongs to you. The dashboard also needs `get` on the Crew with your token before it sends anything. The gateway's refusals appear next to the field with their status: 401 (the crew did not accept your token), 403 (no permission to use the crew), 404 (the conversation is not yours). The answer streams back through the gateway as you. The question is listed first at once and opens, and its id goes into the page address (`?conversation=<id>`), without waiting for the bus. **Mine** limits the conversation list to the ones the gateway lists for you. The list has one entry per conversation (a follow-up joins its conversation), newest activity first, and a discussion still being read from the bus appears once it is complete, so the order and count do not change between loads.
 
 The dashboard reaches a crew's gateway at `http://<crew>-discussion.<namespace>.svc.cluster.local`. That hop is plain HTTP inside the cluster, so your token crosses the pod network unencrypted; set `auth.gatewayUrl` to an `https` address (a service mesh or a gateway with TLS) when your network is not trusted. If you use network policies, allow the dashboard's namespace in the crew's `spec.network.allowedIngress`. Set `auth.gatewayUrl` to reach gateways another way.
 

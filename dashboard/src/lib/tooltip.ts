@@ -9,15 +9,22 @@
 export interface TooltipOptions {
 	/** The text. A line break starts a second, quieter line (term, then purpose). */
 	text: string;
-	/** Where it opens: under the control (default) or to its right (the left menu). */
-	placement?: 'below' | 'right';
+	/**
+	 * Where it opens: under the control (default), to its right (a list row, the left menu), or
+	 * beside the menu the control is an item of, never over the items below it.
+	 */
+	placement?: Placement;
 	/** Pause before a hover opens it, in milliseconds. Focus opens it at once. */
 	delay?: number;
 }
 
+export type Placement = 'below' | 'right' | 'menu';
+
 export type TooltipParam = string | TooltipOptions;
 
 export const TOOLTIP_DELAY_MS = 400;
+/** A list row waits longer, so passing over the list does not flash tooltips over the open conversation. */
+export const ROW_TOOLTIP_DELAY_MS = 1200;
 const GAP_PX = 8;
 const EDGE_PX = 8;
 
@@ -25,11 +32,13 @@ let counter = 0;
 // The tooltip that is open now; opening another closes it, however either was opened.
 let openNow: (() => void) | null = null;
 
-/** A control can ask for its tooltip beside it with data-tooltip-placement="right", as a list row does. */
+/** A control can ask for its tooltip beside it with data-tooltip-placement="right" (a list row) or "menu" (a menu item), and a longer pause with data-tooltip-delay (milliseconds). */
 function normalize(param: TooltipParam, node: HTMLElement): Required<TooltipOptions> {
 	const opts = typeof param === 'string' ? { text: param } : param;
-	const asked = node.dataset.tooltipPlacement === 'right' ? 'right' : 'below';
-	return { placement: asked, delay: TOOLTIP_DELAY_MS, ...opts };
+	const want = node.dataset.tooltipPlacement;
+	const asked: Placement = want === 'right' || want === 'menu' ? want : 'below';
+	const pause = Number(node.dataset.tooltipDelay);
+	return { placement: asked, delay: Number.isFinite(pause) && pause > 0 ? pause : TOOLTIP_DELAY_MS, ...opts };
 }
 
 function fillText(tip: HTMLElement, text: string) {
@@ -42,7 +51,22 @@ function fillText(tip: HTMLElement, text: string) {
 	});
 }
 
-function place(tip: HTMLElement, node: HTMLElement, placement: 'below' | 'right') {
+/**
+ * Beside the menu an item belongs to: to its right when there is room, else to its left, level
+ * with the item. The menu and its other items stay uncovered.
+ */
+function placeBesideMenu(tip: HTMLElement, node: HTMLElement) {
+	const menu = (node.closest('[role="menu"]') ?? node).getBoundingClientRect();
+	const item = node.getBoundingClientRect();
+	const width = tip.offsetWidth;
+	const fitsRight = menu.right + GAP_PX + width + EDGE_PX <= window.innerWidth;
+	const left = fitsRight ? menu.right + GAP_PX : menu.left - GAP_PX - width;
+	tip.style.left = `${Math.max(EDGE_PX, left)}px`;
+	tip.style.top = `${Math.max(EDGE_PX, item.top + item.height / 2 - tip.offsetHeight / 2)}px`;
+}
+
+function place(tip: HTMLElement, node: HTMLElement, placement: Placement) {
+	if (placement === 'menu') return placeBesideMenu(tip, node);
 	const rect = node.getBoundingClientRect();
 	const width = tip.offsetWidth;
 	const height = tip.offsetHeight;
@@ -54,7 +78,9 @@ function place(tip: HTMLElement, node: HTMLElement, placement: 'below' | 'right'
 		return;
 	}
 	tip.style.left = `${Math.max(EDGE_PX, Math.min(rect.left, maxLeft))}px`;
-	tip.style.top = `${rect.bottom + GAP_PX}px`;
+	// Under the control, or above it when the page ends before the tooltip does.
+	const fitsBelow = rect.bottom + GAP_PX + height + EDGE_PX <= window.innerHeight;
+	tip.style.top = `${fitsBelow ? rect.bottom + GAP_PX : Math.max(EDGE_PX, rect.top - GAP_PX - height)}px`;
 }
 
 export const HOVER_GRACE_MS = 150;

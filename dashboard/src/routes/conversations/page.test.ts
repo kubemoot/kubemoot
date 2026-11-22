@@ -218,3 +218,121 @@ describe('the open conversation and the top-bar crew', () => {
 		expect(get(namespace)).toBe('');
 	});
 });
+
+describe('the list order', () => {
+	it('lists conversations newest first, each once', async () => {
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThan(2));
+		const known = titles(container).filter((t) => /namespace is the pod|Smoke check smoke-1/.test(t ?? ''));
+		expect(known).toEqual(['Smoke check smoke-1: reply with one short sentence in the namespace', 'Which namespace is the pod in?']);
+		expect(new Set(titles(container)).size).toBe(titles(container).length);
+	});
+
+	it('is the same on every load', async () => {
+		const first = render(Page);
+		await waitFor(() => expect(first.container.querySelectorAll('.card').length).toBeGreaterThan(2));
+		const before = titles(first.container);
+		first.unmount();
+		const second = render(Page);
+		await waitFor(() => expect(second.container.querySelectorAll('.card').length).toBe(before.length));
+		expect(titles(second.container)).toEqual(before);
+	});
+});
+
+describe('asking from + New', () => {
+	const question = 'Is the build green right now?';
+
+	function stubGateway() {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string) => {
+				if (url.endsWith('/ask')) return new Response(JSON.stringify({ conversationId: 'c-asked', requestedAt: new Date().toISOString() }));
+				if (url.includes('/stream')) return new Response('data: {"type":"phase","agent":"coordinator"}\n\n');
+				return new Response(JSON.stringify({ items: [], conversations: [], messages: [] }));
+			})
+		);
+	}
+
+	it('lists the question first at once, opens it, and puts it in the address', async () => {
+		stubGateway();
+		namespace.set('crew-demo');
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThan(2));
+		await fireEvent.click(screen.getByRole('button', { name: '+ New' }));
+		await fireEvent.input(await screen.findByLabelText('Your question'), { target: { value: question } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+		await waitFor(() => expect(page.url.search).toContain('conversation=c-asked'));
+		expect(titles(container)[0]).toBe(question);
+		expect(titles(container).filter((t) => t === question)).toHaveLength(1);
+		expect(container.querySelector('.card.selected .query')?.textContent).toContain(question);
+		expect(container.querySelector('.bubble.you')?.textContent).toContain(question);
+		expect(container.querySelector('.waiting')?.textContent).toContain('working on an answer');
+	});
+
+	it('keeps it listed once and open when the crew thread arrives on the bus', async () => {
+		stubGateway();
+		namespace.set('crew-demo');
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThan(2));
+		await fireEvent.click(screen.getByRole('button', { name: '+ New' }));
+		await fireEvent.input(await screen.findByLabelText('Your question'), { target: { value: 'Second new question?' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+		await waitFor(() => expect(page.url.search).toContain('conversation=c-asked'));
+
+		const subject = 'kubemoot.discuss.crew-demo.demo.general.t-asked';
+		handleMessage(msg('t-asked', 'demo-coordinator', 'thread_start', 'Second new question?', '23:59:00', { timestamp: new Date().toISOString(), metadata: { crew: 'demo', conversationId: 'c-asked' } }), subject);
+		handleMessage(msg('t-asked', 'demo-coordinator', 'synthesis', 'It is green.', '23:59:30', { timestamp: new Date().toISOString() }), subject);
+		await waitFor(() => expect(container.querySelector('.bubble.crew')?.textContent).toContain('It is green.'));
+		expect(titles(container).filter((t) => t === 'Second new question?')).toHaveLength(1);
+		expect(titles(container)[0]).toBe('Second new question?');
+		expect(container.querySelector('.card.selected')).toBeTruthy();
+	});
+});
+
+const COPIED = 'You: Which namespace is the pod in?\n\nCrew: It runs in the default namespace.\n\n1. first\n2. second';
+
+describe('copying the open conversation', () => {
+	it('puts the conversation text on the clipboard from the real menu item', async () => {
+		const writeText = vi.fn(async () => undefined);
+		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThan(2));
+		await fireEvent.click([...container.querySelectorAll<HTMLElement>('.card')].find((c) => c.textContent?.includes('namespace is the pod')) as HTMLElement);
+		await fireEvent.click(screen.getByRole('button', { name: 'Conversation actions' }));
+		await fireEvent.click(screen.getByRole('menuitem', { name: 'Copy conversation' }));
+		expect(writeText).toHaveBeenCalledWith(COPIED);
+		expect(await screen.findByText('Conversation copied.')).toBeTruthy();
+	});
+
+	it('puts the same text on the clipboard from the header button', async () => {
+		const writeText = vi.fn(async () => undefined);
+		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThan(2));
+		await fireEvent.click([...container.querySelectorAll<HTMLElement>('.card')].find((c) => c.textContent?.includes('namespace is the pod')) as HTMLElement);
+		await fireEvent.click(screen.getByRole('button', { name: 'Copy conversation' }));
+		expect(writeText).toHaveBeenCalledWith(COPIED);
+	});
+});
+
+describe('a stand-in for a question just asked', () => {
+	it('is dropped once the bus shows the thread, so it cannot linger as a ghost', async () => {
+		vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+			if (url.endsWith('/ask')) return new Response(JSON.stringify({ conversationId: 'c-ghost', requestedAt: new Date().toISOString() }));
+			if (url.includes('/stream')) return new Response('data: {"type":"done"}\n\n');
+			return new Response(JSON.stringify({ conversations: [] }));
+		}));
+		namespace.set('crew-demo');
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.card').length).toBeGreaterThan(2));
+		await fireEvent.click(screen.getByRole('button', { name: '+ New' }));
+		await fireEvent.input(await screen.findByLabelText('Your question'), { target: { value: 'Ghost question?' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+		await waitFor(() => expect(titles(container)[0]).toBe('Ghost question?'));
+		const subject = 'kubemoot.discuss.crew-demo.demo.general.t-ghost';
+		handleMessage(msg('t-ghost', 'demo-coordinator', 'thread_start', 'Ghost question?', '23:59:00', { timestamp: new Date().toISOString(), metadata: { crew: 'demo', conversationId: 'c-ghost' } }), subject);
+		await waitFor(() => expect(container.querySelector('.card.selected')).toBeTruthy());
+		expect(titles(container).filter((t) => t === 'Ghost question?')).toHaveLength(1);
+	});
+});

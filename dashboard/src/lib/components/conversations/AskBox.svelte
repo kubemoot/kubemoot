@@ -15,8 +15,8 @@
 		scope: CrewScope | null;
 		/** The open conversation, when one is open: the text is a follow-up in it. */
 		conversationId?: string;
-		/** Called with the conversation id once the crew has taken a question. */
-		onAsked?: (conversationId: string) => void;
+		/** Called with the conversation id, the question and the time the crew took it, once the crew has taken a question. */
+		onAsked?: (conversationId: string, question: string, requestedAt?: string) => void;
 		/** The exchange in flight; the page shows it until the conversation itself is open. */
 		live?: Live | null;
 		/** Put the cursor in the field when it appears, as when a new conversation is started. */
@@ -55,7 +55,7 @@
 			const result = await askCrew(call(), scope, question, replying ? conversationId : undefined);
 			text = '';
 			live = { question, answer: WORKING };
-			onAsked?.(result.conversationId);
+			onAsked?.(result.conversationId, question, result.requestedAt);
 			follow(scope, result.conversationId, result.requestedAt, question);
 		} catch (err) {
 			refuse(err);

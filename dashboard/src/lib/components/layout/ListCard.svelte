@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { tooltip } from '#lib/tooltip.js';
+	import { tooltip, ROW_TOOLTIP_DELAY_MS } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
 
 	// One card of the list: badges on top, the question, a line of facts below.
@@ -24,7 +24,7 @@
 
 <div class="row">
 	{#if leading}{@render leading()}{/if}
-	<button type="button" class="card" class:selected onclick={onopen} data-tooltip-placement="right" use:tooltip={ACTIONS.openListItem(kind)}>
+	<button type="button" class="card" class:selected onclick={onopen} data-tooltip-placement="right" data-tooltip-delay={ROW_TOOLTIP_DELAY_MS} use:tooltip={ACTIONS.openListItem(kind)}>
 		{#if head}<div class="head">{@render head()}</div>{/if}
 		<div class="query">{@render children()}</div>
 		{#if foot}<div class="foot">{@render foot()}</div>{/if}

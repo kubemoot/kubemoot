@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { get } from 'svelte/store';
-import { handleMessage, sortedThreads, threadScope } from './discussions';
+import { byLatestActivity, handleMessage, sortedThreads, threadActivity, threadScope, threadStartedAt } from './discussions';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 
 // Covers the refactored handleMessage dispatch (applyThreadStart / dedup /
@@ -118,5 +118,35 @@ describe('forgetThreads', () => {
 		forgetThreads(['forget-a', 'never-there']);
 		expect(get(threads).has('forget-a')).toBe(false);
 		expect(get(threads).has('forget-b')).toBe(true);
+	});
+});
+
+describe('the order of the thread list', () => {
+	const ids = () => get(sortedThreads).map((t) => t.threadId).filter((id) => id.startsWith('ord-'));
+
+	it('lists the newest activity first, and a thread with no time after every dated one', () => {
+		handleMessage(msg({ threadId: 'ord-a', timestamp: '2026-03-01T00:00:00Z' }));
+		handleMessage(msg({ threadId: 'ord-b', timestamp: '2026-03-03T00:00:00Z' }));
+		handleMessage(msg({ threadId: 'ord-none', timestamp: undefined }));
+		handleMessage(msg({ threadId: 'ord-c', timestamp: '2026-03-02T00:00:00Z' }));
+		expect(ids()).toEqual(['ord-b', 'ord-c', 'ord-a', 'ord-none']);
+	});
+
+	it('moves a thread up when a later message arrives on it', () => {
+		handleMessage(msg({ threadId: 'ord-late', messageType: 'agree', timestamp: '2026-03-09T00:00:00Z' }));
+		expect(ids()[0]).toBe('ord-late');
+	});
+
+	it('uses an equal-time tie-break that does not depend on arrival order', () => {
+		const a = { threadId: 'x1', startedAt: '2026-01-01T00:00:00Z', messages: [] } as never;
+		const b = { threadId: 'x2', startedAt: '2026-01-01T00:00:00Z', messages: [] } as never;
+		expect([b, a].sort(byLatestActivity)).toEqual([a, b]);
+	});
+
+	it('names the time of a thread whose start message has none by its earliest message', () => {
+		const t = { startedAt: '', messages: [msg({ timestamp: undefined }), msg({ timestamp: '2026-04-02T00:00:00Z' }), msg({ timestamp: '2026-04-01T00:00:00Z' })] };
+		expect(threadStartedAt(t)).toBe('2026-04-01T00:00:00Z');
+		expect(threadActivity(t)).toBe(Date.parse('2026-04-02T00:00:00Z'));
+		expect(threadStartedAt({ startedAt: '', messages: [] })).toBe('');
 	});
 });

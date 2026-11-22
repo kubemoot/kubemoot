@@ -100,13 +100,13 @@
 				{#if entry.kind === 'separator'}
 					<hr />
 				{:else if entry.kind === 'check'}
-					<button type="button" role="menuitemcheckbox" aria-checked={entry.checked} tabindex="-1" use:tooltip={ACTIONS.menuItem(entry.tip)} onclick={() => run(entry.onselect)}>
+					<button type="button" role="menuitemcheckbox" aria-checked={entry.checked} tabindex="-1" data-tooltip-placement="menu" use:tooltip={ACTIONS.menuItem(entry.tip)} onclick={() => run(entry.onselect)}>
 						<span class="check" aria-hidden="true">{#if entry.checked}<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>{/if}</span>{entry.label}
 					</button>
 				{:else if entry.kind === 'link'}
-					<a role="menuitem" tabindex="-1" href={entry.href} download={entry.download ? '' : undefined} use:tooltip={ACTIONS.menuItem(entry.tip)} onclick={() => close(false)}><span class="check"></span>{entry.label}</a>
+					<a role="menuitem" tabindex="-1" data-tooltip-placement="menu" href={entry.href} download={entry.download ? '' : undefined} use:tooltip={ACTIONS.menuItem(entry.tip)} onclick={() => close(false)}><span class="check"></span>{entry.label}</a>
 				{:else}
-					<button type="button" role="menuitem" class:danger={entry.danger} tabindex="-1" use:tooltip={ACTIONS.menuItem(entry.tip)} onclick={() => run(entry.onselect)}><span class="check"></span>{entry.label}</button>
+					<button type="button" role="menuitem" class:danger={entry.danger} tabindex="-1" data-tooltip-placement="menu" use:tooltip={ACTIONS.menuItem(entry.tip)} onclick={() => run(entry.onselect)}><span class="check"></span>{entry.label}</button>
 				{/if}
 			{/each}
 		</div>
