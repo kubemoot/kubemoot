@@ -6,6 +6,7 @@
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry } from '#lib/crew-display-name.js';
 	import { PageTitle } from '#lib/components/common/index.js';
+	import { formatTimestamp } from '#lib/discussion-timing.js';
 	import MemoryExport from '#lib/components/memory/MemoryExport.svelte';
 
 	interface Fact {
@@ -94,7 +95,7 @@
 								<td>{f.key}</td>
 								<td class="val">{f.value}</td>
 								<td>{f.learnedBy}</td>
-								<td class="ts">{f.usedAt}</td>
+								<td class="ts" title={f.usedAt}>{formatTimestamp(f.usedAt) || f.usedAt}</td>
 							</tr>
 						{/each}
 					</tbody>
