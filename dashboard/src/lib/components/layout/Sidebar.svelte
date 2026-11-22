@@ -27,7 +27,7 @@
 		{ href: resolve('/'), label: 'Overview', icon: 'grid' },
 		{ href: resolve('/nodes'), label: 'Nodes', icon: 'server' },
 		{ href: resolve('/discussions'), label: 'Discussions', icon: 'message-square', section: 'Messaging' },
-		{ href: resolve('/messages'), label: 'Messages', icon: 'message-circle' },
+		{ href: resolve('/conversations'), label: 'Conversations', icon: 'message-circle' },
 		{ href: resolve('/crews'), label: 'Crews', icon: 'users', section: 'Crews' },
 		{ href: resolve('/agents'), label: 'Agents', icon: 'cpu' },
 		{ href: resolve('/promptmodules'), label: 'Prompts', icon: 'align-left' },

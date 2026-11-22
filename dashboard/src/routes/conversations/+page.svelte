@@ -69,10 +69,10 @@
 	});
 </script>
 
-<div class="messages-page">
+<div class="conversations-page">
 	<div class="sidebar-panel">
 		<div class="panel-header">
-			<h2>Conversations</h2>
+			<h2>Recent</h2>
 			{#if selectedScope && tickedIds.length > 0}
 				<ConversationDownload scope={selectedScope} ids={tickedIds} endpoint={exportEndpoint} />
 			{/if}
@@ -98,7 +98,7 @@
 
 	<div class="main-panel">
 		<div class="main-header">
-			<h1>Messages</h1>
+			<h1>Conversations</h1>
 			<div class="header-controls">
 				<label class="details-toggle" title="Show how long each answer took and the tokens it used">
 					<input type="checkbox" checked={$showChatDetails} onchange={() => showChatDetails.toggle()} />
@@ -159,7 +159,7 @@
 </div>
 
 <style>
-	.messages-page { display: flex; height: 100%; overflow: hidden; }
+	.conversations-page { display: flex; height: 100%; overflow: hidden; }
 	.sidebar-panel {
 		width: 260px; border-right: 1px solid var(--color-border); display: flex;
 		flex-direction: column; padding: 1rem; flex-shrink: 0; overflow-y: auto; gap: 0.4rem;

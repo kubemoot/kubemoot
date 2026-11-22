@@ -257,7 +257,7 @@
 		loadChannels();
 		loadGpuLabels();
 		fetchDashboardVersion(fetch, resolve('/api/version')).then((v) => { dashboardVersion = v; });
-		// A link from Messages opens its thread: /discussions?thread=<id>
+		// A link from Conversations opens its thread: /discussions?thread=<id>
 		selectedThreadId = new URLSearchParams(location.search).get('thread') ?? selectedThreadId;
 		// Auto-select first thread once history loads (if nothing selected)
 		const unsub = sortedThreads.subscribe((sorted) => {
