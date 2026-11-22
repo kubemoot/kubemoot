@@ -69,8 +69,11 @@ spec:
   {{- with $m.contextLength }}
   contextLength: {{ . }}
   {{- end }}
-  {{- with $m.vramMib }}
-  vramMib: {{ . }}
+  {{- if and $m.acceleratorMemoryMiB $m.vramMib (ne (int64 $m.acceleratorMemoryMiB) (int64 $m.vramMib)) }}
+  {{- fail (printf "modelServers model %s sets acceleratorMemoryMiB and its deprecated name vramMib to different values: set only acceleratorMemoryMiB" $m.model) }}
+  {{- end }}
+  {{- with ($m.acceleratorMemoryMiB | default $m.vramMib) }}
+  acceleratorMemoryMiB: {{ . }}
   {{- end }}
   {{- if $m.disabled }}
   disabled: true

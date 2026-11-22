@@ -207,10 +207,10 @@ func loadedModels(ps []RunningModel) []aiv1alpha1.LoadedModel {
 	loaded := make([]aiv1alpha1.LoadedModel, 0, len(ps))
 	for _, m := range ps {
 		loaded = append(loaded, aiv1alpha1.LoadedModel{
-			Name:          m.Name,
-			SizeVRAM:      m.SizeVRAM,
-			Size:          m.Size,
-			ContextLength: m.ContextLength,
+			Name:              m.Name,
+			AcceleratorMemory: m.SizeVRAM,
+			Size:              m.Size,
+			ContextLength:     m.ContextLength,
 		})
 	}
 	return loaded

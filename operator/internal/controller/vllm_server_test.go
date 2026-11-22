@@ -263,14 +263,14 @@ func TestVLLMServerWithoutServersFails(t *testing.T) {
 // Accelerator memory in use is read from the loaded models only when the engine
 // reports it; vLLM does not, so a value found another way is kept.
 func TestApplySnapshotToCapacityKeepsMemoryUseTheEngineDoesNotReport(t *testing.T) {
-	capacity := &aiv1alpha1.DiscoveredCapacity{VRAMUsedMiB: 4096}
+	capacity := &aiv1alpha1.DiscoveredCapacity{AcceleratorMemoryUsedMiB: 4096}
 	applySnapshotToCapacity(capacity, engine.Snapshot{LoadedKnown: true, Loaded: []aiv1alpha1.LoadedModel{{Name: vllmModel14}}})
-	if capacity.VRAMUsedMiB != 4096 || len(capacity.LoadedModels) != 1 {
+	if capacity.AcceleratorMemoryUsedMiB != 4096 || capacity.VRAMUsedMiB != 4096 || len(capacity.LoadedModels) != 1 {
 		t.Errorf("capacity = %+v, want loaded models set and memory use kept", capacity)
 	}
 	applySnapshotToCapacity(capacity, engine.Snapshot{LoadedKnown: true, LoadedSizesKnown: true})
-	if capacity.VRAMUsedMiB != 0 {
-		t.Errorf("an engine that reports sizes and loads nothing uses 0, got %d", capacity.VRAMUsedMiB)
+	if capacity.AcceleratorMemoryUsedMiB != 0 || capacity.VRAMUsedMiB != 0 {
+		t.Errorf("an engine that reports sizes and loads nothing uses 0, got %d / %d", capacity.AcceleratorMemoryUsedMiB, capacity.VRAMUsedMiB)
 	}
 }
 

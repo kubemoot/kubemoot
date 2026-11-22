@@ -587,19 +587,43 @@ type DiscoveredCapacity struct {
 	// +optional
 	ContextLength int `json:"contextLength,omitempty"`
 
-	// VRAMTotalMiB discovered from DCGM_FI_DEV_FB_TOTAL via Prometheus
+	// AcceleratorMemoryTotalMiB is the accelerator memory in MiB the server can
+	// use, discovered from the accelerator's own metrics (DCGM through
+	// Prometheus on an NVIDIA host).
+	// +optional
+	AcceleratorMemoryTotalMiB int64 `json:"acceleratorMemoryTotalMiB,omitempty"`
+
+	// AcceleratorMemoryUsedMiB is the accelerator memory in MiB the loaded
+	// models hold, summed from the engine's report of each loaded model.
+	// +optional
+	AcceleratorMemoryUsedMiB int64 `json:"acceleratorMemoryUsedMiB,omitempty"`
+
+	// AcceleratorModel names the accelerator the server runs on (for example
+	// "NVIDIA GeForce RTX 5090"). The operator takes it from the first source
+	// that knows: the model server engine's own report, the accelerator
+	// metrics (DCGM), then the labels on the node the server runs on
+	// (nvidia.com/gpu.product, amd.com/gpu.product-name). Empty when none
+	// knows, as on a CPU host.
+	// +optional
+	AcceleratorModel string `json:"acceleratorModel,omitempty"`
+
+	// VRAMTotalMiB is the old name of acceleratorMemoryTotalMiB. This field is deprecated: the
+	// operator writes both in this release and removes this one in the next.
 	// +optional
 	VRAMTotalMiB int64 `json:"vramTotalMiB,omitempty"`
 
-	// VRAMUsedMiB from sum of loaded model size_vram via /api/ps
+	// VRAMUsedMiB is the old name of acceleratorMemoryUsedMiB. This field is deprecated: the
+	// operator writes both in this release and removes this one in the next.
 	// +optional
 	VRAMUsedMiB int64 `json:"vramUsedMiB,omitempty"`
 
-	// GPUModel discovered from DCGM metrics (e.g., "NVIDIA GeForce RTX 5090")
+	// GPUModel is the old name of acceleratorModel. This field is deprecated: the
+	// operator writes both in this release and removes this one in the next.
 	// +optional
 	GPUModel string `json:"gpuModel,omitempty"`
 
-	// LoadedModels from /api/ps with VRAM details
+	// LoadedModels lists the models the engine reports as loaded, with their
+	// accelerator memory use
 	// +optional
 	LoadedModels []LoadedModel `json:"loadedModels,omitempty"`
 
@@ -642,7 +666,13 @@ type LoadedModel struct {
 	// Name is the model identifier
 	Name string `json:"name"`
 
-	// SizeVRAM is the VRAM used by this model in bytes (from /api/ps)
+	// AcceleratorMemory is the accelerator memory this model holds, in bytes, as
+	// the engine reports it.
+	// +optional
+	AcceleratorMemory int64 `json:"acceleratorMemory,omitempty"`
+
+	// SizeVRAM is the old name of acceleratorMemory. This field is deprecated: the
+	// operator writes both in this release and removes this one in the next.
 	// +optional
 	SizeVRAM int64 `json:"sizeVram,omitempty"`
 
@@ -715,4 +745,59 @@ type ModelServerList struct {
 
 func init() {
 	registerTypes(&ModelServer{}, &ModelServerList{})
+}
+
+// preferNew returns the value of a renamed field, or the old name's value when the new one is
+// unset (zero), as when an older operator wrote the object.
+func preferNew[T int32 | int64 | string](current, old T) T {
+	var zero T
+	if current != zero {
+		return current
+	}
+	return old
+}
+
+// TotalMiB returns the accelerator memory in MiB the server can use, read through the new
+// field with the old name as the fallback. Zero when unknown.
+func (c *DiscoveredCapacity) TotalMiB() int64 {
+	if c == nil {
+		return 0
+	}
+	return preferNew(c.AcceleratorMemoryTotalMiB, c.VRAMTotalMiB)
+}
+
+// UsedMiB returns the accelerator memory in MiB the loaded models hold, read through the new
+// field with the old name as the fallback.
+func (c *DiscoveredCapacity) UsedMiB() int64 {
+	if c == nil {
+		return 0
+	}
+	return preferNew(c.AcceleratorMemoryUsedMiB, c.VRAMUsedMiB)
+}
+
+// Accelerator returns the accelerator's name, read through the new field with the old name as
+// the fallback.
+func (c *DiscoveredCapacity) Accelerator() string {
+	if c == nil {
+		return ""
+	}
+	return preferNew(c.AcceleratorModel, c.GPUModel)
+}
+
+// AcceleratorBytes returns the accelerator memory in bytes the model holds, read through the
+// new field with the old name as the fallback.
+func (m LoadedModel) AcceleratorBytes() int64 {
+	return preferNew(m.AcceleratorMemory, m.SizeVRAM)
+}
+
+// MirrorDeprecatedFields writes each new accelerator field to its deprecated old name. The
+// operator keeps writing both for one release; writers set the new names only and call this.
+// Delete it with the old fields.
+func (c *DiscoveredCapacity) MirrorDeprecatedFields() {
+	c.VRAMTotalMiB = c.AcceleratorMemoryTotalMiB
+	c.VRAMUsedMiB = c.AcceleratorMemoryUsedMiB
+	c.GPUModel = c.AcceleratorModel
+	for i := range c.LoadedModels {
+		c.LoadedModels[i].SizeVRAM = c.LoadedModels[i].AcceleratorMemory
+	}
 }

@@ -103,8 +103,10 @@ modelServers:
         parameters: 14B
         capabilities: [tool-calling, reasoning]
         contextLength: 40960
-        vramMib: 11000
+        acceleratorMemoryMiB: 11000
         labels: {kubemoot.ai/data-residency: on-premises}
+      - model: llama3:8b
+        vramMib: 6000
       - model: Gemma3:4B
         disabled: true
   - name: vllm-gpu
@@ -120,7 +122,7 @@ modelServers:
 EOF
 catalog="$(helm template kubemoot-operator "$chart" -f "$values" --namespace km --set schedulingCrew.enabled=false | yq 'select(.kind == "Model")')"
 model() { yq -N "select(.metadata.name == \"$1\") | $2" <<<"$catalog"; }
-[ "$(yq -N '.metadata.name' <<<"$catalog" | sort | tr '\n' ' ')" = "ollama-gpu-gemma3-4b ollama-gpu-qwen3-14b ollama-gpu-qwen3-32b vllm-gpu-qwen3-14b " ] \
+[ "$(yq -N '.metadata.name' <<<"$catalog" | sort | tr '\n' ' ')" = "ollama-gpu-gemma3-4b ollama-gpu-llama3-8b ollama-gpu-qwen3-14b ollama-gpu-qwen3-32b vllm-gpu-qwen3-14b " ] \
   || fail "unexpected catalog Models: $(yq -N '.metadata.name' <<<"$catalog" | tr '\n' ' ')"
 [ "$(model ollama-gpu-qwen3-32b .spec.serverRef)" = "ollama-gpu" ] || fail "serverRef"
 [ "$(model ollama-gpu-qwen3-32b .metadata.namespace)" = "km" ] || fail "a catalog Model lives in the server's namespace"
@@ -130,7 +132,9 @@ model() { yq -N "select(.metadata.name == \"$1\") | $2" <<<"$catalog"; }
 [ "$(model ollama-gpu-qwen3-14b .spec.parameters)" = "14B" ] || fail "parameters"
 [ "$(model ollama-gpu-qwen3-14b '.spec.capabilities | join(",")')" = "tool-calling,reasoning" ] || fail "capabilities"
 [ "$(model ollama-gpu-qwen3-14b '.spec.contextLength | tag')" = "!!int" ] || fail "contextLength is not an integer"
-[ "$(model ollama-gpu-qwen3-14b '.spec.vramMib')" = "11000" ] || fail "vramMib"
+[ "$(model ollama-gpu-qwen3-14b '.spec.acceleratorMemoryMiB')" = "11000" ] || fail "acceleratorMemoryMiB"
+[ "$(model ollama-gpu-qwen3-14b '.spec.vramMib')" = "null" ] || fail "the new name renders no vramMib"
+[ "$(model ollama-gpu-llama3-8b '.spec.acceleratorMemoryMiB')" = "6000" ] || fail "the deprecated vramMib values key renders as acceleratorMemoryMiB"
 [ "$(model ollama-gpu-qwen3-14b '.metadata.labels["kubemoot.ai/data-residency"]')" = "on-premises" ] || fail "owner label lost"
 [ "$(model ollama-gpu-gemma3-4b .spec.disabled)" = "true" ] || fail "disabled"
 [ "$(model vllm-gpu-qwen3-14b .metadata.namespace)" = "other" ] || fail "a Model follows its server's namespace"
@@ -148,6 +152,20 @@ modelServers:
 EOF
 if out="$(helm template kubemoot-operator "$chart" -f "$values" --namespace km 2>&1)"; then fail "colliding Model names were accepted"; fi
 grep -qF 'both render the Model name "ollama-gpu-qwen3-14b"' <<<"$out" || fail "collision message: $out"
+
+# The new name and its deprecated alias with different values would render one of them silently: refused.
+cat >"$values" <<'EOF'
+modelServers:
+  - name: ollama-gpu
+    type: ollama
+    endpoint: http://ollama.gpu:11434
+    models:
+      - model: "qwen3:14b"
+        acceleratorMemoryMiB: 11000
+        vramMib: 12000
+EOF
+if out="$(helm template kubemoot-operator "$chart" -f "$values" --namespace km 2>&1)"; then fail "different acceleratorMemoryMiB and vramMib were accepted"; fi
+grep -qF 'different values' <<<"$out" || fail "alias conflict message: $out"
 
 # The install notes lead with vLLM (the preferred engine) and show Ollama as the
 # alternative while no server is declared; they list the servers once there are some.

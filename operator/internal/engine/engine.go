@@ -78,18 +78,21 @@ type Snapshot struct {
 	// request, by model name. A model present with 0 was asked about and the engine
 	// gave no window; a model absent could not be asked (its server did not answer).
 	ContextLengths map[string]int
+	// AcceleratorModel is the accelerator's name as the engine itself reports it,
+	// such as "NVIDIA GeForce RTX 5090"; empty when the engine does not say.
+	AcceleratorModel string
 	// SwitchCostMs is the observed time to make each model ready, by model.
 	SwitchCostMs map[string]int64
 	// HostMemoryParkedMiB is the host memory holding the weights of sleeping models.
 	HostMemoryParkedMiB *int64
 }
 
-// VRAMUsedMiB is the accelerator memory in MiB the loaded models hold. Memory a
+// AcceleratorMemoryUsedMiB is the accelerator memory in MiB the loaded models hold. Memory a
 // model holds in host RAM is not counted.
-func (s Snapshot) VRAMUsedMiB() int64 {
+func (s Snapshot) AcceleratorMemoryUsedMiB() int64 {
 	var total int64
 	for _, m := range s.Loaded {
-		total += m.SizeVRAM
+		total += m.AcceleratorBytes()
 	}
 	return total / (1024 * 1024)
 }

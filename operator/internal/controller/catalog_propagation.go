@@ -53,7 +53,7 @@ func catalogDigest(p *aiv1alpha1.ModelServer) string {
 			keys = append(keys, k+"="+v)
 		}
 		sort.Strings(keys)
-		parts = append(parts, fmt.Sprintf("%s{%s}%d", m.Spec.Model, strings.Join(keys, ","), m.Spec.VRAMMib))
+		parts = append(parts, fmt.Sprintf("%s{%s}%d", m.Spec.Model, strings.Join(keys, ","), m.Spec.AcceleratorMemory()))
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, ";")
