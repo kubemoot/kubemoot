@@ -1,11 +1,15 @@
 // Ready-of-total counts for the Overview page cards.
 
+import { nodeAccelerator } from './node-accelerator';
+
 export interface CountEntry {
 	total: number;
 	ready: number;
 }
 
 interface NodeLike {
+	accelerator?: { present: boolean; count?: number };
+	/** Deprecated old name of accelerator. */
 	gpu?: { present: boolean; count?: number };
 	status?: { conditions?: Array<{ type: string; status: string }> };
 }
@@ -24,7 +28,8 @@ function isNodeReady(node: NodeLike): boolean {
 
 /** Accelerators on a node: the device count its plugin reports, at least one on an accelerator node. */
 function acceleratorsOn(node: NodeLike): number {
-	return node.gpu?.present ? Math.max(node.gpu.count ?? 1, 1) : 0;
+	const accelerator = nodeAccelerator(node);
+	return accelerator?.present ? Math.max(accelerator.count ?? 1, 1) : 0;
 }
 
 /**

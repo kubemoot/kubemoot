@@ -1,13 +1,16 @@
 <script lang="ts">
-	import type { NodeWithGPU } from '#lib/types/k8s.js';
+	import type { NodeWithAccelerator } from '#lib/types/k8s.js';
 	import StatusBadge from '../common/StatusBadge.svelte';
 	import { splitCamelCase } from '#lib/text-utils.js';
+	import { nodeAccelerator } from '#lib/node-accelerator.js';
 
 	interface Props {
-		node: NodeWithGPU;
+		node: NodeWithAccelerator;
 	}
 
 	let { node }: Props = $props();
+
+	const accelerator = $derived(nodeAccelerator(node));
 
 	const isReady = $derived(
 		node.status?.conditions?.find(c => c.type === 'Ready')?.status === 'True'
@@ -53,7 +56,7 @@
 		</div>
 	</div>
 
-	{#if node.gpu?.present}
+	{#if accelerator?.present}
 		<footer class="footer gpu">
 			<div class="gpu-info">
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -61,12 +64,12 @@
 					<path d="M6 12h4" />
 					<path d="M14 12h4" />
 				</svg>
-				<span class="gpu-type">{node.gpu.type || 'Accelerator'}</span>
-				{#if node.gpu.count && node.gpu.count > 1}
-					<span class="gpu-count">x{node.gpu.count}</span>
+				<span class="gpu-type">{accelerator.type || 'Accelerator'}</span>
+				{#if accelerator.count && accelerator.count > 1}
+					<span class="gpu-count">x{accelerator.count}</span>
 				{/if}
-				{#if node.gpu.memory}
-					<span class="gpu-memory">{node.gpu.memory}</span>
+				{#if accelerator.memory}
+					<span class="gpu-memory">{accelerator.memory}</span>
 				{/if}
 			</div>
 		</footer>

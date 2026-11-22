@@ -71,8 +71,8 @@ export interface K8sNamespace {
 	};
 }
 
-// GPU-related types
-export interface GPUInfo {
+// Accelerator-related types
+export interface AcceleratorInfo {
 	present: boolean;
 	type?: string;
 	count?: number;
@@ -81,8 +81,10 @@ export interface GPUInfo {
 	capacity?: string;
 }
 
-export interface NodeWithGPU extends K8sNode {
-	gpu?: GPUInfo;
+export interface NodeWithAccelerator extends K8sNode {
+	accelerator?: AcceleratorInfo;
+	/** Deprecated old name of accelerator, still sent for one release; removed in the next. */
+	gpu?: AcceleratorInfo;
 }
 
 // API response types
@@ -106,7 +108,7 @@ export interface NamespacesResponse {
 }
 
 export interface NodesResponse {
-	nodes: NodeWithGPU[];
+	nodes: NodeWithAccelerator[];
 }
 
 export interface SSEEvent {

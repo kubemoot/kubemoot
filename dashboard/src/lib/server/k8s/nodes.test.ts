@@ -6,7 +6,7 @@ const listCrews = vi.fn();
 vi.mock('./client.js', () => ({ getCoreApi: () => ({ listNamespace }), getServiceAccountCoreApi: () => ({ listNamespace }) }));
 vi.mock('./kubemoot-crds.js', () => ({ listCrews: (ns: string) => listCrews(ns) }));
 
-const { crewNamespaceEntries, listCrewNamespaces } = await import('./nodes');
+const { crewNamespaceEntries, listCrewNamespaces, withAccelerator } = await import('./nodes');
 
 function ns(name: string | undefined, crew?: string) {
 	const labels: Record<string, string> = crew === undefined ? {} : { 'kubemoot.ai/crew': crew };
@@ -22,6 +22,22 @@ function crewCr(namespace: string | undefined, name: string | undefined, display
 		}
 	};
 }
+
+describe('withAccelerator', () => {
+	it('sends the accelerator summary under accelerator and the deprecated gpu', () => {
+		const node = { metadata: { name: 'n1' }, status: { capacity: { 'nvidia.com/gpu': '2' } } };
+		const out = withAccelerator(node as never);
+		expect(out.accelerator).toMatchObject({ present: true, count: 2 });
+		expect(out.gpu).toEqual(out.accelerator);
+		expect(out.metadata.name).toBe('n1');
+	});
+
+	it('reports no accelerator on both names for a node without one', () => {
+		const out = withAccelerator({ metadata: { name: 'cpu-only' }, status: { capacity: { cpu: '8' } } } as never);
+		expect(out.accelerator).toEqual({ present: false });
+		expect(out.gpu).toEqual({ present: false });
+	});
+});
 
 describe('crewNamespaceEntries', () => {
 	it('pairs each crew namespace with its Crew CR display name', () => {

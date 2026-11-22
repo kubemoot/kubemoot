@@ -26,7 +26,7 @@ describe('nodeCounts', () => {
 	it('counts Ready nodes and the accelerators on them', () => {
 		expect(
 			nodeCounts([
-				{ ...ready, gpu: { present: true, count: 2 } },
+				{ ...ready, accelerator: { present: true, count: 2 } },
 				{ ...notReady, gpu: { present: true, count: 4 } },
 				{},
 				{ ...ready, gpu: { present: false } }
@@ -38,7 +38,11 @@ describe('nodeCounts', () => {
 	});
 
 	it('counts an accelerator node that reports no device count as one', () => {
-		expect(nodeCounts([{ ...ready, gpu: { present: true } }]).accelerators).toEqual({ total: 1, ready: 1 });
+		expect(nodeCounts([{ ...ready, accelerator: { present: true } }]).accelerators).toEqual({ total: 1, ready: 1 });
+	});
+
+	it('reads the deprecated gpu field of an older dashboard server', () => {
+		expect(nodeCounts([{ ...ready, gpu: { present: true, count: 3 } }]).accelerators).toEqual({ total: 3, ready: 3 });
 	});
 
 	it('ignores conditions other than Ready', () => {

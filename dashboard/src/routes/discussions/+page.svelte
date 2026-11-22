@@ -18,7 +18,7 @@
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
 	import { aggregateAgents, renderAgentSummary } from '#lib/discussion-agent-summary.js';
 	import { threadStartMs as messagesStartMs } from '#lib/discussion-spans.js';
-	import { buildGpuDisplayMap } from '#lib/gpu-display.js';
+	import { buildAcceleratorDisplayMap } from '#lib/accelerator-display.js';
 	import { answerState } from '#lib/conversation-answer.js';
 	import { statusIcon } from '#lib/thread-status-icon.js';
 	import { browserTimeZone, exportHref, threadConversationId } from '#lib/conversation-export.js';
@@ -61,11 +61,11 @@
 	// Thread actions state
 	let showSpanGraph = $state(false);
 	let dashboardVersion = $state(VERSION_UNKNOWN);
-	// Server-id -> discovered GPU model (e.g. "ollama-rig1" -> "RTX 4090"), so the
-	// span graph shows the human GPU name instead of the raw server id. Sourced
-	// from the operator's DCGM discovery (ModelServer.status.capacity.gpuModel);
-	// no GPU model is hardcoded.
-	let gpuDisplayMap = $state<Record<string, string>>({});
+	// Server-id -> discovered accelerator model (e.g. "ollama-rig1" -> "RTX 4090"), so the
+	// span graph shows the human accelerator name instead of the raw server id. Sourced
+	// from the operator's DCGM discovery (ModelServer.status.capacity.acceleratorModel);
+	// no accelerator model is hardcoded.
+	let acceleratorDisplayMap = $state<Record<string, string>>({});
 
 	// Dynamic channels from API
 	let channels = $state<ChannelInfo[]>([{ name: 'general', color: '#6b7280', agentCount: 0 }]);
@@ -195,17 +195,17 @@
 		await navigator.clipboard.writeText(text);
 	}
 
-	// Build server-id -> GPU model map from the operator-discovered ModelServer
+	// Build server-id -> accelerator model map from the operator-discovered ModelServer
 	// status. Keys on BOTH the CR name and the endpoint namespace, because span
-	// metadata may carry either form (GpuLabels.fromServer vs fromEndpoint).
-	async function loadGpuLabels() {
+	// metadata may carry either form (AcceleratorLabels.fromServer vs fromEndpoint).
+	async function loadAcceleratorLabels() {
 		try {
 			const res = await fetch(`${resolve('/api/kubemoot/modelservers')}?namespace=`);
 			const data = await res.json();
 			const items = Array.isArray(data?.items) ? data.items : [];
-			gpuDisplayMap = buildGpuDisplayMap(items);
+			acceleratorDisplayMap = buildAcceleratorDisplayMap(items);
 		} catch (e) {
-			console.error('Failed to load GPU labels:', e);
+			console.error('Failed to load accelerator labels:', e);
 		}
 	}
 
@@ -257,7 +257,7 @@
 	onMount(() => {
 		initDiscussions();
 		loadChannels();
-		loadGpuLabels();
+		loadAcceleratorLabels();
 		fetchDashboardVersion(fetch, resolve('/api/version')).then((v) => { dashboardVersion = v; });
 		// A link from Conversations opens its thread: /discussions?thread=<id>
 		selectedThreadId = new URLSearchParams(location.search).get('thread') ?? selectedThreadId;
@@ -397,7 +397,7 @@
 							userQuery={selectedThread.userQuery}
 							version={dashboardVersion}
 							crew={selectedThread.crew}
-							{gpuDisplayMap}
+							{acceleratorDisplayMap}
 						/>
 					</div>
 				{/if}
@@ -474,7 +474,7 @@
 								</div>
 							{/if}
 							{#if $showDebugDetail}
-								<MessageStatsLine {stats} acceleratorNames={gpuDisplayMap} />
+								<MessageStatsLine {stats} acceleratorNames={acceleratorDisplayMap} />
 							{/if}
 						</div>
 					{/each}

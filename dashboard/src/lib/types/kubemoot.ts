@@ -30,6 +30,9 @@ export interface ModelServerSpec {
 export interface ModelServerLoadedModel {
 	name: string;
 	size?: number;
+	/** Accelerator memory this model holds, in bytes. */
+	acceleratorMemory?: number;
+	/** Deprecated old name of acceleratorMemory; removed in the release after this one. */
 	sizeVram?: number;
 	expiresAt?: string;
 }
@@ -38,8 +41,13 @@ export interface ModelServerCapacity {
 	availableModels?: { name: string; sizeBytes?: number }[];
 	loadedModels?: ModelServerLoadedModel[];
 	maxParallel?: number;
+	acceleratorMemoryUsedMiB?: number;
+	acceleratorMemoryTotalMiB?: number;
+	acceleratorModel?: string;
+	/** Deprecated old names of the three fields above; removed in the release after this one. */
 	vramUsedMiB?: number;
 	vramTotalMiB?: number;
+	gpuModel?: string;
 	nodeName?: string;
 	lastProbed?: string;
 }

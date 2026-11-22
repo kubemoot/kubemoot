@@ -1,29 +1,32 @@
 import { getCoreApi } from './client.js';
-import type { K8sNode, NodeWithGPU } from '#lib/types/k8s.js';
+import type { K8sNode, NodeWithAccelerator } from '#lib/types/k8s.js';
 import { compareCodeUnits, describeError } from '#lib/text-utils.js';
-import { extractGPUInfo } from './gpu-info.js';
+import { extractAcceleratorInfo } from './accelerator-info.js';
 import { listCrews } from './kubemoot-crds.js';
 import type { Crew } from '#lib/types/kubemoot.js';
 import { crewDisplayName, type CrewEntry, type CrewNameSource } from '#lib/crew-display-name.js';
 
-export async function listNodes(): Promise<NodeWithGPU[]> {
+/**
+ * The node with its accelerator summary. `gpu` is the deprecated old name of `accelerator`,
+ * sent for one release for readers outside the dashboard; remove it in the next.
+ */
+export function withAccelerator(node: K8sNode): NodeWithAccelerator {
+	const accelerator = extractAcceleratorInfo(node);
+	return { ...node, accelerator, gpu: accelerator };
+}
+
+export async function listNodes(): Promise<NodeWithAccelerator[]> {
 	const api = getCoreApi();
 	const nodeList = await api.listNode();
 
-	return (nodeList.items as unknown as K8sNode[]).map((node) => ({
-		...node,
-		gpu: extractGPUInfo(node)
-	}));
+	return (nodeList.items as unknown as K8sNode[]).map(withAccelerator);
 }
 
-export async function getNode(name: string): Promise<NodeWithGPU> {
+export async function getNode(name: string): Promise<NodeWithAccelerator> {
 	const api = getCoreApi();
 	const node = await api.readNode({ name }) as unknown as K8sNode;
 
-	return {
-		...node,
-		gpu: extractGPUInfo(node)
-	};
+	return withAccelerator(node);
 }
 
 export async function listNamespaces(): Promise<string[]> {

@@ -2,6 +2,7 @@
 // bar per agent from its first to its last message, colored by its strongest
 // signal, with GPU placement, inference timing, and GPU queue depth.
 
+import { preferred } from './accelerator-capacity';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 
 type MessageMeta = NonNullable<DiscussionMessage['metadata']>;
@@ -93,7 +94,7 @@ export interface AgentSpan {
 	toolsUsed: string[];
 	messages: DiscussionMessage[];
 	/** Where the agent's calls ran: the ModelServer, else the accelerator label it reports. */
-	gpuLabel?: string;
+	acceleratorLabel?: string;
 	/** The model the agent's latest call ran on. */
 	model?: string;
 	/** FitPredictor v2 per-call reasoning ("warm, slot 1/2 | SR=0.92 ..."). */
@@ -134,10 +135,11 @@ export const NO_ACCELERATOR = 'none';
  */
 export function placementOf(
 	server?: string,
-	gpuLabel?: string,
+	acceleratorLabel?: string,
 	known?: ReadonlySet<string>
 ): string | undefined {
-	const label = known?.size && gpuLabel && !known.has(gpuLabel) ? undefined : gpuLabel;
+	const label =
+		known?.size && acceleratorLabel && !known.has(acceleratorLabel) ? undefined : acceleratorLabel;
 	return [server, label].find((p) => !!p && p !== NO_ACCELERATOR);
 }
 
@@ -222,13 +224,26 @@ export function primarySignal(msgs: DiscussionMessage[]): string {
 }
 
 /** The last set value of a metadata field across the messages. */
-function lastMeta<K extends 'gpuLabel' | 'pickReason' | 'server' | 'model'>(
+function lastMeta<K extends 'pickReason' | 'server' | 'model'>(
 	msgs: DiscussionMessage[],
 	key: K
 ): MessageMeta[K] | undefined {
 	let value: MessageMeta[K] | undefined;
 	for (const m of msgs) {
 		const v = m.metadata?.[key];
+		if (v) value = v;
+	}
+	return value;
+}
+
+/**
+ * The last accelerator label the messages report: `acceleratorLabel`, else the deprecated
+ * `gpuLabel` that a publisher older than this release sends.
+ */
+function lastAcceleratorLabel(msgs: DiscussionMessage[]): string | undefined {
+	let value: string | undefined;
+	for (const m of msgs) {
+		const v = preferred(m.metadata?.acceleratorLabel, m.metadata?.gpuLabel);
 		if (v) value = v;
 	}
 	return value;
@@ -296,7 +311,7 @@ export function placementOfMessages(
 	known: ReadonlySet<string>
 ): string | undefined {
 	const ran = msgs.flatMap((m) => serversOfMessage(m.metadata)).at(-1);
-	return placementOf(ran, lastMeta(msgs, 'gpuLabel'), known);
+	return placementOf(ran, lastAcceleratorLabel(msgs), known);
 }
 
 function agentSpan(
@@ -319,7 +334,7 @@ function agentSpan(
 		isHuman,
 		toolsUsed: toolsUsed(data.msgs),
 		messages: data.msgs,
-		gpuLabel: placementOfMessages(data.msgs, known),
+		acceleratorLabel: placementOfMessages(data.msgs, known),
 		model: lastMeta(data.msgs, 'model'),
 		pickReason: lastMeta(data.msgs, 'pickReason'),
 		inferenceMs: maxMeta(data.msgs, 'inferenceMs'),
@@ -330,18 +345,18 @@ function agentSpan(
 	};
 }
 
-/** The span's inference window, or null when it has no GPU or timed inference. */
+/** The span's inference window, or null when it has no accelerator or timed inference. */
 function inferenceWindow(span: AgentSpan): { start: number; end: number } | null {
-	if (!span.gpuLabel || !span.inferenceStartMs || span.inferenceMs <= 0) return null;
+	if (!span.acceleratorLabel || !span.inferenceStartMs || span.inferenceMs <= 0) return null;
 	return { start: span.inferenceStartMs, end: span.inferenceStartMs + span.inferenceMs };
 }
 
-/** How many other spans ran inference on the same GPU while this one did. */
+/** How many other spans ran inference on the same accelerator while this one did. */
 export function queueDepth(span: AgentSpan, all: AgentSpan[]): number {
 	const mine = inferenceWindow(span);
 	if (!mine) return 0;
 	return all.filter((other) => {
-		if (other === span || other.gpuLabel !== span.gpuLabel) return false;
+		if (other === span || other.acceleratorLabel !== span.acceleratorLabel) return false;
 		const theirs = inferenceWindow(other);
 		return !!theirs && mine.start < theirs.end && mine.end > theirs.start;
 	}).length;
