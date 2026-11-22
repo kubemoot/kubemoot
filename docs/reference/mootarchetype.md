@@ -127,8 +127,9 @@ crew's coordinator as `KUBEMOOT_DISCUSS_RATIFY_ENABLED`, `KUBEMOOT_DISCUSS_RATIF
 the coordinators.
 
 The shipped `consent-3` archetype sets `ratify.enabled: false`. The separate
-`consent-3-unratified` archetype is no longer installed: it differed from `consent-3` only by this
-setting, which is now the default. A policy whose `archetypeRef` names it must name `consent-3`.
+`consent-3-unratified` archetype is **deprecated** and is removed in the next release: it differs
+from `consent-3` only by this setting, which is now the default. Change an `archetypeRef` that
+names it to `consent-3`.
 
 The field is optional and additive: a crew whose archetype has no `ratify` block works as it did
 before ratification existed. Apply the new CRDs before the operator chart that sets the block (see

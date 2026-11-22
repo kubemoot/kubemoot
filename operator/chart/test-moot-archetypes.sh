@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Render test for the MootArchetypes the operator chart ships: consent-3 turns ratification
-# off (it is opt-in) and the retired consent-3-unratified is no longer rendered.
+# off (it is opt-in); the deprecated consent-3-unratified stays one release and is identical.
 # Needs helm and yq. Run from anywhere: operator/chart/test-moot-archetypes.sh
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -13,5 +13,9 @@ spec() { yq -N -o=json -I=0 "select(.kind == \"MootArchetype\" and .metadata.nam
 
 [ -n "$(spec consent-3 '.phases')" ] || fail "consent-3 did not render"
 [ "$(spec consent-3 '.ratify')" = '{"enabled":false}' ] || fail "consent-3 must set ratify.enabled false"
-[ -z "$(spec consent-3-unratified '.phases')" ] || fail "consent-3-unratified is folded into consent-3 and must not render"
-echo "PASS: consent-3 ships with ratification off"
+[ "$(spec consent-3-unratified '.ratify')" = '{"enabled":false}' ] || fail "consent-3-unratified must set ratify.enabled false"
+case "$(spec consent-3-unratified '.description')" in *DEPRECATED*) ;; *) fail "consent-3-unratified must be marked DEPRECATED";; esac
+a="$(spec consent-3 'del(.description)')"
+b="$(spec consent-3-unratified 'del(.description)')"
+[ "$a" = "$b" ] || fail "the deprecated archetype must stay identical to consent-3"
+echo "PASS: consent-3 ships with ratification off; consent-3-unratified is deprecated and identical"
