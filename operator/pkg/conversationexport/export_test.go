@@ -27,10 +27,11 @@ import (
 )
 
 const (
-	convID     = "conv-1"
-	thread1    = "th-1"
-	thread2    = "th-2"
-	credential = "Authorization: Bearer abcdefgh12345678"
+	convID      = "conv-1"
+	thread1     = "th-1"
+	thread2     = "th-2"
+	credential  = "Authorization: Bearer abcdefgh12345678"
+	zoneNewYork = "America/New_York"
 )
 
 var (
@@ -67,6 +68,7 @@ func fullHeld() Held {
 			{ThreadID: thread2, Question: "and the GPUs?", Answer: "idle", AnsweredAt: answered.Add(time.Hour)},
 		},
 		Receipts: map[string][]byte{thread1: []byte(`{"tokens":5}`), thread2: []byte(`{"tokens":7}`)},
+		Messages: map[string][]Message{thread1: mootMessages(thread1), thread2: mootMessages(thread2)},
 		Files:    []File{file(thread1, "obs/result-1", "table")},
 	}
 }
@@ -155,7 +157,7 @@ func part(m Manifest, path string) Part {
 func TestConversationZipHoldsEveryPartWhenAllAreStored(t *testing.T) {
 	files, m := exportOne(t, builderWith(fakeSource{convID: fullHeld()}, crewMemory()), Options{})
 	for _, name := range []string{
-		"conversation.md", "conversation.json", "receipts/th-1.json", "receipts/th-2.json",
+		"conversation.md", "conversation.json", "discussion.md", "receipts/th-1.json", "receipts/th-2.json",
 		"artifacts/th-1/obs/result-1", "memory/manifest.json", "manifest.json",
 	} {
 		if _, ok := files[name]; !ok {
@@ -316,7 +318,7 @@ func TestAnUnreadableMemoryStoreIsListedNotMistakenForEmpty(t *testing.T) {
 }
 
 func TestTimesAreInTheAskersZoneWhenKnown(t *testing.T) {
-	files, m := exportOne(t, builderWith(fakeSource{convID: fullHeld()}, nil), Options{TimeZone: "America/New_York"})
+	files, m := exportOne(t, builderWith(fakeSource{convID: fullHeld()}, nil), Options{TimeZone: zoneNewYork})
 	if m.TimeZone != "America/New_York" {
 		t.Errorf("zone = %q", m.TimeZone)
 	}

@@ -14,6 +14,7 @@ package conversationexport
 const (
 	FileMarkdown = "conversation.md"
 	FileJSON     = "conversation.json"
+	FileMoot     = "discussion.md"
 	FileManifest = "manifest.json"
 	DirReceipts  = "receipts"
 	DirArtifacts = "artifacts"

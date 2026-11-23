@@ -43,6 +43,19 @@ type Turn struct {
 	AnsweredAt time.Time
 }
 
+// Message is one message of a turn's discussion thread, as the discussion stream held it.
+type Message struct {
+	ID string
+	// Agent is who sent it: an agent's name, human, scheduler or discussion-gateway.
+	Agent string
+	// Signal is the message type: agree, concern, advisory, synthesis and so on.
+	Signal  string
+	Channel string
+	Content string
+	// At is when it was published, UTC; zero when the message carried no time.
+	At time.Time
+}
+
 // File is a stored file of a thread's workspace.
 type File struct {
 	Thread string
@@ -59,6 +72,9 @@ type Held struct {
 	// Receipts is the receipt per thread, as the asker's stream carried it. A thread
 	// whose receipt is no longer stored has no entry.
 	Receipts map[string][]byte
+	// Messages is the discussion of each thread, every message in the order the stream
+	// held it. A thread the stream no longer holds has no entry.
+	Messages map[string][]Message
 	// Files are the workspace files of the conversation's threads that are still stored.
 	Files []File
 }

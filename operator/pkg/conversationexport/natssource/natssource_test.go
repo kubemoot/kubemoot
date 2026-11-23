@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	thread2     = "th-2"
-	keyThreadID = "threadId"
+	thread2        = "th-2"
+	keyThreadID    = "threadId"
+	keyMessageType = "messageType"
 )
 
 var scope = crewscope.Scope{Namespace: "ns", Crew: "c"}
@@ -174,13 +175,13 @@ func turn(thread, q, a string) map[string]string {
 
 func closeMsg(thread string, receipt map[string]any) jetstream.Msg {
 	b, _ := json.Marshal(map[string]any{
-		keyThreadID: thread, "messageType": "thread_close", "metadata": map[string]any{"receipt": receipt},
+		keyThreadID: thread, keyMessageType: "thread_close", "metadata": map[string]any{"receipt": receipt},
 	})
 	return fakeMsg{data: b}
 }
 
 func synthesisMsg(thread string) jetstream.Msg {
-	b, _ := json.Marshal(map[string]any{keyThreadID: thread, "messageType": "synthesis", "content": "answer"})
+	b, _ := json.Marshal(map[string]any{keyThreadID: thread, keyMessageType: "synthesis", "content": "answer"})
 	return fakeMsg{data: b}
 }
 
@@ -323,5 +324,51 @@ func TestFileOfSplitsOnlyAWorkspaceKeyOfTheCrew(t *testing.T) {
 		if _, _, ok := fileOf(key, "ns/c/"); ok != want {
 			t.Errorf("fileOf(%q) ok = %v, want %v", key, ok, want)
 		}
+	}
+}
+
+func postMsg(thread, id, agent, signal, text, at string) jetstream.Msg {
+	b, _ := json.Marshal(map[string]any{
+		keyThreadID: thread, "messageId": id, "agentName": agent, keyMessageType: signal,
+		"content": text, "channel": "general", "timestamp": at,
+	})
+	return fakeMsg{data: b}
+}
+
+func TestHeldReadsEveryMessageOfAThreadInStreamOrderOnce(t *testing.T) {
+	js := newJS()
+	js.messages["th-1"] = []jetstream.Msg{
+		postMsg("th-1", "m1", "coordinator", "advisory", "ask", "2026-11-20T19:01:00.123456789Z"),
+		postMsg("th-1", "m2", "gpu", "concern", "tight", "2026-11-20T19:01:05Z"),
+		postMsg("th-1", "m2", "gpu", "concern", "tight", "2026-11-20T19:01:05Z"), // second subject's copy
+		postMsg("th-9", "m3", "other", "agree", "another thread", "2026-11-20T19:01:06Z"),
+		closeMsg("th-1", map[string]any{"tokens": 5}),
+	}
+	held, err := New(js).Held(context.Background(), scope, "conv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := held.Messages["th-1"]
+	if len(got) != 3 {
+		t.Fatalf("messages = %+v, want three once each", got)
+	}
+	if ids := []string{got[0].ID, got[1].ID}; ids[0] != "m1" || ids[1] != "m2" || got[2].Signal != messageThreadClose {
+		t.Fatalf("messages = %+v", got)
+	}
+	first := got[0]
+	if first.Agent != "coordinator" || first.Content != "ask" || first.At.IsZero() {
+		t.Errorf("first message = %+v", first)
+	}
+	if held.Receipts["th-1"] == nil {
+		t.Error("the receipt is no longer read from the same pass")
+	}
+}
+
+func TestAThreadTheStreamNoLongerHoldsHasNoMessages(t *testing.T) {
+	js := newJS()
+	js.messages = map[string][]jetstream.Msg{}
+	held, err := New(js).Held(context.Background(), scope, "conv-1")
+	if err != nil || len(held.Messages) != 0 {
+		t.Errorf("err = %v, messages = %v", err, held.Messages)
 	}
 }

@@ -86,13 +86,14 @@ A person can take away everything Kubemoot still holds about a conversation as o
 | Part | What it holds |
 |---|---|
 | `conversation.md` | The turns, questions and answers, readable, with times in the asker's zone when the request names one (`timeZone=America/New_York`), else UTC |
-| `conversation.json` | The same, structured: ids, the crew, each time in the asker's zone and in UTC |
+| `conversation.json` | The same, structured: ids, the crew, each time in the asker's zone and in UTC, and each turn's discussion messages |
+| `discussion.md` | The deliberation behind each turn: every message of the turn's discussion thread in the order the discussion stream held it, each with the agent, its signal and its time (in the asker's zone). The same messages are in `conversation.json` under each turn's `messages`. The text is screened like the memory part: a message whose text holds a credential keeps its place, agent, signal and time but not its text, and is listed in the manifest by its id and the credential's shape, never by its text. At most 8 MiB of message text is exported; later messages are left out and the manifest says so |
 | `receipts/` | The receipt of each answer, as the stream held it, for the threads whose closing message is still stored |
 | `artifacts/` | The workspace files of the conversation's threads that are still stored |
 | `memory/` | The crew memory facts learned in this conversation, in the same OMPI files `kmctl memory export` writes, screened the same way: a fact that holds a credential is left out and listed by key or opaque id, never by its text. Facts from other conversations are never included, and neither is a fact whose thread was not recorded |
 | `manifest.json` | What is included, what had expired or is not kept, what the screening left out, the time zone and the export's time |
 
-Each part that is not in the zip is listed in the manifest with its status: `expired` (the workspace of a thread is deleted when the thread closes), `not-kept` (receipts the stream no longer holds), `empty` (no memory fact records this conversation as where it was learned) or `unavailable` (a store could not be read). A conversation whose history has expired answers 404.
+Each part that is not in the zip is listed in the manifest with its status: `expired` (the workspace of a thread is deleted when the thread closes), `not-kept` (receipts the stream no longer holds or discussion messages the stream no longer holds), `empty` (no memory fact records this conversation as where it was learned) or `unavailable` (a store could not be read). A conversation whose history has expired answers 404.
 
 Repeat `id` to export several conversations. The answer is then a zip of zips named `<crew>-conversations.zip`: one conversation zip per conversation, each exactly the zip a single export returns, plus a top-level `manifest.json` that lists every id asked for as `included`, `refused`, `expired` or `failed`. An id is never dropped silently. At most 50 ids are accepted, and an id is 1 to 128 letters, digits, `-` or `_`. Add `report=true` for the manifest as JSON without the zip.
 
