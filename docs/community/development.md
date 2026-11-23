@@ -32,7 +32,7 @@ one.
 | MCP gateway | `mcp-gateway/` | Java |
 | Discussion gateway, crew liaison, fitness runner | `discussion-gateway/`, `crew-liaison/`, `fitness-runner/` | Go |
 | Indexer | `indexer/` | Java |
-| Query service | `query-service/` | Python |
+| Query service | `query-service/` (one pod per RAGSource) and `query-service-go/` (one per crew, replacing it) | Python, Go |
 | Quickstart | `quickstart/` | Shell |
 | Integration tests | `k8s/tests/` | Shell |
 
@@ -115,6 +115,11 @@ pip install --require-hashes -r requirements.txt -r requirements-lint.txt
 ruff check .
 python -m unittest discover -s . -p 'test_*.py'
 ```
+
+**Query service, Go** (`query-service-go/`): the same two commands as the Go components above
+(`go test ./...` and `../.github/scripts/golangci-lint.sh`). Its README covers the registry, the
+routes, and `qs-compare`, which replays a query set against the Python service and this one to show
+they answer alike.
 
 **Dashboard** (`dashboard/`):
 

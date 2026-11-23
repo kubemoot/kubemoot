@@ -55,6 +55,7 @@ updates:
       - "/fitness-runner"
       - "/harness-shim"
       - "/mcp-bridge"
+      - "/query-service-go"
       - "/operator"
       - "/scheduling-mcp"
     schedule:

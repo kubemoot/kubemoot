@@ -1,0 +1,114 @@
+name: Release Query Service (Go)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'query-service-go/**'
+      - '!query-service-go/**.md'
+      - '.github/scripts/retag-image.sh'
+      - '.github/scripts/go-build-static.sh'
+      - '.github/workflows/build-go-binary-image.yaml'
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force a release even if no conventional commits found'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ${{ vars.REGISTRY }}
+  IMAGE_NAME: kubemoot/query-service-go
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci-query-service-go.yaml
+    secrets: inherit
+
+  release:
+    needs: ci
+    runs-on: homelab-runners
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No credential is stored; the release token is minted at the step that pushes.
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calculate the release candidate version
+        id: version
+        uses: kubemoot/release-actions/release-candidate-version@46be10555367466d5add34c0f37dc2ae86c40af6 # v0.12.0
+        with:
+          tag_prefix: "query-service-go-v"
+          force: ${{ inputs.force_release }}
+
+      - name: Install crane
+        if: steps.version.outputs.release_created == 'true'
+        run: |
+          curl -sL https://github.com/google/go-containerregistry/releases/download/v0.20.2/go-containerregistry_Linux_x86_64.tar.gz | tar -xzf - crane
+          sudo mv crane /usr/local/bin/
+
+      - name: Retag image with version
+        if: steps.version.outputs.release_created == 'true'
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA="${{ github.sha }}"
+          FULL_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+
+          echo "${HARBOR_PASSWORD}" | crane auth login --insecure ${{ env.REGISTRY }} -u "${HARBOR_USERNAME}" --password-stdin
+
+          .github/scripts/retag-image.sh "${FULL_IMAGE}" "${SHA}" "${VERSION}"
+
+      - name: Mint a release token
+        id: app-token
+        if: steps.version.outputs.release_created == 'true'
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          repositories: kubemoot
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Create and push tag
+        if: steps.version.outputs.release_created == 'true'
+        env:
+          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if [ "${DRY_RUN:-false}" != true ]; then
+            if [ -z "${GH_APP_TOKEN:-}" ]; then
+              echo "::error::no release token: the mint step did not run" >&2
+              exit 1
+            fi
+            auth="$(printf 'x-access-token:%s' "${GH_APP_TOKEN}" | base64 -w0)"
+            echo "::add-mask::${auth}"
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
+          fi
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="query-service-go-v$VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Creating tag: $TAG"
+            git tag -a "$TAG" -m "Release candidate Query Service (Go) $TAG"
+            git push origin "$TAG"
+          fi

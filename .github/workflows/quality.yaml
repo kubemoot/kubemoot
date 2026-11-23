@@ -39,6 +39,7 @@ jobs:
             discussion-gateway/go.sum
             workspace-access/go.sum
             code-sandbox/go.sum
+            query-service-go/go.sum
 
       - name: Install build tools
         run: |
@@ -79,6 +80,11 @@ jobs:
 
       - name: Workspace Access tests with coverage
         working-directory: workspace-access
+        run: go test -coverprofile=cover.out ./...
+        continue-on-error: true
+
+      - name: Query Service (Go) tests with coverage
+        working-directory: query-service-go
         run: go test -coverprofile=cover.out ./...
         continue-on-error: true
 
