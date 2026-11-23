@@ -18,7 +18,7 @@ const node = (name: string, over: object = {}, accelerator?: object) =>
 
 describe('summarizeNode', () => {
 	it('shows CPU, memory and pod room against what the node offers', () => {
-		const s = summarizeNode(node('n1'), { cpu: '2', memory: '12Gi' }, { running: 20, total: 22, accelerators: 0 }, true);
+		const s = summarizeNode(node('n1'), { cpu: '2', memory: '12Gi' }, { running: 20, total: 22, accelerators: 0, holders: [] }, true);
 		expect(s.health).toBe('healthy');
 		expect(s.cpu).toEqual({ label: 'CPU', text: '2 of 8 cores', fraction: 0.25, level: 'normal' });
 		expect(s.memory).toMatchObject({ text: '12 GiB of 16 GiB', fraction: 0.75 });
@@ -47,14 +47,26 @@ describe('summarizeNode', () => {
 		expect(hot.problems).toEqual(['CPU nearly all in use']);
 	});
 
-	it('shows accelerator use as devices asked for by pods against devices the node has', () => {
-		const s = summarizeNode(node('g1', {}, { present: true, type: 'RTX 5090', count: 2, memory: '32GB' }), undefined, { running: 1, total: 1, accelerators: 1 }, true);
-		expect(s.accelerator).toEqual({ label: 'RTX 5090 x2 32GB', use: { label: 'In use', text: '1 of 2', fraction: 0.5, level: 'normal' } });
+	it('names the accelerator and says what holds it, with no allocation bar', () => {
+		const servers = [{ metadata: { name: 'vllm-rig1', namespace: 'kubemoot' }, spec: { type: 'vllm', serviceRef: { name: 'vllm-rig1-kubemoot-vllm', namespace: 'vllm' } }, status: { capacity: { loadedModels: [{ name: 'qwen3:14b' }] } } }] as never;
+		const pods = { running: 1, total: 1, accelerators: 1, holders: [{ namespace: 'vllm', name: 'vllm-rig1-kubemoot-vllm-67875d75c6-lhphb' }] };
+		const s = summarizeNode(node('g1', {}, { present: true, type: 'NVIDIA-GeForce-RTX-5090', count: 2, memory: '32GB' }), undefined, pods, true, { servers });
+		expect(s.accelerator).toEqual({ label: 'RTX 5090 x2 32GB', serving: { kind: 'server', name: 'vllm-rig1', namespace: 'kubemoot', models: ['qwen3:14b'] } });
+		expect(JSON.stringify(s)).not.toContain('In use');
 	});
 
-	it('names the accelerator without use when pods could not be read', () => {
-		const s = summarizeNode(node('g1', {}, { present: true, type: 'RTX 5090', count: 1 }), undefined, undefined, false);
+	it('names the accelerator and nothing about what holds it when pods could not be read', () => {
+		const s = summarizeNode(node('g1', {}, { present: true, type: 'RTX 5090', count: 1 }), undefined, undefined, false, { servers: [] });
 		expect(s.accelerator).toEqual({ label: 'RTX 5090' });
+	});
+
+	it('says an accelerator node that is not Ready is not available, with no bars and unknown pods', () => {
+		const off = node('g3', { conditions: [{ type: 'Ready', status: 'Unknown' }] }, { present: true, type: 'RTX 4090', count: 1, memory: '24GB' });
+		const use = { g3: { devices: 1, busy: 0.4, memoryUsedMiB: 1, memoryTotalMiB: 2 } };
+		const s = summarizeNode(off, undefined, { running: 6, total: 9, accelerators: 0, holders: [] }, true, { servers: [], use });
+		expect(s.accelerator).toEqual({ label: 'RTX 4090 24GB', unavailable: 'Not available to Kubemoot: node offline' });
+		expect(s.pods).toBeUndefined();
+		expect(s.podsNote).toBe('unknown while the node is offline');
 	});
 
 	it('has no accelerator row on a node without one', () => {
@@ -89,9 +101,27 @@ describe('linkHref', () => {
 	});
 });
 
-describe('accelerator use is never drawn as a warning', () => {
-	it('keeps a fully used accelerator at the normal level, since using it is what it is for', () => {
-		const s = summarizeNode(node('g1', {}, { present: true, type: 'X', count: 1 }), undefined, { running: 1, total: 1, accelerators: 1 }, true);
-		expect(s.accelerator?.use).toMatchObject({ fraction: 1, level: 'normal' });
+describe('measured accelerator use', () => {
+	const gpu = { present: true, type: 'RTX 5090', count: 1 };
+	const idle = { running: 1, total: 1, accelerators: 0, holders: [] };
+
+	it('draws busy and memory bars from the metrics source, never as a warning even when full', () => {
+		const use = { g1: { devices: 1, busy: 1, memoryUsedMiB: 32000, memoryTotalMiB: 32000 } };
+		const s = summarizeNode(node('g1', {}, gpu), undefined, idle, true, { servers: [], use });
+		expect(s.accelerator?.busy).toMatchObject({ label: 'Busy', fraction: 1, level: 'normal' });
+		expect(s.accelerator?.memory).toMatchObject({ label: 'Memory', text: '31.3 GiB of 31.3 GiB', fraction: 1, level: 'normal' });
+		expect(s.accelerator?.serving).toEqual({ kind: 'free' });
+	});
+
+	it('draws no bars, and no zero, when no metrics source is set', () => {
+		const s = summarizeNode(node('g1', {}, gpu), undefined, idle, true, { servers: [] });
+		expect(s.accelerator?.busy).toBeUndefined();
+		expect(s.accelerator?.memory).toBeUndefined();
+	});
+
+	it('draws a bar only for the measure the source reports', () => {
+		const s = summarizeNode(node('g1', {}, gpu), undefined, idle, true, { servers: [], use: { g1: { devices: 1, busy: 0.25 } } });
+		expect(s.accelerator?.busy).toMatchObject({ fraction: 0.25 });
+		expect(s.accelerator?.memory).toBeUndefined();
 	});
 });

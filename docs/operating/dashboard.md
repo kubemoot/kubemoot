@@ -181,7 +181,7 @@ The tiles:
 |------|--------|------|
 | Operator | Ready or Not ready, from the operator's own health report; under it the operator's version, how long it has been up, and how many Kubemoot CRDs are registered | |
 | Nodes | Ready of all nodes | CPU and memory use of the whole cluster against allocatable |
-| Accelerators | Devices on Ready nodes of all devices | |
+| Accelerators | Devices on Ready nodes (available to Kubemoot) of all devices | Busy and memory of the available accelerators, when a [metrics source](#accelerator-busy-and-memory) is set |
 | Crews, Embeddings, MCP servers, MCP gateways, RAG sources, Agents | Healthy of all | |
 | Model servers | Healthy or idle of all | Accelerator memory in use per server that reports its total |
 | Models | The Model resources plus the models the servers list, as the Models page lists them | |
@@ -197,7 +197,39 @@ Every part is read with your own token, on its own. A part your account may not 
 
 ### Nodes
 
-The Nodes page lists the nodes with the ones that need a look first. A small dropdown beside the title filters them: **All**, **Worker nodes**, **Accelerator nodes** and **Control plane nodes**. A node is a control plane node when it carries the `node-role.kubernetes.io/control-plane` label, and a worker when it does not. It is an accelerator node when it reports any accelerator device (GPU, TPU, NPU or another device plugin resource), whatever the vendor. The choice is in the address (`?role=all`, `worker`, `accelerator` or `control-plane`), which wins, and is remembered per viewer in this browser (localStorage; with storage blocked the page opens on All). A tile always names its role, so it never opens on a remembered one. Each node shows whether it is Ready and why not, the conditions under pressure, CPU and memory in use against allocatable, pods against the node's pod limit, and, on an accelerator node, how many of its devices pods have asked for. A node opens its own page: its conditions with their reasons and times, capacity against allocatable against use, its accelerators, the pods on it with their phase and restarts, taints, labels, and the facts that do not change (OS image, kernel, container runtime, addresses). Its YAML, JSON and KYAML are in the view selector. CPU and memory use come from the cluster's metrics API with your own token; where the cluster does not serve it, or your account may not read it, the page says so.
+The Nodes page lists the nodes with the ones that need a look first. A small dropdown beside the title filters them: **All**, **Worker nodes**, **Accelerator nodes** and **Control plane nodes**. A node is a control plane node when it carries the `node-role.kubernetes.io/control-plane` label, and a worker when it does not. It is an accelerator node when it reports any accelerator device (GPU, TPU, NPU or another device plugin resource), whatever the vendor. The choice is in the address (`?role=all`, `worker`, `accelerator` or `control-plane`), which wins, and is remembered per viewer in this browser (localStorage; with storage blocked the page opens on All). A tile always names its role, so it never opens on a remembered one. Each node shows whether it is Ready and why not, the conditions under pressure, CPU and memory in use against allocatable, pods against the node's pod limit, and, on an accelerator node, the accelerator section described under [Accelerator tiles](#accelerator-tiles). A node that is not Ready, cordoned or not, shows its pods as `unknown while the node is offline` instead of the counts it last reported. A node opens its own page: its conditions with their reasons and times, capacity against allocatable against use, its accelerators, the pods on it with their phase and restarts, taints, labels, and the facts that do not change (OS image, kernel, container runtime, addresses). Its YAML, JSON and KYAML are in the view selector. CPU and memory use come from the cluster's metrics API with your own token; where the cluster does not serve it, or your account may not read it, the page says so.
+
+### Accelerator tiles
+
+The accelerator section of a node tile, a node's page, the Overview's Accelerators tile and the Model servers page answers two questions: is this accelerator available to Kubemoot, and is it working right now. Each line means one thing:
+
+| Line | Meaning | Comes from |
+|------|---------|------------|
+| Type | The accelerator model, memory and device count | The node's feature-discovery labels and device plugin capacity |
+| `vllm-rig1 qwen3:14b` | The Kubemoot model server that holds the device and the models it has loaded | The ModelServer status, matched to the pod that holds the device by the server's `serviceRef` or `endpoint` Service (or the node its status names) |
+| `Held by <pod>` | A pod that is not behind any Kubemoot model server holds the device | The pods on the node |
+| `Free` | No pod holds the device | The pods on the node |
+| Busy | Accelerator utilization now, averaged over the node's devices | The metrics source |
+| Memory | Accelerator memory in use of the total, summed over the node's devices | The metrics source |
+| `Not available to Kubemoot: node offline` | The node is not Ready, cordoned or not; no bars are drawn and its pods read `unknown while the node is offline` | The node's Ready condition |
+
+The tile shows no bar for the share of devices pods have asked for: a model server holds its device for good, so that share reads 100% whether the accelerator is working or idle. When the pods or the model servers cannot be read, the serving line is left out rather than guessed. Busy and memory are never drawn as a warning, because a model server reserves its accelerator memory by design.
+
+#### Accelerator busy and memory
+
+Busy and memory come from an optional metrics source. Set the chart value `metrics.prometheusUrl` (`dashboard.metrics.prometheusUrl` in the operator chart) to a Prometheus that scrapes your accelerator exporter:
+
+```yaml
+dashboard:
+  metrics:
+    prometheusUrl: http://prometheus-operated.monitoring.svc:9090
+```
+
+Left empty (the default), the dashboard draws no busy or memory bars, never a made-up 0 or 100%, and says only what Kubemoot knows: what serves the accelerator and which models are loaded. When the value is set but Prometheus cannot be read, the Nodes page says why the bars are missing.
+
+Prometheus cannot carry a Kubernetes identity, so this read is not made as you. The dashboard server reads it with its own network access, asks for node-level accelerator measures only (utilization, memory used and memory free; nothing else is queried), and answers only for the nodes your own token can list, so a node you may not see is not shown. Point it at a Prometheus whose accelerator series you are content for every signed-in person to see at the node level.
+
+The dashboard names these measures generically (accelerator utilization and accelerator memory) and reads them through one adapter per exporter. The NVIDIA DCGM exporter is the first adapter: `DCGM_FI_DEV_GPU_UTIL`, `DCGM_FI_DEV_FB_USED` and `DCGM_FI_DEV_FB_FREE`, with the node taken from the `Hostname` (or `hostname`, `node`) label. Other vendors' exporters (AMD, for example) are added as further adapters; the pages do not change.
 
 ### Refresh and resource views
 
@@ -407,7 +439,8 @@ The SvelteKit server exposes the JSON and event-stream endpoints the pages use. 
 | `/api/health`, `/api/version` | GET | Health check (open, no session needed); dashboard version |
 | `/api/namespaces`, `/api/nodes` | GET | Namespaces; Kubernetes nodes with accelerator information |
 | `/api/nodes/<name>` | GET | One node with its CPU and memory use (metrics.k8s.io) and the pods on it, as you; use and pods each say why they are missing when the cluster does not serve them or you may not read them |
-| `/api/node-usage` | GET | CPU and memory use per node and the pod count per node, as you, with the same reasons |
+| `/api/node-usage` | GET | CPU and memory use per node, the pod count per node and the pods that hold accelerator devices, as you, with the same reasons |
+| `/api/accelerator-use` | GET | Accelerator busy and memory per node from the `metrics.prometheusUrl` source: `{configured: false}` when none is set, else the reading or why it failed. Read with the dashboard's own access, node-level accelerator measures only, filtered to the nodes you can list |
 | `/api/kubemoot/<plural>` and `/api/kubemoot/<plural>/<name>` | GET | List and detail for `agents`, `crews`, `models`, `modelservers`, `embeddingmodels`, `mcpservers`, `mcpgateways`, `mcpqualitypolicies`, `mcpcatalogs`, `mcpserverreports`, `ragsources`, `promptmodules`, `crewfitnesses` |
 | `/api/kubemoot/config`, `/api/kubemoot/system-info`, `/api/kubemoot/topology` | GET | Configuration, system information, agent topology graph |
 | `/api/kubemoot/crewfitnesssuites` | GET | Fitness suites; `<namespace>/<name>` is one suite; sub-paths under it serve `scores`, `iterations`, `transcript`, and `artifact` |

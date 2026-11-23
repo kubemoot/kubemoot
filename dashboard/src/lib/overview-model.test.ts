@@ -25,6 +25,7 @@ const empty: OverviewData = {
 	nodes: [],
 	metrics: { available: true, data: {} },
 	pods: { available: true, data: {} },
+	acceleratorUse: undefined,
 	crews: [],
 	modelServers: [],
 	models: [],
@@ -140,8 +141,27 @@ describe('the Nodes and Accelerators tiles', () => {
 		const gpu = { present: true, count: 1 };
 		const nodes = [node('cpu'), node('gpu1', { accelerator: gpu }), node('gpu2', { ready: false, accelerator: gpu })];
 		const o = buildOverview(data({ nodes: nodes as never }), NOW);
-		expect(tile(o, 'accelerators')).toMatchObject({ figure: '1/2', health: 'down', line: '1 on nodes that are not Ready' });
+		expect(tile(o, 'accelerators')).toMatchObject({ figure: '1/2', health: 'down', line: '1 not available: node offline' });
 		expect(o.attention.filter((f) => f.subject === 'Node gpu2')).toHaveLength(1);
+	});
+
+	it('draws busy and memory on the accelerator tile only when the metrics source reports them, from the available accelerators', () => {
+		const gpu = { present: true, count: 1 };
+		const nodes = [node('gpu1', { accelerator: gpu }), node('gpu2', { accelerator: gpu }), node('gpu3', { ready: false, accelerator: gpu })];
+		const use = {
+			configured: true as const,
+			use: { available: true as const, data: { gpu1: { devices: 1, busy: 1, memoryUsedMiB: 10240, memoryTotalMiB: 20480 }, gpu2: { devices: 1, busy: 0, memoryUsedMiB: 0, memoryTotalMiB: 20480 }, gpu3: { devices: 1, busy: 1, memoryUsedMiB: 20480, memoryTotalMiB: 20480 } } }
+		};
+		const bars = tile(buildOverview(data({ nodes: nodes as never, acceleratorUse: use }), NOW), 'accelerators').bars;
+		expect(bars.map((b) => [b.label, b.fraction])).toEqual([['Busy', 0.5], ['Memory', 0.25]]);
+		expect(bars.every((b) => b.level === 'normal')).toBe(true);
+	});
+
+	it('draws no accelerator bars, and no zeros, when no source is set or it failed', () => {
+		const nodes = [node('gpu1', { accelerator: { present: true, count: 1 } })];
+		for (const acceleratorUse of [undefined, null, { configured: false as const }, { configured: true as const, use: { available: false as const, reason: 'down' } }]) {
+			expect(tile(buildOverview(data({ nodes: nodes as never, acceleratorUse }), NOW), 'accelerators').bars).toEqual([]);
+		}
 	});
 
 	it('is idle with no accelerators in the cluster', () => {

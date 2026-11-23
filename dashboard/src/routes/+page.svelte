@@ -8,6 +8,7 @@
 	import NeedsAttention from '#lib/components/overview/NeedsAttention.svelte';
 	import { overviewNamespace } from '#lib/overview-counts.js';
 	import { buildOverview, type OverviewData } from '#lib/overview-model.js';
+	import { fetchAcceleratorUse } from '#lib/client/accelerator-data.js';
 	import type { NatsStatus } from '#lib/nats/status.js';
 
 	// Each source is read on its own: undefined while it loads, null when it could not be read, so one
@@ -18,6 +19,7 @@
 		nodes: undefined,
 		metrics: undefined,
 		pods: undefined,
+		acceleratorUse: undefined,
 		crews: undefined,
 		modelServers: undefined,
 		models: undefined,
@@ -53,12 +55,13 @@
 
 	async function refresh(ns: string) {
 		const own = (plural: string) => listUrl(plural, overviewNamespace(plural, ns));
-		const [componentStatuses, operator, nodes, usage, crews, modelServers, models, embeddingModels, mcpServers, mcpGateways, ragSources, agents, suites, nats] =
+		const [componentStatuses, operator, nodes, usage, acceleratorUse, crews, modelServers, models, embeddingModels, mcpServers, mcpGateways, ragSources, agents, suites, nats] =
 			await Promise.all([
 				read(resolve('/api/kubemoot/componentstatuses'), (b: never) => b),
 				read(resolve('/api/kubemoot/operator'), (b: never) => b),
 				read(resolve('/api/nodes'), (b: { nodes?: never[] }) => b.nodes ?? []),
 				read(resolve('/api/node-usage'), (b: { metrics: never; pods: never }) => b),
+				fetchAcceleratorUse(resolve('/api/accelerator-use')),
 				read(own('crews'), items),
 				read(own('modelservers'), items),
 				read(own('models'), items),
@@ -77,6 +80,7 @@
 			nodes,
 			metrics: usage?.metrics,
 			pods: usage?.pods,
+			acceleratorUse,
 			crews,
 			modelServers,
 			models,

@@ -9,6 +9,9 @@
 	import { NodeCard } from '#lib/components/resources/index.js';
 	import type { NodeWithAccelerator } from '#lib/types/k8s.js';
 	import type { NodeMetric } from '#lib/node-usage.js';
+	import { fetchAcceleratorUse, fetchModelServers } from '#lib/client/accelerator-data.js';
+	import { measuredUse, useProblem, type AcceleratorUseResponse } from '#lib/accelerator-use.js';
+	import type { ModelServer } from '#lib/types/kubemoot.js';
 	import { bySeverityThenName, summarizeNode } from '#lib/node-summary.js';
 	import type { PodCount, Reading } from '#lib/reading.js';
 	import { ROLE_OPTIONS, chosenRole, loadRole, matchesRole, parseRole, saveRole, type NodeRole } from '#lib/node-role.js';
@@ -16,6 +19,8 @@
 	let nodes = $state<NodeWithAccelerator[]>([]);
 	let metrics = $state<Reading<Record<string, NodeMetric>> | null>(null);
 	let pods = $state<Reading<Record<string, PodCount>> | null>(null);
+	let servers = $state<ModelServer[] | undefined>(undefined);
+	let acceleratorUse = $state<AcceleratorUseResponse | null>(null);
 	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -35,7 +40,12 @@
 			loaded = loaded || error === null;
 			loading = false;
 		}
-		await fetchUsage();
+		await Promise.all([fetchUsage(), fetchAccelerators()]);
+	}
+
+	// What holds each accelerator and how busy it is, read apart so a missing source only removes its own lines.
+	async function fetchAccelerators() {
+		[servers, acceleratorUse] = await Promise.all([fetchModelServers(resolve('/api/kubemoot/modelservers')), fetchAcceleratorUse(resolve('/api/accelerator-use'))]);
 	}
 
 	// Use is read apart from the nodes: a cluster without metrics, or an account that may not read
@@ -87,10 +97,11 @@
 	const shown = $derived(nodes.filter((n) => matchesRole(n, role)));
 	const summaries = $derived(
 		shown
-			.map((n) => summarizeNode(n, metrics?.available ? metrics.data[n.metadata.name] : undefined, pods?.available ? pods.data[n.metadata.name] : undefined, pods?.available === true))
+			.map((n) => summarizeNode(n, metrics?.available ? metrics.data[n.metadata.name] : undefined, pods?.available ? pods.data[n.metadata.name] : undefined, pods?.available === true, { servers, use: measuredUse(acceleratorUse) }))
 			.sort(bySeverityThenName)
 	);
 	const missing = $derived(metrics && !metrics.available ? metrics.reason : null);
+	const noAcceleratorUse = $derived(useProblem(acceleratorUse));
 </script>
 
 <ResourceList route="/nodes" count={shown.length} {loading} {error}>
@@ -103,6 +114,9 @@
 	{#snippet children()}
 		{#if missing}
 			<p class="missing" role="status">CPU and memory use are not shown: {missing}</p>
+		{/if}
+		{#if noAcceleratorUse}
+			<p class="missing" role="status">Accelerator busy and memory are not shown: {noAcceleratorUse}</p>
 		{/if}
 		{#each summaries as summary (summary.name)}
 			<NodeCard {summary} />

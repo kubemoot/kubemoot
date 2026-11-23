@@ -11,6 +11,10 @@
 	import { calibrationBadge, calibrationRows, hasCalibration } from '#lib/server-calibration.js';
 	import { formatBytes, formatMiB } from '#lib/format.js';
 	import { acceleratorMemoryTotalMiB, acceleratorMemoryUsedMiB, loadedAcceleratorMemory } from '#lib/accelerator-capacity.js';
+	import UsageBar from '#lib/components/common/UsageBar.svelte';
+	import { fetchAcceleratorView, type AcceleratorView } from '#lib/client/accelerator-data.js';
+	import { serverAccelerator } from '#lib/accelerator-status.js';
+	import { measuredUse } from '#lib/accelerator-use.js';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
 
 	let server = $state<ModelServer | null>(null);
@@ -46,6 +50,15 @@
 		$refreshTrigger;
 		fetchServer();
 	});
+
+	// Which accelerator the server runs on and how it is working; read apart so its absence only removes this section.
+	let view = $state<AcceleratorView | null>(null);
+	$effect(() => {
+		$refreshTrigger;
+		void fetchAcceleratorView({ nodes: resolve('/api/nodes'), usage: resolve('/api/node-usage'), accelerators: resolve('/api/accelerator-use') }).then((v) => (view = v));
+	});
+	const accelerator = $derived(server && view ? serverAccelerator(server, view.nodes, view.holdersByNode, measuredUse(view.use)) : undefined);
+	const acceleratorBars = $derived([accelerator?.busy, accelerator?.memory].filter((b) => b !== undefined));
 
 	const status = $derived(readinessStatus(server?.status, 'Failed'));
 
@@ -107,6 +120,22 @@
 					</Section>
 				{/if}
 
+				{#if accelerator}
+					<Section title="Accelerator">
+						<InfoRow label="Type" value={accelerator.label} />
+						<InfoRow label="Node" value={accelerator.node} mono />
+						{#if accelerator.unavailable}
+							<InfoRow label="Available to Kubemoot" value={accelerator.unavailable} />
+						{:else}
+							<div class="usage-bars">
+								{#each acceleratorBars as b (b.label)}
+									<UsageBar label={b.label} text={b.text} fraction={b.fraction} level={b.level} />
+								{/each}
+							</div>
+						{/if}
+					</Section>
+				{/if}
+
 				{#if capacity}
 					<Section title="Capacity">
 						{#if capacity.nodeName}
@@ -116,9 +145,9 @@
 							<InfoRow label="Max Parallel" value={capacity.maxParallel} />
 						{/if}
 						{#if acceleratorMemoryTotalMiB(capacity) !== undefined}
-							<InfoRow label="VRAM Used" value="{formatMiB(acceleratorMemoryUsedMiB(capacity))} / {formatMiB(acceleratorMemoryTotalMiB(capacity))}" />
+							<InfoRow label="Accelerator memory used" value="{formatMiB(acceleratorMemoryUsedMiB(capacity))} / {formatMiB(acceleratorMemoryTotalMiB(capacity))}" />
 						{:else if acceleratorMemoryUsedMiB(capacity) !== undefined}
-							<InfoRow label="VRAM Used" value={formatMiB(acceleratorMemoryUsedMiB(capacity))} />
+							<InfoRow label="Accelerator memory used" value={formatMiB(acceleratorMemoryUsedMiB(capacity))} />
 						{/if}
 						{#if capacity.lastProbed}
 							<InfoRow label="Last Probed" value={capacity.lastProbed} />
@@ -179,11 +208,11 @@
 				</Section>
 
 				{#if loadedModels.length > 0}
-					<Section title="Loaded in VRAM ({loadedModels.length})">
+					<Section title="Loaded in accelerator memory ({loadedModels.length})">
 						<div class="model-list">
 							{#each loadedModels as m (m.name)}
 								<div class="model-row">
-									<span class="model-state loaded" title="In VRAM"></span>
+									<span class="model-state loaded" title="In accelerator memory"></span>
 									<a class="model-name mono" href={modelDetailsHref(m.name)}>{m.name}</a>
 									<span class="model-meta">{formatBytes(loadedAcceleratorMemory(m))}</span>
 									{#if m.expiresAt}
@@ -220,6 +249,13 @@
 </DetailPanel>
 
 <style>
+	.usage-bars {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		padding: 0.6rem 0 0.2rem;
+	}
+
 	.header-content {
 		display: flex;
 		align-items: flex-start;

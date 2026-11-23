@@ -62,6 +62,10 @@ env_of() { yq -N "select(.kind == \"Deployment\") | .spec.template.spec.containe
 [ "$(env_of "$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard" --set auth.origin=https://dash.example.test)" ORIGIN)" = "https://dash.example.test" ] || fail "auth.origin did not reach the Deployment as ORIGIN"
 [ -z "$(env_of "$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard")" ORIGIN)" ] || fail "ORIGIN is set by default"
 [ "$(env_of "$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard" --set auth.trustForwardedHeaders=true)" HOST_HEADER)" = "x-forwarded-host" ] || fail "auth.trustForwardedHeaders did not set HOST_HEADER"
+# metrics.prometheusUrl reaches the Deployment as the accelerator metrics source, and is unset by default
+[ -z "$(env_of "$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard")" KUBEMOOT_DASHBOARD_PROMETHEUS_URL)" ] || fail "the metrics source is set by default"
+[ "$(env_of "$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard" --set metrics.prometheusUrl=http://prom.example.test:9090)" KUBEMOOT_DASHBOARD_PROMETHEUS_URL)" = "http://prom.example.test:9090" ] || fail "metrics.prometheusUrl did not reach the Deployment"
+[ "$(env_of "$(render kubemoot-operator --set dashboard.enabled=true --set dashboard.metrics.prometheusUrl=http://prom.example.test:9090)" KUBEMOOT_DASHBOARD_PROMETHEUS_URL)" = "http://prom.example.test:9090" ] || fail "dashboard.metrics.prometheusUrl did not reach the operator chart's dashboard"
 # Sign-in settings reach the Deployment, and anonymous viewing is off unless asked for.
 anon_env() { yq -N 'select(.kind == "Deployment") | .spec.template.spec.containers[0].env[] | select(.name == "KUBEMOOT_DASHBOARD_ANONYMOUS_READ_ONLY") | .value' <<<"$1"; }
 [ "$(anon_env "$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard")")" = "false" ] || fail "anonymous read-only is not off by default"

@@ -62,6 +62,17 @@ rbac:
         resources: ["*"]
         verbs: ["get", "list", "watch"]
 
+# Where the dashboard reads how busy each accelerator is and how much accelerator memory is in
+# use. Empty (the default): the Nodes, Overview and Model servers pages show only what Kubemoot
+# knows (which model server holds an accelerator and which models are loaded) and draw no busy or
+# memory bars. A Prometheus that scrapes an accelerator exporter (NVIDIA DCGM today) fills them in.
+# Prometheus cannot carry a Kubernetes identity, so the dashboard server reads it with its own
+# access, asks for node-level accelerator measures only, and shows a node only to a person who can
+# list that node.
+metrics:
+  # For example http://prometheus-operated.monitoring.svc:9090
+  prometheusUrl: ""
+
 # Sign-in. The dashboard asks every visitor to paste a Kubernetes bearer token, checks it with a
 # TokenReview, and then makes every Kubernetes call with that token, so the person's own RBAC
 # decides what they see and which crews they may ask. The session lives in the pod's memory

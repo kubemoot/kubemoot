@@ -19,10 +19,10 @@
 		<span class="label">{label}</span>
 		<span class="percent {level}">{percent}%</span>
 	</div>
-	<div class="track" role="meter" aria-label="{label} in use" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-valuetext="{percent}% ({text})">
+	<div class="track" role="meter" aria-label="{label} in use" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-valuetext={text ? `${percent}% (${text})` : `${percent}%`}>
 		<div class="fill {level}" style="width: {percent}%"></div>
 	</div>
-	<div class="text">{text}</div>
+	{#if text}<div class="text">{text}</div>{/if}
 </div>
 
 <style>

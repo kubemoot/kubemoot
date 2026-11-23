@@ -1,8 +1,8 @@
 // The node's own page: conditions with their reasons, what the node has against what it offers
 // against what is in use, and the facts that do not change.
 
-import { formatCores, formatUse, gib, isConditionProblem, parseQuantity, usageOf, type NodeMetric } from './node-usage.js';
-import { nodeAccelerator } from './node-accelerator.js';
+import { formatCores, formatUse, gib, isConditionProblem, isNodeReady, parseQuantity, usageOf, type NodeMetric } from './node-usage.js';
+import { PODS_OFFLINE_TEXT } from './accelerator-status.js';
 import type { NodeCondition, NodeWithAccelerator } from './types/k8s.js';
 
 /** A condition and whether it is a problem now. */
@@ -52,34 +52,14 @@ export function capacityRows(
 	const cpu = usageOf(metric?.cpu, allocatable.cpu);
 	const memory = usageOf(metric?.memory, allocatable.memory);
 	const pods = usageOf(podsRunning === undefined ? undefined : String(podsRunning), allocatable.pods);
+	// A node that is not Ready reports pods it can no longer vouch for.
+	const podsUse = isNodeReady(node) ? useText(pods, count) : PODS_OFFLINE_TEXT;
 	return [
 		row('CPU', capacity.cpu, allocatable.cpu, formatCores, useText(cpu, formatCores)),
 		row('Memory', capacity.memory, allocatable.memory, gib, useText(memory, gib)),
-		row('Pods', capacity.pods, allocatable.pods, count, useText(pods, count)),
+		row('Pods', capacity.pods, allocatable.pods, count, podsUse),
 		row('Ephemeral storage', capacity['ephemeral-storage'], allocatable['ephemeral-storage'], gib)
 	].filter((r): r is CapacityRow => r !== undefined);
-}
-
-export interface AcceleratorFacts {
-	type: string;
-	count: number;
-	allocatable: string;
-	memory: string;
-	/** Devices pods have asked for; undefined when the pods could not be read. */
-	requested?: number;
-}
-
-/** The node's accelerators, or undefined when it has none. */
-export function acceleratorFacts(node: NodeWithAccelerator, requested: number | undefined): AcceleratorFacts | undefined {
-	const a = nodeAccelerator(node);
-	if (!a?.present) return undefined;
-	return {
-		type: a.type || 'Accelerator',
-		count: a.count ?? 1,
-		allocatable: a.allocatable ?? '',
-		memory: a.memory ?? '',
-		requested
-	};
 }
 
 /** The fixed facts about the machine: what it runs and how to reach it. */

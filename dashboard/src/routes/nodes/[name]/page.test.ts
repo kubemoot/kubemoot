@@ -64,7 +64,8 @@ describe('the node page', () => {
 		expect(screen.getByText('Pods (2)')).toBeTruthy();
 
 		expect(container.textContent).toContain('RTX 5090');
-		expect(container.textContent).toContain('1 of 1');
+		await waitFor(() => expect(container.textContent).toContain('Held by vllm-0'));
+		expect(container.textContent).not.toContain('Asked for by pods');
 		expect(container.textContent).toContain('nvidia.com/gpu=true:NoSchedule');
 		expect(container.textContent).toContain('node-address-1');
 		expect([...screen.getByRole<HTMLSelectElement>('combobox', { name: 'View' }).options].map((o) => o.textContent)).toEqual(['Description', 'YAML', 'JSON', 'KYAML']);
@@ -85,6 +86,38 @@ describe('the node page', () => {
 		expect(container.textContent).toContain('Pods are not shown: You do not have permission');
 		expect(screen.getByTestId('capacity').textContent).not.toMatch(/\(\d+%\)/);
 		expect(screen.queryByTestId('pods')).toBeNull();
+	});
+
+	it('says an offline accelerator node is not available, with no usage bars and pods unknown', async () => {
+		const offline = { ...node, spec: { unschedulable: true }, status: { ...node.status, conditions: [{ type: 'Ready', status: 'Unknown', reason: 'NodeStatusUnknown' }] } };
+		vi.stubGlobal('fetch', answer({ node: offline, metrics: { available: false, reason: 'no reading' }, pods: { available: true, data: [{ name: 'old', namespace: 'apps', phase: 'Running', restarts: 0, accelerators: 0 }] } }));
+		const { container } = render(Page);
+		await waitFor(() => expect(container.textContent).toContain('Not available to Kubemoot: node offline'));
+		expect(container.textContent).toContain('unknown while the node is offline');
+		expect(screen.queryByTestId('pods')).toBeNull();
+		expect(container.querySelector('[role="meter"]')).toBeNull();
+	});
+
+	it('shows what serves the accelerator with a link to the model server, and busy and memory when measured', async () => {
+		const servers = { items: [{ metadata: { name: 'vllm-gpu1', namespace: 'kubemoot' }, spec: { type: 'vllm', serviceRef: { name: 'vllm-0'.replace('-0', ''), namespace: 'kubemoot' } }, status: { capacity: { loadedModels: [{ name: 'qwen3:14b' }] } } }] };
+		const use = { configured: true, use: { available: true, data: { 'gpu-1': { devices: 1, busy: 0.37, memoryUsedMiB: 12288, memoryTotalMiB: 24576 } } } };
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string) => {
+				const u = String(url);
+				const pods = { available: true, data: [{ name: 'vllm-5d8f6c7b9d-abcde', namespace: 'kubemoot', phase: 'Running', restarts: 0, accelerators: 1 }] };
+				let body: object = { node, metrics: { available: true, data: {} }, pods };
+				if (u.includes('modelservers')) body = servers;
+				if (u.includes('accelerator-use')) body = use;
+				return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+			})
+		);
+		const { container } = render(Page);
+		await waitFor(() => expect(screen.getByTestId('serving').textContent).toBe('vllm-gpu1'));
+		expect(container.textContent).toContain('qwen3:14b');
+		await waitFor(() => expect(container.textContent).toContain('12 GiB of 24 GiB'));
+		expect(container.textContent).toContain('37%');
+		expect(container.textContent).not.toContain('Asked for by pods');
 	});
 
 	it('shows the error the API gave when the node cannot be read', async () => {

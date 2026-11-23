@@ -55,13 +55,13 @@ describe('GET /api/nodes/[name]', () => {
 describe('GET /api/node-usage', () => {
 	it('answers use and pod counts, each saying why when it is missing', async () => {
 		mocks.readNodeMetrics.mockResolvedValue({ available: false, reason: 'not served' });
-		mocks.readPodCounts.mockResolvedValue({ available: true, data: { n1: { running: 1, total: 1, accelerators: 0 } } });
+		mocks.readPodCounts.mockResolvedValue({ available: true, data: { n1: { running: 1, total: 1, accelerators: 0, holders: [] } } });
 		const { GET } = await import('./node-usage/+server');
 		const res = await (GET as unknown as () => Promise<Response>)();
 		expect(res.headers.get('Cache-Control')).toBe('no-store');
 		expect(await res.json()).toEqual({
 			metrics: { available: false, reason: 'not served' },
-			pods: { available: true, data: { n1: { running: 1, total: 1, accelerators: 0 } } }
+			pods: { available: true, data: { n1: { running: 1, total: 1, accelerators: 0, holders: [] } } }
 		});
 	});
 });
