@@ -1,19 +1,14 @@
 // What a node tile on the Nodes page shows: its state and why, how much CPU, memory and pod room it
-// has used, and how much of its accelerator is in use. Everything else lives on the node's page.
+// has used, and whether its accelerator is available to Kubemoot and working. Everything else lives on the node's page.
 
-import { nodeAccelerator } from './node-accelerator.js';
-import { cores, gib, isOffline, nodeHealth, nodeProblems, nodeUse, usageOf, type NodeMetric, type NodeUse } from './node-usage.js';
+import { acceleratorStatus, PODS_OFFLINE_TEXT, type AcceleratorStatus } from './accelerator-status.js';
+import type { AcceleratorUseByNode } from './accelerator-use.js';
+import { cores, gib, isNodeReady, isOffline, nodeHealth, nodeProblems, nodeUse, usageOf, type NodeMetric, type NodeUse } from './node-usage.js';
 import { severityRank, type Health } from './health.js';
 import type { PodCount } from './reading.js';
 import { bar, usageBar, type TileBar } from './usage-bar.js';
 import type { NodeWithAccelerator } from './types/k8s.js';
-
-export interface AcceleratorSummary {
-	/** "NVIDIA GeForce RTX 5090 x1, 32GB". */
-	label: string;
-	/** Devices pods have asked for against devices the node has; undefined when pods could not be read. */
-	use?: TileBar;
-}
+import type { ModelServer } from './types/kubemoot.js';
 
 export interface NodeSummary {
 	name: string;
@@ -25,17 +20,21 @@ export interface NodeSummary {
 	cpu?: TileBar;
 	memory?: TileBar;
 	pods?: TileBar;
-	accelerator?: AcceleratorSummary;
+	/** Said in place of the pods bar when the node is offline and its pods cannot be known. */
+	podsNote?: string;
+	accelerator?: AcceleratorStatus;
 }
 
-function acceleratorSummary(node: NodeWithAccelerator, pods: PodCount | undefined, podsRead: boolean): AcceleratorSummary | undefined {
-	const accelerator = nodeAccelerator(node);
-	if (!accelerator?.present) return undefined;
-	const count = accelerator.count ?? 1;
-	const label = [accelerator.type || 'Accelerator', count > 1 ? `x${count}` : undefined, accelerator.memory].filter(Boolean).join(' ');
-	if (!podsRead) return { label };
-	const asked = Math.min(pods?.accelerators ?? 0, count);
-	return { label, use: { ...bar('In use', `${asked} of ${count}`, asked / count), level: 'normal' } };
+/** What the accelerator section needs besides the node: the model servers and the measured use. */
+export interface AcceleratorContext {
+	servers?: readonly ModelServer[];
+	use?: AcceleratorUseByNode;
+}
+
+/** The pods bar, or the note that stands in for it: a node that is not Ready reports pods it can no longer vouch for. */
+function podsParts(node: NodeWithAccelerator, pods: PodCount | undefined, podsRead: boolean): Pick<NodeSummary, 'pods' | 'podsNote'> {
+	if (!podsRead) return {};
+	return isNodeReady(node) ? { pods: podBar(node, pods) } : { podsNote: PODS_OFFLINE_TEXT };
 }
 
 function podBar(node: NodeWithAccelerator, pods: PodCount | undefined): TileBar | undefined {
@@ -50,7 +49,8 @@ export function summarizeNode(
 	node: NodeWithAccelerator,
 	metric: NodeMetric | undefined,
 	pods: PodCount | undefined,
-	podsRead: boolean
+	podsRead: boolean,
+	context: AcceleratorContext = {}
 ): NodeSummary {
 	const use: NodeUse = nodeUse(node, metric);
 	return {
@@ -60,8 +60,8 @@ export function summarizeNode(
 		offline: isOffline(node),
 		cpu: use.cpu && usageBar('CPU', use.cpu, cores, ' cores'),
 		memory: use.memory && usageBar('Memory', use.memory, gib),
-		pods: podsRead ? podBar(node, pods) : undefined,
-		accelerator: acceleratorSummary(node, pods, podsRead)
+		...podsParts(node, pods, podsRead),
+		accelerator: acceleratorStatus({ node, holders: podsRead ? (pods?.holders ?? []) : undefined, servers: context.servers, use: context.use })
 	};
 }
 

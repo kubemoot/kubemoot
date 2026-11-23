@@ -24,7 +24,7 @@ beforeEach(() => {
 describe('countPods', () => {
 	it('counts running pods and the pods that still hold a place, per node, with the accelerators they ask for', () => {
 		const counts = countPods([pod('a', 'n1', 'Running', { gpu: '1' }), pod('b', 'n1', 'Pending'), pod('c', 'n1', 'Succeeded', { gpu: '1' }), pod('d', 'n2', 'Running'), { metadata: { name: 'e' } }]);
-		expect(counts).toEqual({ n1: { running: 1, total: 2, accelerators: 1 }, n2: { running: 1, total: 1, accelerators: 0 } });
+		expect(counts).toEqual({ n1: { running: 1, total: 2, accelerators: 1, holders: [{ namespace: 'ns', name: 'a' }] }, n2: { running: 1, total: 1, accelerators: 0, holders: [] } });
 	});
 });
 
@@ -84,7 +84,7 @@ describe('pod reads', () => {
 
 	it('counts pods for every node, and says why when it may not', async () => {
 		listPodForAllNamespaces.mockResolvedValueOnce({ items: [pod('a', 'n1', 'Running')] });
-		expect(await readPodCounts()).toEqual({ available: true, data: { n1: { running: 1, total: 1, accelerators: 0 } } });
+		expect(await readPodCounts()).toEqual({ available: true, data: { n1: { running: 1, total: 1, accelerators: 0, holders: [] } } });
 		listPodForAllNamespaces.mockRejectedValueOnce({ code: 403 });
 		expect((await readPodCounts()).available).toBe(false);
 	});

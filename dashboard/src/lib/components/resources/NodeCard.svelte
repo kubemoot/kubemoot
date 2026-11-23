@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import HealthBadge from '../common/HealthBadge.svelte';
 	import UsageBar from '../common/UsageBar.svelte';
+	import AcceleratorSection from './AcceleratorSection.svelte';
 	import type { NodeSummary } from '#lib/node-summary.js';
 
 	interface Props {
@@ -33,13 +34,12 @@
 		</div>
 	{/if}
 
+	{#if summary.podsNote}
+		<p class="pods-note">Pods: {summary.podsNote}</p>
+	{/if}
+
 	{#if summary.accelerator}
-		<footer class="accelerator">
-			<span class="type">{summary.accelerator.label}</span>
-			{#if summary.accelerator.use}
-				<UsageBar label={summary.accelerator.use.label} text={summary.accelerator.use.text} fraction={summary.accelerator.use.fraction} level={summary.accelerator.use.level} />
-			{/if}
-		</footer>
+		<AcceleratorSection status={summary.accelerator} />
 	{/if}
 </a>
 
@@ -91,19 +91,9 @@
 		flex-direction: column;
 		gap: 0.5rem;
 	}
-	.accelerator {
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-		margin: 0 -1rem -1rem;
-		padding: 0.75rem 1rem;
-		background-color: rgba(168, 85, 247, 0.1);
-		border-top: 1px solid rgba(168, 85, 247, 0.2);
-		border-radius: 0 0 0.5rem 0.5rem;
-	}
-	.type {
-		font-size: 0.78rem;
-		font-weight: 500;
-		color: var(--color-purple);
+	.pods-note {
+		margin: 0;
+		font-size: 0.75rem;
+		color: var(--color-text-muted);
 	}
 </style>

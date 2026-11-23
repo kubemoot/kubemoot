@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acceleratorFacts, capacityRows, conditionRows, podPhaseOk, staticFacts, taintText } from './node-detail';
+import { capacityRows, conditionRows, podPhaseOk, staticFacts, taintText } from './node-detail';
 
 const node = {
 	metadata: { name: 'n1', creationTimestamp: '2026-11-01T00:00:00Z' },
@@ -50,11 +50,16 @@ describe('capacityRows', () => {
 	});
 });
 
-describe('acceleratorFacts', () => {
-	it('is undefined without an accelerator and carries what pods asked for with one', () => {
-		expect(acceleratorFacts({ metadata: { name: 'x' } } as never, undefined)).toBeUndefined();
-		const gpu = { ...node, metadata: { name: 'g' }, accelerator: { present: true, type: 'RTX 5090', count: 1, allocatable: '1', memory: '32GB' } };
-		expect(acceleratorFacts(gpu as never, 1)).toEqual({ type: 'RTX 5090', count: 1, allocatable: '1', memory: '32GB', requested: 1 });
+describe('capacityRows on a node that is not Ready', () => {
+	it('says the pods are unknown instead of showing a count', () => {
+		const off = { ...node, status: { ...node.status, conditions: [{ type: 'Ready', status: 'Unknown' }] } };
+		const pods = capacityRows(off as never, undefined, 6).find((r) => r.resource === 'Pods');
+		expect(pods?.inUse).toBe('unknown while the node is offline');
+	});
+
+	it('counts the pods on a Ready node', () => {
+		const ready = { ...node, status: { ...node.status, conditions: [{ type: 'Ready', status: 'True' }] } };
+		expect(capacityRows(ready as never, undefined, 11).find((r) => r.resource === 'Pods')?.inUse).toBe('11 (10%)');
 	});
 });
 

@@ -8,8 +8,14 @@
 	import { Section, InfoRow, PageTitle } from '#lib/components/common/index.js';
 	import HealthBadge from '#lib/components/common/HealthBadge.svelte';
 	import { formatTimestamp } from '#lib/discussion-timing.js';
-	import { acceleratorFacts, capacityRows, conditionRows, podPhaseOk, staticFacts, taintText } from '#lib/node-detail.js';
-	import { nodeHealth, nodeProblems, nodeUse } from '#lib/node-usage.js';
+	import { capacityRows, conditionRows, podPhaseOk, staticFacts, taintText } from '#lib/node-detail.js';
+	import { isNodeReady, nodeHealth, nodeProblems, nodeUse } from '#lib/node-usage.js';
+	import { acceleratorStatus, PODS_OFFLINE_TEXT } from '#lib/accelerator-status.js';
+	import { measuredUse, useProblem, type AcceleratorUseResponse } from '#lib/accelerator-use.js';
+	import { fetchAcceleratorUse, fetchModelServers } from '#lib/client/accelerator-data.js';
+	import type { ModelServer } from '#lib/types/kubemoot.js';
+	import { nodeAccelerator } from '#lib/node-accelerator.js';
+	import UsageBar from '#lib/components/common/UsageBar.svelte';
 	import type { NodeWithAccelerator } from '#lib/types/k8s.js';
 	import type { NodeMetric } from '#lib/node-usage.js';
 	import type { NodePod, Reading } from '#lib/reading.js';
@@ -17,6 +23,8 @@
 	let node = $state<NodeWithAccelerator | null>(null);
 	let metrics = $state<Reading<Record<string, NodeMetric>> | null>(null);
 	let pods = $state<Reading<NodePod[]> | null>(null);
+	let servers = $state<ModelServer[] | undefined>(undefined);
+	let acceleratorUse = $state<AcceleratorUseResponse | null>(null);
 	let loaded = false;
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -39,6 +47,7 @@
 			loaded = loaded || error === null;
 			loading = false;
 		}
+		[servers, acceleratorUse] = await Promise.all([fetchModelServers(resolve('/api/kubemoot/modelservers')), fetchAcceleratorUse(resolve('/api/accelerator-use'))]);
 	}
 
 	onMount(() => {
@@ -59,8 +68,12 @@
 	const problems = $derived(node ? nodeProblems(node, use) : []);
 	const conditions = $derived(node ? conditionRows(node) : []);
 	const capacity = $derived(node ? capacityRows(node, metric, running) : []);
-	const requested = $derived(podList?.reduce((sum, p) => sum + p.accelerators, 0));
-	const accelerator = $derived(node ? acceleratorFacts(node, requested) : undefined);
+	const ready = $derived(node ? isNodeReady(node) : true);
+	const holders = $derived(podList?.filter((p) => p.accelerators > 0));
+	const accelerator = $derived(node ? acceleratorStatus({ node, holders, servers, use: measuredUse(acceleratorUse) }) : undefined);
+	const devices = $derived(node ? nodeAccelerator(node) : undefined);
+	const noUse = $derived(useProblem(acceleratorUse));
+	const accelerators = $derived([accelerator?.busy, accelerator?.memory].filter((b) => b !== undefined));
 	const facts = $derived(node ? staticFacts(node) : []);
 	const taints = $derived(node?.spec?.taints ?? []);
 	const labels = $derived(Object.entries(node?.metadata.labels ?? {}).sort(([a], [b]) => a.localeCompare(b)));
@@ -111,7 +124,7 @@
 					{#if metrics && !metrics.available}
 						<p class="muted" role="status">CPU and memory use are not shown: {metrics.reason}</p>
 					{/if}
-					{#if pods && !pods.available}
+					{#if ready && pods && !pods.available}
 						<p class="muted" role="status">Pods are not shown: {pods.reason}</p>
 					{/if}
 					<div class="table-wrap">
@@ -130,18 +143,35 @@
 
 				{#if accelerator}
 					<Section title="Accelerators">
-						<InfoRow label="Type" value={accelerator.type} />
-						<InfoRow label="Devices" value={accelerator.count} />
-						<InfoRow label="Allocatable" value={accelerator.allocatable} />
-						<InfoRow label="Memory each" value={accelerator.memory} />
-						{#if accelerator.requested !== undefined}
-							<InfoRow label="Asked for by pods" value="{Math.min(accelerator.requested, accelerator.count)} of {accelerator.count}" />
+						<InfoRow label="Type" value={accelerator.label} />
+						<InfoRow label="Devices" value={devices?.count ?? 1} />
+						{#if accelerator.unavailable}
+							<InfoRow label="Available to Kubemoot" value={accelerator.unavailable} />
+						{:else}
+							{#if accelerator.serving?.kind === 'server'}
+								<InfoRow label="Serving">
+									<a href="{resolve('/modelservers/[name]', { name: accelerator.serving.name })}?namespace={accelerator.serving.namespace}" data-testid="serving">{accelerator.serving.name}</a>
+									{accelerator.serving.models.length > 0 ? accelerator.serving.models.join(', ') : 'no model loaded'}
+								</InfoRow>
+							{:else if accelerator.serving?.kind === 'pod'}
+								<InfoRow label="Serving" value="Held by {accelerator.serving.pod}" />
+							{:else if accelerator.serving?.kind === 'free'}
+								<InfoRow label="Serving" value="Free" />
+							{/if}
+							<div class="usage-bars">
+								{#each accelerators as b (b.label)}
+									<UsageBar label={b.label} text={b.text} fraction={b.fraction} level={b.level} />
+								{/each}
+							</div>
+							{#if noUse}<p class="muted" role="status">Accelerator busy and memory are not shown: {noUse}</p>{/if}
 						{/if}
 					</Section>
 				{/if}
 
-				<Section title={podList ? `Pods (${podList.length})` : 'Pods'}>
-					{#if podList && podList.length === 0}
+				<Section title={podList && ready ? `Pods (${podList.length})` : 'Pods'}>
+					{#if !ready}
+						<p class="muted">Pods: {PODS_OFFLINE_TEXT}.</p>
+					{:else if podList && podList.length === 0}
 						<p class="muted">No pods run on this node.</p>
 					{:else if podList}
 						<div class="table-wrap pods">
@@ -187,6 +217,13 @@
 </DetailPanel>
 
 <style>
+	.usage-bars {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		padding: 0.6rem 0 0.2rem;
+	}
+
 	.header-content {
 		display: flex;
 		align-items: center;

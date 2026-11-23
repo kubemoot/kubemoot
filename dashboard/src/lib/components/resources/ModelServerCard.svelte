@@ -5,13 +5,17 @@
 	import { resolve } from '$app/paths';
 	import type { ModelServer, ModelServerLoadedModel } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
+	import UsageBar from '../common/UsageBar.svelte';
+	import type { ServerAccelerator } from '#lib/accelerator-status.js';
 
 	interface Props {
 		server: ModelServer;
 		showNamespace?: boolean;
+		/** The accelerator behind the server and how it is working, when the page could tell. */
+		accelerator?: ServerAccelerator;
 	}
 
-	let { server, showNamespace = false }: Props = $props();
+	let { server, showNamespace = false, accelerator }: Props = $props();
 
 	let now = $state(Date.now());
 
@@ -121,9 +125,29 @@
 					<span class="value mono">{capacity.nodeName}</span>
 				</div>
 			{/if}
+			{#if accelerator}
+				<div class="row" data-testid="server-accelerator">
+					<span class="label">Accelerator</span>
+					<span class="value">{accelerator.label}</span>
+				</div>
+				{#if !capacity?.nodeName}
+					<div class="row">
+						<span class="label">Node</span>
+						<span class="value mono">{accelerator.node}</span>
+					</div>
+				{/if}
+				{#if accelerator.unavailable}
+					<p class="unavailable">{accelerator.unavailable}</p>
+				{:else}
+					{#each [accelerator.busy, accelerator.memory].filter((b) => b !== undefined) as b (b.label)}
+						<UsageBar label={b.label} text={b.text} fraction={b.fraction} level={b.level} />
+					{/each}
+				{/if}
+			{/if}
+
 			{#if vramTotal > 0}
 				<div class="row">
-					<span class="label">VRAM</span>
+					<span class="label">Accelerator memory</span>
 					<span class="value">{formatMiB(vramUsed)} / {formatMiB(vramTotal)}</span>
 				</div>
 				<div class="vram-bar" aria-hidden="true">
@@ -131,7 +155,7 @@
 				</div>
 			{:else if vramUsed > 0}
 				<div class="row">
-					<span class="label">VRAM used</span>
+					<span class="label">Accelerator memory used</span>
 					<span class="value">{formatMiB(vramUsed)}</span>
 				</div>
 			{/if}
@@ -150,7 +174,7 @@
 										class="model-state"
 										class:loaded={loaded}
 										class:cached={!loaded}
-										title={loaded ? 'In VRAM' : 'On disk, not in VRAM'}
+										title={loaded ? 'In accelerator memory' : 'On disk, not in accelerator memory'}
 									></span>
 									<a
 										class="model-name mono"
@@ -188,6 +212,12 @@
 	}
 
 	.label {
+		color: var(--color-text-muted);
+	}
+
+	.unavailable {
+		margin: 0;
+		font-size: 0.8rem;
 		color: var(--color-text-muted);
 	}
 

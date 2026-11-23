@@ -6,6 +6,8 @@
 import { clusterUse, cores, gib, nodeHealth, nodeProblems, nodeUse, type NodeMetric } from './node-usage.js';
 import type { PodCount, Reading } from './reading.js';
 import { nodeAccelerator } from './node-accelerator.js';
+import { combinedUse, useBars } from './accelerator-status.js';
+import { measuredUse, type AcceleratorUseByNode, type AcceleratorUseResponse } from './accelerator-use.js';
 import { readyHealth, worstHealth, type Health } from './health.js';
 import { nodeCounts } from './overview-counts.js';
 import { acceleratorMemoryTotalMiB, acceleratorMemoryUsedMiB } from './accelerator-capacity.js';
@@ -39,6 +41,8 @@ export interface OverviewData {
 	/** CPU and memory use per node; null when metrics.k8s.io could not be read, with the reason. */
 	metrics: Source<Reading<Record<string, NodeMetric>>>;
 	pods: Source<Reading<Record<string, PodCount>>>;
+	/** Accelerator busy and memory per node from the metrics source; null when it could not be read, absent when none is set. */
+	acceleratorUse: Source<AcceleratorUseResponse>;
 	crews: Source<Crew[]>;
 	modelServers: Source<ModelServer[]>;
 	models: Source<Model[]>;
@@ -198,11 +202,14 @@ function nodeTiles(data: OverviewData): Tile[] {
 		note = data.metrics.available ? undefined : data.metrics.reason;
 	}
 	const figure = `${nodeCounts(nodes).nodes.ready}/${nodes.length}`;
-	return [countTile('nodes', 'Nodes', link, judged, { bars, note, figure }, 'offline (cordoned)'), acceleratorTile(nodes, judged)];
+	return [countTile('nodes', 'Nodes', link, judged, { bars, note, figure }, 'offline (cordoned)'), acceleratorTile(nodes, judged, measuredUse(data.acceleratorUse))];
 }
 
-/** The accelerator devices on Ready nodes against all of them; the tile is as unwell as the worst accelerator node. */
-function acceleratorTile(nodes: NodeWithAccelerator[], judged: readonly Judged[]): Tile {
+/**
+ * The accelerators available to Kubemoot (on Ready nodes) against all of them, and how busy they are and how much of
+ * their memory is in use when a metrics source reports it. The tile is as unwell as the worst accelerator node.
+ */
+function acceleratorTile(nodes: NodeWithAccelerator[], judged: readonly Judged[], use: AcceleratorUseByNode | undefined): Tile {
 	const link = ACCELERATOR_LINK;
 	const { accelerators } = nodeCounts(nodes);
 	if (accelerators.total === 0) {
@@ -210,8 +217,11 @@ function acceleratorTile(nodes: NodeWithAccelerator[], judged: readonly Judged[]
 	}
 	const states = nodes.flatMap((n, i) => (nodeAccelerator(n)?.present ? [judged[i].health] : []));
 	const health = worstHealth(states);
-	const line = accelerators.ready === accelerators.total ? 'All on Ready nodes' : `${accelerators.total - accelerators.ready} on nodes that are not Ready`;
-	return { key: 'accelerators', label: 'Accelerators', link, phase: 'ready', health, figure: `${accelerators.ready}/${accelerators.total}`, line, bars: [] };
+	const offline = accelerators.total - accelerators.ready;
+	const line = offline === 0 ? 'All available to Kubemoot' : `${offline} not available: node offline`;
+	const { busy, memory } = useBars(combinedUse(nodes, use));
+	const bars = [busy, memory].filter((b): b is TileBar => b !== undefined);
+	return { key: 'accelerators', label: 'Accelerators', link, phase: 'ready', health, figure: `${accelerators.ready}/${accelerators.total}`, line, bars };
 }
 
 interface StatusLike {

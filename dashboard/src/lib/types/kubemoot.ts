@@ -21,6 +21,8 @@ export interface ModelServer {
 export interface ModelServerSpec {
 	type: 'ollama' | 'vllm';
 	endpoint?: string;
+	/** The Service the server answers on, when the operator was pointed at one instead of an endpoint. */
+	serviceRef?: { name: string; namespace?: string };
 	secretRef?: string;
 	scheduling?: {
 		weight?: number;

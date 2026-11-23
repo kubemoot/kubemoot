@@ -19,6 +19,9 @@
 //   KUBEMOOT_DASHBOARD_GATEWAY_URL=<url template>               (default: in-cluster Service)
 //       Where a crew's discussion gateway is; {crew} and {namespace} are replaced. Empty uses
 //       http://<crew>-discussion.<namespace>.svc.cluster.local.
+//   KUBEMOOT_DASHBOARD_PROMETHEUS_URL=<url>                    (default: empty)
+//       A Prometheus the dashboard reads node accelerator busy and memory from (chart value
+//       metrics.prometheusUrl). Empty shows no busy or memory bars.
 //   KUBEMOOT_DASHBOARD_INFRA_NAMESPACE=<namespace>            (default: kubemoot)
 //       The operator namespace. Infrastructure kinds (model servers, models,
 //       embedding models, MCP catalogs and quality policies) stay readable there
@@ -29,6 +32,7 @@ export const INFRA_NAMESPACE_ENV = 'KUBEMOOT_DASHBOARD_INFRA_NAMESPACE';
 export const ANONYMOUS_READ_ONLY_ENV = 'KUBEMOOT_DASHBOARD_ANONYMOUS_READ_ONLY';
 export const SESSION_MAX_MINUTES_ENV = 'KUBEMOOT_DASHBOARD_SESSION_MAX_MINUTES';
 export const GATEWAY_URL_ENV = 'KUBEMOOT_DASHBOARD_GATEWAY_URL';
+export const PROMETHEUS_URL_ENV = 'KUBEMOOT_DASHBOARD_PROMETHEUS_URL';
 
 const DEFAULT_SESSION_MINUTES = 480;
 
@@ -73,4 +77,9 @@ export function sessionMaxMs(): number {
 /** The gateway URL template from the environment, or '' for the in-cluster Service. */
 export function gatewayUrlTemplate(): string {
 	return (process.env[GATEWAY_URL_ENV] ?? '').trim();
+}
+
+/** The Prometheus address accelerator use is read from, or '' when none is set. */
+export function prometheusUrl(): string {
+	return (process.env[PROMETHEUS_URL_ENV] ?? '').trim();
 }

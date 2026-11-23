@@ -57,19 +57,29 @@ function acceleratorsRequested(pod: PodItem): number {
 	}, 0);
 }
 
+/** Adds a pod that still holds a place on its node: one more pod, and the devices it holds. */
+function holdPlace(entry: PodCount, pod: PodItem): void {
+	entry.total++;
+	const asked = acceleratorsRequested(pod);
+	entry.accelerators += asked;
+	if (asked > 0) entry.holders.push({ namespace: pod.metadata?.namespace ?? '', name: pod.metadata?.name ?? '' });
+}
+
+/** Adds one pod to its node's count. */
+function addPod(entry: PodCount, pod: PodItem): void {
+	const phase = pod.status?.phase ?? 'Unknown';
+	if (!FINISHED.has(phase)) holdPlace(entry, pod);
+	if (phase === 'Running') entry.running++;
+}
+
 /** How many pods run on each node, keyed by node name. */
 export function countPods(pods: readonly PodItem[]): Record<string, PodCount> {
 	const counts: Record<string, PodCount> = {};
 	for (const pod of pods) {
 		const node = pod.spec?.nodeName;
 		if (!node) continue;
-		const phase = pod.status?.phase ?? 'Unknown';
-		const entry = (counts[node] ??= { running: 0, total: 0, accelerators: 0 });
-		if (!FINISHED.has(phase)) {
-			entry.total++;
-			entry.accelerators += acceleratorsRequested(pod);
-		}
-		if (phase === 'Running') entry.running++;
+		counts[node] ??= { running: 0, total: 0, accelerators: 0, holders: [] };
+		addPod(counts[node], pod);
 	}
 	return counts;
 }
