@@ -111,7 +111,7 @@ the live Moot (`/moot`) view that renders each thread. Every event of the stream
 the request and response bodies of these endpoints, are defined in the
 [bus contract](../signals-and-protocol/#the-bus-contract): `StreamEvent`,
 `PostDiscussionRequest`, `PostDiscussionResponse`, `ConversationList`,
-`ConversationEvent`, `ConversationControl`, `ConversationErasure` and `ErrorResponse`.
+`ConversationEvent`, `ConversationControl`, `ConversationState`, `ConversationErasure` and `ErrorResponse`.
 
 The stream survives restarts. The POST reply also carries `requestedAt`; pass it as
 `?since=` on the stream so any gateway replica can tell this turn's thread from an
@@ -266,18 +266,33 @@ Each open event stream holds one consumer on the crew's discussion subjects and 
 
 ### Stopping, pausing, resuming and deleting a conversation
 
-Four authenticated endpoints act on a conversation by its id, each checked by the [owner rule](#who-owns-a-conversation):
+Four authenticated endpoints act on a conversation by its id, and a fifth reads where it stands, each checked by the [owner rule](#who-owns-a-conversation):
 
 | Endpoint | What it does |
 |----------|--------------|
-| `POST /api/v1/discussions/{crew}/{conversationId}/stop` | Makes each running discussion of the conversation synthesize now, from the signals it has |
+| `GET /api/v1/discussions/{crew}/{conversationId}/state` | Says where the conversation and each of its turns stand: queued, running, paused, stopped or finished |
+| `POST /api/v1/discussions/{crew}/{conversationId}/stop` | Abandons each running discussion of the conversation, removes its queued questions from the queue, and says what happened |
 | `POST /api/v1/discussions/{crew}/{conversationId}/pause` | Pauses each running discussion |
 | `POST /api/v1/discussions/{crew}/{conversationId}/resume` | Resumes each paused discussion |
 | `DELETE /api/v1/discussions/{crew}/{conversationId}` | Erases the conversation from every store that holds it |
 
-Stop, pause and resume find the conversation's threads in the discussion stream and publish the message the coordinator already understands (`stop_requested`, `thread_pause`, `thread_resume`) on each running thread's own subject. The gateway sends it as itself, `discussion-gateway`, never as a person, and the coordinator handles it exactly as it handled the dashboard's old controls. The answer is a `ConversationControl`: the action and the threads it was sent to. A conversation with no thread the stream holds is `404`; one with nothing running is `409`. A control only asks: a thread already past synthesis ignores a stop, and the coordinator decides.
+Pause and resume find the conversation's threads in the discussion stream and publish the message the coordinator already understands (`thread_pause`, `thread_resume`) on each running thread's own subject. The gateway sends it as itself, `discussion-gateway`, never as a person. The answer is a `ConversationControl`: the action and the threads it was sent to. A conversation with no thread the stream holds is `404`; one with nothing running is `409`. A pause only asks: the coordinator ignores it once the draft is on the table.
 
-Delete answers a `ConversationErasure`, which says what it removed from each store and what it cannot remove. It refuses with `409` while a discussion runs, because the coordinator would write its answer into the history again; stop it first, or pass `?force=true`, which stops each running discussion before it erases and leaves nothing to write the answer again unless the stop is ignored (a discussion already past synthesis); delete again once it has closed if the history reappears. A delete that could not clear a store answers `500` with the same body and the stores in `failed`; the owner record is removed last, so the owner can repeat it. A second delete of a deleted conversation is `404`. The stores, and what is kept, are listed in [Answering an erasure request](../../operating/data-ownership/#answering-an-erasure-request).
+**Stop** does what it says, or says it could not. The coordinator abandons the turn from whatever phase it is in: no synthesis, no draft, no ratification. The agents stop at once too: work in flight drops its result and a wait for an accelerator ends. The thread closes with a text that says the person stopped it, not an answer, and its `synthesis` and `thread_close` carry `metadata.outcome: stopped` (the stream's `synthesis` and `done` events carry `outcome: stopped`). That text is what the conversation's history stores for the turn. What the agents had published stays in the thread and in the coordinator's log, so the trace keeps the partial work. A stop after the thread closed changes nothing.
+
+The answer to a stop is a `ConversationControl` with an `outcome` and a `message` in plain words. The gateway waits for the turn's own `thread_close` before it answers, so the outcome is what happened, not what was asked:
+
+| `outcome` | Status | Meaning |
+|-----------|--------|---------|
+| `stopped` | `200` | Every running turn confirmed it stopped; `stopped` lists the threads. A follow-up question queued behind it is removed too, counted in `cancelled` |
+| `cancelled` | `200` | The question was still in the crew's request queue and was removed from it; no agent saw it |
+| `nothing_to_stop` | `200` | Every turn had already finished, so nothing changed |
+| `unconfirmed` | `202` | The stop was sent and the coordinator did not confirm in time; the work may still be running. The wait is a safety net of 30 seconds, never reached when the coordinator answers |
+| (an error) | `409` | The crew took the question a moment ago and its discussion has not begun, so there is no turn to stop yet; stop again |
+
+**State.** `GET .../state` answers a `ConversationState`: the state of the conversation and of each turn, oldest first. It is read from what the bus already holds, with nothing stored and nothing timed. A turn is `queued` while its question waits in the crew's request queue (with `queuePosition`, how many questions are ahead of it), `running` once a coordinator took it, `paused` after a pause that no resume followed, `stopped` when it closed with the stopped text, and `finished` when it closed with an answer. A turn with a stop sent and not yet closed is `running` with `stopRequested: true`. The conversation is `running` when any turn is, else `paused`, else `queued`, else the state of its latest turn. A conversation with no thread and no queued question is `404`. A turn in the middle of the coordinator taking a question has no `threadId` yet.
+
+Delete answers a `ConversationErasure`, which says what it removed from each store and what it cannot remove. It refuses with `409` while a discussion runs, because the coordinator would write its answer into the history again; stop it first, or pass `?force=true`, which stops each running discussion before it erases, so nothing writes an answer into the history again (a stopped turn writes its stopped text, which the erase can race; delete again once it has closed if the history reappears). A delete that could not clear a store answers `500` with the same body and the stores in `failed`; the owner record is removed last, so the owner can repeat it. A second delete of a deleted conversation is `404`. The stores, and what is kept, are listed in [Answering an erasure request](../../operating/data-ownership/#answering-an-erasure-request).
 
 On a crew that verifies no one there are no owners, so any caller who can reach the gateway can stop, pause, resume or delete any conversation, as any caller can read any of them; put the gateway behind your own access control, or turn on `spec.discussion.access`.
 

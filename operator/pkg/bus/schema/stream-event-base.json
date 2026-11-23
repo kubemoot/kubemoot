@@ -23,6 +23,7 @@
     },
     "summary": { "type": "string", "description": "The first line of a finding, or a concern's text." },
     "content": { "type": "string", "description": "A finding's full contribution, or the synthesis." },
+    "outcome": { "type": "string", "description": "On synthesis and done: stopped when a person stopped the turn, so content is the stopped text and not an answer. Absent otherwise." },
     "threadId": { "type": "string", "description": "The thread, on thread_found." },
     "stood_aside": { "type": "boolean", "description": "Set on the phase event of an agent that stood aside." },
     "model": { "type": "string", "description": "The model a waiting agent waits for." },

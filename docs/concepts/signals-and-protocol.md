@@ -129,9 +129,9 @@ per-thread state machine with the following phases:
 `SUBMITTED` -> `ADVISORY` -> `EVALUATING` -> `REVIEW` -> `SYNTHESIZING` -> `RATIFY` -> `CLOSED`
 
 A `PAUSED` state can interrupt any phase except `SYNTHESIZING`, `RATIFY` and `CLOSED`; the
-machine resumes to the same phase when unpaused. A person's stop request forces an
-immediate transition to `SYNTHESIZING` on whatever signals exist; in `RATIFY` it releases the
-current draft at once with the objections so far. A human reply on a
+machine resumes to the same phase when unpaused. A person's stop request abandons the turn
+from any phase but `CLOSED`: the thread closes at once with a text that says the person
+stopped it, and no synthesis or draft is written. A human reply on a
 closed thread reopens it to `EVALUATING`.
 
 In plain terms, the flow is:

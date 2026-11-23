@@ -1,5 +1,5 @@
 {
-  "version": "2.9.0",
+  "version": "2.10.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -158,9 +158,30 @@
       ],
       "required": true
     },
+    "conversation-control.json#/cancelled": {
+      "type": "integer"
+    },
     "conversation-control.json#/conversationId": {
       "type": "string",
       "required": true
+    },
+    "conversation-control.json#/message": {
+      "type": "string"
+    },
+    "conversation-control.json#/outcome": {
+      "type": "string",
+      "enum": [
+        "cancelled",
+        "nothing_to_stop",
+        "stopped",
+        "unconfirmed"
+      ]
+    },
+    "conversation-control.json#/stopped": {
+      "type": "array"
+    },
+    "conversation-control.json#/stopped[]": {
+      "type": "string"
     },
     "conversation-control.json#/threads": {
       "type": "array",
@@ -331,6 +352,59 @@
       "required": true,
       "ref": "principal.json"
     },
+    "conversation-state.json#": {
+      "type": "object"
+    },
+    "conversation-state.json#/conversationId": {
+      "type": "string",
+      "required": true
+    },
+    "conversation-state.json#/definitions/TurnState": {
+      "type": "string",
+      "enum": [
+        "finished",
+        "paused",
+        "queued",
+        "running",
+        "stopped"
+      ]
+    },
+    "conversation-state.json#/definitions/TurnStatus": {
+      "type": "object"
+    },
+    "conversation-state.json#/definitions/TurnStatus/endedAt": {
+      "type": "string"
+    },
+    "conversation-state.json#/definitions/TurnStatus/question": {
+      "type": "string"
+    },
+    "conversation-state.json#/definitions/TurnStatus/queuePosition": {
+      "type": "integer"
+    },
+    "conversation-state.json#/definitions/TurnStatus/startedAt": {
+      "type": "string"
+    },
+    "conversation-state.json#/definitions/TurnStatus/state": {
+      "required": true,
+      "ref": "#/definitions/TurnState"
+    },
+    "conversation-state.json#/definitions/TurnStatus/stopRequested": {
+      "type": "boolean"
+    },
+    "conversation-state.json#/definitions/TurnStatus/threadId": {
+      "type": "string"
+    },
+    "conversation-state.json#/state": {
+      "required": true,
+      "ref": "#/definitions/TurnState"
+    },
+    "conversation-state.json#/turns": {
+      "type": "array",
+      "required": true
+    },
+    "conversation-state.json#/turns[]": {
+      "ref": "#/definitions/TurnStatus"
+    },
     "coordinator-event.json#": {
       "type": "object"
     },
@@ -472,6 +546,7 @@
         "direct",
         "fallback",
         "no_data",
+        "stopped",
         "synthesized"
       ]
     },
@@ -1280,6 +1355,9 @@
       "type": "boolean"
     },
     "discussion-metadata.json#/originalSourceThreadId": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/outcome": {
       "type": "string"
     },
     "discussion-metadata.json#/outputTokens": {
@@ -2246,6 +2324,9 @@
       "type": "string"
     },
     "stream-event-base.json#/model": {
+      "type": "string"
+    },
+    "stream-event-base.json#/outcome": {
       "type": "string"
     },
     "stream-event-base.json#/reason": {

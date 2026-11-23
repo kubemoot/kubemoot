@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConversationState",
+  "description": "The answer to GET /api/v1/discussions/{crew}/{conversationId}/state: where a conversation and each of its turns stand now, read from the request queue and the discussion stream. A client uses it instead of guessing from its own panel, and to offer Stop for a conversation running elsewhere.",
+  "type": "object",
+  "required": ["conversationId", "state", "turns"],
+  "properties": {
+    "conversationId": { "type": "string", "description": "The conversation." },
+    "state": {
+      "$ref": "#/definitions/TurnState",
+      "description": "The conversation's state: running when any turn is running, else paused when any turn is paused, else queued when any question waits in the queue, else the state of its latest turn (stopped or finished)."
+    },
+    "turns": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/TurnStatus" },
+      "description": "The conversation's turns, oldest first: the threads the discussion stream holds, then the questions still queued."
+    }
+  },
+  "definitions": {
+    "TurnState": {
+      "title": "TurnState",
+      "type": "string",
+      "enum": ["queued", "running", "paused", "stopped", "finished"],
+      "description": "queued: the question waits in the crew's queue and no agent has seen it. running: the crew is working on it. paused: a person paused it. stopped: a person stopped it and its text is the stopped text, not an answer. finished: it closed with an answer."
+    },
+    "TurnStatus": {
+      "title": "TurnStatus",
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "threadId": { "type": "string", "description": "The thread of the turn. Absent while the question is queued." },
+        "question": { "type": "string", "description": "The question of the turn." },
+        "state": { "$ref": "#/definitions/TurnState" },
+        "stopRequested": { "type": "boolean", "description": "True while a stop was sent to a running or paused turn and the coordinator has not closed it yet." },
+        "queuePosition": { "type": "integer", "description": "On a queued turn, how many questions are ahead of it in the crew's queue, counting the one being worked: 1 is the next to be taken when the crew is idle." },
+        "startedAt": { "type": "string", "description": "When the turn's thread began, RFC 3339 in UTC. Absent while queued." },
+        "endedAt": { "type": "string", "description": "When the turn's thread closed, RFC 3339 in UTC. Absent while it is open." }
+      }
+    }
+  }
+}

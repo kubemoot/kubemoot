@@ -77,6 +77,7 @@ public class DiscussionOrchestrator {
     private static final String FIELD_CHANNEL = "channel";
     private static final String FIELD_TIMESTAMP = "timestamp";
     private static final String FIELD_METADATA = "metadata";
+    private static final String FIELD_OUTCOME = "outcome";
 
     // Message type constants
     static final String MSG_ADVISORY = "advisory";
@@ -122,6 +123,11 @@ public class DiscussionOrchestrator {
     private static final String PHASE_SELECTION = "selection";
     private static final String PHASE_SYNTHESIS = MSG_SYNTHESIS;
     static final String MSG_THREAD_CLOSE = "thread_close";
+    /** The outcome of a turn a person stopped: on the close, in the coordinator log and in the message metadata. */
+    static final String OUTCOME_STOPPED = "stopped";
+    /** What a stopped turn stores and shows in place of an answer: it says a person stopped it. */
+    static final String STOPPED_ANSWER = "Stopped by the person who asked, before the crew answered. "
+            + "This is not an answer from the crew. What the crew had gathered so far stays in the trace.";
     private static final String MSG_STOP_REQUESTED = "stop_requested";
     private static final String MSG_THREAD_PAUSE = "thread_pause";
     private static final String MSG_THREAD_RESUME = "thread_resume";
@@ -1111,9 +1117,9 @@ public class DiscussionOrchestrator {
         }
     }
 
-    /** A stop is honored only before the thread has already reached synthesis/closed. */
-    static boolean canForceSynthesis(Phase phase) {
-        return phase != Phase.SYNTHESIZING && phase != Phase.RATIFY && phase != Phase.CLOSED;
+    /** A stop abandons the turn from every phase but CLOSED: there is nothing left to stop once the answer is out. */
+    static boolean canStop(Phase phase) {
+        return phase != Phase.CLOSED;
     }
 
     /** A pause is honored only from a live phase (not already paused/closed/synthesizing). */
@@ -1131,16 +1137,25 @@ public class DiscussionOrchestrator {
         return beforePause != null ? beforePause : Phase.EVALUATING;
     }
 
-    /** Dashboard "Stop": force synthesis on accumulated signals, unless already past it. */
-    private void handleStopRequest(ThreadState state, String threadId, String agentName) {
-        if (state.phase == Phase.RATIFY) {
-            log.info("Thread {} stop requested by {} - releasing the draft now", threadId, agentName);
-            releaseRatification(state, "stop");
-        } else if (canForceSynthesis(state.phase)) {
-            log.info("Thread {} stop requested by {} — forcing synthesis from phase {}",
-                    threadId, agentName, state.phase);
-            transitionToSynthesis(state, "stop");
+    /**
+     * A person's stop abandons the turn: no synthesis, no draft, no ratification. The thread closes at
+     * once with a text that says the person stopped it, and a synthesis or revision still running on
+     * the llmExecutor drops its result when it finds the thread stopped. What the agents had published
+     * stays in the thread and in the coordinator's log, so the trace keeps the partial work.
+     */
+    // Visible for testing
+    void handleStopRequest(ThreadState state, String threadId, String agentName) {
+        synchronized (state) {
+            // A close already under way is the answer: a stop that comes after it changes nothing.
+            if (!canStop(state.phase) || state.stopped || state.closeWait != null) {
+                return;
+            }
+            state.stopped = true;
         }
+        log.info("Thread {} stop requested by {} - abandoning the turn from phase {}",
+                threadId, agentName, state.phase);
+        state.advisoryPending.set(false);
+        closeThread(state, resolveChannel(state), STOPPED_ANSWER, OUTCOME_STOPPED);
     }
 
     /** Dashboard "Pause": save the current phase; the phase-check skips PAUSED threads. */
@@ -1406,6 +1421,7 @@ public class DiscussionOrchestrator {
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
         state.ratify.reset();
+        state.stopped = false;
         state.receipt.startRound(state.phaseStarted);
         events.reopened(state);
         log.info("Thread {} reopened by human reply → EVALUATING", threadId);
@@ -1551,7 +1567,7 @@ public class DiscussionOrchestrator {
      *   RATIFY       --auto: roster answered-------->  CLOSED       (or a revision and a next round)
      *   any\{SYNTHESIZING,CLOSED} --thread_pause (event)--> PAUSED
      *   PAUSED       --thread_resume (event)-------->   {phaseBeforePause}
-     *   any\{SYNTHESIZING,CLOSED} --stop_requested (event)--> SYNTHESIZING
+     *   any\{CLOSED}        --stop_requested (event)--> CLOSED (the turn is abandoned, not answered)
      * </pre>
      * See [[Discussion Phase Lifecycle as Explicit State Machine]].
      */
@@ -2699,6 +2715,9 @@ public class DiscussionOrchestrator {
             String response = synthesisResult.text();
             state.synthesisInputTokens = synthesisResult.inputTokens();
             state.synthesisOutputTokens = synthesisResult.outputTokens();
+            if (state.stopped) {
+                return;
+            }
 
             if (response == null || response.isEmpty()) {
                 handleEmptySynthesisResponse(state);
@@ -3172,6 +3191,10 @@ public class DiscussionOrchestrator {
      * Idempotent: completePending no-ops if the future is already completed.
      */
     void closeThread(ThreadState state, String channel, String response, String outcome) {
+        if (state.stopped && !OUTCOME_STOPPED.equals(outcome)) {
+            log.info("Thread {} was stopped; dropping the {} close", state.threadId, outcome);
+            return;
+        }
         boolean owner = beginClose(state);
         try {
             events.synthesisDone(state, outcome, channel, response);
@@ -3214,8 +3237,8 @@ public class DiscussionOrchestrator {
             completeFenced(state);
             return;
         }
-        publishToThread(state.threadId, channel, response, MSG_SYNTHESIS, ratificationMetadata(state));
-        publishThreadClose(state.threadId, channel);
+        publishToThread(state.threadId, channel, response, MSG_SYNTHESIS, synthesisMetadata(state, outcome));
+        publishThreadClose(state.threadId, channel, OUTCOME_STOPPED.equals(outcome));
         state.answer = response;
         state.phase = Phase.CLOSED;
         closedThread(state, outcome, channel);
@@ -4061,6 +4084,11 @@ public class DiscussionOrchestrator {
 
     // Visible for testing
     void publishThreadClose(String threadId, String channel) {
+        publishThreadClose(threadId, channel, false);
+    }
+
+    /** {@code stopped} marks the close of a turn a person stopped. */
+    void publishThreadClose(String threadId, String channel, boolean stopped) {
         try {
             // Build token totals metadata for observability
             var tokenMetadata = new HashMap<String, Object>();
@@ -4083,6 +4111,9 @@ public class DiscussionOrchestrator {
             close.put(FIELD_CONTENT, "");
             close.put(FIELD_CHANNEL, channel);
             close.put(FIELD_TIMESTAMP, Instant.now().toString());
+            if (stopped) {
+                tokenMetadata.put(FIELD_OUTCOME, OUTCOME_STOPPED);
+            }
             if (!tokenMetadata.isEmpty()) {
                 close.put(FIELD_METADATA, tokenMetadata);
             }
@@ -4784,12 +4815,17 @@ public class DiscussionOrchestrator {
         return state.ratify.active() ? Map.of("ratification", state.ratify.metadata()) : Map.of();
     }
 
+    /** The metadata of the answer: how the table ratified it, or, for a stopped turn, that a person stopped it. */
+    private Map<String, Object> synthesisMetadata(ThreadState state, String outcome) {
+        return OUTCOME_STOPPED.equals(outcome) ? Map.of(FIELD_OUTCOME, OUTCOME_STOPPED) : ratificationMetadata(state);
+    }
+
     /**
      * Puts the synthesis to the table as a draft. False, and nothing done, when ratification is off
      * or no agent contributed (a direct answer): the caller releases the draft as the answer.
      */
     boolean beginRatification(ThreadState state, String draft, Instant synthesisStart) {
-        if (!ratifyPolicy.enabled()) {
+        if (!ratifyPolicy.enabled() || state.stopped) {
             return false;
         }
         var roster = ratifyRoster(state);
@@ -5176,6 +5212,9 @@ public class DiscussionOrchestrator {
         volatile Instant phaseStarted = Instant.now();
         // Saved phase across PAUSED — restored on thread_resume.
         volatile Phase phaseBeforePause;
+        // True once a person stopped the turn: the thread is closed with the stopped text, and no
+        // synthesis, draft or fallback that is still running may close it again.
+        volatile boolean stopped;
         final AtomicBoolean transitioning = new AtomicBoolean(false);
         // True while a phase check of this thread is queued or running on the llmExecutor.
         final AtomicBoolean checkQueued = new AtomicBoolean(false);

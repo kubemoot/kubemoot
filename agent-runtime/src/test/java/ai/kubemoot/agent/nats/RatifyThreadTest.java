@@ -251,15 +251,14 @@ class RatifyThreadTest extends CoordinatorThreadTestBase {
     }
 
     @Test
-    void aStopBeforeAnyoneAnsweredReleasesTheDraftAsNotRatifiedNamingEveryAgentThatHasNotAnswered() throws Exception {
+    void aStopBeforeAnyoneAnsweredAbandonsTheDraftAndAnswersWithTheStoppedText() throws Exception {
         toRatify();
         send(THREAD, "human", "stop_requested", "", null);
 
         JsonNode answer = theAnswer();
-        JsonNode ratification = answer.path("metadata").path("ratification");
-        assertEquals("not_ratified", ratification.path("state").asText(), "silence is not consent");
-        assertEquals(SORTED_ROSTER, MAPPER.convertValue(ratification.path("failures"), List.class));
-        assertTrue(answer.path("content").asText().contains("Not checked by these agents"), answer.toString());
+        assertEquals(DiscussionOrchestrator.STOPPED_ANSWER, answer.path("content").asText(), answer.toString());
+        assertEquals("stopped", answer.path("metadata").path("outcome").asText());
+        assertTrue(answer.path("metadata").path("ratification").isMissingNode(), "the draft is not released");
     }
 
     @Test
@@ -277,13 +276,13 @@ class RatifyThreadTest extends CoordinatorThreadTestBase {
     }
 
     @Test
-    void aStopWhileTheRevisionIsBeingWrittenReleasesAndTheRevisionIsNeverPublished() throws Exception {
+    void aStopWhileTheRevisionIsBeingWrittenAbandonsTheTurnAndTheRevisionIsNeverPublished() throws Exception {
         toRatify();
         state().ratify.beginRevision(); // the revision call is under way
         send(THREAD, "human", "stop_requested", "", null);
         theAnswer();
 
-        assertFalse(state().ratify.revise("too late"), "the draft was released meanwhile");
+        assertTrue(state().stopped);
         assertEquals(1, publishedOfType("draft").size());
     }
 
@@ -313,14 +312,13 @@ class RatifyThreadTest extends CoordinatorThreadTestBase {
     }
 
     @Test
-    void aStopRequestInRatifyReleasesTheDraftAtOnceWithWhatIsKnown() throws Exception {
+    void aStopRequestInRatifyAbandonsTheDraftEvenWithObjectionsOnTheTable() throws Exception {
         toRatify();
         answer(METRICS, "concern", OBJECTION, 1);
         send(THREAD, "human", "stop_requested", "", null);
 
         JsonNode answer = theAnswer();
-        assertTrue(answer.path("content").asText().startsWith(DRAFT));
-        assertTrue(answer.path("content").asText().contains(OBJECTION), "the objection so far is not hidden");
+        assertEquals(DiscussionOrchestrator.STOPPED_ANSWER, answer.path("content").asText());
         await(() -> state().phase == DiscussionOrchestrator.Phase.CLOSED, "the thread did not close");
     }
 

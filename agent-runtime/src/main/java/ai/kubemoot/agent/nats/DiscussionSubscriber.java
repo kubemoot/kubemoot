@@ -545,7 +545,10 @@ public class DiscussionSubscriber {
     }
 
     private void trackThreadState(String threadId, String agentName, String messageType, String content) {
-        if ("synthesis".equals(messageType) || "thread_close".equals(messageType)) {
+        // A person's stop ends the turn for the agents too: work in flight drops its result and a
+        // wait for an accelerator ends, without waiting for the coordinator's close.
+        if ("synthesis".equals(messageType) || "thread_close".equals(messageType)
+                || "stop_requested".equals(messageType)) {
             closedThreads.add(threadId);
             wakeThreadEnd(threadId);
         }

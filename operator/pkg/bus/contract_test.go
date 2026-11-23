@@ -164,6 +164,7 @@ var unrecorded = map[string]bool{
 	"server-ticket.json": true, "scheduled-record.json": true, "signal-meta.json": true,
 	"stream-event-base.json": true, "subcommittee.json": true, "coordinator-event.json": true,
 	"conversation-event.json": true, "conversation-control.json": true, "conversation-erasure.json": true,
+	"conversation-state.json": true,
 }
 
 func TestEverySchemaHasRecordingsOrIsListed(t *testing.T) {

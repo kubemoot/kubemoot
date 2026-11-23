@@ -241,6 +241,17 @@ class DiscussionSubscriberHelpersTest {
     }
 
     @Test
+    void admit_aStopEndsTheTurnForTheAgentAtOnce() throws Exception {
+        var sub = createSubscriber("k8s-agent");
+        assertNull(sub.admitForEvaluation(msg("stop_requested", "t1", "discussion-gateway", "m1", null)));
+        assertNull(sub.admitForEvaluation(msg("advisory_ready", "t1", "coord", "m2", null)),
+                "no evaluation starts on a thread a person stopped");
+        assertEquals(0, sub.rateLimitPermits("t1"));
+        assertNotNull(sub.admitForEvaluation(msg("advisory_ready", "t2", "coord", "m3", null)),
+                "another thread is not affected");
+    }
+
+    @Test
     void admit_nonTriggerTypeTakesNoPermit() throws Exception {
         var sub = createSubscriber("k8s-agent");
         assertNull(sub.admitForEvaluation(msg("agree", "t1", "helm-agent", "m1", null)));

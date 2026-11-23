@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: Kubemoot bus contract
-  version: 2.9.0
+  version: 2.10.0
   description: |
     The messages agents and Kubemoot exchange over NATS, the key-value entries they
     share, and the event stream the discussion gateway serves. Payloads are JSON
@@ -409,7 +409,10 @@ channels:
       lists recent conversations (ConversationList); GET
       /api/v1/discussions/{crew}/artifact?key=<key> returns an artifact as text.
       POST /api/v1/discussions/{crew}/{conversationId}/stop, /pause and /resume
-      send the control to the conversation's running threads (ConversationControl);
+      send the control to the conversation's running threads (ConversationControl),
+      and a stop also removes a queued question and says what happened; GET
+      /api/v1/discussions/{crew}/{conversationId}/state says where the
+      conversation and each turn stand (ConversationState);
       DELETE /api/v1/discussions/{crew}/{conversationId} erases the conversation
       from every store that holds it (ConversationErasure). Failures answer with
       ErrorResponse.
@@ -479,6 +482,8 @@ components:
       $ref: './conversation-event.json'
     ConversationControl:
       $ref: './conversation-control.json'
+    ConversationState:
+      $ref: './conversation-state.json'
     ConversationErasure:
       $ref: './conversation-erasure.json'
     ErrorResponse:
