@@ -133,3 +133,43 @@ describe('deleting a fitness run', () => {
 		expect(screen.getByText('gate-run')).toBeTruthy();
 	});
 });
+
+describe('gates and judge score read apart', () => {
+	const original = suite.status;
+	afterEach(() => {
+		suite.status = original;
+	});
+
+	it('labels the gate counts and the judge score as separate columns', async () => {
+		suite.status = { ...original, judge: { phase: 'Complete', mean: 20 } } as unknown as typeof original;
+		render(Page);
+		await screen.findByText('gate-run');
+		const headers = Array.from(document.querySelectorAll('.ftable thead th')).map((h) => h.textContent?.trim());
+		expect(headers).toContain('Gates pass / fail / err i');
+		expect(headers).toContain('Judge score');
+		const cells = Array.from(document.querySelectorAll('.suite-row td')).map((c) => c.textContent?.trim());
+		expect(cells).toContain('30/2/0');
+		expect(cells.filter((c) => c === '20')).toHaveLength(1);
+	});
+
+	it('explains the two in an (i) note that opens on click', async () => {
+		render(Page);
+		await screen.findByText('gate-run');
+		expect(screen.queryByRole('dialog')).toBeNull();
+		await fireEvent.click(screen.getByRole('button', { name: 'About gates and judge score' }));
+		expect(screen.getByRole('dialog').textContent).toContain('The two are independent');
+	});
+
+	it('shows status.error for an Error suite and the ToolSmoke message for ToolSmokeFailed', async () => {
+		suite.status = { phase: 'Error', error: 'spec.scripts is empty' } as unknown as typeof original;
+		const first = render(Page);
+		expect(await screen.findByText('spec.scripts is empty')).toBeTruthy();
+		first.unmount();
+		suite.status = {
+			phase: 'ToolSmokeFailed',
+			conditions: [{ type: 'ToolSmoke', status: 'False', reason: 'Failed', message: '9 tool(s) failed the smoke, no model ran', lastTransitionTime: '' }]
+		} as unknown as typeof original;
+		render(Page);
+		expect(await screen.findByText('9 tool(s) failed the smoke, no model ran')).toBeTruthy();
+	});
+});
