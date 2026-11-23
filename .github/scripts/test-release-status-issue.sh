@@ -59,6 +59,8 @@ run 1 >/dev/null
 check "breaking with no open issue opens one" "1" "$(count '^issue create --title Public repositories hold')"
 check "it labels the issue" "1" "$(count '^issue create .*--label release-status')"
 check "it makes sure the label exists first" "1" "$(count '^label create release-status')"
+check "it creates the label with infra's color" "1" "$(count '^label create release-status --color c5def5 ')"
+check "it never overwrites an existing label" "0" "$(count '^label create .*--force')"
 check "it opens only one" "0" "$(count '^issue edit')"
 check "the list asks for the label and the author" "1" "$(count '^issue list .*--label release-status --author app/github-actions')"
 check "the issue body carries the report" "1" "$(grep -c 'UNPUBLISHED BREAKING: feat!: rename @someone' "${work}/body")"
