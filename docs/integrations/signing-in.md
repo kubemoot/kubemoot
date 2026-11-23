@@ -148,15 +148,13 @@ The front is one for the whole liaison, not one per crew. To hand the person's t
 ## What a crew's tools sign in to
 
 A crew's tools may call services that have their own accounts, such as a search
-service. Those credentials belong to the crew's installer and are kept in the
-crew's tool gateway, not in the chat app. The asker's own account at such a service
-is not used today: the tool uses the credential the installer configured, whoever asks.
+service. By default those credentials belong to the crew's installer and are kept in the
+crew's tool gateway, not in the chat app: the tool uses the credential the installer
+configured, whoever asks.
 
-## Planned
-
-Per-person sign-in to a crew's service is planned: a person would connect their own
-account at the service a crew's tool calls (through that service's own sign-in page),
-and the tool would use that person's access for their question only. It is not
-built, and the chat apps on these pages have nothing to configure for it. Until it
-exists, treat a crew's tool credentials as the installer's, and restrict who can reach
-the liaison to people the installer is willing to have use them.
+A crew that supports per-person sign-in (the chart's `perPerson` value, as in O'guide)
+does the opposite: with the front above, each person signs in to the service once, and the
+crew's tools use that person's own access for their question. The chat app starts the
+sign-in when the person clicks Authenticate on the server; see [LibreChat](../librechat/).
+Treat a crew without per-person sign-in as acting with the installer's credentials, and
+restrict who can reach the liaison to people the installer is willing to have use them.
