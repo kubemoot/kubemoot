@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { PageTitle } from '#lib/components/common/index.js';
+	import { InfoPopover, PageTitle } from '#lib/components/common/index.js';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { crewDirectory, namespace } from '#lib/stores/index.js';
@@ -9,6 +9,7 @@
 	import { suiteDisplayPhase, suiteIsJudged } from '#lib/fitness-suite-controls.js';
 	import { consistencyView, trialsIndependence } from '#lib/fitness-consistency.js';
 	import { realmView } from '#lib/fitness-realm.js';
+	import { GATES_LEGEND, judgeScoreText, scenarioFailures, suiteFailureText } from '#lib/fitness-gates.js';
 
 	// Push-based live list: initial fetch + SSE watch on CrewFitnessSuite. The
 	// operator advances each suite's status (phase, iterationsCompleted,
@@ -16,6 +17,8 @@
 	// transition, so MODIFIED events keep the status badge, progress, and counts
 	// current in place - no manual refresh, and the badge flips Running→Completed
 	// the moment the operator does.
+	// Failed-scenario reasons shown under a suite name before "and N more".
+	const MAX_REASONS = 3;
 	const live = new LiveList<CrewFitnessSuite>('crewfitnesssuites');
 	// Ticking clock so a running suite's elapsed Duration and ETA advance every
 	// second, not only when an SSE status change happens to arrive.
@@ -120,7 +123,8 @@
 				<th>Name</th>
 				<th>Crew</th>
 				<th>Progress</th>
-				<th>Pass / Fail / Err</th>
+				<th class="nowrap">Gates pass / fail / err <InfoPopover label="About gates and judge score" lines={GATES_LEGEND} /></th>
+				<th>Judge score</th>
 				<th title="Estimated chance all k trials pass (pass rate to the power k), averaged over the scenarios">Pass^k (est.)</th>
 				<th>Duration</th>
 				<th title="What the run ran on. Runs are comparable only when their realms match.">Realm</th>
@@ -141,7 +145,9 @@
 				{@const cons = consistencyView(suite)}
 				{@const indep = trialsIndependence(suite)}
 				{@const realm = realmView(suite, live.items)}
-				<tr>
+				{@const failure = suiteFailureText(suite)}
+				{@const reasons = scenarioFailures(suite)}
+				<tr class:has-reason={!!failure || reasons.length > 0}>
 					<td>
 						<span class="phase-badge {phaseClass(shown)}">
 							{shown ?? 'Unknown'}
@@ -162,11 +168,12 @@
 						{done} / {total}
 						{#if etaText(s)}<div class="muted small">{etaText(s)}</div>{/if}
 					</td>
-					<td>
+					<td class="nowrap">
 						<span class="passed">{s?.passed ?? 0}</span> /
 						<span class="failed">{s?.failed ?? 0}</span> /
 						<span class="errored">{s?.errored ?? 0}</span>
 					</td>
+					<td class="mono">{judgeScoreText(suite)}</td>
 					<td class="mono">
 						{cons.passAllK}
 						{#if cons.toCheck > 0}
@@ -208,6 +215,19 @@
 					</td>
 					<td class="muted">{suite.metadata.creationTimestamp ? new Date(suite.metadata.creationTimestamp).toLocaleString() : '-'}</td>
 				</tr>
+				{#if failure || reasons.length > 0}
+					<tr class="reason-row"><td colspan="11">
+						{#if failure}
+							<div class="failure">{failure}</div>
+						{/if}
+						{#each reasons.slice(0, MAX_REASONS) as r (r.name)}
+							<div class="failure"><span class="mono">{r.name}</span>: {r.reason}</div>
+						{/each}
+						{#if reasons.length > MAX_REASONS}
+							<div class="muted small">and {reasons.length - MAX_REASONS} more failed {reasons.length - MAX_REASONS === 1 ? 'scenario' : 'scenarios'}</div>
+						{/if}
+					</td></tr>
+				{/if}
 			{/each}
 		</tbody>
 	</table>
@@ -235,6 +255,9 @@
 	}
 	.suites-table th { font-weight: 600; color: var(--color-text-muted); font-size: 0.85rem; }
 	.mono { font-family: var(--font-mono); font-size: 0.9rem; }
+	.nowrap { white-space: nowrap; }
+	.suites-table .has-reason td { border-bottom: none; }
+	.suites-table .reason-row td { padding-top: 0; }
 	.muted { color: var(--color-text-muted); }
 	.small { font-size: 0.8rem; }
 	.suite-desc {
@@ -243,6 +266,11 @@
 		max-width: 32rem; white-space: normal; line-height: 1.3;
 	}
 
+	.failure .mono { font-size: inherit; }
+	.failure {
+		font-size: 0.78rem; color: var(--color-error); margin-top: 0.2rem;
+		white-space: normal; line-height: 1.3; overflow-wrap: anywhere;
+	}
 	.phase-badge {
 		display: inline-block; padding: 0.15rem 0.55rem; border-radius: 4px;
 		font-size: 0.75rem; font-weight: 600; text-transform: uppercase;

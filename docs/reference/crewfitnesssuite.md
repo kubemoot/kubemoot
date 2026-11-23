@@ -157,7 +157,7 @@ A suite reports two separate things about every scenario. They are measured by d
 - *Passed with a low score.* Every gate held (the crew agreed, answered, and used the required terms) but the answer is far from the reference, for example it states cluster facts no tool result held. The gates cannot see that. Read the score and its `reason`.
 - *Failed with a high score.* The answer matches the reference but a gate failed: a forbidden term appeared, a required term was missing from the exact wording, or the agree floor was not met. The judge does not see the gate. Read `failureReason` on the scenario row.
 
-Neither number is wrong. Neither is changed to match the other: the scores are the judge's verdict against the references as written, and the gates are the script's own checks. A suite is *clean* when no iteration failed or errored (the gates) and its scores meet your bar (the judge); a client that reports a single verdict should say which of the two it means.
+The dashboard, CrewForge and `kmctl fitness get` show them in separate columns, gates passed and failed beside the judge score. Neither number is wrong. Neither is changed to match the other: the scores are the judge's verdict against the references as written, and the gates are the script's own checks. A suite is *clean* when no iteration failed or errored (the gates) and its scores meet your bar (the judge); a client that reports a single verdict should say which of the two it means.
 
 **Why a suite did not pass.** The status says it in plain words, by case:
 

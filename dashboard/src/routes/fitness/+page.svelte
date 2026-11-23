@@ -9,7 +9,7 @@
 	import { acceleratorOfEvent } from '#lib/accelerator-capacity.js';
 	import { page } from '$app/state';
 	import { CopyFlash } from '#lib/copy-flash.svelte.js';
-	import { ActionMenu, CopyIcon, DeleteResourceDialog, PageTitle, type MenuEntry } from '#lib/components/common/index.js';
+	import { ActionMenu, CopyIcon, DeleteResourceDialog, InfoPopover, PageTitle, type MenuEntry } from '#lib/components/common/index.js';
 	import {
 		suiteDisplayPhase,
 		suiteIsJudged
@@ -17,6 +17,7 @@
 	import { SYNTHESIS_COLLAPSE_CHARS, artifactKey, artifactHref } from '#lib/discussion-artifacts.js';
 	import { durTitle, fmtDateTime, fmtDur, formatBytes, iterDurText, phaseLabel, suiteDurMs, suiteMarkdown } from '#lib/fitness-format.js';
 	import { etaText, meanDurationMs, suiteEta } from '#lib/fitness-eta.js';
+	import { GATES_LEGEND, failureReasonOf, judgeScoreText, scoreBandOf, suiteFailureText } from '#lib/fitness-gates.js';
 	import {
 		SUITE_LABEL,
 		TERMINAL_PHASES,
@@ -138,13 +139,6 @@
 	let reasons = $state<Record<string, Record<string, string>>>({});
 	// REFLECTS scores may be stored 0-1 or 0-100; normalize to a 0-100 integer for display.
 	function fmtScore(v: number): number { return v <= 1 ? Math.round(v * 100) : Math.round(v); }
-	// Quality band for a 0-100 REFLECTS score: drives the colour of the score pill so a
-	// low score reads as a failure (red), not a pass. Matches the DEFER assert-row bands.
-	function scoreBand(n: number): string {
-		if (n >= 70) return 'ok';
-		if (n >= 40) return 'mid';
-		return 'bad';
-	}
 
 	// Post-suite DEFER/REFLECTS judging progress per suite: { complete, judged }. The
 	// judge pass runs AFTER the suite reaches a terminal phase and scores one scenario
@@ -566,7 +560,8 @@
 				<th class="c-caret"></th>
 				<th>Status</th>
 				<th>Suite</th>
-				<th>Pass / Fail / Err</th>
+				<th>Gates pass / fail / err <InfoPopover label="About gates and judge score" lines={GATES_LEGEND} /></th>
+				<th>Judge score</th>
 				<th>Progress</th>
 				<th>Duration</th>
 				<th class="c-actions" aria-label="Actions"></th>
@@ -594,8 +589,10 @@
 						{name}
 						<div class="desc">Crew: {suite.spec.crewRef}{#if s?.startedAt}{` · Started ${fmtDateTime(s.startedAt)}`}{/if}</div>
 						{#if suite.spec.description}<div class="desc">{suite.spec.description}</div>{/if}
+						{#if suiteFailureText(suite)}<div class="failure">{suiteFailureText(suite)}</div>{/if}
 					</td>
 					<td class="mono"><span class="passed">{s?.passed ?? 0}</span>/<span class="failed">{s?.failed ?? 0}</span>/<span class="errored">{s?.errored ?? 0}</span></td>
+					<td class="mono">{judgeScoreText(suite)}</td>
 					<td class="mono">{s?.iterationsCompleted ?? 0}/{s?.iterationsTotal ?? 0}</td>
 					<td class="mono" title={durTitle(s?.startedAt, s?.completedAt)}>{fmtDur(suiteDurMs(s, now))}{#if eta}<div class="desc" title="Estimate: iterations left x elapsed time per completed iteration">{etaText(eta)}</div>{/if}</td>
 					<td class="c-actions">
@@ -608,7 +605,7 @@
 					{@const merged = mergedIterations(id)}
 					<tr class="sub">
 						<td></td>
-						<td colspan="6" class="sub-cell">
+						<td colspan="7" class="sub-cell">
 							{#if iterLoading[id]}
 								<p class="status-msg small">Loading iterations…</p>
 							{:else if merged.length === 0}
@@ -618,8 +615,8 @@
 									<thead>
 										<tr>
 											<th class="c-caret"></th>
-											<th>Scenario</th>
-											<th>Passed</th>
+											<th>Scenario and judge score</th>
+											<th>Gates passed</th>
 											<th>Mean</th>
 										</tr>
 									</thead>
@@ -634,10 +631,11 @@
 														<span class="badge phase-running running-badge" title="Scenario running"><span class="spin"></span>running</span>
 													{:else if scores[id]?.[g.scenario] !== undefined}
 														{@const n = fmtScore(scores[id][g.scenario])}
-														<span class="score-pill {scoreBand(n)}" title="REFLECTS quality {n}/100 (the scenario verdict)">{n}</span>
+														<span class="score-pill {scoreBandOf(n)}" title="Judge score {n}/100">{n}</span>
 													{:else if isJudging(id, s?.phase)}
 														<span class="badge phase-running running-badge" title="Quality judging in progress"><span class="spin"></span>judging</span>
 													{/if}
+													{#if failureReasonOf(suite, g.scenario)}<div class="failure">{failureReasonOf(suite, g.scenario)}</div>{/if}
 												</td>
 												<td>
 													{#if g.running}
@@ -693,7 +691,7 @@
 																									{@const sv = scores[id]?.[g.scenario]}
 																									{@const n = sv == null ? null : fmtScore(sv)}
 																									{@const reason = reasons[id]?.[g.scenario]}
-																									<div class="assert defer {n == null ? '' : scoreBand(n)}">
+																									<div class="assert defer {n == null ? '' : scoreBandOf(n)}">
 																										<span class="mark score">{n == null ? '⌛' : n}</span>
 																										<span class="mono">{a.raw}</span>
 																										<span class="amsg">{n == null ? '- pending judge' : `- REFLECTS quality ${n}/100`}</span>
@@ -809,6 +807,7 @@
 	.suite-row:hover { background: var(--color-bg-tertiary); }
 	.name { font-weight: 600; }
 	.desc { font-weight: 400; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem; max-width: 34rem; }
+	.failure { font-family: var(--font-sans); font-weight: 400; font-size: 0.75rem; color: var(--color-error); margin-top: 0.15rem; max-width: 34rem; white-space: normal; overflow-wrap: anywhere; }
 	.mono { font-family: var(--font-mono); font-size: 0.85rem; }
 	.muted { color: var(--color-text-muted); }
 	.small { font-size: 0.8rem; }

@@ -813,6 +813,8 @@ export interface SuiteScenarioResult {
 	passAllK?: number;
 	/** At least three trials finished and none passed: check the scenario. */
 	checkScenario?: boolean;
+	/** Why a trial failed its gates (first failed assertion or trial error), at most 160 characters. */
+	failureReason?: string;
 }
 
 export interface SuiteConsistency {
@@ -855,6 +857,15 @@ export interface SuiteArtifactRef {
 	sizeBytes?: number;
 }
 
+/** Progress and mean of the deferred judge pass (status.judge). */
+export interface SuiteJudgeStatus {
+	phase?: string;
+	judged?: number;
+	total?: number;
+	/** Mean scenario score, 0 to 100, over the scenarios judged so far. */
+	mean?: number;
+}
+
 export interface CrewFitnessSuiteStatus {
 	phase?: 'Pending' | 'Running' | 'Paused' | 'Completed' | 'Failed' | 'Error' | 'Cancelled' | 'ToolSmokeFailed';
 	runId?: string;
@@ -870,6 +881,7 @@ export interface CrewFitnessSuiteStatus {
 	scenarios?: SuiteScenarioResult[];
 	consistency?: SuiteConsistency;
 	realm?: FitnessRealm;
+	judge?: SuiteJudgeStatus;
 	conditions?: Condition[];
 }
 
