@@ -67,7 +67,9 @@ if [ $((status & 1)) -ne 0 ]; then
     gh issue edit "$number" --body-file "$body" >/dev/null
     echo "Updated issue #${number}"
   else
-    gh label create "$LABEL" --description "Raised by the daily Release Status workflow" --force >/dev/null
+    # Created only when missing, with the color and description kubemoot/infra declares for it
+    # (an existing label is left alone, so OpenTofu sees no drift); gh fails when it exists.
+    gh label create "$LABEL" --color c5def5 --description "Raised by the daily Release Status workflow" >/dev/null 2>&1 || true
     gh issue create --title "$TITLE" --label "$LABEL" --body-file "$body"
     echo "Opened the issue"
   fi
