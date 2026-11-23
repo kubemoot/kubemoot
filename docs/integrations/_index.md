@@ -31,9 +31,9 @@ Any chat app that is an MCP client can reach a crew. The app needs three things:
 |---|---|---|
 | Claude Code | `claude mcp add --transport http` | [Claude Code](claude-code/) |
 | Claude Desktop | a local bridge, `mcp-remote` | [Claude Desktop](claude-desktop/) |
-| LibreChat (reference app) | install, `ENDPOINTS: custom,agents`, `mcpServers` in `librechat.yaml` (per-person sign-in or bearer token), then an agent | [LibreChat](librechat/) |
 | Open WebUI | an MCP (Streamable HTTP) connection in Settings | [Open WebUI](open-webui/) |
 | goose | a remote extension | [goose](goose/) |
+| LibreChat | install, `ENDPOINTS: custom,agents`, `mcpServers` in `librechat.yaml` (per-person sign-in or bearer token), then an agent | [LibreChat](librechat/) |
 
 ## What a person sees
 
