@@ -59,6 +59,7 @@ public class McpClientManager {
     private static final String METHOD_TOOLS_LIST = "tools/list";
     /** Safety net for a connect that never answers; the normal path ends long before. */
     private static final Duration CONNECT_DEADLINE = Duration.ofSeconds(60);
+    private static final String METHOD_TOOLS_CALL = "tools/call";
     /** How long a stdio request waits for its reply on the SSE stream; tests shorten it. */
     Duration replyTimeout = Duration.ofSeconds(30);
 
@@ -382,14 +383,24 @@ public class McpClientManager {
     }
 
     /**
-     * A session the server no longer serves. Besides the lost-session statuses, a streamable
-     * HTTP gateway in front of a restarted server (agentgateway) answers 500 where the MCP
-     * transport specifies 404; on a session the gateway holds, 500 is treated like 404, so the
-     * session is opened again once and the call sent once more.
+     * A streamable HTTP gateway in front of a restarted server (agentgateway) answers 500 where
+     * the MCP transport specifies 404. On a session the gateway holds, a 500 opens a new session
+     * so the next call works. Unlike a 404, a 500 does not say the call did not run, so only a
+     * call that reads the server's catalog is sent again; a tools/call is never sent twice.
      */
-    private static boolean isStaleSession(ServerRegistration server, int statusCode, String sessionId) {
-        return isSessionLost(server, statusCode) || (sessionId != null && statusCode == 500
-            && !TRANSPORT_STDIO.equalsIgnoreCase(server.transport()));
+    private static boolean isServerErrorOnHeldSession(ServerRegistration server, int statusCode, String sessionId) {
+        return sessionId != null && statusCode == 500 && !TRANSPORT_STDIO.equalsIgnoreCase(server.transport());
+    }
+
+    private Mono<McpMessage> reopenSessionAfterServerError(String serverId, McpMessage request, int statusCode) {
+        if (!METHOD_TOOLS_CALL.equals(request.method())) {
+            return reconnectAndResend(serverId, request);
+        }
+        cleanupSseSession(serverId);
+        return reconnectForRequest(serverId)
+            .then(Mono.just(McpMessage.error(request.id(), -32603, "HTTP " + statusCode
+                + ": the server failed the call; it is not sent again because it may have run")))
+            .onErrorResume(e -> unreachable(request, e));
     }
 
     /**
@@ -1064,7 +1075,7 @@ public class McpClientManager {
         McpMessage request = ToolArgumentCoercion.coerceCall(original, serverTools.get(serverId));
         CallerCredentialConfig perPerson = callerCredentials.get(serverId);
         ServerRegistration target = servers.get(serverId);
-        if (perPerson != null && target != null && "tools/call".equals(request.method())) {
+        if (perPerson != null && target != null && METHOD_TOOLS_CALL.equals(request.method())) {
             return callerCredentialCaller.call(callEndpoint(target), perPerson, request, caller);
         }
         Object callerId = request.id();
@@ -1098,7 +1109,7 @@ public class McpClientManager {
     /** The tool error for a tools/call that breaks an argument rule of the server, else null. */
     private McpMessage refuseBrokenRule(String serverId, McpMessage request) {
         Map<String, Object> params = request.params();
-        if (params == null || !"tools/call".equals(request.method())
+        if (params == null || !METHOD_TOOLS_CALL.equals(request.method())
             || !(params.get("name") instanceof String tool)
             || !(params.get("arguments") instanceof Map<?, ?> arguments)) {
             return null;
@@ -1307,9 +1318,13 @@ public class McpClientManager {
             .exchangeToMono(response -> {
                 int statusCode = response.statusCode().value();
 
-                if (isStaleSession(server, statusCode, sessionId) && allowRetry) {
+                if (isSessionLost(server, statusCode) && allowRetry) {
                     log.warn("Session error ({}) for server {}", statusCode, serverId);
                     return reconnectAndResend(serverId, request);
+                }
+                if (isServerErrorOnHeldSession(server, statusCode, sessionId) && allowRetry) {
+                    log.warn("Server error ({}) on the session of server {}", statusCode, serverId);
+                    return reopenSessionAfterServerError(serverId, request, statusCode);
                 }
 
                 if (!response.statusCode().is2xxSuccessful()) {

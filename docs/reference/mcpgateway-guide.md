@@ -205,7 +205,7 @@ A server's tools can change while its URL stays the same: its pod is replaced wi
 | A stdio (bridge) server sends `notifications/tools/list_changed` on its SSE stream | Lists the tools again on the open session. The gateway does not hold a listening stream to streamable HTTP servers, so for them the signals below apply |
 | The MCP server process restarts inside its pod | The mcp-bridge sends `notifications/tools/list_changed` to its SSE clients once the new process has completed its handshake, which re-lists as above |
 | The SSE stream to the server ends (the pod was replaced or went away) | Marks the server `DISCONNECTED`; the next tool call or operator re-registration opens a new session and lists the tools on it |
-| A streamable HTTP server answers `400`, `401`, `404` or `500` for the session | Opens a new session, retries the call, and lists the tools on the new session |
+| A streamable HTTP server answers `400`, `401` or `404` for the session, or `500` on a session the gateway holds | Opens a new session and lists the tools on it. The call is sent again after `400`, `401` or `404` (the call did not run); after `500` only a read of the server's catalog (`initialize`, `tools/list`, `resources/list`, `prompts/list` and similar) is sent again, and a `tools/call` returns the error without being sent again |
 | The operator re-registers a server that is `DISCONNECTED`, `ERROR`, or has no tools | Connects again and lists the tools. A burst of re-registrations starts one connect |
 | The operator re-registers a connected server whose list is older than `mcp.gateway.tool-list-max-age` (default `10m`) | Lists the tools again. This is a safety net for a change that none of the signals above reported |
 
@@ -226,7 +226,7 @@ After a failed connect the gateway holds back the next call-started connect by a
 
 `GET /admin/servers` and `GET /admin/servers/{id}` show the state of each server: `status`, `statusReason` (why the last connect failed, kept while the gateway reconnects and cleared once the server is `CONNECTED`), `failedConnects` (failures in a row) and `nextConnectAt` (when a call may connect again).
 
-When a streamable HTTP server answers a call on a session the gateway holds with `404` (the MCP transport's answer for an unknown session), `400`, `401`, or `500` (what an MCP gateway in front of a restarted server answers), the gateway opens a new session and sends the call once more. A second failure is returned to the caller. A tool call that got a `500` may already have run on the server; for a server that fails a call with `500` after running it, the call is sent twice.
+When a streamable HTTP server answers a call on a session the gateway holds with `404` (the MCP transport's answer for an unknown session), `400`, or `401`, the call did not run: the gateway opens a new session and sends the call once more. A `500` is what an MCP gateway in front of a restarted server answers instead of `404`. It does not say whether the call ran, so the gateway opens a new session for the next call and sends again only a read of the server's catalog; a `tools/call` returns the error to the caller and is never sent twice. A second failure is returned to the caller.
 
 ## Tool Argument Types
 
