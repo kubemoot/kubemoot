@@ -289,7 +289,7 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		Expect(k8sClient.Status().Update(ctx, s)).To(Succeed())
 		raw, err := json.Marshal(getSuite(name))
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(raw)).To(BeNumerically("<", 500*1024), "worst-case status stays under 500 KiB")
+		Expect(len(raw)).To(BeNumerically("<", 700*1024), "worst-case status stays under 700 KiB")
 
 		s = getSuite(name)
 		s.Status.Judge, s.Status.Scenarios = maximalResults(kubemootv1alpha1.MaxStatusScenarios + 1)

@@ -246,9 +246,14 @@ kmctl fitness scenarios demo-starter -n crew-demo
 kmctl fitness get demo-starter -n crew-demo
 ```
 
-`kmctl fitness run` returns when every iteration has run (`phase=Completed`). Quality
-scores land after the judge pass; `kmctl fitness get` shows them once they are in. Then
-download the workbook:
+`kmctl fitness run` returns when every iteration has run (`phase=Completed`). It exits 0
+when every iteration passed its gates (the deterministic assertions) and 1 when the suite
+failed, with the reason printed, so a CI job can gate on it. The judge's score does not
+change the exit code. Scores land after the judge pass; `kmctl fitness get` shows them once
+they are in, in the `JUDGE SCORE` column beside the `GATES PASSED` and `GATES FAILED`
+columns. The two are independent: see
+[Pass and score](../../reference/crewfitnesssuite/#pass-and-score). Then download the
+workbook:
 
 ```bash
 kmctl fitness download demo-starter -n crew-demo
@@ -412,6 +417,9 @@ caller's conversation, bind the `kubemoot-conversation-controller` role and add
 ```bash
 kmctl fitness run my-suite -n kubemoot
 ```
+
+The command exits 1 when the suite failed its gates, its tool smoke failed, or it was
+stopped, and 0 otherwise.
 
 ### Smoke-test a single scenario
 

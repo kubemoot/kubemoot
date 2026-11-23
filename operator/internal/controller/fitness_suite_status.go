@@ -44,6 +44,7 @@ type scenarioRollup struct {
 	assertionsPassed int32
 	assertionsTotal  int32
 	inventedRuns     int32
+	failureReason    string
 }
 
 func (a *scenarioRollup) add(r IterationResult) {
@@ -54,6 +55,39 @@ func (a *scenarioRollup) add(r IterationResult) {
 	if len(r.InventedNames) > 0 {
 		a.inventedRuns++
 	}
+	if a.failureReason == "" {
+		a.failureReason = iterationFailureReason(r)
+	}
+}
+
+// iterationFailureReason is the one-line reason a finished iteration did not
+// pass its gates: the message of its first failed assertion, or its error when
+// it could not run. Empty for a passed iteration.
+func iterationFailureReason(r IterationResult) string {
+	switch r.Phase {
+	case kubemootv1alpha1.CrewFitnessPhasePassed:
+		return ""
+	case kubemootv1alpha1.CrewFitnessPhaseFailed:
+		for _, a := range r.Assertions {
+			if !a.Passed {
+				return failureLine(a.Message, a.Raw)
+			}
+		}
+		return ""
+	default:
+		return failureLine(r.Error, "")
+	}
+}
+
+// failureLine folds a gate message onto one line, falling back to the
+// assertion text when the message is empty, and cuts it to
+// MaxFailureReasonLength characters.
+func failureLine(message, fallback string) string {
+	line := strings.Join(strings.Fields(message), " ")
+	if line == "" {
+		line = strings.Join(strings.Fields(fallback), " ")
+	}
+	return truncateRunes(line, kubemootv1alpha1.MaxFailureReasonLength, "...")
 }
 
 func (a *scenarioRollup) result(name string) kubemootv1alpha1.SuiteScenarioResult {
@@ -69,6 +103,7 @@ func (a *scenarioRollup) result(name string) kubemootv1alpha1.SuiteScenarioResul
 	out.AssertionsPassed = a.assertionsPassed
 	out.AssertionsTotal = a.assertionsTotal
 	out.InventedNameRuns = a.inventedRuns
+	out.FailureReason = a.failureReason
 	out.PassRate = ptr.To(passRatePercent(out.Passed, out.Iterations))
 	out.PassAllK = ptr.To(passAllKPercent(out.Passed, out.Iterations))
 	out.AllPassed = ptr.To(out.Passed == out.Iterations)
