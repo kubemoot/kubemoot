@@ -9,7 +9,7 @@ You may obtain a copy of the License at
 */
 
 // Package natssource reads what Kubemoot's NATS stores still hold about one
-// conversation: the turns in the conversation history, the receipts in the discussion
+// conversation: the turns in the conversation history, the receipts and messages in the discussion
 // stream, and the files in the workspace. It only reads.
 package natssource
 
@@ -77,15 +77,20 @@ func (s *Source) Held(ctx context.Context, scope crewscope.Scope, id string) (co
 	if err != nil {
 		return conversationexport.Held{}, err
 	}
-	held := conversationexport.Held{Turns: turns, Receipts: map[string][]byte{}}
+	held := conversationexport.Held{
+		Turns: turns, Receipts: map[string][]byte{}, Messages: map[string][]conversationexport.Message{},
+	}
 	threads := threadsOf(turns)
 	for _, thread := range threads {
-		receipt, err := s.receipt(ctx, scope, thread)
+		record, err := s.record(ctx, scope, thread)
 		if err != nil {
 			return conversationexport.Held{}, err
 		}
-		if receipt != nil {
-			held.Receipts[thread] = receipt
+		if record.receipt != nil {
+			held.Receipts[thread] = record.receipt
+		}
+		if len(record.messages) > 0 {
+			held.Messages[thread] = record.messages
 		}
 	}
 	held.Files, err = s.files(ctx, scope, threads)
@@ -133,12 +138,21 @@ func (s *Source) turns(ctx context.Context, scope crewscope.Scope, id string) ([
 	return out, nil
 }
 
-// receipt is the receipt of the thread's closing message, as the asker's stream carried it,
-// or nil when the stream no longer holds one. A thread id that is not one subject token
-// is not looked up: it would widen the filter past the thread.
-func (s *Source) receipt(ctx context.Context, scope crewscope.Scope, thread string) ([]byte, error) {
+// threadRecord is what the discussion stream still holds of one thread: the receipt of its
+// closing message, and every message in stream order.
+type threadRecord struct {
+	receipt  []byte
+	messages []conversationexport.Message
+}
+
+// record reads the thread's messages in one pass of the thread's own subjects, as the
+// asker's stream carried them. The receipt is nil when the stream no longer holds one. A
+// thread id that is not one subject token is not looked up: it would widen the filter past
+// the thread. A message published to two subjects is kept once.
+func (s *Source) record(ctx context.Context, scope crewscope.Scope, thread string) (threadRecord, error) {
+	var rec threadRecord
 	if strings.ContainsAny(thread, ".*> \t\r\n") {
-		return nil, nil
+		return rec, nil
 	}
 	consumer, err := s.js.CreateConsumer(ctx, StreamName, jetstream.ConsumerConfig{
 		AckPolicy:         jetstream.AckNonePolicy,
@@ -147,22 +161,44 @@ func (s *Source) receipt(ctx context.Context, scope crewscope.Scope, thread stri
 		InactiveThreshold: readTimeout,
 	})
 	if errors.Is(err, jetstream.ErrStreamNotFound) {
-		return nil, nil
+		return rec, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read the discussion stream: %w", err)
+		return rec, fmt.Errorf("read the discussion stream: %w", err)
 	}
 	defer func() { _ = s.js.DeleteConsumer(context.WithoutCancel(ctx), StreamName, consumer.CachedInfo().Name) }()
-	var receipt []byte
+	seen := map[string]struct{}{}
 	err = readPending(ctx, consumer, func(m bus.DiscussionMessage) {
-		if m.MessageType != messageThreadClose || m.ThreadID != thread {
+		if m.ThreadID != thread {
 			return
 		}
-		if r, ok := m.Metadata[metaReceipt].(map[string]interface{}); ok && len(r) > 0 {
-			receipt, _ = json.MarshalIndent(r, "", "  ")
+		if _, dup := seen[m.MessageID]; m.MessageID != "" && dup {
+			return
+		}
+		seen[m.MessageID] = struct{}{}
+		rec.messages = append(rec.messages, messageOf(m))
+		if m.MessageType == messageThreadClose {
+			rec.receipt = receiptOf(m, rec.receipt)
 		}
 	})
-	return receipt, err
+	return rec, err
+}
+
+func receiptOf(m bus.DiscussionMessage, previous []byte) []byte {
+	if r, ok := m.Metadata[metaReceipt].(map[string]interface{}); ok && len(r) > 0 {
+		if raw, err := json.MarshalIndent(r, "", "  "); err == nil {
+			return raw
+		}
+	}
+	return previous
+}
+
+func messageOf(m bus.DiscussionMessage) conversationexport.Message {
+	at, _ := time.Parse(time.RFC3339Nano, m.Timestamp)
+	return conversationexport.Message{
+		ID: m.MessageID, Agent: m.AgentName, Signal: string(m.MessageType),
+		Channel: m.Channel, Content: m.Content, At: at.UTC(),
+	}
 }
 
 func readPending(ctx context.Context, c jetstream.Consumer, observe func(bus.DiscussionMessage)) error {

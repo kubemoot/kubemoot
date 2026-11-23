@@ -1141,7 +1141,8 @@ kmctl conversation export <crew> <conversation-id>... [-n <namespace>] [--output
 ```
 
 Download everything Kubemoot still holds about one or more conversations as a zip: the
-turns as Markdown and JSON, the receipts and workspace files still stored, the crew memory
+turns as Markdown and JSON, the discussion messages of each turn (screened), the receipts
+and workspace files still stored, the crew memory
 learned in the conversation (screened), and a manifest. The operator builds the zip on
 request and keeps no copy; see
 [Taking a conversation away](../../operating/data-ownership/#taking-a-conversation-away).

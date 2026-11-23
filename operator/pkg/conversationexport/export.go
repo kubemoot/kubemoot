@@ -49,6 +49,8 @@ type Builder struct {
 	Memory func() (crewmemory.EntryReader, error)
 	// Allow decides who may export; nil refuses every conversation.
 	Allow Allow
+	// MaxDiscussionBytes bounds the discussion message text; zero means DefaultMaxDiscussionBytes.
+	MaxDiscussionBytes int
 	// Now is the export's time; nil means time.Now.
 	Now func() time.Time
 }
@@ -69,6 +71,7 @@ type prepared struct {
 	loc    *time.Location
 	now    time.Time
 	memory memoryPart
+	moot   discussionPart
 }
 
 func (b *Builder) clock() time.Time {
@@ -108,6 +111,7 @@ func (b *Builder) prepare(
 	zone, loc := zoneOf(opts.TimeZone)
 	p := &prepared{scope: scope, id: id, held: held, zone: zone, loc: loc, now: b.clock()}
 	p.memory = b.memoryOf(p, mem)
+	p.moot = b.discussionOf(p)
 	return p, nil
 }
 
@@ -145,30 +149,25 @@ func BundleFileName(scope crewscope.Scope) string {
 	return scope.Crew + "-conversations.zip"
 }
 
-// writeZip streams the conversation's zip: its readable and structured forms, the
-// receipts, the artifacts, the memory facts, and last the manifest, which names whatever
-// was left out along the way.
+// writeZip streams the conversation's zip: its readable and structured forms, the discussion,
+// the receipts, the artifacts, the memory facts, and last the manifest, which names
+// whatever was left out along the way.
 func writeZip(ctx context.Context, w io.Writer, p *prepared, dry bool) (Manifest, error) {
 	zw := zip.NewWriter(w)
 	m := Manifest{
 		Kind: KindConversation, Origin: ompi.DefaultOrigin(p.scope), ExportedAt: p.now.Format(time.RFC3339),
 		Namespace: p.scope.Namespace, Crew: p.scope.Crew, ConversationID: p.id, TimeZone: p.zone,
-		Turns: len(p.held.Turns), LeftOut: append([]LeftOut{}, p.memory.leftOut...),
+		Turns:   len(p.held.Turns),
+		LeftOut: append(append([]LeftOut{}, p.moot.leftOut...), p.memory.leftOut...),
 	}
 	put := func(name string, data []byte) error { return putFile(zw, p.now, name, data) }
-	if err := put(FileMarkdown, renderMarkdown(p)); err != nil {
-		return Manifest{}, err
-	}
-	structured, err := renderJSON(p)
-	if err != nil {
-		return Manifest{}, err
-	}
-	if err := put(FileJSON, structured); err != nil {
+	if err := writeTexts(put, p); err != nil {
 		return Manifest{}, err
 	}
 	m.Parts = []Part{
 		{Path: FileMarkdown, Status: StatusIncluded, Count: 1},
 		{Path: FileJSON, Status: StatusIncluded, Count: 1},
+		p.moot.part,
 	}
 	receipts, err := writeReceipts(put, p)
 	if err != nil {
@@ -192,6 +191,23 @@ func writeZip(ctx context.Context, w io.Writer, p *prepared, dry bool) (Manifest
 		return Manifest{}, err
 	}
 	return m, zw.Close()
+}
+
+// writeTexts writes the readable and structured forms of the conversation and its discussion.
+func writeTexts(put func(string, []byte) error, p *prepared) error {
+	structured, err := renderJSON(p)
+	if err != nil {
+		return err
+	}
+	for _, f := range []struct {
+		name string
+		data []byte
+	}{{FileMarkdown, renderMarkdown(p)}, {FileJSON, structured}, {FileMoot, renderMoot(p)}} {
+		if err := put(f.name, f.data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func putFile(zw *zip.Writer, at time.Time, name string, data []byte) error {
