@@ -57,6 +57,8 @@ type service struct {
 	srv    *httptest.Server
 	status atomic.Int32
 	calls  atomic.Int32
+	// gate, when set before any request, holds every call until it is closed.
+	gate   chan struct{}
 	mu     sync.Mutex
 	auths  []string
 	bodies []string
@@ -68,6 +70,9 @@ func newService(t *testing.T, status int) *service {
 	s.status.Store(int32(status))
 	s.srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.calls.Add(1)
+		if s.gate != nil {
+			<-s.gate
+		}
 		buf := new(strings.Builder)
 		_, _ = fmt.Fprint(buf, r.Method, " ", r.Header.Get("Content-Type"))
 		s.mu.Lock()

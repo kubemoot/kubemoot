@@ -92,16 +92,26 @@ func gatewayServiceTokenEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.
 		return nil
 	}
 	env := []corev1.EnvVar{{Name: identity.EnvServiceTokens, Value: string(raw)}}
-	if ref := access.HashKeySecretRef; ref != nil {
-		key := ref.Key
-		if key == "" {
-			key = defaultHashKeySecretKey
-		}
+	if name, key, ok := hashKeySecret(access); ok {
 		env = append(env, corev1.EnvVar{Name: identity.EnvHashKey, ValueFrom: &corev1.EnvVarSource{
-			SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ref.Name}, Key: key},
+			SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: name}, Key: key},
 		}})
 	}
 	return env
+}
+
+// hashKeySecret is the Secret and key that hold the crew's hash key, the one place the default
+// key name is applied: the gateway reads the key from it and the operator reads the same one.
+func hashKeySecret(access *kubemootv1alpha1.DiscussionAccess) (name, key string, ok bool) {
+	if access == nil || access.HashKeySecretRef == nil {
+		return "", "", false
+	}
+	ref := access.HashKeySecretRef
+	key = ref.Key
+	if key == "" {
+		key = defaultHashKeySecretKey
+	}
+	return ref.Name, key, true
 }
 
 // passesTokens reports whether any verifier has the gateway keep the accepted token for tools.
