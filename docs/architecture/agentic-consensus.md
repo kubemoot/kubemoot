@@ -206,12 +206,14 @@ them. A model without its tools answers from nothing and invents the result, so 
 answer-anyway agent would turn a broken tool server into a confident, wrong `agree`.
 
 A `failure` also reaches the final answer when other agents did agree. The coordinator's
-synthesis input counts the failures and names the tools that could not be reached. The
-published answer ends with a short note in user terms, "Some sources could not be reached:
-search_oreilly_content. This answer does not include what they would have provided." The
-note names the missing tools only: never agent names, addresses, or error text, because an
-end user does not see the crew's mechanics. Operators find the agent, the gateway address and
-the error in the failure signal's fields, the logs, and the dashboard.
+synthesis input counts the failures and says what the failed agents do. The published answer
+ends with a short note in user terms, "Some sources could not be reached (affected: Searches
+the O'Reilly catalog for books, videos and courses). This answer does not include what they
+would have provided." The note describes each failed agent by its declared triage summary,
+else the first sentence of its description, read from the crew's resumes. It never shows tool
+names, agent names, addresses, or error text, because an end user does not see the crew's
+mechanics; an agent with no description adds nothing to the note. Operators find the agent,
+the tool names, the gateway address and the error in the failure signal's fields, the logs, and the dashboard.
 
 An infrastructure gap adds nothing else to the answer: no onboarding suggestion, since a
 broken tool server needs fixing, not a new tooler, and no instruction to the reader about

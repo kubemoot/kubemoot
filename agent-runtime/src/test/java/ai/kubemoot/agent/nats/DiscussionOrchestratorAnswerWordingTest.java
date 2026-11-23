@@ -57,7 +57,8 @@ class DiscussionOrchestratorAnswerWordingTest {
         String answer = publish(state, ANSWER);
 
         assertTrue(answer.startsWith(ANSWER));
-        assertTrue(answer.contains("Some sources could not be reached: search_oreilly_content"), answer);
+        assertTrue(answer.contains("Some sources could not be reached."), answer);
+        assertFalse(answer.contains("search_oreilly_content"), answer);
         assertFalse(OPERATOR_WORDING.matcher(answer).find(), answer);
         assertFalse(answer.contains("library-search"), answer);
     }
