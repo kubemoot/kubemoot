@@ -6,8 +6,9 @@
 # builds a new release candidate from its own unchanged main, with no commit anywhere,
 # and records the kubemoot docs commit it built in the image label and the tag message.
 #
-# Needs repository secret DOCS_DISPATCH_TOKEN: a token allowed to send dispatch events
-# to kubemoot-docs (contents: write on that repository).
+# Sends the dispatch with a short-lived token from the kubemoot-release-bot GitHub App
+# (RELEASE_APP_ID variable, RELEASE_APP_PRIVATE_KEY secret), scoped to kubemoot-docs with
+# contents: write, the permission a repository dispatch needs.
 name: Trigger docs rebuild
 
 on:
@@ -25,10 +26,19 @@ jobs:
     # Only a GitHub API call: no cluster or Harbor access, so a hosted runner.
     runs-on: ubuntu-latest
     steps:
+      - name: Mint a token for kubemoot-docs
+        id: app-token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: kubemoot
+          repositories: kubemoot-docs
+          permission-contents: write
       - name: Dispatch the docs site build
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
-          token: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           repository: kubemoot/kubemoot-docs
           event-type: kubemoot-docs-changed
           client-payload: '{"kubemoot_sha": "${{ github.sha }}"}'
