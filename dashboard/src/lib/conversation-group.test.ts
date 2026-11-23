@@ -20,6 +20,26 @@ const second = thread('t2', 'closed', '01:00', [
 	msg('t2', 'coordinator', 'synthesis', 'The first, at 61C', '01:20')
 ]);
 
+describe('the thread the Moot link opens', () => {
+	const withSubject = (t: Thread, subject: string): Thread => ({ ...t, subject });
+
+	it('is the latest turn of a conversation of several threads, however they arrive', () => {
+		const a = withSubject(first, 'kubemoot.discuss.ns.crew.general.t1');
+		const b = withSubject(second, 'kubemoot.discuss.ns.crew.general.t2');
+		for (const order of [[a, b], [b, a]]) {
+			const [grouped] = groupConversations(order);
+			expect(grouped.latestThreadId).toBe('t2');
+			expect(grouped.latestSubject).toBe('kubemoot.discuss.ns.crew.general.t2');
+		}
+	});
+
+	it('is the only thread of a single-turn conversation', () => {
+		const [grouped] = groupConversations([withSubject(first, 'kubemoot.discuss.ns.crew.general.t1')]);
+		expect(grouped.latestThreadId).toBe('t1');
+		expect(grouped.latestSubject).toBe('kubemoot.discuss.ns.crew.general.t1');
+	});
+});
+
 describe('groupConversations', () => {
 	it('makes one conversation of the threads that share a conversation id, in order', () => {
 		const grouped = groupConversations([second, first]);

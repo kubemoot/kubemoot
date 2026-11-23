@@ -25,6 +25,7 @@ export function withOpen(params: URLSearchParams, item: { conversationId?: strin
 	const next = new URLSearchParams(params);
 	next.delete('conversation');
 	next.delete('thread');
+	next.delete('subject');
 	if (!item) return next;
 	if (item.conversationId) next.set('conversation', item.conversationId);
 	else next.set('thread', item.threadId);

@@ -75,4 +75,16 @@ describe('DiscussionMenu', () => {
 		await fireEvent.click(document.body);
 		expect(screen.queryByRole('menu')).toBeNull();
 	});
+
+	it('links to the associated conversation only when the thread has one', async () => {
+		render(DiscussionMenu, { ...base(), conversationHref: '/conversations?conversation=c-1' });
+		await fireEvent.click(trigger());
+		expect(screen.getByRole('menuitem', { name: 'View associated conversation' }).getAttribute('href')).toBe('/conversations?conversation=c-1');
+	});
+
+	it('offers no conversation link for a thread without one', async () => {
+		render(DiscussionMenu, base());
+		await fireEvent.click(trigger());
+		expect(screen.queryByRole('menuitem', { name: 'View associated conversation' })).toBeNull();
+	});
 });

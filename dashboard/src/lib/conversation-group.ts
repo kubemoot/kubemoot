@@ -13,6 +13,8 @@ export interface Conversation extends Thread {
 	threadIds: string[];
 	/** The newest thread, which the Moot link opens. */
 	latestThreadId: string;
+	/** The newest thread's subject, which the Moot link carries so the thread can be read when it is not loaded. */
+	latestSubject?: string;
 }
 
 function startOf(thread: Thread): number {
@@ -34,14 +36,15 @@ function mergedStatus(threads: Thread[]): Thread['status'] {
 function merge(threads: Thread[]): Conversation {
 	const ordered = [...threads].sort((a, b) => startOf(a) - startOf(b));
 	const first = ordered[0];
-	if (ordered.length === 1) return { ...first, threadIds: [first.threadId], latestThreadId: first.threadId };
+	if (ordered.length === 1) return { ...first, threadIds: [first.threadId], latestThreadId: first.threadId, latestSubject: first.subject };
 	const messages = ordered.flatMap((t) => t.messages).sort((a, b) => messageTime(a) - messageTime(b));
 	return {
 		...first,
 		messages,
 		status: mergedStatus(ordered),
 		threadIds: ordered.map((t) => t.threadId),
-		latestThreadId: ordered.at(-1)?.threadId ?? first.threadId
+		latestThreadId: ordered.at(-1)?.threadId ?? first.threadId,
+		latestSubject: ordered.at(-1)?.subject ?? first.subject
 	};
 }
 

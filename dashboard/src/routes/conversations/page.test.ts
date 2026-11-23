@@ -285,6 +285,71 @@ describe('a conversation with a follow-up', () => {
 });
 
 
+describe('View associated moot from a conversation of several turns', () => {
+	it('opens the latest turn\'s thread, with its subject so it can be read when it is not loaded', async () => {
+		const meta = { crew: 'demo', conversationId: 'c-link' };
+		const subject = (id: string) => `kubemoot.discuss.crew-demo.demo.general.${id}`;
+		handleMessage(msg('t-l1', 'demo-coordinator', 'thread_start', 'Quokka first question?', '14:00:00', { metadata: meta }), subject('t-l1'));
+		handleMessage(msg('t-l1', 'demo-coordinator', 'thread_close', '', '14:00:21'), subject('t-l1'));
+		handleMessage(msg('t-l2', 'demo-coordinator', 'thread_start', 'Quokka follow-up?', '14:01:00', { metadata: meta }), subject('t-l2'));
+		handleMessage(msg('t-l2', 'demo-coordinator', 'thread_close', '', '14:01:21'), subject('t-l2'));
+		setPage('/dashboard/conversations?q=quokka', { user: { username: 'alice' } });
+		const { container } = render(Page);
+		await waitFor(() => expect(titles(container)).toEqual(['Quokka first question?']));
+		await fireEvent.click(container.querySelector('.card') as HTMLElement);
+		await fireEvent.click(screen.getByRole('button', { name: 'Conversation actions' }));
+		const href = screen.getByRole('menuitem', { name: 'View associated moot' }).getAttribute('href') ?? '';
+		const query = new URLSearchParams(href.split('?')[1]);
+		expect(query.get('thread')).toBe('t-l2');
+		expect(query.get('subject')).toBe(subject('t-l2'));
+	});
+});
+
+describe('opening a conversation from the Moot', () => {
+	const subject = (id: string) => `kubemoot.discuss.crew-demo.demo.general.${id}`;
+	// A filter a person chose is remembered in the browser; each test starts on the default.
+	beforeEach(() => localStorage.clear());
+	const q = (id: string) => `?conversation=c-${id}&thread=${id}&subject=${encodeURIComponent(subject(id))}`;
+
+	it('shows a conversation the filter would not list, selected, with a note, and leaves the filter', async () => {
+		// Older than the default last 24 hours.
+		const meta = { crew: 'demo', conversationId: 'c-t-old' };
+		handleMessage(msg('t-old', 'demo-coordinator', 'thread_start', 'Okapi old question?', '10:00:00', { metadata: meta, timestamp: '2026-11-10T10:00:00.000Z' }), subject('t-old'));
+		handleMessage(msg('t-old', 'demo-coordinator', 'synthesis', 'Okapi old answer.', '10:00:09', { timestamp: '2026-11-10T10:00:09.000Z' }), subject('t-old'));
+		setPage(`/dashboard/conversations${q('t-old')}`, { user: { username: 'alice' } });
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.bubble').length).toBeGreaterThan(0));
+		expect(container.textContent).toContain('Okapi old answer.');
+		expect(screen.getByText('Outside the current filter')).toBeTruthy();
+		expect(page.url.search).not.toContain('range=');
+		await fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
+		await waitFor(() => expect(screen.queryByText('Outside the current filter')).toBeNull());
+		expect(page.url.search).toContain('conversation=c-t-old');
+	});
+
+	it('shows no note for a conversation the filter lists', async () => {
+		conversation('t-listed', 'Tapir listed question?', 'Tapir listed answer.', '15:00:00');
+		setPage(`/dashboard/conversations${q('t-listed')}`, { user: { username: 'alice' } });
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelectorAll('.bubble').length).toBeGreaterThan(0));
+		expect(screen.queryByText('Outside the current filter')).toBeNull();
+	});
+
+	it('reads a conversation older than the loaded history by the thread the link carries', async () => {
+		const start = msg('t-far', 'demo-coordinator', 'thread_start', 'Far past question?', '09:00:00', { metadata: { crew: 'demo', conversationId: 'c-t-far' }, timestamp: '2026-10-01T09:00:00.000Z' });
+		const fetchMock = vi.fn(async (url: string) =>
+			url.includes(encodeURIComponent(subject('t-far')))
+				? { ok: true, json: async () => ({ messages: [{ seq: 1, subject: subject('t-far'), data: JSON.stringify(start) }] }) }
+				: { ok: true, json: async () => ({ items: [], conversations: [], messages: [] }) }
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		setPage(`/dashboard/conversations${q('t-far')}`, { user: { username: 'alice' } });
+		const { container } = render(Page);
+		await waitFor(() => expect(container.textContent).toContain('Far past question?'));
+		expect(screen.getByText('Outside the current filter')).toBeTruthy();
+	});
+});
+
 describe('the open conversation and the top-bar crew', () => {
 	it('leaves the top-bar crew exactly as the person set it, and writes the conversation into the address', async () => {
 		namespace.set('crew-demo');

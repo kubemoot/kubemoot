@@ -10,6 +10,7 @@
 		sortedThreads,
 		initDiscussions,
 		forgetThreads,
+		loadThreadBySubject,
 		showChatDetails,
 		namespace,
 		hasOlder,
@@ -26,19 +27,21 @@
 	import { ConversationDownload, CopyIcon, HoverActions } from '#lib/components/common/index.js';
 	import { copyText } from '#lib/clipboard.js';
 	import { rowActions } from '#lib/row-actions.js';
+	import { mootQuery, requestedThread } from '#lib/moot-open.js';
 	import type { HoverAction } from '#lib/hover-actions.js';
 	import { CrewBadge, DetailHeader, ListCard, ListDetailLayout, ThreadStatus } from '#lib/components/layout/index.js';
 	import { browserTimeZone, conversationIds, exportHref, threadConversationId } from '#lib/conversation-export.js';
 	import { conversationTitle, runState } from '#lib/conversation-actions.js';
 	import type { ErasureReport } from '#lib/conversation-actions-client.js';
 	import { page } from '$app/state';
-	import { AskBox, ConversationActions, ThreadDeleteDialog, ErasureReport as ErasureReportPanel, FilterBar } from '#lib/components/conversations/index.js';
+	import { AskBox, ConversationActions, OutsideFilterNote, ThreadDeleteDialog, ErasureReport as ErasureReportPanel, FilterBar } from '#lib/components/conversations/index.js';
 	import type { Live } from '#lib/components/conversations/AskBox.svelte';
 	import { listMine } from '#lib/ask-client.js';
 	import {
 		firstHit,
 		highlight,
 		emptyBecauseOfFilter,
+		NO_FILTER,
 		matchesFilter,
 		snippet
 	} from '#lib/conversation-filter.js';
@@ -124,6 +127,23 @@
 		appliedFromUrl = key;
 		openConversation(found, true);
 	});
+
+	// A conversation older than the loaded history is read by the subject of the thread the link carries.
+	$effect(() => {
+		const link = requestedThread(page.url.search);
+		if (!wanted.conversation || !link?.subject) return;
+		const id = wanted.conversation;
+		if (untrack(() => conversations.some((c) => threadConversationId(c) === id))) return;
+		void loadThreadBySubject(link.threadId, link.subject);
+	});
+
+	// A conversation the filter would not list stays open, with a note and a way to clear the filter.
+	const outsideFilter = $derived(!!selected && !chats.some((c) => c.threadId === selected.threadId));
+
+	function showAll() {
+		setFilter(NO_FILTER);
+		namespace.reset();
+	}
 
 	function showInUrl(item: { conversationId?: string; threadId: string } | null) {
 		const next = withOpen(new URLSearchParams(page.url.search), item);
@@ -307,6 +327,7 @@
 
 	{#snippet detail()}
 		{#if selected}
+			{#if outsideFilter}<OutsideFilterNote onshowall={showAll} />{/if}
 			<DetailHeader>
 				{#if selected.crew}
 					<CrewBadge label={crewLabel($crewDirectory, selected.namespace, selected.crew)} title={crewTooltip($crewDirectory, selected.namespace, selected.crew)} />
@@ -323,7 +344,7 @@
 						showDetails={$showChatDetails}
 						ontoggledetails={() => showChatDetails.toggle()}
 						{downloadHref}
-						discussionHref="{resolve('/moot')}?thread={selected.latestThreadId}"
+						discussionHref={resolve('/moot') + mootQuery({ threadId: selected.latestThreadId, subject: selected.latestSubject })}
 						ondeleted={deleted}
 					/>
 				{/snippet}
