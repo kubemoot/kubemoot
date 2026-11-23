@@ -155,7 +155,8 @@ var _ = Describe("CrewFitnessSuite re-judge", func() {
 		Expect(meta.IsStatusConditionTrue(s.Status.Conditions, rejudgeConditionType)).To(BeTrue())
 		Expect(s.Status.Scenarios).To(Equal([]kubemootv1alpha1.SuiteScenarioResult{
 			{Name: rjBeta, Iterations: 1, Failed: 1, MeanDurationMs: 42, AssertionsPassed: 2, AssertionsTotal: 3,
-				PassRate: ptr.To(int32(0)), PassAllK: ptr.To(int32(0)), AllPassed: ptr.To(false)},
+				FailureReason: "Prohibited terms found: harbor (re-evaluated from the source transcript)",
+				PassRate:      ptr.To(int32(0)), PassAllK: ptr.To(int32(0)), AllPassed: ptr.To(false)},
 			{Name: rjAlpha, Iterations: 1, Passed: 1, MeanDurationMs: 42, AssertionsPassed: 3, AssertionsTotal: 3,
 				PassRate: ptr.To(int32(100)), PassAllK: ptr.To(int32(100)), AllPassed: ptr.To(true)},
 			{Name: "fresh"},

@@ -276,6 +276,10 @@ const (
 	// MaxJudgeReasonLength caps a judge reason in status, in characters. The
 	// full reason stays in the object store checkpoint.
 	MaxJudgeReasonLength = 200
+
+	// MaxFailureReasonLength caps a scenario's failureReason in status, in
+	// characters. The full assertion messages stay in the transcripts.
+	MaxFailureReasonLength = 160
 )
 
 // FitnessJudgePhase is where the deferred judge pass of a suite run stands.
@@ -406,6 +410,15 @@ type SuiteScenarioResult struct {
 	AssertionsPassed int32 `json:"assertionsPassed,omitempty"`
 	// +optional
 	AssertionsTotal int32 `json:"assertionsTotal,omitempty"`
+
+	// FailureReason says in one line why a trial of this scenario did not pass
+	// its gates: the message of the first failed assertion of the first failed
+	// trial, or the error of the first errored one, cut to 160 characters. Absent
+	// when every finished trial passed. It explains passed and failed above; it
+	// is not the judge's score, which is in status.judge.scores.
+	// +optional
+	// +kubebuilder:validation:MaxLength=160
+	FailureReason string `json:"failureReason,omitempty"`
 
 	// InventedNameRuns counts the finished iterations whose answer named a
 	// resource that no tool result of the run held. It is a flag: no score or

@@ -43,7 +43,7 @@ func maximalResults(n int) (*kubemootv1alpha1.FitnessJudgeStatus, []kubemootv1al
 		scenarios = append(scenarios, kubemootv1alpha1.SuiteScenarioResult{
 			Name: name, Iterations: 1000, Passed: 400, Failed: 300, Errored: 300,
 			MeanDurationMs: 1 << 40, AssertionsPassed: 100000, AssertionsTotal: 100000,
-			InventedNameRuns: 1000,
+			InventedNameRuns: 1000, FailureReason: strings.Repeat("\U0001F600", kubemootv1alpha1.MaxFailureReasonLength),
 		})
 	}
 	return js, scenarios
@@ -80,6 +80,52 @@ func TestScenarioResultsRollsUpInSpecOrder(t *testing.T) {
 	}
 	if !equality.Semantic.DeepEqual(got, want) {
 		t.Errorf("scenarioResults = %+v\nwant %+v", got, want)
+	}
+}
+
+func TestScenarioResultsFailureReason(t *testing.T) {
+	failed := kubemootv1alpha1.CrewFitnessPhaseFailed
+	gate := func(raw, message string, passed bool) kubemootv1alpha1.AssertionResult {
+		return kubemootv1alpha1.AssertionResult{Raw: raw, Passed: passed, Message: message}
+	}
+	cases := []struct {
+		scenario string
+		results  []IterationResult
+		want     string
+	}{
+		{"gated", []IterationResult{
+			{Phase: kubemootv1alpha1.CrewFitnessPhasePassed, Assertions: []kubemootv1alpha1.AssertionResult{
+				gate("DEFER synthesis QUALITY x", "DEFER QUALITY - deferred to post-suite judge crew", true)}},
+			{Phase: failed, Assertions: []kubemootv1alpha1.AssertionResult{
+				gate("ASSERT a", "fine", true),
+				gate("ASSERT b", "consensus floor\nnot met: 1 of 3 agreed", false),
+				gate("ASSERT c", "later failure", false)}},
+			{Phase: failed, Assertions: []kubemootv1alpha1.AssertionResult{gate("ASSERT d", "second trial", false)}},
+		}, "consensus floor not met: 1 of 3 agreed"},
+		{"clean", []IterationResult{{Phase: kubemootv1alpha1.CrewFitnessPhasePassed}}, ""},
+		{"broken", []IterationResult{{Phase: kubemootv1alpha1.CrewFitnessPhaseError, Error: "the job hit its deadline"}}, "the job hit its deadline"},
+		{"nomsg", []IterationResult{{Phase: failed, Assertions: []kubemootv1alpha1.AssertionResult{gate("ASSERT  x   y", "", false)}}}, "ASSERT x y"},
+		{"long", []IterationResult{{Phase: failed, Assertions: []kubemootv1alpha1.AssertionResult{gate("ASSERT z", strings.Repeat("m", 500), false)}}},
+			strings.Repeat("m", kubemootv1alpha1.MaxFailureReasonLength-3) + "..."},
+		{"nofailedgate", []IterationResult{{Phase: failed}}, ""},
+	}
+	var all []IterationResult
+	refs := make([]string, 0, len(cases))
+	for _, c := range cases {
+		refs = append(refs, c.scenario)
+		for _, r := range c.results {
+			r.Scenario = c.scenario
+			all = append(all, r)
+		}
+	}
+	got := map[string]string{}
+	for _, row := range scenarioResults(scripts(refs...), all) {
+		got[row.Name] = row.FailureReason
+	}
+	for _, c := range cases {
+		if got[c.scenario] != c.want {
+			t.Errorf("failureReason of %s = %q, want %q", c.scenario, got[c.scenario], c.want)
+		}
 	}
 }
 
@@ -308,8 +354,8 @@ func TestMaximalStatusStaysUnderBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(raw) >= 500*1024 {
-		t.Errorf("worst-case status is %d bytes, want under 500 KiB", len(raw))
+	if len(raw) >= 700*1024 {
+		t.Errorf("worst-case status is %d bytes, want under 700 KiB", len(raw))
 	}
 	t.Logf("worst-case results: %d bytes for %d scenarios", len(raw), kubemootv1alpha1.MaxStatusScenarios)
 

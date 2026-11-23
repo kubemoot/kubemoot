@@ -1031,6 +1031,15 @@ spec:
                     failed:
                       format: int32
                       type: integer
+                    failureReason:
+                      description: |-
+                        FailureReason says in one line why a trial of this scenario did not pass
+                        its gates: the message of the first failed assertion of the first failed
+                        trial, or the error of the first errored one, cut to 160 characters. Absent
+                        when every finished trial passed. It explains passed and failed above; it
+                        is not the judge's score, which is in status.judge.scores.
+                      maxLength: 160
+                      type: string
                     inventedNameRuns:
                       description: |-
                         InventedNameRuns counts the finished iterations whose answer named a

@@ -55,9 +55,9 @@ spec:
 | `completedAt` | When the last iteration finished, or when the suite was cancelled. |
 | `iterationsTotal` | `len(scripts) x iterations`. It keeps the planned total after a cancel, so `iterationsCompleted < iterationsTotal` marks a partial run. |
 | `iterationsCompleted` | Iterations that reached a terminal phase, whatever the outcome. |
-| `passed`, `failed`, `errored` | `iterationsCompleted` broken down by outcome. |
+| `passed`, `failed`, `errored` | `iterationsCompleted` broken down by outcome of the gates (the deterministic assertions). Not the judge's score: see [Pass and score](#pass-and-score). |
 | `artifactRef` | Bucket, object key (`<namespace>/<suite>/<runId>.xlsx`), and size of the XLSX, set once it is written. |
-| `error` | Why the suite itself failed to execute (phase `Error`). |
+| `error` | Why the suite itself failed to execute (phase `Error`), in one sentence. A tool smoke failure is in the `ToolSmoke` condition message instead. See [Pass and score](#pass-and-score). |
 | `toolSmoke` | The table the tool smoke produced: `passed`, `failures`, and one row per tool (`server`, `tool`, `invoked`, `passed`, `error`, `durationMs`), failures first. See [Tool smoke](#tool-smoke). |
 | `rejudge` | On a re-judge suite: the `source` run, how many `transcripts` were copied, and `notInSource`, the scenarios of this suite the source run has no answer for. |
 | `scenarios` | Per-scenario rollup of the finished iterations, in spec order. See [Results in status](#results-in-status). |
@@ -73,7 +73,7 @@ spec:
 | `Pending` | no | Created, not yet started. |
 | `Running` | no | Iterations are being scheduled or are in flight. |
 | `Paused` | no | `spec.suspend` is true and no iteration is in flight. Nothing runs against the crew. |
-| `Completed` | yes | Every iteration reached a terminal phase. Failed or errored iterations are outcomes in the counts, not a suite failure. |
+| `Completed` | yes | Every iteration reached a terminal phase. Failed or errored iterations are outcomes in the counts and in `failureReason`, not a failure of the suite itself; a client that wants a pass or fail verdict reads `failed` and `errored`. See [Pass and score](#pass-and-score). |
 | `Cancelled` | yes | `spec.cancel` stopped the suite. Completed iterations are kept and the XLSX is marked partial. |
 | `ToolSmokeFailed` | yes | The tool smoke found a failing MCP tool, so the suite stopped before any model ran. No iteration was created and no artifact is written. See [Tool smoke](#tool-smoke). |
 | `Failed`, `Error` | yes | The suite itself could not execute, such as an invalid spec. |
@@ -137,6 +137,37 @@ tool that changes anything, runs a model backend, or needs a scope the call does
 stay without an input, and is then only checked for being listed. A crew chart keeps its inputs
 beside the chart in `mcp-smoke/<server>.yaml` and renders them into the `MCPServer`.
 
+## Pass and score
+
+A suite reports two separate things about every scenario. They are measured by different parts of the system and they can disagree.
+
+| | Pass (the gates) | Score (the judge) |
+|---|---|---|
+| Question it answers | Did the run satisfy the scenario's deterministic `ASSERT` lines? | How close is the crew's answer to the scenario's reference? |
+| Where it is | `passed`, `failed` and `errored` on the suite and on each row of `status.scenarios`, plus `passRate`, `allPassed` and `passAllK` | `status.judge.scores`, `status.judge.mean` (the `Quality` column) |
+| Computed by | The assertion engine, inline, while each iteration runs | The deferred judge crew, once the suite is terminal |
+| Scale | Counts of iterations | 0 to 100 per scenario |
+
+**Pass.** An iteration is `Passed` when every assertion it evaluated passed, `Failed` when any assertion failed, and `Errored` when it could not run or recorded no assertions. The gates are mechanical checks: the discussion endpoint returned 200, the agree floor was met, a term is present or absent in the answer. A `DEFER` assertion does not gate. It records a placeholder that passes ("deferred to post-suite judge crew") and leaves its judgment to the score. An assertion kind the engine has no check for also passes, with a note that manual review is recommended.
+
+**Score.** The score is the judge's reading of the answers against the reference in the `DEFER` assertion, averaged over the scenario's iterations, 0 to 100. An iteration that failed its consensus floor or returned an empty answer counts as 0 without a judge call. The judge reads the answer text and the evidence behind it; it does not read the gates.
+
+**Why they disagree.** The two measure different things, so neither overrides the other:
+
+- *Passed with a low score.* Every gate held (the crew agreed, answered, and used the required terms) but the answer is far from the reference, for example it states cluster facts no tool result held. The gates cannot see that. Read the score and its `reason`.
+- *Failed with a high score.* The answer matches the reference but a gate failed: a forbidden term appeared, a required term was missing from the exact wording, or the agree floor was not met. The judge does not see the gate. Read `failureReason` on the scenario row.
+
+Neither number is wrong. Neither is changed to match the other: the scores are the judge's verdict against the references as written, and the gates are the script's own checks. A suite is *clean* when no iteration failed or errored (the gates) and its scores meet your bar (the judge); a client that reports a single verdict should say which of the two it means.
+
+**Why a suite did not pass.** The status says it in plain words, by case:
+
+| Case | Where the reason is |
+|------|---------------------|
+| The suite could not execute (phase `Error`) | `status.error` |
+| The tool smoke failed (phase `ToolSmokeFailed`) | The `ToolSmoke` condition message, for example `9 tool(s) failed the smoke, no model ran; proxmox-mcp/list_nodes: ...`, and the table in `status.toolSmoke` |
+| The suite completed with failed or errored iterations (phase `Completed`) | `failureReason` on each scenario row of `status.scenarios` (the first failed gate), with the counts above it. The full assertion messages of every iteration are in the XLSX and the transcripts |
+| The judge could not score a scenario | `status.judge.unjudged` |
+
 ## Results in status
 
 The operator writes a run's results to the suite's status, so any client with read access to `crewfitnesssuites` gets them through the Kubernetes API: `kubectl`, `kmctl`, CrewForge, or a script. The status outlives the per-iteration `CrewFitness` objects, which the operator removes after the run, and the object store retention of the transcripts and judge checkpoint.
@@ -194,7 +225,8 @@ One row per distinct `testRef`, in the order of `spec.scripts`. A script with no
 |-------|-------------|
 | `name` | The script's `testRef`. |
 | `iterations` | Finished iterations of this scenario. |
-| `passed`, `failed`, `errored` | `iterations` broken down by outcome. |
+| `passed`, `failed`, `errored` | `iterations` broken down by outcome of the gates. A passed iteration can still score low with the judge. |
+| `failureReason` | One line, at most 160 characters: the message of the first failed assertion of the first failed iteration, or the error of the first errored one. Absent when every finished iteration passed. |
 | `meanDurationMs` | Mean wall-clock duration of the finished iterations. |
 | `assertionsPassed`, `assertionsTotal` | Assertion results summed over the finished iterations. |
 | `passRate` | Share of the finished iterations that passed, 0 to 100, rounded. |
@@ -309,7 +341,7 @@ The status carries summaries. The per-iteration transcripts (question, answer, e
 
 ### Size bound
 
-Status is stored in etcd with the rest of the object, so both lists are capped at 300 entries (the first 300 distinct `testRef` values in spec order), scenario names at 253 bytes, and reasons at 200 characters. The API server rejects a longer list. `judged`, `total`, `mean`, and `zeros` always cover every scenario, so `judged` greater than the length of `scores` means the list was cut. A `testRef` longer than 253 bytes is cut in status, so keep names shorter than that to keep them distinct. For 300 scenarios with 30-character names and full reasons, the two lists take about 125 KiB; at the field maximums (253-byte names, reasons of 200 four-byte characters) they take under 450 KiB, well below the 1 MiB an object should stay under. A suite with inline `testContent` also stores its scripts in the spec, so keep very large script sets in a ConfigMap.
+Status is stored in etcd with the rest of the object, so both lists are capped at 300 entries (the first 300 distinct `testRef` values in spec order), scenario names at 253 bytes, and reasons at 200 characters (failure reasons at 160). The API server rejects a longer list. `judged`, `total`, `mean`, and `zeros` always cover every scenario, so `judged` greater than the length of `scores` means the list was cut. A `testRef` longer than 253 bytes is cut in status, so keep names shorter than that to keep them distinct. For 300 scenarios with 30-character names and full reasons, the two lists take about 125 KiB (failure reasons add up to 190 KiB if every scenario has one); at the field maximums (253-byte names, reasons of 200 four-byte characters, failure reasons of 160) they take under 650 KiB, well below the 1 MiB an object should stay under. A suite with inline `testContent` also stores its scripts in the spec, so keep very large script sets in a ConfigMap.
 
 ## Pause, resume and stop
 
