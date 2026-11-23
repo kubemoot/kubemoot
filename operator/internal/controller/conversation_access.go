@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -70,18 +71,53 @@ func (s *ReportServer) mayExportConversation(ctx context.Context, scope crewscop
 	case discussionAccess(crew) == nil:
 		return nil
 	}
+	return s.mayExportAsCaller(ctx, crew, scope, id)
+}
+
+// mayExportAsCaller decides the export of a conversation on a crew that verifies callers.
+func (s *ReportServer) mayExportAsCaller(ctx context.Context, crew *kubemootv1alpha1.Crew, scope crewscope.Scope, id string) error {
 	caller, ok := reportCallerFrom(ctx)
 	if !ok || s.Owners == nil || s.Auth == nil {
 		return fmt.Errorf("%w: the caller or the owner records cannot be checked", conversationexport.ErrRefused)
+	}
+	hasher, err := s.callerHasher(ctx, crew, caller.identity)
+	if err != nil {
+		return err
 	}
 	owner, found, err := s.Owners.ConversationOwner(ctx, scope, id)
 	if err != nil {
 		return fmt.Errorf("read the conversation's owner: %w", err)
 	}
-	if found && identity.SamePrincipal(owner, identity.PrincipalOf(identity.Hasher{}, caller.identity)) {
+	if found && identity.SamePrincipal(owner, identity.PrincipalOf(hasher, caller.identity)) {
 		return nil
 	}
 	return s.operatorMayExport(ctx, scope, id, caller, owner.ID)
+}
+
+// callerHasher is the hasher the gateway used to record owners for this caller: the crew's
+// keyed hasher for a subscriber, so the two principals agree. A Kubernetes caller's id is
+// always the unkeyed hash and needs no key. A subscriber whose crew has no readable hash
+// key cannot be matched to an owner, so the export is refused.
+func (s *ReportServer) callerHasher(ctx context.Context, crew *kubemootv1alpha1.Crew, id *identity.Identity) (identity.Hasher, error) {
+	if id.Issuer == identity.IssuerKubernetes {
+		return identity.Hasher{}, nil
+	}
+	name, key, ok := hashKeySecret(discussionAccess(crew))
+	if !ok {
+		return identity.Hasher{}, fmt.Errorf("%w: the crew has no hash key to name its callers", conversationexport.ErrRefused)
+	}
+	secret := &corev1.Secret{}
+	err := s.Client.Get(ctx, types.NamespacedName{Namespace: crew.Namespace, Name: name}, secret)
+	switch {
+	case apierrors.IsNotFound(err):
+		return identity.Hasher{}, fmt.Errorf("%w: the crew's hash key Secret does not exist", conversationexport.ErrRefused)
+	case err != nil:
+		return identity.Hasher{}, fmt.Errorf("read the crew's hash key: %w", err)
+	}
+	if len(secret.Data[key]) == 0 {
+		return identity.Hasher{}, fmt.Errorf("%w: the crew's hash key is empty", conversationexport.ErrRefused)
+	}
+	return identity.Hasher{Key: secret.Data[key]}, nil
 }
 
 // operatorMayExport admits a caller who may get the crew's conversations and says why, and
