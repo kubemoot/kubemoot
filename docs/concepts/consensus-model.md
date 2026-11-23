@@ -72,10 +72,9 @@ checker. They fire when the current signal state satisfies the advance condition
 |-------|------|----|
 | `thread_start` | `SUBMITTED` | `ADVISORY` |
 | draft complete | `SYNTHESIZING` | `RATIFY` (the draft is published as a `draft` message and its roster is woken); `CLOSED` when the archetype turns ratification off or no agent contributed, so there is nobody to ratify |
-| `stop_requested` | `RATIFY` | `CLOSED` (the current draft is released at once; the objections so far are attached and every agent that has not answered is named as not having checked it) |
 | `thread_pause` | any state except `SYNTHESIZING`, `RATIFY` or `CLOSED` | `PAUSED` |
 | `thread_resume` | `PAUSED` | the saved prior state (settle timers resume) |
-| `stop_requested` | any state except `SYNTHESIZING`, `RATIFY` or `CLOSED` | `SYNTHESIZING` (a person's stop request: forces synthesis on whatever signals exist) |
+| `stop_requested` | any state except `CLOSED` | `CLOSED` (a person's stop abandons the turn: no synthesis, no draft; the thread closes with a text that says the person stopped it, and a synthesis still running is dropped) |
 | human reply on a closed thread | `CLOSED` | `EVALUATING` (the thread is reopened for another round) |
 
 ### Key principles

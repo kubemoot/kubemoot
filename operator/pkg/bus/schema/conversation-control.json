@@ -1,12 +1,16 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ConversationControl",
-  "description": "The answer to POST /api/v1/discussions/{crew}/{conversationId}/stop, /pause and /resume: the control the gateway sent and the running threads of the conversation it sent it to. The gateway sends it as itself; the coordinator of each thread applies it as it would a person's control.",
+  "description": "The answer to POST /api/v1/discussions/{crew}/{conversationId}/stop, /pause and /resume: the control the gateway sent and the running threads of the conversation it sent it to. The gateway sends it as itself; the coordinator of each thread applies it as it would a person's control. A stop also says what happened (outcome, message): it answers 200 when the turn is stopped, its queued question cancelled, or every turn had already finished, and 202 when the stop was sent and the coordinator did not confirm it.",
   "type": "object",
   "required": ["conversationId", "action", "threads"],
   "properties": {
     "conversationId": { "type": "string", "description": "The conversation." },
     "action": { "type": "string", "enum": ["stop", "pause", "resume"], "description": "What was sent: stop_requested, thread_pause or thread_resume." },
-    "threads": { "type": "array", "items": { "type": "string" }, "description": "The threads the control was sent to." }
+    "threads": { "type": "array", "items": { "type": "string" }, "description": "The threads the control was sent to." },
+    "outcome": { "type": "string", "enum": ["stopped", "cancelled", "unconfirmed", "nothing_to_stop"], "description": "On a stop, what happened. stopped: every running turn confirmed it abandoned the work. cancelled: the question was still queued and was removed from the queue before any agent saw it. unconfirmed: the stop was sent to the running turn and the coordinator did not confirm it in time; the work may still be running. nothing_to_stop: every turn of the conversation had already finished, so nothing changed." },
+    "message": { "type": "string", "description": "On a stop, what happened in plain words, for a person to read." },
+    "stopped": { "type": "array", "items": { "type": "string" }, "description": "On a stop, the threads that confirmed they stopped: each closed with the stopped text instead of an answer." },
+    "cancelled": { "type": "integer", "description": "On a stop, how many queued questions of the conversation were removed from the queue." }
   }
 }

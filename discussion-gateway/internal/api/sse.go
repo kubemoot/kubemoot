@@ -573,7 +573,8 @@ func translateAndEmit(data bus.DiscussionMessage, emit func(SSEEvent)) {
 	case msgThreadStart, msgReviewReady, msgAdvisory, msgHeartbeat, msgDraft:
 		return
 	case msgSynthesis:
-		emit(sseEvent(bus.StreamEventBase{Type: msgSynthesis, Content: data.Content}))
+		emit(sseEvent(bus.StreamEventBase{Type: msgSynthesis, Content: data.Content,
+			Outcome: metaString(data, metaOutcome)}))
 	case msgThreadClose:
 		emit(sseEvent(doneEvent(data)))
 	case msgAdvisoryReady, msgTriageResult:
@@ -595,7 +596,7 @@ func translateAndEmit(data bus.DiscussionMessage, emit func(SSEEvent)) {
 // doneEvent is the event for a closed thread. It carries the receipt of the closing
 // message, when there is one, exactly as the coordinator wrote it.
 func doneEvent(data bus.DiscussionMessage) bus.StreamEventBase {
-	done := bus.StreamEventBase{Type: eventDone}
+	done := bus.StreamEventBase{Type: eventDone, Outcome: metaString(data, metaOutcome)}
 	if receipt, ok := data.Metadata[metaReceipt].(map[string]interface{}); ok && len(receipt) > 0 {
 		done.Receipt = receipt
 	}

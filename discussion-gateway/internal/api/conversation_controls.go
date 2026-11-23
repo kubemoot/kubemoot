@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
 )
@@ -47,43 +46,6 @@ var (
 		"Resumed from the discussion gateway", opResume}
 )
 
-// conversationThread is a thread of a conversation, as the discussion stream shows it.
-type conversationThread struct {
-	id      string
-	channel string
-	// open is true until the thread's thread_close, and again after a person's reply reopens it.
-	open bool
-}
-
-// threadsOfConversation is the threads of the conversation the discussion stream still holds,
-// oldest first. A thread's channel is the one its thread_start was published on.
-func threadsOfConversation(
-	ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, id string,
-) ([]conversationThread, error) {
-	byID := map[string]*conversationThread{}
-	var order []string
-	err := readSubject(ctx, js, scope.DiscussFilter(), func(m discussMsg) {
-		thread := m.data.ThreadID
-		switch {
-		case m.data.MessageType == msgThreadStart && conversationOf(m.data) == id && threadToken(thread):
-			if _, seen := byID[thread]; !seen {
-				byID[thread] = &conversationThread{id: thread, channel: channelOf(m.data), open: true}
-				order = append(order, thread)
-			}
-		case byID[thread] == nil:
-		case m.data.MessageType == msgThreadClose:
-			byID[thread].open = false
-		case m.data.MessageType == msgReply && m.data.AgentName == agentHuman:
-			byID[thread].open = true
-		}
-	})
-	out := make([]conversationThread, 0, len(order))
-	for _, thread := range order {
-		out = append(out, *byID[thread])
-	}
-	return out, err
-}
-
 // channelOf is the channel a message was published on, or the broadcast channel.
 func channelOf(data bus.DiscussionMessage) string {
 	if data.Channel != "" && threadToken(data.Channel) {
@@ -96,7 +58,7 @@ func channelOf(data bus.DiscussionMessage) string {
 func running(threads []conversationThread) []conversationThread {
 	var out []conversationThread
 	for _, t := range threads {
-		if t.open {
+		if t.open() {
 			out = append(out, t)
 		}
 	}

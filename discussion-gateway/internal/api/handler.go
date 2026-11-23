@@ -112,12 +112,13 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/events", h.guard(h.streamConversationEvents))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/workspace", h.guard(h.getWorkspace))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/artifact", h.guard(h.getArtifactDeprecated))
-	mux.HandleFunc("POST /api/v1/discussions/{crew}/{conversationId}/stop", h.guard(h.controlHandler(stopControl)))
+	mux.HandleFunc("POST /api/v1/discussions/{crew}/{conversationId}/stop", h.guard(h.stopHandler))
 	mux.HandleFunc("POST /api/v1/discussions/{crew}/{conversationId}/pause", h.guard(h.controlHandler(pauseControl)))
 	mux.HandleFunc("POST /api/v1/discussions/{crew}/{conversationId}/resume", h.guard(h.controlHandler(resumeControl)))
 	mux.HandleFunc("DELETE /api/v1/discussions/{crew}/{conversationId}", h.guard(h.deleteConversation))
 	mux.HandleFunc("PUT /api/v1/discussions/{crew}/{conversationId}/credential", h.guard(h.renewCredential))
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conversationId}/stream", h.guard(h.streamDiscussion))
+	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conversationId}/state", h.guard(h.conversationState))
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {

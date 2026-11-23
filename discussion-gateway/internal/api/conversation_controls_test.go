@@ -110,9 +110,10 @@ func (c controlSetup) conversationPath(conv, suffix string) string {
 	return c.srv.URL + listPath + "/" + conv + suffix
 }
 
-// lastOn is the last message the discussion stream holds on subject.
-func (c controlSetup) lastOn(t *testing.T, subject string) bus.DiscussionMessage {
+// lastOnTheThread is the last message the discussion stream holds on the control test's thread.
+func (c controlSetup) lastOnTheThread(t *testing.T) bus.DiscussionMessage {
 	t.Helper()
+	subject := "kubemoot.discuss.ns.pilot.broadcast." + threadCtl
 	stream, err := c.js.Stream(context.Background(), streamName)
 	if err != nil {
 		t.Fatal(err)
@@ -174,24 +175,35 @@ func sum(counts []int) int {
 	return n
 }
 
+// controls are in the order a conversation can take them: a stop ends the turn, so it comes last.
 var controls = []struct {
 	name, path, messageType string
 }{
-	{"stop", "/stop", "stop_requested"},
 	{"pause", "/pause", "thread_pause"},
 	{"resume", "/resume", wireResume},
+	{"stop", "/stop", "stop_requested"},
 }
 
 func TestTheOwnerMayStopPauseAndResumeAndTheGatewaySendsTheMessageAsItself(t *testing.T) {
 	c := newControlSetup(t)
 	c.seed(t, tokenAlice, convCtl, threadCtl, objectName, factKey, true)
+	coordinatorThatStops(t, c.js)
 	for _, ctl := range controls {
 		got := c.controlAs(t, tokenAlice, ctl.name, ctl.path)
 		if string(got.Action) != ctl.name || got.ConversationID != convCtl || strings.Join(got.Threads, ",") != threadCtl {
 			t.Fatalf("%s: answered %+v", ctl.name, got)
 		}
-		m := c.lastOn(t, "kubemoot.discuss.ns.pilot.broadcast."+threadCtl)
+		if got.Outcome != "" && got.Outcome != bus.ConversationControlOutcomeStopped {
+			t.Fatalf("%s: outcome %q", ctl.name, got.Outcome)
+		}
+		if ctl.name == "stop" {
+			continue // the coordinator's close is the last message of a stopped thread
+		}
+		m := c.lastOnTheThread(t)
 		assertSentByTheGateway(t, m, ctl.messageType)
+	}
+	if m := c.lastOnTheThread(t); m.MessageType != msgThreadClose {
+		t.Fatalf("a stopped thread ends with its close: %+v", m)
 	}
 }
 
@@ -230,10 +242,11 @@ func TestTheWireNamesOfTheControlsAreTheCoordinatorsVocabulary(t *testing.T) {
 }
 
 func TestStopReasonIsManualStop(t *testing.T) {
+	withStopWait(t, stopSafetyNet)
 	c := newControlSetup(t)
 	c.seed(t, tokenAlice, convCtl, threadCtl, objectName, factKey, true)
 	do(t, http.MethodPost, c.conversationPath(convCtl, "/stop"), tokenAlice, "")
-	m := c.lastOn(t, "kubemoot.discuss.ns.pilot.broadcast."+threadCtl)
+	m := c.lastOnTheThread(t)
 	if m.Metadata[metaReason] != "manual_stop" {
 		t.Fatalf("metadata %+v", m.Metadata)
 	}
@@ -242,6 +255,7 @@ func TestStopReasonIsManualStop(t *testing.T) {
 func TestAControlIsRefusedToEveryoneButTheOwnerAndAnOperatorWithAReasonAndTheRole(t *testing.T) {
 	c := newControlSetup(t)
 	c.seed(t, tokenAlice, convCtl, threadCtl, objectName, factKey, true)
+	coordinatorThatStops(t, c.js)
 	for _, ctl := range controls {
 		url := c.conversationPath(convCtl, ctl.path)
 		for _, tc := range []struct {
@@ -267,8 +281,11 @@ func TestAControlIsRefusedToEveryoneButTheOwnerAndAnOperatorWithAReasonAndTheRol
 func TestAControlAnswersAFinishedOrEmptyConversationWithItsState(t *testing.T) {
 	c := newControlSetup(t)
 	c.seed(t, tokenAlice, convCtl, threadCtl, objectName, factKey, false)
-	if got := do(t, http.MethodPost, c.conversationPath(convCtl, "/stop"), tokenAlice, "").StatusCode; got != http.StatusConflict {
-		t.Fatalf("a finished conversation has nothing to stop: %d, want 409", got)
+	if got := do(t, http.MethodPost, c.conversationPath(convCtl, "/stop"), tokenAlice, "").StatusCode; got != http.StatusOK {
+		t.Fatalf("a stop of a finished conversation is a no-op that says so: %d, want 200", got)
+	}
+	if got := do(t, http.MethodPost, c.conversationPath(convCtl, "/pause"), tokenAlice, "").StatusCode; got != http.StatusConflict {
+		t.Fatalf("a finished conversation has nothing to pause: %d, want 409", got)
 	}
 	c.ask(t, tokenAlice, "conv-empty")
 	if got := do(t, http.MethodPost, c.conversationPath("conv-empty", "/pause"), tokenAlice, "").StatusCode; got != http.StatusNotFound {
@@ -283,6 +300,7 @@ func TestAnAnonymousCrewControlsAnyConversationAsItAlwaysCouldNotBefore(t *testi
 	nc, js := jetStreamServer(t)
 	srv := gatewayServer(t, nc)
 	publishDiscuss(t, js, turnStart("t1", "conv-1", "q"))
+	coordinatorThatStops(t, js)
 	for _, ctl := range controls {
 		if got := do(t, http.MethodPost, srv.URL+listPath+"/conv-1"+ctl.path, "", "").StatusCode; got != http.StatusOK {
 			t.Errorf("%s: %d", ctl.name, got)

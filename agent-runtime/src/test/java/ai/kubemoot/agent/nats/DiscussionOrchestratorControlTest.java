@@ -14,25 +14,22 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class DiscussionOrchestratorControlTest {
 
-    // ---- canForceSynthesis (Stop) ----
+    // ---- canStop (Stop) ----
 
     @Test
-    void stop_honoredFromLivePhases() {
-        assertTrue(DiscussionOrchestrator.canForceSynthesis(Phase.SUBMITTED),
-                "a Stop can arrive before agents respond");
-        assertTrue(DiscussionOrchestrator.canForceSynthesis(Phase.ADVISORY));
-        assertTrue(DiscussionOrchestrator.canForceSynthesis(Phase.EVALUATING));
-        assertTrue(DiscussionOrchestrator.canForceSynthesis(Phase.REVIEW));
-        assertTrue(DiscussionOrchestrator.canForceSynthesis(Phase.PAUSED),
-                "a paused thread can still be stopped");
+    void stop_honoredFromEveryPhaseThatHasNoAnswerYet() {
+        assertTrue(DiscussionOrchestrator.canStop(Phase.SUBMITTED), "a Stop can arrive before agents respond");
+        assertTrue(DiscussionOrchestrator.canStop(Phase.ADVISORY));
+        assertTrue(DiscussionOrchestrator.canStop(Phase.EVALUATING));
+        assertTrue(DiscussionOrchestrator.canStop(Phase.REVIEW));
+        assertTrue(DiscussionOrchestrator.canStop(Phase.PAUSED), "a paused thread can still be stopped");
+        assertTrue(DiscussionOrchestrator.canStop(Phase.SYNTHESIZING), "the answer is not out yet");
+        assertTrue(DiscussionOrchestrator.canStop(Phase.RATIFY), "the draft is not the answer yet");
     }
 
     @Test
-    void stop_ignoredOncePastSynthesis() {
-        assertFalse(DiscussionOrchestrator.canForceSynthesis(Phase.SYNTHESIZING));
-        assertFalse(DiscussionOrchestrator.canForceSynthesis(Phase.RATIFY),
-                "a stop in RATIFY releases the draft; it does not synthesize again");
-        assertFalse(DiscussionOrchestrator.canForceSynthesis(Phase.CLOSED));
+    void stop_ignoredOnceTheThreadIsClosed() {
+        assertFalse(DiscussionOrchestrator.canStop(Phase.CLOSED));
     }
 
     // ---- canPause ----

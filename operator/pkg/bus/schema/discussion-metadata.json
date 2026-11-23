@@ -242,6 +242,10 @@
       "$ref": "#/definitions/Ratification",
       "description": "On the synthesis of a draft that was ratified: how the table answered it."
     },
+    "outcome": {
+      "type": "string",
+      "description": "On the synthesis and the thread_close of a turn a person stopped: stopped. The synthesis then carries the stopped text, which is not an answer."
+    },
     "triageConfidence": {
       "type": "number",
       "description": "The coordinator's confidence in its choice of the inner circle."
