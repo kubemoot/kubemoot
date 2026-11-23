@@ -36,8 +36,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The state of a streamable HTTP upstream is visible on its registration (status, the reason
  * of the last failed connect, how many connects failed in a row), a down upstream is tried again
  * by the next request once its backoff ends, and a call on a session the upstream no longer
- * knows (it restarted) opens a new session and is sent once more, whether the upstream answers
- * 404 as MCP specifies or 500 as an MCP gateway in front of it does.
+ * knows (it restarted) opens a new session. After a 404 the call is sent once more; after a 500
+ * (what an MCP gateway in front of the upstream answers) only a read of the catalog is, and a
+ * tools/call is never sent twice.
  */
 class McpClientManagerBackoffTest {
 
@@ -49,7 +50,6 @@ class McpClientManagerBackoffTest {
     private final AtomicInteger calls = new AtomicInteger();
     private final Set<String> knownSessions = ConcurrentHashMap.newKeySet();
     private volatile int staleStatus = 404;
-    private volatile boolean alwaysStale;
     private McpClientManager manager;
     private HttpServer backend;
     private int port;
@@ -142,24 +142,42 @@ class McpClientManagerBackoffTest {
     }
 
     @Test
-    void aCallOnASessionTheRestartedUpstreamForgotIsRetriedOnceOnANewSessionAfter500() throws IOException {
-        assertStaleSessionIsRetriedOnce(500);
-    }
-
-    @Test
-    void anUpstreamThatKeepsAnswering500IsAskedOnceMoreNotInALoop() throws IOException {
+    void aToolCallAnswered500IsNotSentAgainButTheNextCallUsesANewSession() throws IOException {
         backend = startBackend(port);
         ServerRegistration server = manager.registerServer(SERVER, url, "http");
         awaitTrue("connected", () -> manager.getServer(server.id()).status() == ServerStatus.CONNECTED
             && !manager.getToolsForServer(server.id()).isEmpty());
         staleStatus = 500;
-        alwaysStale = true;
-        int before = calls.get();
+        knownSessions.clear();
+        int initializesBefore = initializes.get();
+        int callsBefore = calls.get();
 
-        McpMessage reply = call(server);
+        McpMessage first = call(server);
 
-        assertNotNull(reply.error(), "the second 500 is returned to the caller");
-        assertEquals(2, calls.get() - before, "one call and one retry, no more");
+        assertNotNull(first.error(), "the error goes to the caller");
+        assertEquals(1, calls.get() - callsBefore, "the tool call is sent once, never again");
+        assertEquals(1, initializes.get() - initializesBefore, "a new session is opened");
+
+        assertNull(call(server).error(), "the next call works on the new session");
+        assertEquals(2, calls.get() - callsBefore);
+    }
+
+    @Test
+    void aCatalogReadAnswered500IsSentAgainOnANewSession() throws IOException {
+        backend = startBackend(port);
+        ServerRegistration server = manager.registerServer(SERVER, url, "http");
+        awaitTrue("connected", () -> manager.getServer(server.id()).status() == ServerStatus.CONNECTED
+            && !manager.getToolsForServer(server.id()).isEmpty());
+        staleStatus = 500;
+        knownSessions.clear();
+        int initializesBefore = initializes.get();
+
+        McpMessage reply = manager.forwardRequest(server.id(), McpMessage.request(9, "resources/list", Map.of()))
+            .block(Duration.ofSeconds(30));
+
+        assertNotNull(reply);
+        assertNull(reply.error(), "a read of the catalog is answered on the new session");
+        assertEquals(1, initializes.get() - initializesBefore);
     }
 
     private void assertStaleSessionIsRetriedOnce(int status) throws IOException {
@@ -202,11 +220,11 @@ class McpClientManagerBackoffTest {
         String session = exchange.getRequestHeaders().getFirst("Mcp-Session-Id");
         if ("tools/call".equals(method)) {
             calls.incrementAndGet();
-            if (alwaysStale || session == null || !knownSessions.contains(session)) {
-                exchange.sendResponseHeaders(staleStatus, -1);
-                exchange.close();
-                return;
-            }
+        }
+        if (!"initialize".equals(method) && (session == null || !knownSessions.contains(session))) {
+            exchange.sendResponseHeaders(staleStatus, -1);
+            exchange.close();
+            return;
         }
         if (id == null || id.isNull()) {
             exchange.sendResponseHeaders(202, -1);
