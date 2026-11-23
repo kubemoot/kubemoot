@@ -54,7 +54,7 @@ class McpClientManagerStdioRetryTest {
 
     @BeforeEach
     void start() throws IOException {
-        manager = new McpClientManager(new McpGatewayProperties(), WebClient.builder(), mapper);
+        manager = new McpClientManager(noBackoff(), WebClient.builder(), mapper);
         manager.replyTimeout = Duration.ofSeconds(1);
         backend = startBackend(0);
         port = backend.getAddress().getPort();
@@ -236,5 +236,12 @@ class McpClientManagerStdioRetryTest {
                 Thread.currentThread().interrupt();
             }
         }
+    }
+
+    /** These tests check that a request connects again; the backoff between attempts has its own test. */
+    private static McpGatewayProperties noBackoff() {
+        McpGatewayProperties properties = new McpGatewayProperties();
+        properties.getReconnect().setInitialBackoff(Duration.ZERO);
+        return properties;
     }
 }

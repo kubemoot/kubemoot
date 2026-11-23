@@ -282,7 +282,7 @@ public class McpClientManager {
                 error -> {
                     log.warn("Re-listing tools of {} failed: {}", serverId, LogContent.reason(error));
                     if (isLatestListing(serverId, listing)) {
-                        setStatus(serverId, ServerStatus.ERROR);
+                        setFailed(serverId, failureText(error));
                     }
                 });
     }
@@ -308,7 +308,7 @@ public class McpClientManager {
         if (tools.isEmpty()) {
             log.warn("Re-listing {} returned no tools, keeping the {} known", server.name(),
                 getToolsForServer(serverId).size());
-            setStatus(serverId, ServerStatus.ERROR);
+            setFailed(serverId, "the server listed no tools");
             return;
         }
         List<ToolInfo> previous = serverTools.put(serverId, tools);
@@ -333,13 +333,39 @@ public class McpClientManager {
             })
             .timeout(CONNECT_DEADLINE)
             .doOnSuccess(ignored -> refreshTools(serverId))
-            .doOnError(error -> setStatus(serverId, ServerStatus.ERROR))
+            .doOnError(error -> setFailed(serverId, failureText(error)))
             // A caller that gives up mid-way leaves no connect under way.
             .doOnCancel(() -> setStatus(serverId, ServerStatus.ERROR));
     }
 
     private void setStatus(String serverId, ServerStatus status) {
         servers.computeIfPresent(serverId, (id, s) -> s.withStatus(status));
+    }
+
+    /**
+     * Mark a server ERROR with the reason its connect failed. The failure also holds the next
+     * request-started connect back by a backoff that grows with each consecutive failure and
+     * ends when the server is CONNECTED.
+     */
+    private void setFailed(String serverId, String reason) {
+        servers.computeIfPresent(serverId, (id, s) ->
+            s.withFailure(reason, properties.getReconnect().backoffAfter(s.failedConnects() + 1)));
+    }
+
+    private static String failureText(Throwable error) {
+        String reason = LogContent.reason(error);
+        return reason == null || reason.isBlank() ? error.getClass().getSimpleName() : reason;
+    }
+
+    /** The server is ERROR or DISCONNECTED and its backoff after the last failed connect has not ended. */
+    private static boolean isBackingOff(ServerRegistration server) {
+        return isDown(server) && server.nextConnectAt() != null && Instant.now().isBefore(server.nextConnectAt());
+    }
+
+    private static Throwable backingOff(ServerRegistration server) {
+        long seconds = Math.max(1, Duration.between(Instant.now(), server.nextConnectAt()).toSeconds() + 1);
+        return new IllegalStateException(server.statusReason() + " (the gateway connects again in about "
+            + seconds + "s)");
     }
 
     /**
@@ -353,6 +379,17 @@ public class McpClientManager {
             return statusCode == 400 || statusCode == 503;
         }
         return statusCode == 400 || statusCode == 401 || statusCode == 404;
+    }
+
+    /**
+     * A session the server no longer serves. Besides the lost-session statuses, a streamable
+     * HTTP gateway in front of a restarted server (agentgateway) answers 500 where the MCP
+     * transport specifies 404; on a session the gateway holds, 500 is treated like 404, so the
+     * session is opened again once and the call sent once more.
+     */
+    private static boolean isStaleSession(ServerRegistration server, int statusCode, String sessionId) {
+        return isSessionLost(server, statusCode) || (sessionId != null && statusCode == 500
+            && !TRANSPORT_STDIO.equalsIgnoreCase(server.transport()));
     }
 
     /**
@@ -476,7 +513,7 @@ public class McpClientManager {
                 tools -> onConnected(serverId, server, tools),
                 error -> {
                     log.error("Failed to connect to MCP server {}: {}", server.name(), LogContent.reason(error));
-                    setStatus(serverId, ServerStatus.ERROR);
+                    setFailed(serverId, failureText(error));
                     recordFeedback(FeedbackEntry.failure(server.name(), serverId, "connect", error.getMessage()));
                 }
             );
@@ -491,7 +528,7 @@ public class McpClientManager {
         if (tools.isEmpty() && !getToolsForServer(serverId).isEmpty()) {
             reportNoTools(serverId, server, "Reconnected to " + server.name() + " but it listed no tools, keeping the "
                 + getToolsForServer(serverId).size() + " known");
-            setStatus(serverId, ServerStatus.ERROR);
+            setFailed(serverId, "the server listed no tools");
             return;
         }
         serverTools.put(serverId, tools);
@@ -1144,6 +1181,10 @@ public class McpClientManager {
         if (pending != null) {
             return pending;
         }
+        ServerRegistration server = servers.get(serverId);
+        if (server != null && isBackingOff(server)) {
+            return Mono.error(backingOff(server));
+        }
         return claimReconnect(serverId, McpClientManager::isDown) ? reconnectForRequest(serverId) : null;
     }
 
@@ -1172,7 +1213,7 @@ public class McpClientManager {
             return Mono.just(responseTooLarge(serverId, request, -1));
         }
         if (e instanceof WebClientRequestException) {
-            setStatus(serverId, ServerStatus.ERROR);
+            setFailed(serverId, failureText(e));
         }
         boolean retryable = (replayOnTimeout && e instanceof TimeoutException) || ConnectionFailures.isConnectRefused(e);
         if (allowRetry && retryable) {
@@ -1266,7 +1307,7 @@ public class McpClientManager {
             .exchangeToMono(response -> {
                 int statusCode = response.statusCode().value();
 
-                if (isSessionLost(server, statusCode) && allowRetry) {
+                if (isStaleSession(server, statusCode, sessionId) && allowRetry) {
                     log.warn("Session error ({}) for server {}", statusCode, serverId);
                     return reconnectAndResend(serverId, request);
                 }

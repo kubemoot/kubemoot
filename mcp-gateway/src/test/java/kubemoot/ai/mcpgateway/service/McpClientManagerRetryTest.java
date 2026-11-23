@@ -51,7 +51,7 @@ class McpClientManagerRetryTest {
 
     @BeforeEach
     void start() throws IOException {
-        manager = new McpClientManager(new McpGatewayProperties(), WebClient.builder(), mapper);
+        manager = new McpClientManager(noBackoff(), WebClient.builder(), mapper);
         backend = startBackend(0);
         port = backend.getAddress().getPort();
         url = "http://127.0.0.1:" + port;
@@ -199,5 +199,12 @@ class McpClientManagerRetryTest {
             .repeatWhenEmpty(300, attempts -> attempts.delayElements(Duration.ofMillis(50)))
             .block(Duration.ofSeconds(20));
         assertTrue(Boolean.TRUE.equals(met), "timed out waiting for: " + what);
+    }
+
+    /** These tests check that a request connects again; the backoff between attempts has its own test. */
+    private static McpGatewayProperties noBackoff() {
+        McpGatewayProperties properties = new McpGatewayProperties();
+        properties.getReconnect().setInitialBackoff(Duration.ZERO);
+        return properties;
     }
 }

@@ -15,6 +15,7 @@ public class McpGatewayProperties {
     private ToolIndex toolIndex = new ToolIndex();
     private MetaTools metaTools = new MetaTools();
     private Connections connections = new Connections();
+    private Reconnect reconnect = new Reconnect();
     private CredentialBroker credentialBroker = new CredentialBroker();
     /**
      * Safety net: a connected server whose tool list is older than this is re-listed when
@@ -64,6 +65,14 @@ public class McpGatewayProperties {
         this.credentialBroker = credentialBroker;
     }
 
+    public Reconnect getReconnect() {
+        return reconnect;
+    }
+
+    public void setReconnect(Reconnect reconnect) {
+        this.reconnect = reconnect;
+    }
+
     public Connections getConnections() {
         return connections;
     }
@@ -102,6 +111,45 @@ public class McpGatewayProperties {
 
     public void setMetaTools(MetaTools metaTools) {
         this.metaTools = metaTools;
+    }
+
+    /**
+     * How long a request waits out after a failed connect before it may start another. The
+     * backoff doubles with each consecutive failure up to the maximum and ends the moment a
+     * connect succeeds. It limits how often a down server is tried; it is not what makes a
+     * server usable again: the next request after the backoff connects.
+     */
+    public static class Reconnect {
+        private Duration initialBackoff = Duration.ofSeconds(1);
+        private Duration maxBackoff = Duration.ofSeconds(30);
+
+        /** The backoff after the given number of consecutive failed connects (1 for the first). */
+        public Duration backoffAfter(int failedConnects) {
+            if (initialBackoff == null || initialBackoff.isNegative() || maxBackoff == null
+                    || maxBackoff.isNegative()) {
+                throw new IllegalStateException("mcp.gateway.reconnect.initial-backoff and max-backoff"
+                    + " must be durations of zero or more, for example 1s and 30s");
+            }
+            long doublings = Math.max(0, Math.min(failedConnects - 1, 20));
+            Duration backoff = initialBackoff.multipliedBy(1L << doublings);
+            return backoff.compareTo(maxBackoff) > 0 ? maxBackoff : backoff;
+        }
+
+        public Duration getInitialBackoff() {
+            return initialBackoff;
+        }
+
+        public void setInitialBackoff(Duration initialBackoff) {
+            this.initialBackoff = initialBackoff;
+        }
+
+        public Duration getMaxBackoff() {
+            return maxBackoff;
+        }
+
+        public void setMaxBackoff(Duration maxBackoff) {
+            this.maxBackoff = maxBackoff;
+        }
     }
 
     /**
