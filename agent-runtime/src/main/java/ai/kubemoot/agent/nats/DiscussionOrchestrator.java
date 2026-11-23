@@ -2688,7 +2688,7 @@ public class DiscussionOrchestrator {
             // Always call LLM for synthesis: ADL rules in coordinator-decision-logic
             // PromptModule guide the LLM to answer general knowledge directly or
             // report gaps for domain-specific questions.
-            String signalContext = buildSignalContext(state, synthToolerAgrees);
+            String signalContext = buildSignalContext(state, synthToolerAgrees, loadCrewResumes());
             // The synthesizer is tool-free and answers from the discussion only: the contributions with
             // the descriptions of the files they came from. A fact no agent stated is unknown.
             String threadText = ManifestText.strip(formatThread(state), false) + stored;
@@ -3051,12 +3051,13 @@ public class DiscussionOrchestrator {
             publishGapDetected(state.threadId, channel, state.userQuery, Map.of(), gapType);
         }
 
-        return response + failedSourcesNote(state);
+        return response + failedSourcesNote(state, loadCrewResumes());
     }
 
 
-    private static String sortedFailedSources(ThreadState state) {
-        return String.join(", ", new java.util.TreeSet<>(state.failedSources));
+    /** The failed agents' declared descriptions in plain words; never tool names or keys. */
+    private static String failedSourcePhrases(ThreadState state, String resumesJson) {
+        return String.join("; ", FailedSourceWording.phrases(resumesJson, state.failureSignals.keySet()));
     }
 
     /** The tool names a failure signal names in {@code metadata.failedTool} (comma-joined), safe to show a user. */
@@ -3071,17 +3072,19 @@ public class DiscussionOrchestrator {
 
     /**
      * The closing note for an answer written while agents reported failure, so the answer never
-     * reads as complete when a source was missing. It speaks in user terms: the missing tools
-     * only, with no agent names, addresses or error text (those stay in the failure signal,
-     * the logs and the dashboard). Empty when no agent failed. The one place the wording lives.
+     * reads as complete when a source was missing. It speaks in user terms: what the failed
+     * agents do, in their declared description (see {@link FailedSourceWording}), with no tool
+     * names, agent names, addresses or error text (those stay in the failure signal, the logs
+     * and the dashboard). Empty when no agent failed. The one place the wording lives.
      */
     // Visible for testing
-    static String failedSourcesNote(ThreadState state) {
+    static String failedSourcesNote(ThreadState state, String resumesJson) {
         if (state.failureSignals.isEmpty()) {
             return "";
         }
-        String names = state.failedSources.isEmpty() ? "" : ": " + sortedFailedSources(state);
-        return "\n\n---\nSome sources could not be reached" + names
+        String phrases = failedSourcePhrases(state, resumesJson);
+        String affected = phrases.isEmpty() ? "" : " (affected: " + phrases + ")";
+        return "\n\n---\nSome sources could not be reached" + affected
                 + ". This answer does not include what they would have provided.";
     }
 
@@ -3727,7 +3730,7 @@ public class DiscussionOrchestrator {
      * so the LLM can evaluate ADL decision rules (e.g., "WHEN 0 toolers contributed").
      */
     // Visible for testing
-    static String buildSignalContext(ThreadState state, long toolerAgrees) {
+    static String buildSignalContext(ThreadState state, long toolerAgrees, String resumesJson) {
         var sb = new StringBuilder();
         sb.append("Discussion signals:\n");
         sb.append("- Tooler agrees: ").append(toolerAgrees);
@@ -3754,8 +3757,9 @@ public class DiscussionOrchestrator {
         sb.append("- Concerns: ").append(state.concernSignals.size()).append("\n");
         sb.append("- Blocks: ").append(state.blockSignals.size()).append("\n");
         sb.append("- Failures: ").append(state.failureSignals.size());
-        if (!state.failedSources.isEmpty()) {
-            sb.append(" (sources not reached: ").append(sortedFailedSources(state)).append(")");
+        String phrases = failedSourcePhrases(state, resumesJson);
+        if (!phrases.isEmpty()) {
+            sb.append(" (sources not reached: ").append(phrases).append(")");
         }
         sb.append("\n");
         sb.append("Original question: \"").append(state.userQuery).append("\"");
