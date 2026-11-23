@@ -333,7 +333,7 @@ kmctl --context staging info
 kmctl create my-crew \
   --members 3 \
   --no-input \
-  -o /workspace/crews
+  --dir /workspace/crews
 ```
 
 ### Scaffold as a Helm chart
@@ -425,7 +425,7 @@ kmctl fitness run my-suite --scenario smoke-hello -n kubemoot
 kmctl fitness download my-suite -n kubemoot
 # Downloads to my-suite.xlsx
 
-kmctl fitness download my-suite -o results.xlsx -n kubemoot
+kmctl fitness download my-suite --output-file results.xlsx -n kubemoot
 ```
 
 ### List fitness suites across all namespaces

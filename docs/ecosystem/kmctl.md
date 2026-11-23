@@ -99,7 +99,7 @@ suite status. `kmctl fitness scenarios <suite>` lists the scenarios in a suite. 
 `resume` and `stop` control a suite while it runs.
 Pass `--scenario` to run a single scenario in isolation as a quick smoke test.
 `kmctl fitness download <suite>` retrieves the XLSX artifact for a completed suite
-through a port-forward to a ready dashboard pod; use `-o FILE` to control the
+through a port-forward to a ready dashboard pod; use `--output-file FILE` to control the
 output path.
 
 **Crew memory.** `kmctl memory export <crew>` writes the crew's long-term memory

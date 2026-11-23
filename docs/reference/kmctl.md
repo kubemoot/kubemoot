@@ -33,7 +33,19 @@ These flags apply to every command:
 | `--verbose` | `-v` | | Print the underlying error after the message of a failed command (`KMCTL_DEBUG=1` does the same) |
 | `--help` | `-h` | | Show help for the command |
 
-`-A` (`--all-namespaces`) and `-o` (`--output`) are not global. They belong to the commands that list or print resources, and their meaning varies by command (for example, `-o` is a directory for `kmctl create` and a file for `kmctl fitness download`).
+`-A` (`--all-namespaces`) and `-o` (`--output`) are not global. They belong to the commands that list or print resources, and their meaning varies by command (for example, `-o` is the rendering of the stream for `kmctl conversation ask`). Where it exists, `-o` always names an output format or a stream rendering, never a path. Commands that write files take a path flag instead: `--dir` for `kmctl create` and `kmctl memory export`, `--output-file` for `kmctl fitness download` and `kmctl conversation export`. The old `-o`/`--output` spelling on those four commands still works for one release, is hidden from help, and prints a deprecation message on stderr. A value of `-` is refused: these commands write a file or directory, never standard output.
+
+## Mistyped subcommands
+
+A subcommand that a group does not have is an error: the message names it, a "Did you mean"
+hint suggests the closest commands, and the exit code is 1. A bare group (`kmctl crew`)
+still prints its help.
+
+```bash
+kmctl crew lst
+# Error: unknown command "lst" for "kmctl crew"
+# Did you mean: list?
+```
 
 ## Commands that change state need a Kubernetes context
 
@@ -223,7 +235,7 @@ cluster can be read, `kmctl create` reads its catalog and warns when no model in
 tools; such a crew applies Ready but stays Unschedulable until a model server offers one.
 See [kmctl model list](#kmctl-model-list).
 
-Output is written to `<output>/<name>/` and includes:
+Output is written to `<dir>/<name>/` and includes:
 
 - A `Crew` manifest and a `CrewSchedulingPolicy` that states what the crew needs from the
   cluster's model catalog
@@ -265,7 +277,7 @@ and the layout its Crew Sources view expects a chart source to have.
 | `--display-name "..."` | | The name people read: any one line of text, no line breaks, tabs, or control characters, at most 100 characters (default: `<name>`). Stored as the `kubemoot.ai/display-name` annotation |
 | `--members N` | | Specialists beside the coordinator, 1 to 5 (default: prompted interactively). Size 1 is `workloads`; each larger size adds the next of `events`, `networking`, `config`, and `reviewer` |
 | `--no-input` | | Never prompt; inputs not given as flags take their defaults |
-| `--output DIR` | `-o` | Directory to write scaffold output (default: `.`) |
+| `--dir DIR` | | Directory to write scaffold output (default: `.`) |
 | `--context` | | Kubeconfig context whose model catalog is checked for a model that can call tools (a global `kmctl` flag) |
 | `--chart` | | Lay the crew out as a Helm chart (`Chart.yaml`, `templates/`, `fitness/`) instead of loose manifests |
 
@@ -336,7 +348,7 @@ kmctl create demo
 kmctl create demo \
   --members 3 \
   --no-input \
-  -o /tmp/crews
+  --dir /tmp/crews
 # Scaffolded crew "demo" (3 specialist(s) beside the coordinator) in /tmp/crews/demo: ...
 ```
 
@@ -715,18 +727,34 @@ kmctl apply -f - < crew.yaml
 ## kmctl delete
 
 ```
-kmctl delete <kind> <name> [-n <namespace>]
-kmctl delete -f <file|dir>
+kmctl delete <kind> <name> [-n <namespace>] [--yes] [--dry-run]
+kmctl delete -f <file|dir> [--yes] [--dry-run]
 ```
 
 Delete a Kubemoot CRD resource. Accepts only kubemoot.ai kinds. The operator's
 finalizers handle cascading cleanup; `kmctl delete` does not implement its own
 lifecycle logic.
 
+`kmctl delete` names what it will delete and asks before it does:
+
+```
+Delete crew/demo in namespace kubemoot? [y/N]
+```
+
+Only `y` or `yes` (any case) proceeds; anything else, including an empty answer or a closed
+stdin, cancels. The question goes to stderr.
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--yes` | `-y` | Do not ask for confirmation. Scripts pass this |
+| `--dry-run` | | The API server checks the delete and your access, and nothing is deleted |
+
 **Examples:**
 
 ```bash
-kmctl delete crew demo -n kubemoot
+kmctl delete crew demo -n kubemoot            # asks first
+kmctl delete crew demo -n kubemoot --yes      # no question
+kmctl delete crew demo -n kubemoot --dry-run  # checks only
 kmctl delete model qwen3:14b
 kmctl delete -f demo/
 ```
@@ -781,7 +809,7 @@ kmctl conversation placements <crew> <conversation-id> [-n <namespace>] [-o tabl
 kmctl conversation workspace <crew> <key> [-n <namespace>] [-f <file>]
 kmctl conversation stop|pause|resume <crew> <conversation-id> [-n <namespace>] [--reason <text>]
 kmctl conversation delete <crew> <conversation-id> [-n <namespace>] [--force] [-y] [--reason <text>]
-kmctl conversation export <crew> <conversation-id>... [-n <namespace>] [-o <file>] [--report [--json]]
+kmctl conversation export <crew> <conversation-id>... [-n <namespace>] [--output-file <file>] [--report [--json]]
 ```
 
 Start a conversation turn with a crew and stream the moot's deliberation in real
@@ -1099,7 +1127,7 @@ left. Who may delete is the same as for the controls above, with `delete` on
 ### kmctl conversation export
 
 ```
-kmctl conversation export <crew> <conversation-id>... [-n <namespace>] [-o <file>] [--report [--json]] [--time-zone <zone>]
+kmctl conversation export <crew> <conversation-id>... [-n <namespace>] [--output-file <file>] [--report [--json]] [--time-zone <zone>]
 ```
 
 Download everything Kubemoot still holds about one or more conversations as a zip: the
@@ -1110,13 +1138,13 @@ request and keeps no copy; see
 
 ```bash
 kmctl conversation export homelab-pilot 6733c361 -n crew-homelab-pilot
-kmctl conversation export homelab-pilot 6733c361 9f1e22a0 -o review.zip
+kmctl conversation export homelab-pilot 6733c361 9f1e22a0 --output-file review.zip
 kmctl conversation export homelab-pilot 6733c361 9f1e22a0 --report
 ```
 
 | Flag | Default | Description |
 |---|---|---|
-| `-o`, `--output` | `./<crew>-conversation-<id>.zip` (`./<crew>-conversations.zip` for several) | File to write. The file is written whole or not at all, and an existing file is never overwritten |
+| `--output-file` | `./<crew>-conversation-<id>.zip` (`./<crew>-conversations.zip` for several) | File to write. The file is written whole or not at all, and an existing file is never overwritten |
 | `--report` | | Print what the export would include and leave out, and write no zip |
 | `--json` | | With `--report`, print the manifest as JSON. It is an error without `--report`, because the zip carries its own `manifest.json` |
 | `--time-zone` | this machine's | IANA time zone the times in the export are written in |
@@ -1153,7 +1181,7 @@ kmctl fitness list [-n <namespace>] [-A]
 kmctl fitness get <suite> [-n <namespace>]
 kmctl fitness scenarios <suite> [-n <namespace>]
 kmctl fitness run <suite> [-n <namespace>] [--scenario <name>] [--timeout <duration>]
-kmctl fitness download <suite> [-n <namespace>] [-o FILE]
+kmctl fitness download <suite> [-n <namespace>] [--output-file FILE]
 kmctl fitness pause <suite> [-n <namespace>] [--dry-run]
 kmctl fitness resume <suite> [-n <namespace>] [--dry-run]
 kmctl fitness stop <suite> [-n <namespace>] [--dry-run] [-y]
@@ -1280,7 +1308,7 @@ kmctl fitness run demo-starter --scenario smoke-hello -n kubemoot
 ### kmctl fitness download
 
 ```
-kmctl fitness download <suite> [-n <namespace>] [-o FILE] [--dashboard-namespace NS] [--dashboard-service SVC]
+kmctl fitness download <suite> [-n <namespace>] [--output-file FILE] [--dashboard-namespace NS] [--dashboard-service SVC]
 ```
 
 Download the XLSX artifact for a completed suite. The command fetches the artifact
@@ -1293,7 +1321,7 @@ The suite must have reached `phase=Completed` before the artifact is available. 
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `-o FILE` | `-o` | `<suite>.xlsx` | File path to write the downloaded XLSX |
+| `--output-file FILE` | | `<suite>.xlsx` | File path to write the downloaded XLSX |
 | `--dashboard-namespace` | | `kubemoot` | Namespace where the Kubemoot dashboard is running |
 | `--dashboard-service` | | empty | Service name of the Kubemoot dashboard; when empty, the Service is discovered by label in `--dashboard-namespace` |
 
@@ -1303,7 +1331,7 @@ The suite must have reached `phase=Completed` before the artifact is available. 
 kmctl fitness download demo-starter -n kubemoot
 # Downloads to demo-starter.xlsx
 
-kmctl fitness download demo-starter -o results.xlsx -n kubemoot
+kmctl fitness download demo-starter --output-file results.xlsx -n kubemoot
 # Downloads to results.xlsx
 ```
 
@@ -1370,7 +1398,7 @@ and refuse `--nats-url`.
 ### kmctl memory export
 
 ```
-kmctl memory export <crew> [-n <namespace>] [-o <dir>] [--markdown] [--origin ID] [--allow-unscreened]
+kmctl memory export <crew> [-n <namespace>] [--dir <dir>] [--markdown] [--origin ID] [--allow-unscreened]
                     [--nats-url URL] [--creds FILE] [--nats-namespace NS] [--nats-service SVC]
 ```
 
@@ -1392,7 +1420,7 @@ schema before anything is written, and the directory is written atomically.
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `-n` | `-n` | the context's namespace | Namespace of the crew |
-| `-o DIR` | `-o` | `./<crew>-memory` | Directory to write; it must not exist or be empty |
+| `--dir DIR` | | `./<crew>-memory` | Directory to write; it must not exist or be empty |
 | `--markdown` | | off | Also write the runtime projection as Markdown files |
 | `--origin` | | derived from namespace and crew | Origin id for the manifest |
 | `--allow-unscreened` | | off | Export facts that hold a credential. By default each fact whose value, topic or key matches a credential shape is left out |
@@ -1419,11 +1447,11 @@ credentials included, so check it before you share it.
 **Example:**
 
 ```bash
-kmctl memory export homelab-pilot -n crew-homelab-pilot -o ./pilot-memory --markdown
+kmctl memory export homelab-pilot -n crew-homelab-pilot --dir ./pilot-memory --markdown
 # left out "crew-homelab-pilot.homelab-pilot.ops.login": its value holds a credential (key, token, secret or password assignment); not exported as memory
 # wrote 11 memory object(s) of crew-homelab-pilot/homelab-pilot to ./pilot-memory
 
-kmctl memory export homelab-pilot -n crew-homelab-pilot -o ./pilot-raw --allow-unscreened
+kmctl memory export homelab-pilot -n crew-homelab-pilot --dir ./pilot-raw --allow-unscreened
 # wrote 12 memory object(s) of crew-homelab-pilot/homelab-pilot to ./pilot-raw
 ```
 
