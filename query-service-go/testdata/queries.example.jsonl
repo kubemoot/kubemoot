@@ -1,0 +1,10 @@
+# A query set for qs-compare. One JSON object per line; blank lines and # lines are skipped.
+# Record 30 queries per source (fitness questions, captured live questions, adversarial ones).
+{"id":"ask-01","source":"pilot-docs","body":{"query":"how do I scale a deployment","top_k":5}}
+{"id":"ask-02","source":"pilot-docs","body":{"query":"how do I scale a deployment","top_k":50,"threshold":0.6}}
+{"id":"edge-empty","source":"pilot-docs","body":{"query":""}}
+{"id":"edge-threshold-one","source":"pilot-docs","body":{"query":"kubectl get pods","threshold":1}}
+{"id":"bad-top-k","source":"pilot-docs","body":{"query":"q","top_k":0}}
+{"id":"bad-body","source":"pilot-docs","body":[1]}
+{"id":"info","source":"pilot-docs","method":"GET","path":"/info"}
+{"id":"health","source":"pilot-docs","method":"GET","path":"/health"}
