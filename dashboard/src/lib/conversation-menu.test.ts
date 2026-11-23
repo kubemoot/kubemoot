@@ -24,7 +24,7 @@ describe('conversationMenu', () => {
 			'Copy conversation',
 			'Copy conversation id with the first question',
 			'Download conversation',
-			'Open in the Moot',
+			'View associated moot',
 			'Delete conversation'
 		]);
 	});
@@ -45,7 +45,7 @@ describe('conversationMenu', () => {
 
 	it('leaves out what needs an id or a crew', () => {
 		const l = labels(base({ conversationId: undefined, downloadHref: null, run: { running: true, paused: false } }));
-		expect(l).toEqual(['Show answer details', 'Copy conversation', 'Open in the Moot']);
+		expect(l).toEqual(['Show answer details', 'Copy conversation', 'View associated moot']);
 		expect(labels(base({ scope: null }))).not.toContain('Delete conversation');
 	});
 

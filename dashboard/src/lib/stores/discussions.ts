@@ -396,6 +396,23 @@ export async function ensureThreadLoaded(threadId: string): Promise<void> {
 	else threadReads.delete(threadId);
 }
 
+/**
+ * Reads one thread by its subject when the loaded history does not hold it (an older thread
+ * than the first page), and merges it in. Returns whether the thread is now known. A subject
+ * that is not a thread subject reads nothing.
+ */
+export async function loadThreadBySubject(threadId: string, subject: string): Promise<boolean> {
+	const parsed = parseDiscussSubject(subject);
+	if (!parsed || parsed.threadId !== threadId) return get(threadsMap).has(threadId);
+	if (get(threadsMap).has(threadId)) {
+		await ensureThreadLoaded(threadId);
+		return true;
+	}
+	const page = await fetchHistory(historyUrl(subject, 'limit=2000'));
+	if (page) mergeThread(threadId, page.messages ?? []);
+	return get(threadsMap).has(threadId);
+}
+
 const HYDRATE_CONCURRENCY = 4;
 
 // The partial threads being read now. The lists leave them out until their own read is done, so a

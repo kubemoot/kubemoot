@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/svelte
 import { readFileSync } from 'node:fs';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleMessage } from '#lib/stores/discussions.js';
-import { setPageData } from '../../../vitest-mocks/app-state.svelte.js';
+import { page as mockPage, setPageData, setPageUrl } from '../../../vitest-mocks/app-state.svelte.js';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import Page from './+page.svelte';
 
@@ -142,5 +142,88 @@ describe('the hover icon bars', () => {
 		expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'DELETE')).toBe(false);
 		await fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
 		expect(screen.queryByRole('alertdialog')).toBeNull();
+	});
+});
+
+describe('opening a thread from a link', () => {
+	const subjectOf = (id: string) => `kubemoot.discuss.crew-demo.demo.general.${id}`;
+	const start = (id: string, question: string, at: string) =>
+		msg('human', 'thread_start', question, { threadId: id, timestamp: at, metadata: { crew: 'demo', conversationId: `c-${id}` } });
+	const historyPage = (messages: DiscussionMessage[], id: string) => ({
+		messages: messages.map((m, i) => ({ seq: i + 1, subject: subjectOf(id), data: JSON.stringify(m) }))
+	});
+
+	beforeEach(() => {
+		setPageData({});
+		setPageUrl('/dashboard/moot');
+	});
+
+	it('keeps the thread the address names selected and in the address', async () => {
+		handleMessage(start('open-a', 'Question open-a?', '2026-11-22T04:00:00.000Z'), subjectOf('open-a'));
+		handleMessage(start('open-b', 'Question open-b?', '2026-11-22T05:00:00.000Z'), subjectOf('open-b'));
+		history.replaceState({}, '', '/dashboard/moot?thread=open-a');
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelector('.thread-query-full')?.textContent).toContain('Question open-a?'));
+		expect(new URLSearchParams(mockPage.url.search).get('thread')).toBe('open-a');
+	});
+
+	it('reads a thread older than the loaded history by its subject, and selects it', async () => {
+		const old = [
+			start('open-old', 'An old question?', '2026-11-01T04:00:00.000Z'),
+			msg('coordinator', 'synthesis', 'An old answer.', { threadId: 'open-old', timestamp: '2026-11-01T04:01:00.000Z' })
+		];
+		const fetchMock = vi.fn(async (url: string) =>
+			url.includes(encodeURIComponent(subjectOf('open-old')))
+				? { ok: true, json: async () => historyPage(old, 'open-old') }
+				: { ok: true, json: async () => ({ items: [], channels: [], messages: [] }) }
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		history.replaceState({}, '', `/dashboard/moot?thread=open-old&subject=${encodeURIComponent(subjectOf('open-old'))}`);
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelector('.thread-query-full')?.textContent).toContain('An old question?'));
+		expect(screen.getAllByText(/An old answer/).length).toBeGreaterThan(0);
+		expect(new URLSearchParams(mockPage.url.search).get('thread')).toBe('open-old');
+	});
+
+	it('shows a thread outside the filter with a note, and leaves the filter alone until Show all', async () => {
+		// Older than the default last 24 hours.
+		handleMessage(start('open-out', 'Out of range question?', '2026-11-10T04:00:00.000Z'), subjectOf('open-out'));
+		history.replaceState({}, '', '/dashboard/moot?thread=open-out');
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelector('.thread-query-full')?.textContent).toContain('Out of range question?'));
+		expect(screen.getByText('Outside the current filter')).toBeTruthy();
+		expect(mockPage.url.search).not.toContain('range=');
+		await fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
+		await waitFor(() => expect(screen.queryByText('Outside the current filter')).toBeNull());
+		expect(new URLSearchParams(mockPage.url.search).get('thread')).toBe('open-out');
+	});
+
+	it('falls back to the first thread when the requested one does not exist', async () => {
+		history.replaceState({}, '', '/dashboard/moot?thread=no-such-thread');
+		const { container } = render(Page);
+		await waitFor(() => expect(container.querySelector('.thread-query-full')).toBeTruthy());
+		expect(container.querySelector('.thread-query-full')?.textContent).not.toBe('');
+		expect(screen.queryByText('Outside the current filter')).toBeNull();
+	});
+
+	it('links a thread of a conversation to it, and a thread with none to nothing', async () => {
+		handleMessage(start('open-conv', 'Has a conversation?', '2026-11-22T05:30:00.000Z'), subjectOf('open-conv'));
+		handleMessage(msg('human', 'thread_start', 'A fitness thread?', { threadId: 'open-fit', timestamp: '2026-11-22T05:31:00.000Z', metadata: { crew: 'demo' } }), subjectOf('open-fit'));
+		history.replaceState({}, '', '/dashboard/moot?thread=open-conv');
+		const { container, unmount } = render(Page);
+		await waitFor(() => expect(container.querySelector('.thread-query-full')?.textContent).toContain('Has a conversation?'));
+		await fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+		const href = screen.getByRole('menuitem', { name: 'View associated conversation' }).getAttribute('href') ?? '';
+		const query = new URLSearchParams(href.split('?')[1]);
+		expect(query.get('conversation')).toBe('c-open-conv');
+		expect(query.get('thread')).toBe('open-conv');
+		expect(query.get('subject')).toBe(subjectOf('open-conv'));
+		unmount();
+
+		history.replaceState({}, '', '/dashboard/moot?thread=open-fit');
+		const second = render(Page);
+		await waitFor(() => expect(second.container.querySelector('.thread-query-full')?.textContent).toContain('A fitness thread?'));
+		await fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+		expect(screen.queryByRole('menuitem', { name: 'View associated conversation' })).toBeNull();
 	});
 });

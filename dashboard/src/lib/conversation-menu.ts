@@ -36,7 +36,7 @@ function shareEntries(c: MenuContext): MenuEntry[] {
 	const entries: MenuEntry[] = [];
 	if (c.conversationId) entries.push({ kind: 'item', label: 'Copy conversation id with the first question', onselect: c.copyIdAndQuestion });
 	if (c.downloadHref) entries.push({ kind: 'link', label: 'Download conversation', href: c.downloadHref, download: true });
-	entries.push({ kind: 'link', label: 'Open in the Moot', href: c.discussionHref });
+	entries.push({ kind: 'link', label: 'View associated moot', href: c.discussionHref });
 	return entries;
 }
 

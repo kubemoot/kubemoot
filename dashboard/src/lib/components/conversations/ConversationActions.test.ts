@@ -191,7 +191,7 @@ describe('the menu items that need no server', () => {
 		const p = props(mockFetch());
 		render(ConversationActions, p);
 		await openMenu();
-		expect(screen.getByRole('menuitem', { name: 'Open in the Moot' }).getAttribute('href')).toBe('/moot?thread=t1');
+		expect(screen.getByRole('menuitem', { name: 'View associated moot' }).getAttribute('href')).toBe('/moot?thread=t1');
 		expect(screen.getByRole('menuitem', { name: 'Download conversation' }).getAttribute('href')).toBe('/export?id=c-1');
 		await fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Show answer details/ }));
 		expect(p.ontoggledetails).toHaveBeenCalled();

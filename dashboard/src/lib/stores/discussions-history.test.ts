@@ -239,3 +239,35 @@ describe('a failed read of a cut thread', () => {
 		expect(get(store.sortedThreads).map((t) => t.threadId)).toEqual(['t1']);
 	});
 });
+
+describe('reading one thread by its subject', () => {
+	it('reads a thread older than the first page and lists it', async () => {
+		const T9 = 'kubemoot.discuss.team.pilot.general.t9';
+		const asked = fakeFetch((url) =>
+			url.searchParams.get('subject') === T9
+				? { messages: [entry(5, T9, 't9', 'thread_start', 'an old question'), entry(6, T9, 't9', 'synthesis', 'an old answer')] }
+				: { messages: [entry(900, T1, 't1', 'thread_start', 'q')], lastSeq: 900, windowStart: 801, hasMore: true }
+		);
+		const store = await fresh();
+		store.initDiscussions();
+		await flush();
+		expect(get(store.threads).has('t9')).toBe(false);
+		expect(await store.loadThreadBySubject('t9', T9)).toBe(true);
+		expect(get(store.threads).get('t9')?.userQuery).toBe('an old question');
+		expect(historyCalls(asked).filter((u) => u.searchParams.get('subject') === T9)).toHaveLength(1);
+	});
+
+	it('reads nothing for a subject that is not the thread\'s', async () => {
+		const asked = fakeFetch(() => ({ messages: [] }));
+		const store = await fresh();
+		expect(await store.loadThreadBySubject('t9', 'kubemoot.discuss.>')).toBe(false);
+		expect(await store.loadThreadBySubject('t9', T1)).toBe(false);
+		expect(asked).toEqual([]);
+	});
+
+	it('says the thread is unknown when the stream holds nothing for it', async () => {
+		fakeFetch(() => ({ messages: [] }));
+		const store = await fresh();
+		expect(await store.loadThreadBySubject('t1', T1)).toBe(false);
+	});
+});

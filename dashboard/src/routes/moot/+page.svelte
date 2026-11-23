@@ -2,11 +2,12 @@
 	import { tooltip } from '#lib/tooltip.js';
 	import { ACTIONS } from '#lib/action-definitions.js';
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { marked } from 'marked';
 	import { threadStartedAt } from '#lib/stores/discussions.js';
-	import { crewDirectory, forgetThreads, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, ensureThreadLoaded, loadOlder, loadingOlder, hasOlder, showStandAsides, showDebugDetail, namespace } from '#lib/stores/index.js';
+	import { crewDirectory, forgetThreads, threads, sortedThreads, discussionsConnected, historyLoaded, initDiscussions, ensureThreadLoaded, loadThreadBySubject, loadOlder, loadingOlder, hasOlder, showStandAsides, showDebugDetail, namespace } from '#lib/stores/index.js';
 	import type { Thread } from '#lib/stores/index.js';
 	import { tryCrewScope, type CrewScope } from '#lib/crewScope.js';
 	import { crewEntry, crewLabel, crewPillNamespace, crewTooltip } from '#lib/crew-display-name.js';
@@ -23,7 +24,7 @@
 	import { badgeLabel, draftObjections, draftSummary, ratificationView, ratifiesRound } from '#lib/ratification-view.js';
 	import { statusIcon } from '#lib/thread-status-icon.js';
 	import { browserTimeZone, exportHref, threadConversationId } from '#lib/conversation-export.js';
-	import { FilterBar, ThreadDeleteDialog } from '#lib/components/conversations/index.js';
+	import { FilterBar, OutsideFilterNote, ThreadDeleteDialog } from '#lib/components/conversations/index.js';
 	import { HoverActions } from '#lib/components/common/index.js';
 	import { copyText } from '#lib/clipboard.js';
 	import type { HoverAction } from '#lib/hover-actions.js';
@@ -31,7 +32,8 @@
 	import { ListCard, ListDetailLayout } from '#lib/components/layout/index.js';
 	import { listMine } from '#lib/ask-client.js';
 	import { mineScopesFor } from '#lib/list-scope.js';
-	import { emptyBecauseOfFilter, matchesFilter } from '#lib/conversation-filter.js';
+	import { conversationQuery, requestedThread, withThread, type ThreadTarget } from '#lib/moot-open.js';
+	import { NO_FILTER, emptyBecauseOfFilter, matchesFilter } from '#lib/conversation-filter.js';
 	import { createListFilter } from '#lib/list-filter.svelte.js';
 	import { fetchDashboardVersion, versionLabel, VERSION_UNKNOWN } from '#lib/dashboard-version.js';
 
@@ -48,6 +50,10 @@
 	const DEFAULT_CHANNEL = 'general';
 
 	let selectedThreadId = $state<string | null>(null);
+	// The thread the address asked for. It stays selected whatever the filter or the loaded history
+	// holds, until a person picks another thread or the thread is found not to exist.
+	let requested = $state<ThreadTarget | null>(null);
+	let requestRead = $state(false);
 
 	// $crewDirectory holds the crews (namespace, crew, display name) of the global
 	// top-bar "Crew:" selector, loaded by the root layout. The
@@ -193,8 +199,32 @@
 	}
 
 	function selectThread(threadId: string) {
+		requested = null;
 		selectedThreadId = threadId;
 	}
+
+	// The open thread stays in the address, so a reload keeps it.
+	$effect(() => {
+		const id = selectedThreadId;
+		if (!id) return;
+		const target = { threadId: id, subject: $threads.get(id)?.subject };
+		const next = withThread(page.url.search, target).toString();
+		if (next === new URLSearchParams(page.url.search).toString()) return;
+		void goto(resolve('/moot') + `?${next}`, { replace: true, reset: false });
+	});
+
+	// A thread outside the filter is shown anyway, with a note and a way to clear the filter.
+	const outsideFilter = $derived(!!selectedThread && !visibleThreads.some((t) => t.threadId === selectedThreadId));
+
+	function showAll() {
+		setFilter(NO_FILTER);
+		namespace.reset();
+	}
+
+	// Once the history and the direct read are done, a requested thread that is still unknown does not exist.
+	$effect(() => {
+		if (requested && $historyLoaded && requestRead && !$threads.has(requested.threadId)) requested = null;
+	});
 
 	function buildThreadHeader(thread: Thread, version: string): string {
 		let text = `# ${thread.userQuery}\n`;
@@ -297,7 +327,7 @@
 	// is filtered out, fall back to the first visible thread (or none). Guarded so
 	// it only writes when the value actually changes - no infinite loop.
 	$effect(() => {
-		if (selectedThreadId && !visibleThreads.some((t) => t.threadId === selectedThreadId)) {
+		if (selectedThreadId && selectedThreadId !== requested?.threadId && !visibleThreads.some((t) => t.threadId === selectedThreadId)) {
 			selectedThreadId = visibleThreads[0]?.threadId ?? null;
 		}
 	});
@@ -308,7 +338,15 @@
 		loadAcceleratorLabels();
 		fetchDashboardVersion(fetch, resolve('/api/version')).then((v) => { dashboardVersion = v; });
 		// A link from Conversations opens its thread: /moot?thread=<id>
-		selectedThreadId = new URLSearchParams(location.search).get('thread') ?? selectedThreadId;
+		requested = requestedThread(location.search);
+		if (requested) {
+			selectedThreadId = requested.threadId;
+			const target = requested;
+			// A thread older than the loaded history is read by its own subject.
+			void (target.subject ? loadThreadBySubject(target.threadId, target.subject) : Promise.resolve(false)).finally(() => {
+				requestRead = true;
+			});
+		}
 		// Auto-select first thread once history loads (if nothing selected)
 		const unsub = sortedThreads.subscribe((sorted) => {
 			if (sorted.length > 0 && !selectedThreadId) {
@@ -376,6 +414,9 @@
 	{/snippet}
 	{#snippet detail()}
 			{#if selectedThread}
+				{#if outsideFilter}
+					<OutsideFilterNote onshowall={showAll} />
+				{/if}
 				<div class="thread-detail-header">
 					{#if selectedThread.crew && $namespace === ''}
 						<span class="crew-badge" title={crewTooltip($crewDirectory, selectedThread.namespace, selectedThread.crew)}>{crewLabel($crewDirectory, selectedThread.namespace, selectedThread.crew)}{#if crewPillNamespace($crewDirectory, selectedThread.namespace, selectedThread.crew)}<span class="pill-ns">{selectedThread.namespace}</span>{/if}</span>
@@ -412,6 +453,7 @@
 							ontoggledebug={() => showDebugDetail.toggle()}
 							oncopydiscussion={copyThread}
 							oncopythreadid={copyThreadId}
+							conversationHref={selectedConversationId ? resolve('/conversations') + conversationQuery({ conversationId: selectedConversationId, threadId: selectedThread.threadId, subject: selectedThread.subject }) : null}
 							downloadHref={selectedConversationId ? exportHref(resolve('/api/kubemoot/conversation-export'), selectedThreadScope, [selectedConversationId], browserTimeZone()) : null}
 						/>
 					</div>
