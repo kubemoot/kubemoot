@@ -1,11 +1,11 @@
 ---
 title: LibreChat
-weight: 40
+weight: 70
 description: Install LibreChat, connect it to a crew through the crew liaison, and use the crew from an agent.
 ---
 
-LibreChat is an open-source chat app that speaks MCP, and it is the reference app for
-Kubemoot. This page takes you from nothing to a chat in which LibreChat's model asks a
+LibreChat is an open-source chat app that speaks MCP. It reaches a crew only through an
+agent, so expect more setup than in the apps listed before it. This page takes you from nothing to a chat in which LibreChat's model asks a
 crew a question: install LibreChat, point it at your accelerators and at the crew liaison,
 then build an agent that uses the crew as its tool.
 
