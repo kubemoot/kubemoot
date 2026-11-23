@@ -205,13 +205,28 @@ A server's tools can change while its URL stays the same: its pod is replaced wi
 | A stdio (bridge) server sends `notifications/tools/list_changed` on its SSE stream | Lists the tools again on the open session. The gateway does not hold a listening stream to streamable HTTP servers, so for them the signals below apply |
 | The MCP server process restarts inside its pod | The mcp-bridge sends `notifications/tools/list_changed` to its SSE clients once the new process has completed its handshake, which re-lists as above |
 | The SSE stream to the server ends (the pod was replaced or went away) | Marks the server `DISCONNECTED`; the next tool call or operator re-registration opens a new session and lists the tools on it |
-| A streamable HTTP server answers `400`, `401` or `404` for the session | Opens a new session, retries the call, and lists the tools on the new session |
+| A streamable HTTP server answers `400`, `401`, `404` or `500` for the session | Opens a new session, retries the call, and lists the tools on the new session |
 | The operator re-registers a server that is `DISCONNECTED`, `ERROR`, or has no tools | Connects again and lists the tools. A burst of re-registrations starts one connect |
 | The operator re-registers a connected server whose list is older than `mcp.gateway.tool-list-max-age` (default `10m`) | Lists the tools again. This is a safety net for a change that none of the signals above reported |
 
 A re-list that returns no tools, or fails, keeps the tools already known (a replacement server may still be starting) and marks the server `ERROR`, so the next re-registration connects again. When several re-lists overlap, only the most recently started one updates the list. `GET /admin/tools` and `GET /admin/servers/{id}/tools` always serve the latest list.
 
 Agents read `GET /admin/tools` when they start and again before an evaluation once their copy is older than 60 seconds (10 seconds while it is empty). A tool that is added, removed, or given a new description or input schema reaches running agents that way, without restarting them.
+
+## Reconnects and backoff
+
+A server is `CONNECTING`, `CONNECTED`, or `ERROR`. A server whose first connect failed, whose connection dropped, or whose session was lost is connected again by the next call that needs it; every call that arrives meanwhile waits for the same connect. The gateway does not need a restart, and the operator does not need to register the server again.
+
+After a failed connect the gateway holds back the next call-started connect by a backoff that doubles with each consecutive failure and ends when a connect succeeds. A call inside the backoff returns `Server not reachable` with the reason of the last failure and the time until the gateway connects again, and does not try the server. The backoff limits how often a down server is tried; the next call after it connects.
+
+| Property | Default | Meaning |
+|----------|---------|---------|
+| `mcp.gateway.reconnect.initial-backoff` | `1s` | Backoff after the first failed connect |
+| `mcp.gateway.reconnect.max-backoff` | `30s` | The backoff stops doubling here |
+
+`GET /admin/servers` and `GET /admin/servers/{id}` show the state of each server: `status`, `statusReason` (why the last connect failed, kept while the gateway reconnects and cleared once the server is `CONNECTED`), `failedConnects` (failures in a row) and `nextConnectAt` (when a call may connect again).
+
+When a streamable HTTP server answers a call on a session the gateway holds with `404` (the MCP transport's answer for an unknown session), `400`, `401`, or `500` (what an MCP gateway in front of a restarted server answers), the gateway opens a new session and sends the call once more. A second failure is returned to the caller. A tool call that got a `500` may already have run on the server; for a server that fails a call with `500` after running it, the call is sent twice.
 
 ## Tool Argument Types
 
@@ -610,12 +625,9 @@ Check the full chain:
 3. MCPGateway's `mcpServerSelector` matches the server's labels
 4. Gateway pod logs for initialization errors
 
-### Gateway caches failed connections
+### A server was down when the gateway first connected
 
-If the gateway fails to connect to an MCPServer on first registration, it caches the failure and never retries. Delete the gateway pod to force re-connection:
-```bash
-kubectl delete pod -l kubemoot.ai/mcpgateway=<name>
-```
+The gateway does not cache a failed connection. The next call for that server connects again, so a tool server that starts slower than the gateway becomes usable without restarting the gateway. See [Reconnects and backoff](#reconnects-and-backoff) for what the call returns while the server is still down, and `GET /admin/servers` for the state and the reason of the last failure.
 
 ### Agent has no tools
 
