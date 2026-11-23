@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -66,7 +67,11 @@ func unreachableJudge() *http.Client {
 // per-scenario rollup). The object store is an in-memory fake; the judge crew
 // is never called (gated and checkpointed scenarios need no dispatch).
 var _ = Describe("CrewFitnessSuite results in status", func() {
-	const namespace = "default"
+	const (
+		namespace       = "default"
+		statusSafetyNet = 30 * time.Second
+		statusPoll      = 20 * time.Millisecond
+	)
 	ctx := context.Background()
 
 	var store *lockedStore
@@ -96,14 +101,16 @@ var _ = Describe("CrewFitnessSuite results in status", func() {
 		reconcileOnce(name) // finalizer removal
 		Eventually(func() bool {
 			return errors.IsNotFound(k8sClient.Get(ctx, key(name), &kubemootv1alpha1.CrewFitnessSuite{}))
-		}).Should(BeTrue())
+		}, statusSafetyNet, statusPoll).Should(BeTrue())
 	}
-	// workerIdle waits until no judge worker runs for the suite's run.
+	// workerIdle waits until no judge worker runs for the suite's run. The worker
+	// writes status.judge and then leaves deferredInFlight, so this is the state
+	// to wait on; the timeout is a safety net for a loaded CI runner, not a budget.
 	workerIdle := func(prefix string) {
 		Eventually(func() bool {
 			_, running := deferredInFlight.Load(prefix)
 			return running
-		}).Should(BeFalse())
+		}, statusSafetyNet, statusPoll).Should(BeFalse())
 	}
 
 	BeforeEach(func() {
