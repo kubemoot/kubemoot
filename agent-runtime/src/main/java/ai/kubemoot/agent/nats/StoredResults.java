@@ -125,6 +125,30 @@ final class StoredResults {
         return render(src.calls(), src.prefix(), src.reader(), src.perResult(), src.perAgent(), src.timeUp());
     }
 
+    /** The most bytes of one stored result read to check an answer's names against it. */
+    static final int GROUNDING_MAX_BYTES = 4 * 1024 * 1024;
+
+    /** The text of every successful stored call of the thread, each up to {@link #GROUNDING_MAX_BYTES}, as the data a name can be checked against. */
+    List<String> texts(String threadId) {
+        Source src = source(threadId);
+        return texts(src.calls(), src.reader(), src.timeUp());
+    }
+
+    /** The readable texts of {@code calls}; a result that cannot be read is skipped and the read stops at the deadline. */
+    static List<String> texts(List<ThreadCatalog.Entry> calls, Reader reader, BooleanSupplier timeUp) {
+        var out = new java.util.ArrayList<String>();
+        for (var call : calls) {
+            Fetched fetched = readOne(reader, call, GROUNDING_MAX_BYTES, timeUp);
+            if (fetched == null && (Thread.currentThread().isInterrupted() || timeUp.getAsBoolean())) {
+                break;
+            }
+            if (fetched != null && fetched.text() != null) {
+                out.add(fetched.text());
+            }
+        }
+        return out;
+    }
+
     private static Fetched fetch(Connection conn, ThreadCatalog.Entry call, int maxBytes, BooleanSupplier timeUp)
             throws InterruptedException {
         try {

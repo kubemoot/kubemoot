@@ -471,6 +471,59 @@ class DiscussionOrchestratorHelpersTest {
                 () -> retrying.synthesizeWithCompleteness("sys", NAMESPACES, "t-c"));
     }
 
+    // --- synthesis grounding: a name no tool returned never goes out as fact ---
+
+    private static final String POINTERS = "Are all the cluster nodes healthy right now?\n"
+            + "[CALL key=k8s-nodes/001 tool=resources_list rows=14 bytes=41928]";
+
+    @Test
+    void groundingInventedNames_rePromptsWithThemAndKeepsTheCleanRewrite() {
+        var chat = mock(ChatService.class);
+        when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
+                .thenReturn(new ChatService.SimpleLlmResult("All 15 nodes: crew-node-01, crew-node-02 Ready", 10, 5))
+                .thenReturn(new ChatService.SimpleLlmResult("The node list was not shown to me.", 12, 6));
+
+        var result = createOrchestrator("", chat, 1).synthesizeWithCompleteness("sys", POINTERS, "t-g");
+
+        assertEquals("The node list was not shown to me.", result.text());
+        verify(chat).simpleLlmCallWithTokens(anyString(), org.mockito.ArgumentMatchers.contains("crew-node-01, crew-node-02"));
+    }
+
+    @Test
+    void groundingInventedNamesThatStay_areFlaggedNotReleasedAsFact() {
+        var chat = mock(ChatService.class);
+        when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
+                .thenReturn(new ChatService.SimpleLlmResult("crew-node-01 and crew-node-02 are Ready", 10, 5));
+
+        var result = createOrchestrator("", chat, 1).synthesizeWithCompleteness("sys", POINTERS, "t-g");
+
+        assertTrue(result.text().startsWith("crew-node-01 and crew-node-02 are Ready"), result.text());
+        assertTrue(result.text().contains("could not be matched to any data gathered"), result.text());
+        assertTrue(result.text().contains("crew-node-01, crew-node-02"), result.text());
+    }
+
+    @Test
+    void groundedNames_costNoExtraCallAndGetNoCaveat() {
+        var chat = mock(ChatService.class);
+        var answer = new ChatService.SimpleLlmResult("homelab-k8s-1-cp is Ready", 10, 5);
+        when(chat.simpleLlmCallWithTokens(anyString(), anyString())).thenReturn(answer);
+
+        var result = createOrchestrator("", chat, 1).synthesizeWithCompleteness("sys",
+                POINTERS + "\nhomelab-k8s-1-cp Ready", "t-g");
+
+        assertSame(answer, result);
+        verify(chat, times(1)).simpleLlmCallWithTokens(anyString(), anyString());
+    }
+
+    @Test
+    void groundingIsOffWithCompletenessRetriesOff() {
+        var chat = mock(ChatService.class);
+        var answer = new ChatService.SimpleLlmResult("crew-node-01 Ready", 10, 5);
+        when(chat.simpleLlmCallWithTokens(anyString(), anyString())).thenReturn(answer);
+
+        assertSame(answer, createOrchestrator("", chat, 0).synthesizeWithCompleteness("sys", POINTERS, "t-g"));
+    }
+
     // --- classifyNoAgreeGap / isToolerGapCandidate ---
 
     @Test

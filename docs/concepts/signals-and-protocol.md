@@ -202,6 +202,19 @@ nothing (it would invent). What it does depends on whether a call succeeded:
 Either way it is a normal synthesized answer: it is published as the `synthesis` message, the
 thread closes, and the asker and the fitness judge read it like any other.
 
+**Names in the answer are checked against the data.** After the synthesizer writes, the coordinator
+reads the instance names the draft states: lowercase words joined by hyphens with a number segment,
+such as `worker-3` or `homelab-k8s-1-cp`. Each must occur, in any letter case, in what the
+synthesizer read (the question and the discussion) or in a stored tool result. A name found in
+neither is one no tool returned, so the draft is sent back once per allowed retry (the same
+`synthesisCompletenessRetries` budget as the completeness check, off when it is 0) with those names
+listed, and asked to state only what the data holds. Names that stay in the answer are not
+released as fact: the answer ends with a plain note that they could not be matched to any gathered
+data and are unverified. Plain hyphenated words (`read-only`, `kube-system`) are not checked. The
+check runs in code on text; it is a guard against a synthesizer that filled a list in, not a proof
+that every claim is true, and a count is not checked. The fitness runner reports the same kind of
+name after the fact (see [Invented names](../reference/crewfitnesssuite.md#invented-names)).
+
 **The shortcut applies only when tools ran**: at least one contribution describes files (a
 `[CALL ...]` or `[NOT STORED ...]` line). A discussion where every agent stood aside, or only
 failed without storing a call, still goes to the model, which answers a general question from its
