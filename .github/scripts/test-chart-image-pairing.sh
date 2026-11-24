@@ -192,6 +192,16 @@ check "the dashboard release publishes the tag prefix the chart reads" 1 \
 check "the operator release triggers the chart release" 1 \
   "$(grep -cxF '      - Release' "$real/.github/workflows/release-chart.yaml")"
 
+# A release workflow's on.push.paths is the only filter on what it releases. A
+# change_path on its version step narrows the commits that count, so a push the trigger
+# accepted could build nothing and leave the image behind its code (the pairing check then
+# holds the chart for good). Its value is a bare git pathspec that cannot express the
+# trigger's exclusions, so none is allowed.
+for workflow in "$real"/.github/workflows/release.yaml "$real"/.github/workflows/release-*.yaml; do
+  check "$(basename "$workflow") has no change_path narrower than its trigger" 0 \
+    "$(grep -c '^[[:space:]]*change_path:' "$workflow" || true)"
+done
+
 # ---------------------------------------------------------------- release-operator-chart.sh
 
 if [ -z "${RELEASE_LIB:-}" ] || ! command -v helm >/dev/null; then

@@ -58,7 +58,6 @@ jobs:
         uses: kubemoot/release-actions/release-candidate-version@899dec57c20fafcccae4120d20bfd88e454f0a0f # v0.12.2
         with:
           tag_prefix: "scheduling-mcp-v"
-          change_path: "scheduling-mcp"
           force: ${{ inputs.force_release }}
 
       - name: Install crane
