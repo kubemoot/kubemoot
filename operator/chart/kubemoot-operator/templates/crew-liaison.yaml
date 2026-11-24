@@ -84,6 +84,10 @@ spec:
       serviceAccountName: {{ $name }}
       securityContext:
         runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: crew-liaison
           image: {{ include "kubemoot-operator.image" (dict "root" . "image" .Values.liaison.image) | quote }}
