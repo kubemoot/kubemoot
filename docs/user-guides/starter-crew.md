@@ -96,8 +96,9 @@ helm upgrade --install hello . --namespace crew-hello --create-namespace
 kmctl crew get hello -n crew-hello      # wait for Ready
 ```
 
-The prompts carry the namespace name, which Helm fills in at install. A bundle rendered for
-one namespace is tied to it; install the chart again for another namespace.
+The prompts name no namespace: Kubemoot tells each agent the namespace it runs in (see
+[the turn context line](../../concepts/agent-context/#the-turn-context-line)), so the same
+chart installs into any namespace.
 
 ### 3. Ask it something
 
@@ -145,8 +146,9 @@ PromptModule changes what that specialist gathers and reports in the same way; s
 
 ## Known limits
 
-- The prompts carry the namespace name, so a bundle is tied to the namespace it was
-  rendered for.
+- A bundle's `access/rbac.yaml` names the namespace in its RoleBinding, so a bundle is
+  bound to the namespace it was scaffolded for until you change the `namespace:` of the RoleBinding subject. Its prompts
+  name no namespace.
 - The workspace server reads NATS at the address in the chart value `nats.url`, which
   defaults to where the quickstart installs NATS; set it when NATS runs elsewhere.
 
