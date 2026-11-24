@@ -85,6 +85,7 @@ class McpClientManagerBackoffTest {
 
         backend = startBackend(port);
         awaitTrue("a request is answered once the backoff ends", () -> call(server).error() == null);
+        awaitTrue("the server shows connected", () -> manager.getServer(server.id()).status() == ServerStatus.CONNECTED);
 
         ServerRegistration ready = manager.getServer(server.id());
         assertEquals(ServerStatus.CONNECTED, ready.status());
