@@ -5,5 +5,6 @@
 export function statusLabel(status: string): string {
 	if (status === 'open') return 'Active';
 	if (status === 'synthesized') return 'Answered';
+	if (status === 'queued') return 'Queued';
 	return 'Closed';
 }

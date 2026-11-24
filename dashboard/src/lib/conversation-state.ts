@@ -60,6 +60,33 @@ export function queueNote(state: ConversationState | null): string {
 	return `Waiting in the crew's queue: ${ahead} ${ahead === 1 ? 'question' : 'questions'} ahead.`;
 }
 
+/** The questions that wait in the crew's queue, nearest the front first, with how many questions are ahead of each. */
+export function queuedQuestions(state: ConversationState | null): { question: string; ahead: number }[] {
+	if (!state) return [];
+	return state.turns
+		.filter((t) => t.state === 'queued')
+		.sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0))
+		.map((t) => ({ question: t.question ?? '', ahead: Math.max((t.queuePosition ?? 1) - 1, 0) }));
+}
+
+/** What a question that waits says under the person's message. */
+export function waitingText(ahead: number): string {
+	if (ahead <= 0) return 'Waiting, next to be taken';
+	return `Waiting, ${ahead} ${ahead === 1 ? 'question' : 'questions'} ahead`;
+}
+
+/**
+ * The status a conversation shows while the crew says work of it is in flight: Queued when
+ * only waiting questions remain, Active while a turn runs or is paused; otherwise the status
+ * the messages give.
+ */
+export function statusFromState(state: ConversationState | null, fallback: string): string {
+	if (!state) return fallback;
+	const run = runFromState(state);
+	if (!run.running) return fallback;
+	return run.queuedOnly ? 'queued' : 'open';
+}
+
 /** Whether the state shows work in flight, so the page keeps reading it. */
 export function isActive(state: ConversationState | null): boolean {
 	return !!state && state.turns.some((t) => t.state === 'queued' || t.state === 'running' || t.state === 'paused');
