@@ -38,6 +38,9 @@ import java.util.TreeMap;
 final class DiscussionReceipt {
 
     static final String SIGNAL_AGREE = "agree";
+    private static final String SIGNAL_BLOCK = "block";
+    private static final String SIGNAL_CONCERN = "concern";
+    private static final String REASON = "reason";
     static final String SIGNAL_STAND_ASIDE = "stand_aside";
     static final String SIGNAL_FAILURE = "failure";
     /** Longest reason kept on an agent line. */
@@ -45,7 +48,7 @@ final class DiscussionReceipt {
 
     private static final Map<String, String> TERMINAL = Map.of(
             SIGNAL_AGREE, SIGNAL_AGREE, "contribution", SIGNAL_AGREE,
-            "concern", "concern", "block", "block",
+            SIGNAL_CONCERN, SIGNAL_CONCERN, SIGNAL_BLOCK, SIGNAL_BLOCK,
             SIGNAL_STAND_ASIDE, SIGNAL_STAND_ASIDE, "decline", SIGNAL_STAND_ASIDE,
             SIGNAL_FAILURE, SIGNAL_FAILURE);
 
@@ -166,7 +169,7 @@ final class DiscussionReceipt {
         if (meta == null) {
             return null;
         }
-        String reason = meta.hasNonNull("reason") ? meta.get("reason").asText() : null;
+        String reason = meta.hasNonNull(REASON) ? meta.get(REASON).asText() : null;
         if (reason == null && SIGNAL_FAILURE.equals(signal) && meta.hasNonNull("lastError")) {
             reason = meta.get("lastError").asText();
         }
@@ -246,8 +249,8 @@ final class DiscussionReceipt {
         Map<String, Integer> counts = new TreeMap<>();
         agents.values().forEach(a -> counts.merge(a.signal, 1, Integer::sum));
         c.put(SIGNAL_AGREE, counts.getOrDefault(SIGNAL_AGREE, 0));
-        c.put("concern", counts.getOrDefault("concern", 0));
-        c.put("block", counts.getOrDefault("block", 0));
+        c.put(SIGNAL_CONCERN, counts.getOrDefault(SIGNAL_CONCERN, 0));
+        c.put(SIGNAL_BLOCK, counts.getOrDefault(SIGNAL_BLOCK, 0));
         c.put("standAside", counts.getOrDefault(SIGNAL_STAND_ASIDE, 0));
         c.put(SIGNAL_FAILURE, counts.getOrDefault(SIGNAL_FAILURE, 0));
         return c;
@@ -280,7 +283,7 @@ final class DiscussionReceipt {
         line.put("inferenceMs", a.inferenceMs);
         line.put("waitMs", waitMs.getOrDefault(agent, 0L));
         if (a.reason != null) {
-            line.put("reason", a.reason);
+            line.put(REASON, a.reason);
         }
         return line;
     }

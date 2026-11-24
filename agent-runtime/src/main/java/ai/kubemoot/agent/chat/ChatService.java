@@ -677,53 +677,66 @@ public class ChatService {
         long loopDeadlineMs = loopStartMs + MAX_LOOP_WALL_CLOCK_MS;
 
         for (int i = 0; i < maxIterations; i++) {
-            // Wall-clock check FIRST in the iteration so the bound is
-            // enforced even when LLM/tool calls are slow but non-erroring.
-            // The check is BEFORE the LLM call so we never start a fresh
-            // 120s-timeout call that would push past the deadline.
-            checkLoopDeadline(loopStartMs, loopDeadlineMs, i);
-            var gathered = contributionWhenContextIsFull(state, contextLength, i, toolerRawOutput,
-                    serverName, pickReason);
-            if (gathered.isPresent()) {
-                return gathered.get();
-            }
-
-            AiMessage aiMessage;
-            try {
-                aiMessage = invokeModelForLoop(modelForThisCall, state, contextLength);
-            } catch (RuntimeException e) {
-                var posted = toolerPostsAfterRejection(e, state, contextLength, toolerRawOutput,
-                        serverName, pickReason);
-                if (posted.isPresent()) {
-                    return posted.get();
-                }
-                if (recoversFromRejection(e, state, contextLength, toolerRawOutput)) {
-                    continue;
-                }
-                throw e;
-            }
-
-            // If no tool calls, decide the final text (or retry an empty turn).
-            if (!aiMessage.hasToolExecutionRequests()) {
-                var done = resolveNoToolResult(aiMessage, state, toolerRawOutput,
-                        serverName, pickReason);
-                if (done.isPresent()) {
-                    return done.get();
-                }
-                continue; // empty turn: retry budget consumed, loop again
-            }
-
-            executeToolCalls(aiMessage, state, contextLength, toolerRawOutput);
-            if (toolerStopsAfterRefusedRepeat(state, toolerRawOutput)) {
-                throwIfEveryToolFailed(state);
-                log.info("agent {}: a tool call repeated with the same arguments; contributing the tool output "
-                        + "gathered in {} iterations", properties.agentName(), i + 1);
-                return rawOutputResult(state, serverName, pickReason);
+            var result = toolLoopIteration(state, modelForThisCall, serverName, pickReason,
+                    toolerRawOutput, contextLength, loopStartMs, loopDeadlineMs, i);
+            if (result.isPresent()) {
+                return result.get();
             }
         }
 
         return exhaustedIterationsResult(state, maxIterations, toolerRawOutput,
                 serverName, pickReason);
+    }
+
+    /**
+     * One iteration of the tool loop; empty when the loop goes on to the next iteration,
+     * the loop's result when this iteration ends it.
+     */
+    @SuppressWarnings("java:S107") // the loop's inputs, passed through unchanged
+    private java.util.Optional<ToolLoopResult> toolLoopIteration(ToolLoopState state, ChatModel modelForThisCall,
+                                                                  String serverName, String pickReason,
+                                                                  boolean toolerRawOutput, long contextLength,
+                                                                  long loopStartMs, long loopDeadlineMs, int i) {
+        // Wall-clock check FIRST in the iteration so the bound is
+        // enforced even when LLM/tool calls are slow but non-erroring.
+        // The check is BEFORE the LLM call so we never start a fresh
+        // 120s-timeout call that would push past the deadline.
+        checkLoopDeadline(loopStartMs, loopDeadlineMs, i);
+        var gathered = contributionWhenContextIsFull(state, contextLength, i, toolerRawOutput,
+                serverName, pickReason);
+        if (gathered.isPresent()) {
+            return gathered;
+        }
+
+        AiMessage aiMessage;
+        try {
+            aiMessage = invokeModelForLoop(modelForThisCall, state, contextLength);
+        } catch (RuntimeException e) {
+            var posted = toolerPostsAfterRejection(e, state, contextLength, toolerRawOutput,
+                    serverName, pickReason);
+            if (posted.isPresent()) {
+                return posted;
+            }
+            if (recoversFromRejection(e, state, contextLength, toolerRawOutput)) {
+                return java.util.Optional.empty();
+            }
+            throw e;
+        }
+
+        // If no tool calls, decide the final text (or retry an empty turn).
+        if (!aiMessage.hasToolExecutionRequests()) {
+            // empty when the turn was empty: retry budget consumed, loop again
+            return resolveNoToolResult(aiMessage, state, toolerRawOutput, serverName, pickReason);
+        }
+
+        executeToolCalls(aiMessage, state, contextLength, toolerRawOutput);
+        if (toolerStopsAfterRefusedRepeat(state, toolerRawOutput)) {
+            throwIfEveryToolFailed(state);
+            log.info("agent {}: a tool call repeated with the same arguments; contributing the tool output "
+                    + "gathered in {} iterations", properties.agentName(), i + 1);
+            return java.util.Optional.of(rawOutputResult(state, serverName, pickReason));
+        }
+        return java.util.Optional.empty();
     }
 
     /** Throw LOOP_TIME_EXCEEDED when the wall-clock deadline has passed. */

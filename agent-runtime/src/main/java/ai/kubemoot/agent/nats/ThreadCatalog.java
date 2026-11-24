@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
 final class ThreadCatalog {
 
     private static final Logger log = LoggerFactory.getLogger(ThreadCatalog.class);
+    private static final String BYTES_LABEL = " bytes=";
 
     /** Opens the totals line. */
     static final String HEADER_PREFIX = "[CATALOG ";
@@ -176,7 +177,7 @@ final class ThreadCatalog {
 
     private String text(boolean withCalls) {
         var sb = new StringBuilder(HEADER_PREFIX).append("calls=").append(calls()).append(" errors=")
-                .append(errors()).append(" bytes=").append(bytes()).append(" groups=").append(groups().size())
+                .append(errors()).append(BYTES_LABEL).append(bytes()).append(" groups=").append(groups().size())
                 .append("]\n");
         groups().values().forEach(g -> {
             sb.append(groupLine(g)).append('\n');
@@ -193,8 +194,8 @@ final class ThreadCatalog {
         boolean rowsKnown = g.stream().allMatch(e -> e.rows() >= 0);
         long rows = g.stream().filter(e -> e.rows() >= 0).mapToLong(Entry::rows).sum();
         return GROUP_PREFIX + "agent=" + first.agent() + " tool=" + first.tool() + " calls=" + g.size()
-                + " errors=" + errors + " bytes=" + g.stream().mapToLong(Entry::bytes).sum()
-                + " rows=" + (rowsKnown ? Long.toString(rows) : "unknown") + " pattern=" + first.pattern(prefix) + "]";
+                + " errors=" + errors + BYTES_LABEL + g.stream().mapToLong(Entry::bytes).sum()
+                + " rows=" + (rowsKnown ? Long.toString(rows) : UNKNOWN_TYPE) + " pattern=" + first.pattern(prefix) + "]";
     }
 
     /** The catalog line of one call: its key, tool, arguments, shape and size. */
@@ -203,7 +204,7 @@ final class ThreadCatalog {
         return ENTRY_PREFIX + e.relativeKey(prefix) + " tool=" + CallManifest.neutralize(e.tool()) + " " + CallManifest.argsField(e.args())
                 + " type=" + (e.type().isEmpty() ? UNKNOWN_TYPE : e.type())
                 + " rows=" + (e.rows() >= 0 ? Long.toString(e.rows()) : "unknown")
-                + " bytes=" + e.bytes() + " error=" + e.error() + "]";
+                + BYTES_LABEL + e.bytes() + " error=" + e.error() + "]";
     }
 
     /** How stored calls are read: by key, by pattern as one table, or as files; the same words wherever calls are listed. */

@@ -37,6 +37,9 @@ import java.util.function.Supplier;
 public class RemoteCallPlanner implements CallPlacement {
 
     private static final Logger log = LoggerFactory.getLogger(RemoteCallPlanner.class);
+    private static final String SERVER = "server";
+    private static final String MODEL = "model";
+    private static final String THREADS_PATH = "/threads/";
     private static final String API = "/placement/v1";
     private static final int REPORT_QUEUE = 2_000;
     private static final long WARN_INTERVAL_MS = 30_000L;
@@ -133,7 +136,7 @@ public class RemoteCallPlanner implements CallPlacement {
         candidates.forEach(cands::add);
         try {
             planned.add(threadId);
-            client.post(API + "/threads/" + threadId + "/plan", body);
+            client.post(API + THREADS_PATH + threadId + "/plan", body);
         } catch (PlacementUnavailableException e) {
             // A plan only saves time at the first call; without it the call is placed when it is made.
             planned.remove(threadId);
@@ -147,7 +150,7 @@ public class RemoteCallPlanner implements CallPlacement {
             return Optional.empty();
         }
         try {
-            PlacementClient.Answer answer = client.post(API + "/threads/" + threadId + "/take",
+            PlacementClient.Answer answer = client.post(API + THREADS_PATH + threadId + "/take",
                     PlacementWire.identityJson(mapper, identity));
             return answer.status() == 200 ? Optional.of(placement(answer, "take")) : Optional.empty();
         } catch (PlacementUnavailableException e) {
@@ -162,7 +165,7 @@ public class RemoteCallPlanner implements CallPlacement {
             return;
         }
         planned.remove(threadId);
-        report("release-thread", () -> client.delete(API + "/threads/" + threadId + "?namespace="
+        report("release-thread", () -> client.delete(API + THREADS_PATH + threadId + "?namespace="
                 + enc(identity.namespace()) + "&crew=" + enc(identity.crew()) + "&agent=" + enc(identity.agentName())));
     }
 
@@ -171,9 +174,9 @@ public class RemoteCallPlanner implements CallPlacement {
     @Override
     public void callStarted(String threadId, String model) {
         ObjectNode body = PlacementWire.identityJson(mapper, identity);
-        body.put("model", model == null ? "" : model);
+        body.put(MODEL, model == null ? "" : model);
         String thread = threadId == null || threadId.isBlank() ? "-" : threadId;
-        report("call-started", () -> client.post(API + "/threads/" + thread + "/call-started", body));
+        report("call-started", () -> client.post(API + THREADS_PATH + thread + "/call-started", body));
     }
 
     @Override
@@ -188,7 +191,7 @@ public class RemoteCallPlanner implements CallPlacement {
 
     private void waiting(String model, boolean active) {
         ObjectNode body = PlacementWire.identityJson(mapper, identity);
-        body.put("model", model);
+        body.put(MODEL, model);
         body.put("active", active);
         report("waits", () -> client.post(API + "/waits", body));
     }
@@ -210,7 +213,7 @@ public class RemoteCallPlanner implements CallPlacement {
 
     @Override
     public void recordResidency(String server, String model, long footprintMiB) {
-        ObjectNode body = mapper.createObjectNode().put("server", server).put("model", model)
+        ObjectNode body = mapper.createObjectNode().put(SERVER, server).put(MODEL, model)
                 .put("footprintMiB", footprintMiB);
         report("residency", () -> client.post(API + "/residency", body));
     }
@@ -225,17 +228,17 @@ public class RemoteCallPlanner implements CallPlacement {
         if (server == null || server.isEmpty()) {
             return;
         }
-        ObjectNode body = mapper.createObjectNode().put("server", server).put("durationMs", durationMs)
+        ObjectNode body = mapper.createObjectNode().put(SERVER, server).put("durationMs", durationMs)
                 .put("ok", ok);
         if (model != null) {
-            body.put("model", model);
+            body.put(MODEL, model);
         }
         report("outcomes", () -> client.post(API + "/outcomes", body));
     }
 
     @Override
     public void recordFailure(String server) {
-        report("failures", () -> client.post(API + "/failures", mapper.createObjectNode().put("server", server)));
+        report("failures", () -> client.post(API + "/failures", mapper.createObjectNode().put(SERVER, server)));
     }
 
     @Override

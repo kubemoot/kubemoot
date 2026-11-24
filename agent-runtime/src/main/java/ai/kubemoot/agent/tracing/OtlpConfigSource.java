@@ -25,14 +25,14 @@ public final class OtlpConfigSource implements ConfigSource {
     static final String TRACES_PROTOCOL = "quarkus.otel.exporter.otlp.traces.protocol";
     private static final int ORDINAL = 100;
 
-    private final Function<String, String> env;
+    private final Function<String, String> environment;
 
     public OtlpConfigSource() {
         this(System::getenv);
     }
 
     OtlpConfigSource(Function<String, String> env) {
-        this.env = env;
+        this.environment = env;
     }
 
     @Override
@@ -74,7 +74,7 @@ public final class OtlpConfigSource implements ConfigSource {
     }
 
     private String endpoint() {
-        String value = env.apply(ENV);
+        String value = environment.apply(ENV);
         return value == null ? "" : value.trim();
     }
 

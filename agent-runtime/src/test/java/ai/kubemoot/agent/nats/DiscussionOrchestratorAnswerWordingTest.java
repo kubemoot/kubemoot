@@ -82,8 +82,12 @@ class DiscussionOrchestratorAnswerWordingTest {
             @Override public void publish(java.util.logging.LogRecord r) {
                 records.add(new java.util.logging.SimpleFormatter().formatMessage(r));
             }
-            @Override public void flush() { }
-            @Override public void close() { }
+            @Override public void flush() {
+                // nothing is buffered
+            }
+            @Override public void close() {
+                // nothing to release
+            }
         };
         logger.addHandler(handler);
         try {
