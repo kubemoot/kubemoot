@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	envReviewConvene  = "KUBEMOOT_DISCUSS_REVIEW_CONVENE"
-	envReviewFallback = "KUBEMOOT_DISCUSS_REVIEW_FALLBACK"
+	envReviewConvene     = "KUBEMOOT_DISCUSS_REVIEW_CONVENE"
+	envReviewFallback    = "KUBEMOOT_DISCUSS_REVIEW_FALLBACK"
+	envReviewGeneralists = "KUBEMOOT_DISCUSS_REVIEW_GENERALISTS"
 )
 
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=mootarchetypes,verbs=get;list;watch
@@ -106,6 +107,9 @@ func reviewEnvVars(review *kubemootv1alpha1.ArchetypeReview) []corev1.EnvVar {
 	}
 	if review.Fallback != "" {
 		env = append(env, corev1.EnvVar{Name: envReviewFallback, Value: string(review.Fallback)})
+	}
+	if review.Generalists != "" {
+		env = append(env, corev1.EnvVar{Name: envReviewGeneralists, Value: string(review.Generalists)})
 	}
 	return env
 }

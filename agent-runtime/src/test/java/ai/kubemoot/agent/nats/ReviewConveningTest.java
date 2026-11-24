@@ -195,6 +195,56 @@ class ReviewConveningTest {
         assertEquals(ReviewConvening.Policy.LEGACY, ReviewConvening.policy(Optional.of("bogus"), Optional.of("bogus")));
     }
 
+    private static final ReviewConvening.Policy DOMAIN_SELECTED = new ReviewConvening.Policy(
+            ReviewConvening.Convene.DOMAIN, ReviewConvening.Fallback.PRIMARY, ReviewConvening.Generalists.SELECTED);
+
+    @Test
+    void generalistsSelected_aGeneralistTheCoordinatorDidNotSelectDoesNotReview() throws Exception {
+        var plan = ReviewConvening.plan(DOMAIN_SELECTED, MAPPER.readTree(MIXED_CREW), List.of("proxmox"),
+                List.of(PROXMOX_PVE), List.of(), "Describe the proxmox nodes.");
+
+        assertEquals(List.of(PROXMOX_ADVISOR), plan.circle());
+        assertEquals(ReviewConvening.BASIS_DOMAIN, plan.basis());
+    }
+
+    @Test
+    void generalistsSelected_aGeneralistTheCoordinatorSelectedStillReviews() throws Exception {
+        var plan = ReviewConvening.plan(DOMAIN_SELECTED, MAPPER.readTree(MIXED_CREW), List.of("proxmox"),
+                List.of(PROXMOX_PVE), List.of("compute"), "Which node has the most memory?");
+
+        assertEquals(Set.of(PROXMOX_ADVISOR, "compute"), Set.copyOf(plan.circle()));
+    }
+
+    @Test
+    void generalistsSelected_aCrewOfGeneralistsOnlyStillHasEveryAnalystReview() throws Exception {
+        var crew = MAPPER.readTree("[{\"name\":\"a\",\"role\":\"analyst\"},{\"name\":\"b\",\"role\":\"analyst\"}]");
+
+        var plan = ReviewConvening.plan(DOMAIN_SELECTED, crew, List.of("x"), List.of(), List.of(), "q");
+
+        assertTrue(plan.circle().isEmpty(), "an empty circle means every analyst reviews");
+    }
+
+    @Test
+    void generalistsSelected_aQuestionNoDomainTouchesStillGetsTheBestRankedAnalyst() throws Exception {
+        var plan = ReviewConvening.plan(DOMAIN_SELECTED, MAPPER.readTree(MIXED_CREW), List.of(), List.of(),
+                List.of(), "Is kubernetes healthy?");
+
+        assertEquals(List.of(K8S_ADVISOR), plan.circle());
+        assertEquals(ReviewConvening.BASIS_PRIMARY, plan.basis());
+    }
+
+    @Test
+    void policyReadsTheGeneralistsSettingAndAnythingElseKeepsGeneralistsReviewing() {
+        assertEquals(ReviewConvening.Generalists.SELECTED, ReviewConvening.policy(
+                Optional.of("domain"), Optional.of("primary"), Optional.of(" Selected ")).generalists());
+        assertEquals(ReviewConvening.Generalists.ALWAYS, ReviewConvening.policy(
+                Optional.of("domain"), Optional.of("primary"), Optional.of("always")).generalists());
+        assertEquals(ReviewConvening.Generalists.ALWAYS, ReviewConvening.policy(
+                Optional.of("domain"), Optional.of("primary"), Optional.of("bogus")).generalists());
+        assertEquals(ReviewConvening.Generalists.ALWAYS, ReviewConvening.policy(
+                Optional.empty(), Optional.empty(), Optional.empty()).generalists());
+    }
+
     @Test
     void tokensAreLowerCaseAlphanumericWordsWithoutOneLetterFragments() {
         assertEquals(Set.of("proxmox", "ve"), ReviewConvening.tokens("Proxmox-VE 8"));

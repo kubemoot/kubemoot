@@ -74,8 +74,9 @@ spec:
 |-------|------|---------|-------------|
 | `convene` | `all` or `domain` | `all` | `all`: the analysts the coordinator itself selected, or every analyst when it selected none (the behavior before review was declared). `domain`: only the analysts whose declared [`domains`](../agent/#specdomains) touch the question or the data the toolers gathered. |
 | `fallback` | `primary` or `all` | `primary` | Applies when `convene` is `domain` and no analyst matches. `primary`: the one analyst that best matches the question's words and the gathering toolers' domains. `all`: every analyst. |
+| `generalists` | `always` or `selected` | `always` | Applies when `convene` is `domain`. `always`: an analyst that declares no `domains` (a generalist, such as the arithmetic analyst) reviews every discussion. `selected`: a generalist reviews only the discussions where the coordinator selected it for the question, so a question that needs no computation does not wait on it. |
 
-A crew that has analysts never reviews with none. An analyst that declares no `domains` is a generalist and reviews every discussion in `domain` mode. When `domain` matches nothing and nothing
+A crew that has analysts never reviews with none. With `generalists: always` (the default), an analyst that declares no `domains` is a generalist and reviews every discussion in `domain` mode. When `domain` matches nothing and nothing
 ranks the analysts either (no analyst declares a domain the question or the data touches), every
 analyst reviews, because choosing one would be arbitrary. See
 [Who reviews](../../architecture/tooler-analyst-architecture/#who-reviews) for how the match works.
@@ -85,11 +86,12 @@ spec:
   review:
     convene: domain
     fallback: primary
+    generalists: always
 ```
 
 The operator reads the block of the crew's archetype (the `archetypeRef` of the
 `CrewSchedulingPolicy` naming the crew, `consent-3` without one) and gives it to the crew's
-coordinator as `KUBEMOOT_DISCUSS_REVIEW_CONVENE` and `KUBEMOOT_DISCUSS_REVIEW_FALLBACK`. The
+coordinator as `KUBEMOOT_DISCUSS_REVIEW_CONVENE`, `KUBEMOOT_DISCUSS_REVIEW_FALLBACK` and `KUBEMOOT_DISCUSS_REVIEW_GENERALISTS`. The
 `consent-3` archetype the operator installs sets `convene: domain`. An edit to the block
 re-reconciles the coordinators. An Agent's own `spec.deployment.env` wins over both.
 

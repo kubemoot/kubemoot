@@ -89,6 +89,18 @@ type ReviewConvene string
 // +kubebuilder:validation:Enum=primary;all
 type ReviewFallback string
 
+// ReviewGeneralists says whether an analyst that declares no domain reviews every discussion.
+// +kubebuilder:validation:Enum=always;selected
+type ReviewGeneralists string
+
+const (
+	// ReviewGeneralistsAlways has an analyst that declares no domain review every discussion.
+	ReviewGeneralistsAlways ReviewGeneralists = "always"
+	// ReviewGeneralistsSelected has an analyst that declares no domain review only the
+	// discussions where the coordinator selected it for the question.
+	ReviewGeneralistsSelected ReviewGeneralists = "selected"
+)
+
 const (
 	// ReviewConveneAll convenes every analyst of the crew.
 	ReviewConveneAll ReviewConvene = "all"
@@ -116,6 +128,13 @@ type ArchetypeReview struct {
 	// +kubebuilder:default=primary
 	// +optional
 	Fallback ReviewFallback `json:"fallback,omitempty"`
+
+	// Generalists applies when Convene is "domain" and says whether an analyst that
+	// declares no domain (a cross-cutting reviewer such as arithmetic) reviews every
+	// discussion ("always") or only those where the coordinator selected it ("selected").
+	// +kubebuilder:default=always
+	// +optional
+	Generalists ReviewGeneralists `json:"generalists,omitempty"`
 }
 
 // RatifyRoster says who ratifies the draft.

@@ -271,7 +271,7 @@ public class DiscussionOrchestrator {
     // fast path that skips it. Set by the operator (KUBEMOOT_DISCUSS_HAS_ANALYSTS).
     private final boolean hasAnalysts;
     // Which analysts review, as the crew's consensus archetype declares it
-    // (KUBEMOOT_DISCUSS_REVIEW_CONVENE and _FALLBACK, set by the operator).
+    // (KUBEMOOT_DISCUSS_REVIEW_CONVENE, _FALLBACK and _GENERALISTS, set by the operator).
     private final ReviewConvening.Policy reviewPolicy;
     /** Whether and how the contributors ratify the draft (KUBEMOOT_DISCUSS_RATIFY_*, set by the operator). */
     private final RatifyPolicy ratifyPolicy;
@@ -392,7 +392,8 @@ public class DiscussionOrchestrator {
         this.coordinator = properties.discuss().coordinator();
         this.hasAnalysts = properties.discuss().hasAnalysts();
         this.reviewPolicy = ReviewConvening.policy(
-                properties.discuss().reviewConvene(), properties.discuss().reviewFallback());
+                properties.discuss().reviewConvene(), properties.discuss().reviewFallback(),
+                properties.discuss().reviewGeneralists());
         this.ratifyPolicy = RatifyPolicy.of(properties.discuss().ratifyEnabled(),
                 properties.discuss().ratifyMaxRounds(), properties.discuss().ratifyRoster());
         this.answerDirectlyEnabled = properties.discuss().answerDirectly();

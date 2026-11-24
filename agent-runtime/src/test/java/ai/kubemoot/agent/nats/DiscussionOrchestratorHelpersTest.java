@@ -787,6 +787,7 @@ class DiscussionOrchestratorHelpersTest {
                 @Override public boolean hasAnalysts() { return false; }
                 @Override public Optional<String> reviewConvene() { return Optional.empty(); }
                 @Override public Optional<String> reviewFallback() { return Optional.empty(); }
+                @Override public Optional<String> reviewGeneralists() { return Optional.empty(); }
                 @Override public Optional<String> ratifyEnabled() { return Optional.empty(); }
                 @Override public Optional<Integer> ratifyMaxRounds() { return Optional.empty(); }
                 @Override public Optional<String> ratifyRoster() { return Optional.empty(); }

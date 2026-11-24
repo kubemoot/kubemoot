@@ -154,6 +154,16 @@ spec:
                     - primary
                     - all
                     type: string
+                  generalists:
+                    default: always
+                    description: |-
+                      Generalists applies when Convene is "domain" and says whether an analyst that
+                      declares no domain (a cross-cutting reviewer such as arithmetic) reviews every
+                      discussion ("always") or only those where the coordinator selected it ("selected").
+                    enum:
+                    - always
+                    - selected
+                    type: string
                 type: object
               signals:
                 description: |-
