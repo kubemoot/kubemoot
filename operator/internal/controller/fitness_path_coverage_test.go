@@ -2,7 +2,11 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -233,5 +237,32 @@ func TestRecordTranscriptStatusSetsInventedCountsAndPathCoverageFromOneRead(t *t
 	r.recordTranscriptStatus(context.Background(), suite)
 	if suite.Status.PathCoverage != cov {
 		t.Error("a failed listing must leave status.pathCoverage as it was")
+	}
+}
+
+// pathKinds and pathPhases are the values the placement contract allows. The contract
+// (pkg/bus/schema/placement-call.json) is the one source: a kind or phase added there
+// fails this test until the lists follow, so it cannot show as a false gap.
+func TestPathListsMatchThePlacementContract(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "pkg", "bus", "schema", "placement-call.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for field, got := range map[string][]string{"kind": pathKinds, jsonKeyPhase: pathPhases} {
+		want := append([]string(nil), doc.Properties[field].Enum...)
+		have := append([]string(nil), got...)
+		sort.Strings(want)
+		sort.Strings(have)
+		if len(want) == 0 || !reflect.DeepEqual(want, have) {
+			t.Errorf("%s: contract %v, pathCoverage lists %v", field, want, have)
+		}
 	}
 }

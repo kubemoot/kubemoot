@@ -8,10 +8,13 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -338,4 +341,43 @@ func TestResolveTierIsANoopWithoutATier(t *testing.T) {
 	if _, stop, err := r.resolveSuiteTier(context.Background(), suite); stop || err != nil || suite.Status.Tier != nil {
 		t.Errorf("stop=%v err=%v tier=%v", stop, err, suite.Status.Tier)
 	}
+}
+
+// A conflict on the spec write (another writer moved the suite) comes back as an
+// error for a retry. It ends nothing: status.tier is already recorded and the next
+// reconcile resolves again from the same scenarios.
+func TestResolveTierSpecConflictIsRetriedNotFatal(t *testing.T) {
+	suite := tierSuite(kubemootv1alpha1.FitnessTierSmoke)
+	r := tierReconciler(t, suite, scenarioConfigMap())
+	scheme := r.Scheme
+	r.Client = conflictOnceClient(scheme, suite)
+
+	_, stop, err := r.resolveSuiteTier(context.Background(), suite)
+	if !stop || !apierrors.IsConflict(err) {
+		t.Fatalf("stop=%v err=%v, want a stop with the conflict", stop, err)
+	}
+	got := reload(t, r)
+	if got.Status.Phase == kubemootv1alpha1.CrewFitnessSuitePhaseError || got.Status.Tier == nil || len(got.Spec.Scripts) != 0 {
+		t.Fatalf("after the conflict: phase %q tier %v scripts %d", got.Status.Phase, got.Status.Tier, len(got.Spec.Scripts))
+	}
+	if _, stop, err = r.resolveSuiteTier(context.Background(), got); stop || err != nil {
+		t.Fatalf("retry: stop=%v err=%v", stop, err)
+	}
+	if refs := refsOf(reload(t, r).Spec.Scripts); len(refs) != 2 {
+		t.Errorf("after the retry spec.scripts = %v, want the two smoke scenarios", refs)
+	}
+}
+
+// conflictOnceClient fails the first write of a CrewFitnessSuite with a conflict.
+func conflictOnceClient(scheme *runtime.Scheme, suite *kubemootv1alpha1.CrewFitnessSuite) client.Client {
+	conflicts := 1
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(suite, scenarioConfigMap()).
+		WithStatusSubresource(&kubemootv1alpha1.CrewFitnessSuite{}).
+		WithInterceptorFuncs(interceptor.Funcs{Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if _, ok := obj.(*kubemootv1alpha1.CrewFitnessSuite); ok && conflicts > 0 {
+				conflicts--
+				return apierrors.NewConflict(schema.GroupResource{Group: tierCRDGroup, Resource: "crewfitnesssuites"}, obj.GetName(), errors.New("moved"))
+			}
+			return c.Update(ctx, obj, opts...)
+		}}).Build()
 }
