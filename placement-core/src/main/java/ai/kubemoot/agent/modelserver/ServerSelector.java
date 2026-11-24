@@ -98,7 +98,7 @@ public class ServerSelector {
     /** The model server's lifecycle driver: concurrency and model-switch costs. */
     private final EngineDriver driver;
     /** Asks the operator to wake and sleep models; null without NATS. */
-    private volatile ModelLifecycle lifecycle;
+    private final AtomicReference<ModelLifecycle> lifecycle = new AtomicReference<>();
     /** Per-engine drivers that ask the operator to load and release models, for every engine but Ollama. */
     private final java.util.concurrent.ConcurrentMap<String, EngineDriver> noLifecycle =
             new java.util.concurrent.ConcurrentHashMap<>();
@@ -201,12 +201,12 @@ public class ServerSelector {
         this.ticketManager = ticketManager;
         this.fitPredictor = fitPredictor;
         this.driver = driver != null ? driver : new OllamaDriver(null);
-        this.lifecycle = natsProvider == null ? null : new NatsModelLifecycle(natsProvider, objectMapper, null);
+        this.lifecycle.set(natsProvider == null ? null : new NatsModelLifecycle(natsProvider, objectMapper, null));
     }
 
     /** Replaces the operator lifecycle requests; for tests. */
     void useLifecycle(ModelLifecycle lifecycle) {
-        this.lifecycle = lifecycle;
+        this.lifecycle.set(lifecycle);
         noLifecycle.clear();
     }
 
@@ -532,8 +532,9 @@ public class ServerSelector {
             return driver;
         }
         String engine = server.engine().trim().toLowerCase(java.util.Locale.ROOT);
-        return noLifecycle.computeIfAbsent(engine, e -> lifecycle == null
-                ? new OperatorLifecycleDriver(driver, e) : new OperatorLifecycleDriver(driver, e, lifecycle));
+        ModelLifecycle held = lifecycle.get();
+        return noLifecycle.computeIfAbsent(engine, e -> held == null
+                ? new OperatorLifecycleDriver(driver, e) : new OperatorLifecycleDriver(driver, e, held));
     }
 
     /** Drops the cached server-state snapshot so the next read is fresh. */

@@ -4,7 +4,6 @@ import ai.kubemoot.indexer.config.IndexerConfig;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -46,9 +45,13 @@ public class JdbcStaleChunkPruner implements StaleChunkPruner {
 
     private static PreparedStatement prepare(Connection connection, String sql, Set<String> keepIds)
             throws SQLException {
-        Array ids = connection.createArrayOf("text", keepIds.toArray());
         PreparedStatement statement = connection.prepareStatement(sql);
-        statement.setArray(1, ids);
+        try {
+            statement.setArray(1, connection.createArrayOf("text", keepIds.toArray()));
+        } catch (SQLException | RuntimeException e) {
+            statement.close();
+            throw e;
+        }
         return statement;
     }
 }

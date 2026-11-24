@@ -10,7 +10,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -22,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 
@@ -64,7 +67,22 @@ public class TicketMirror implements TicketTable.Listener {
         MirrorBucket open() throws Exception;
     }
 
-    private record Op(String key, byte[] value) {}
+    private record Op(String key, byte[] value) {
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Op that && Objects.equals(key, that.key) && Arrays.equals(value, that.value);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hash(key) + Arrays.hashCode(value);
+        }
+
+        @Override
+        public String toString() {
+            return "Op[key=" + key + ", value=" + Arrays.toString(value) + "]";
+        }
+    }
 
     private final TicketTable table;
     private final BucketSource source;
@@ -80,7 +98,7 @@ public class TicketMirror implements TicketTable.Listener {
     private final AtomicLong written = new AtomicLong();
     private final AtomicLong failed = new AtomicLong();
     private final AtomicLong dropped = new AtomicLong();
-    private volatile BooleanSupplier lease = () -> true;
+    private final AtomicReference<BooleanSupplier> lease = new AtomicReference<>(() -> true);
     private volatile boolean running;
     private MirrorBucket bucket;
     private AutoCloseable watch;
@@ -105,7 +123,7 @@ public class TicketMirror implements TicketTable.Listener {
 
     /** The mirror writes only while {@code held} says this replica still holds the lease. */
     void fenceWith(BooleanSupplier held) {
-        this.lease = held;
+        this.lease.set(held);
     }
 
     // ---- lifecycle ----
@@ -241,7 +259,7 @@ public class TicketMirror implements TicketTable.Listener {
         while (running) {
             try {
                 Op op = queue.poll(500, TimeUnit.MILLISECONDS);
-                if (op != null && lease.getAsBoolean()) {
+                if (op != null && lease.get().getAsBoolean()) {
                     apply(op);
                 }
             } catch (InterruptedException e) {
@@ -252,7 +270,7 @@ public class TicketMirror implements TicketTable.Listener {
     }
 
     private void apply(Op op) {
-        for (int attempt = 1; attempt <= WRITE_ATTEMPTS && lease.getAsBoolean(); attempt++) {
+        for (int attempt = 1; attempt <= WRITE_ATTEMPTS && lease.get().getAsBoolean(); attempt++) {
             try {
                 if (op.value() == null) {
                     bucket.remove(op.key());
@@ -301,7 +319,7 @@ public class TicketMirror implements TicketTable.Listener {
 
     /** Sweeps removal markers, forgets old minted keys, and repairs the bucket when a write was lost. */
     void tidyBucket() {
-        if (!lease.getAsBoolean()) {
+        if (!lease.get().getAsBoolean()) {
             return;
         }
         try {

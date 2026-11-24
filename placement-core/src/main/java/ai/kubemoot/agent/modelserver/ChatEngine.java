@@ -26,7 +26,12 @@ public interface ChatEngine {
 
     /** {@code endpoint} with {@code /v1} appended unless it already ends with it. */
     static String withV1(String endpoint) {
-        String base = endpoint == null ? "" : endpoint.replaceAll("/+$", "");
+        String base = endpoint == null ? "" : endpoint;
+        int end = base.length();
+        while (end > 0 && base.charAt(end - 1) == '/') {
+            end--;
+        }
+        base = base.substring(0, end);
         return base.endsWith("/v1") ? base : base + "/v1";
     }
 }

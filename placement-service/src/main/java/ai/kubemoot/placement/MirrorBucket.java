@@ -1,5 +1,8 @@
 package ai.kubemoot.placement;
 
+import java.util.Arrays;
+import java.util.Objects;
+
 /**
  * The tickets bucket as the mirror uses it: write an entry, remove one, sweep the markers removals
  * leave, and follow every entry from the start. {@link NatsMirrorBucket} is the NATS KV bucket; tests
@@ -8,7 +11,22 @@ package ai.kubemoot.placement;
 interface MirrorBucket {
 
     /** One entry the bucket holds or just changed. {@code value} is null for a removal. */
-    record Item(String key, byte[] value, long createdAtMs) {}
+    record Item(String key, byte[] value, long createdAtMs) {
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Item that && Objects.equals(key, that.key) && createdAtMs == that.createdAtMs && Arrays.equals(value, that.value);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hash(key, createdAtMs) + Arrays.hashCode(value);
+        }
+
+        @Override
+        public String toString() {
+            return "Item[key=" + key + ", createdAtMs=" + createdAtMs + ", value=" + Arrays.toString(value) + "]";
+        }
+    }
 
     /** Receives the bucket's entries: first everything it holds now, then each change. */
     interface Watcher {

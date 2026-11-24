@@ -111,4 +111,13 @@ class NatsConnectionSettingsTest {
         var e = assertThrows(IllegalArgumentException.class, () -> s.configure(builder()));
         assertTrue(e.getMessage().contains("PKCS#8") || e.getMessage().contains("PEM"), e.getMessage());
     }
+
+    @Test
+    void aPkcs8KeyNoAlgorithmAcceptsIsRefusedWithAnExplainedFailureNotANullPointer(@TempDir Path dir) throws Exception {
+        Path key = Files.writeString(dir.resolve("k.pem"), "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n");
+        Path cert = Files.writeString(dir.resolve("c.pem"), "x");
+        var s = of(Map.of("NATS_CLIENT_CERT_FILE", cert.toString(), "NATS_CLIENT_KEY_FILE", key.toString()));
+        var e = assertThrows(IllegalArgumentException.class, () -> s.configure(builder()));
+        assertTrue(e.getMessage().contains("unusable"), e.getMessage());
+    }
 }
