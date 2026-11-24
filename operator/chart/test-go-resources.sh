@@ -42,6 +42,12 @@ done
 [ "$(yq '.resources.limits.cpu' <<<"$acc")" = null ] || fail "accelerator-mcp has a CPU limit"
 [ "$(yq '.resources.limits.cpu' <<<"$lia")" = 500m ] || fail "liaison lost its CPU limit"
 
+# The liaison pod runs as a high, non-root UID and GID under the runtime default seccomp profile.
+lia_pod="$(yq -N 'select(.kind == "Deployment" and .metadata.name == "kubemoot-operator-liaison") | .spec.template.spec.securityContext' <<<"$out")"
+[ "$(yq '.runAsUser' <<<"$lia_pod")" = 65532 ] || fail "liaison does not run as UID 65532"
+[ "$(yq '.runAsGroup' <<<"$lia_pod")" = 65532 ] || fail "liaison does not run as GID 65532"
+[ "$(yq '.seccompProfile.type' <<<"$lia_pod")" = RuntimeDefault ] || fail "liaison has no RuntimeDefault seccomp profile"
+
 # GOMEMLIMIT is 90 percent of the memory limit (384Mi -> 345MiB, 128Mi -> 115MiB).
 [ "$(gomemlimit "$op")" = 345MiB ] || fail "operator GOMEMLIMIT is $(gomemlimit "$op")"
 [ "$(gomemlimit "$lia")" = 115MiB ] || fail "liaison GOMEMLIMIT is $(gomemlimit "$lia")"
