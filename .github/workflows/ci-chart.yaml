@@ -62,6 +62,8 @@ jobs:
         run: operator/chart/test-secret-use-grants.sh
       - name: Go component sizing render tests
         run: operator/chart/test-go-resources.sh
+      - name: Gateway TLS render tests
+        run: operator/chart/test-gateway-tls.sh
       - name: Install CA render tests
         run: operator/chart/test-install-ca.sh
       - name: Liaison sign-in render tests

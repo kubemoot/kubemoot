@@ -18,7 +18,8 @@
 //       The longest a sign-in lasts; a token that expires sooner ends it sooner.
 //   KUBEMOOT_DASHBOARD_GATEWAY_URL=<url template>               (default: in-cluster Service)
 //       Where a crew's discussion gateway is; {crew} and {namespace} are replaced. Empty uses
-//       http://<crew>-discussion.<namespace>.svc.cluster.local.
+//       https://<crew>-discussion.<namespace>.svc.cluster.local, a gateway that serves TLS from the
+//       install CA (KUBEMOOT_DASHBOARD_CA_FILE below).
 //   KUBEMOOT_DASHBOARD_CA_FILE=<path>                           (default: empty)
 //       The install CA's public certificates (the chart mounts them from the ConfigMap the
 //       operator publishes). An https call that carries a person's token, to the operator's report

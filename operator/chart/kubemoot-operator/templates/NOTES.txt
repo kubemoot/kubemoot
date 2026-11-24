@@ -1,4 +1,10 @@
 Kubemoot operator installed in the namespace {{ .Release.Namespace }}.
+{{- if and .Values.dashboard.enabled (not .Values.discussionGateway.tls.enabled) (not .Values.dashboard.auth.gatewayUrl) }}
+
+The dashboard calls each crew's discussion gateway over https by default, and discussionGateway.tls
+is off, so those calls fail. Set dashboard.auth.gatewayUrl to http://{crew}-discussion.{namespace}.svc.cluster.local
+(your token then crosses the pod network unencrypted) or turn discussionGateway.tls.enabled on.
+{{- end }}
 {{- if .Values.modelServers }}
 
 ModelServers declared by this release:

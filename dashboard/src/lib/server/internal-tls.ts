@@ -17,6 +17,8 @@ export interface InternalInit {
 	headers?: Record<string, string>;
 	body?: string;
 	signal?: AbortSignal | null;
+	/** Read by the ordinary fetch only; a call verified against the CA never follows a redirect. */
+	redirect?: RequestRedirect;
 }
 
 let loaded: { file: string; mtimeMs: number; size: number; pem: string } | null = null;

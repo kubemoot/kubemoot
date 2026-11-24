@@ -117,6 +117,12 @@ spec:
             # The name a chat app shows for this install's door.
             - name: LIAISON_DISPLAY_NAME
               value: {{ .Values.liaison.displayName | quote }}
+            {{- if not .Values.discussionGateway.tls.enabled }}
+            # The gateways serve plain http (discussionGateway.tls.enabled is false): the tokens the
+            # liaison sends them cross the pod network in the clear, and the liaison is told to accept it.
+            - name: LIAISON_ALLOW_INSECURE_GATEWAY
+              value: "true"
+            {{- end }}
             - name: LIAISON_MAX_INFLIGHT
               value: {{ .Values.liaison.maxInflight | quote }}
             - name: LIAISON_TICKET_TTL_MINUTES

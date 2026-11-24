@@ -62,6 +62,8 @@ const (
 const (
 	// DiscussionGatewayPort is the port the discussion gateway serves on.
 	DiscussionGatewayPort = 8080
+	// DiscussionGatewayTLSPort is the port of the gateway's TLS listener, which the same callers reach.
+	DiscussionGatewayTLSPort = 8443
 	// DiscussionGatewayLeasePort is the port of the credential lease, which only the crew's
 	// tool gateway may reach.
 	DiscussionGatewayLeasePort = 8081
@@ -111,6 +113,10 @@ type Config struct {
 	Cilium CiliumMode
 	// UseCilium is the resolved decision: emit Cilium objects.
 	UseCilium bool
+	// GatewayTLS is true when the discussion gateways serve TLS (set by the operator from its gateway
+	// TLS issuer, not read from the environment), so their TLS port is admitted
+	// beside the plain one. Off, nothing listens there and the policy does not open it.
+	GatewayTLS bool
 	// OperatorNamespace is where the operator runs.
 	OperatorNamespace string
 	// DNS is where name resolution runs.

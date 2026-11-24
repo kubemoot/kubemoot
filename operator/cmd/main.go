@@ -483,6 +483,10 @@ func main() {
 
 	// The install CA that signs the serving certificates of the services that carry tokens.
 	installCA := mustAddInstallCA(mgr)
+	// Signs the discussion gateways' certificates; nil when the install serves them plain. The
+	// network policies admit the gateways' TLS port exactly when it is set.
+	gatewayTLS := controller.GatewayTLSFromEnv(installCA, os.Getenv)
+	netPol.Config.GatewayTLS = gatewayTLS != nil
 
 	// KubemootConfig controller is listed first to populate the cache before others start.
 	// Registration order is preserved from the original setup sequence.
@@ -536,7 +540,7 @@ func main() {
 		}).SetupWithManager},
 		{"Crew", (&controller.CrewReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
-			Recorder: mgr.GetEventRecorder("crew-controller"), NetPol: netPol,
+			Recorder: mgr.GetEventRecorder("crew-controller"), NetPol: netPol, GatewayTLS: gatewayTLS,
 			RegisteredAccounts: controller.RegisteredAccountsFromEnv(os.Getenv),
 		}).SetupWithManager},
 		{"MCPCatalog", (&controller.MCPCatalogReconciler{

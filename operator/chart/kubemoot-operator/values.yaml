@@ -81,6 +81,22 @@ discussionGateway:
   # gateway's event streams. Empty, the default, sends no CORS headers, so only same-origin
   # pages and non-browser clients can. The gateway never allows credentials.
   allowedOrigins: []
+  # TLS for the gateways. A gateway carries callers' bearer tokens (the dashboard's, the
+  # liaison's, a person's own), so each crew's gateway serves https on port 443 of its Service
+  # with a certificate the operator signs from the install CA (installCA above), and the dashboard
+  # and the liaison verify it with that CA. Do not rely on the cluster encrypting pod traffic.
+  # Off, the gateways serve plain http only; the liaison is then told to accept that
+  # (LIAISON_ALLOW_INSECURE_GATEWAY) and the dashboard needs dashboard.auth.gatewayUrl set to an
+  # http address.
+  tls:
+    enabled: true
+    # Keep each gateway's plain http listener (port 80 of its Service) beside the TLS one. The
+    # Gateway API route to a crew, the API server's service proxy (kmctl conversation ask, the
+    # quickstart, the coordinator chaos test) and the fitness runner still call it, and none of
+    # them can use the TLS port yet. Turn it off once nothing you run depends on it: a gateway
+    # with no plain listener answers only https. (The credential lease port 8081, used by the tool
+    # gateway, is a separate plain listener and stays.)
+    plainListener: true
 
 # Security hardening for what crews may reference.
 security:

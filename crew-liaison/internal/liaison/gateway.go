@@ -47,6 +47,22 @@ func NewGateway() *Gateway {
 	}
 }
 
+// NewGatewayWithCA returns a client that reaches each crew's gateway over https at its Service
+// (<crew>-discussion.<namespace>.svc, port 443), verifying the certificate against the CA bundle in
+// caFile, which it reads again when it changes. The call carries the caller's bearer token.
+func NewGatewayWithCA(caFile string) (*Gateway, error) {
+	transport, err := newCATransport(caFile)
+	if err != nil {
+		return nil, err
+	}
+	return &Gateway{
+		client: &http.Client{Timeout: 0, Transport: transport},
+		baseURL: func(namespace, crew string) string {
+			return fmt.Sprintf("https://%s-discussion.%s.svc/api/v1/discussions/%s", crew, namespace, crew)
+		},
+	}, nil
+}
+
 // NewGatewayAt returns a client whose gateway URLs come from resolve; tests use it.
 func NewGatewayAt(resolve func(namespace, crew string) string) *Gateway {
 	g := NewGateway()

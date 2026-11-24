@@ -56,6 +56,15 @@ func tcpPorts(ports ...int32) []networkingv1.NetworkPolicyPort {
 	return portsOf(corev1.ProtocolTCP, ports...)
 }
 
+// gatewayPorts are the ports a discussion gateway serves: the plain one, and the TLS one when
+// the install serves TLS.
+func gatewayPorts(c Config) []int32 {
+	if c.GatewayTLS {
+		return []int32{DiscussionGatewayPort, DiscussionGatewayTLSPort}
+	}
+	return []int32{DiscussionGatewayPort}
+}
+
 func podsWith(labels map[string]string) *metav1.LabelSelector {
 	return &metav1.LabelSelector{MatchLabels: labels}
 }
@@ -213,11 +222,11 @@ func DiscussionGatewayIngress(c Config, g GatewayProxy) []client.Object {
 	out := []client.Object{policy}
 	if len(peers) > 0 {
 		policy.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{{
-			From: peers, Ports: tcpPorts(DiscussionGatewayPort),
+			From: peers, Ports: tcpPorts(gatewayPorts(c)...),
 		}}
 	}
 	if c.UseCilium {
-		out = append(out, ciliumGatewayEntities(g))
+		out = append(out, ciliumGatewayEntities(c, g))
 	}
 	return out
 }
@@ -242,7 +251,7 @@ func DiscussionGatewayLeaseIngress(c Config, crew, namespace string) []client.Ob
 			}},
 			Ports: tcpPorts(DiscussionGatewayLeasePort),
 		},
-		{From: ToolPortPeers(c), Ports: tcpPorts(DiscussionGatewayPort)},
+		{From: ToolPortPeers(c), Ports: tcpPorts(gatewayPorts(c)...)},
 	}
 	return []client.Object{policy}
 }
@@ -250,12 +259,12 @@ func DiscussionGatewayLeaseIngress(c Config, crew, namespace string) []client.Ob
 // ciliumGatewayEntities admits the Gateway API proxy (entity ingress), the API server and
 // the node (the API server's service proxy arrives as remote-node), which a NetworkPolicy
 // cannot name.
-func ciliumGatewayEntities(g GatewayProxy) *unstructured.Unstructured {
+func ciliumGatewayEntities(c Config, g GatewayProxy) *unstructured.Unstructured {
 	return ciliumPolicy(NamePrefix+"crew-"+g.Crew+"-gateway-entities", g.Namespace, map[string]any{
 		"endpointSelector": selectorOf(map[string]any{labelComponent: ComponentDiscussionGateway, LabelCrew: g.Crew}),
 		"ingress": []any{map[string]any{
 			"fromEntities": []any{"ingress", "kube-apiserver", "remote-node"},
-			keyToPorts:     toPorts("TCP", []int32{DiscussionGatewayPort}, nil),
+			keyToPorts:     toPorts("TCP", gatewayPorts(c), nil),
 		}},
 	})
 }

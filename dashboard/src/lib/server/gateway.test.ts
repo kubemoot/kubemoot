@@ -23,7 +23,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('gatewayUrl', () => {
 	it('addresses the crew Service in its namespace', () => {
 		expect(gatewayUrl('team-a', 'pilot', '/api/v1/discussions/pilot', '')).toBe(
-			'http://pilot-discussion.team-a.svc.cluster.local/api/v1/discussions/pilot'
+			'https://pilot-discussion.team-a.svc.cluster.local/api/v1/discussions/pilot'
 		);
 	});
 
