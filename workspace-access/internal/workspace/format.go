@@ -21,10 +21,10 @@ import (
 // Format is what an artifact's bytes turned out to be.
 type Format string
 
-// The formats a query can read. Anything else is read as lines of text.
 // errWriteFmt wraps a failure writing one named relation.
 const errWriteFmt = "write %s: %w"
 
+// The formats a query can read. Anything else is read as lines of text.
 const (
 	FormatJSON          Format = "json"
 	FormatMarkdownTable Format = "markdown-table"

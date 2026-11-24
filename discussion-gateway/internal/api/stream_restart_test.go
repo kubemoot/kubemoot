@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 
 	natsclient "github.com/kubemoot/kubemoot/discussion-gateway/internal/nats"
 	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // restartableNATS runs a JetStream server on a fixed port and store, so the test can stop
@@ -184,12 +186,13 @@ func publishAnswer(nc *natsclient.Client, thread string) error {
 		return err
 	}
 	subject := "kubemoot.discuss.ns.pilot.broadcast." + thread
-	for _, m := range []string{
+	for i, m := range []string{
 		`{"messageId":"a2","messageType":"evaluating","threadId":"` + thread + `","agentName":"agent-b"}`,
 		`{"messageId":"s1","messageType":"synthesis","threadId":"` + thread + `","content":"the answer"}`,
 		`{"messageId":"c1","messageType":"thread_close","threadId":"` + thread + `"}`,
 	} {
-		if _, err = js.Publish(context.Background(), subject, []byte(m)); err != nil {
+		if _, err = js.Publish(context.Background(), subject, []byte(m),
+			jetstream.WithMsgID(fmt.Sprintf("%s-%d", thread, i))); err != nil {
 			return err
 		}
 	}
