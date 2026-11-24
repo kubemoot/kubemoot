@@ -326,6 +326,48 @@ class CallerCredentialRequiredTest {
         assertEquals("principal-a", forwarded.path("principalId").asText());
     }
 
+    @Test
+    void modeOffWithRelayContextForwardsTheTwoIdsAndKeepsTheServersOwnCredential() {
+        register(new CallerCredentialConfig(Mode.Off, null, null, null, List.of(), true));
+
+        ToolCallResponse reply = call("conv-1", "principal-a", Map.of());
+
+        assertFalse(reply.isError(), reply.content());
+        List<Seen> calls = rpc(expert, "tools/call");
+        assertEquals(1, calls.size());
+        JsonNode forwarded = calls.get(0).body().path("params").path("_meta");
+        assertEquals("conv-1", forwarded.path("conversationId").asText());
+        assertEquals("principal-a", forwarded.path("principalId").asText());
+        assertEquals("Bearer " + LISTING_SECRET, calls.get(0).authorization());
+        assertTrue(leases.isEmpty(), "no token is leased in mode Off");
+        assertTrue(calls.get(0).body().toString().indexOf("ASKER-TOKEN") < 0, "no person's token is forwarded");
+    }
+
+    @Test
+    void modeOffWithoutRelayContextForwardsNoIds() {
+        register(new CallerCredentialConfig(Mode.Off, null, null, null, List.of(), false));
+
+        call("conv-1", "principal-a", Map.of());
+
+        JsonNode forwarded = rpc(expert, "tools/call").get(0).body().path("params").path("_meta");
+        assertTrue(forwarded.path("conversationId").isMissingNode());
+        assertTrue(forwarded.path("principalId").isMissingNode());
+        assertTrue(leases.isEmpty());
+    }
+
+    @Test
+    void modeOffWithRelayContextAndNoIdsForwardsNoIds() {
+        register(new CallerCredentialConfig(Mode.Off, null, null, null, List.of(), true));
+
+        controller.callTool("ping", new ToolCallRequest(Map.of(), Map.of("timeZone", "America/New_York")))
+            .block(Duration.ofSeconds(30));
+
+        JsonNode forwarded = rpc(expert, "tools/call").get(0).body().path("params").path("_meta");
+        assertTrue(forwarded.path("conversationId").isMissingNode());
+        assertTrue(forwarded.path("principalId").isMissingNode());
+        assertEquals("America/New_York", forwarded.path("timeZone").asText());
+    }
+
     // ---- the fallback -------------------------------------------------------------------------
 
     @Test

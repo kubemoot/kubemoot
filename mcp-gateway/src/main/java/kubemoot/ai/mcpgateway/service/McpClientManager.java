@@ -1065,7 +1065,9 @@ public class McpClientManager {
      * As {@link #forwardRequest(String, McpMessage)}, for a call made for the person {@code caller}
      * names. A tools/call to a server in caller-credential mode Required is made with that
      * person's own leased token by {@link CallerCredentialCaller}, never with the server's registered
-     * credential, and is refused without an upstream call when there is no lease.
+     * credential, and is refused without an upstream call when there is no lease. A call to a
+     * server in mode Off with {@code relayContext} keeps the server's own credential and carries
+     * the two ids in its {@code _meta}.
      */
     public Mono<McpMessage> forwardRequest(String serverId, McpMessage original, CallerIdentity caller) {
         McpMessage refusal = refuseBrokenRule(serverId, original);
@@ -1075,8 +1077,13 @@ public class McpClientManager {
         McpMessage request = ToolArgumentCoercion.coerceCall(original, serverTools.get(serverId));
         CallerCredentialConfig perPerson = callerCredentials.get(serverId);
         ServerRegistration target = servers.get(serverId);
-        if (perPerson != null && target != null && METHOD_TOOLS_CALL.equals(request.method())) {
+        boolean isCall = METHOD_TOOLS_CALL.equals(request.method());
+        if (perPerson != null && perPerson.required() && target != null && isCall) {
             return callerCredentialCaller.call(callEndpoint(target), perPerson, request, caller);
+        }
+        if (perPerson != null && isCall && caller != null) {
+            // Mode Off with relayContext: the ids only, never a token; the server's own credential is used.
+            request = CallerCredentialCaller.withContext(request, caller);
         }
         Object callerId = request.id();
         if (callerId == null) {
@@ -1099,7 +1106,7 @@ public class McpClientManager {
     }
 
     private void setCallerCredential(String serverId, CallerCredentialConfig config) {
-        if (config != null && config.required()) {
+        if (config != null && (config.required() || config.relayContext())) {
             callerCredentials.put(serverId, config);
         } else {
             callerCredentials.remove(serverId);

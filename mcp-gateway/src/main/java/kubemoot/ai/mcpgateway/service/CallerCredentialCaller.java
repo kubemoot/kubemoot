@@ -263,7 +263,8 @@ public class CallerCredentialCaller {
         return body;
     }
 
-    private static McpMessage withContext(McpMessage request, CallerIdentity who) {
+    /** The request with the person's two ids in its {@code _meta}; ids only, never a token. */
+    static McpMessage withContext(McpMessage request, CallerIdentity who) {
         var params = new LinkedHashMap<String, Object>(request.params() == null ? Map.of() : request.params());
         var meta = new LinkedHashMap<String, Object>();
         if (params.get("_meta") instanceof Map<?, ?> existing) {

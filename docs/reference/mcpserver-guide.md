@@ -202,7 +202,7 @@ spec:
 | `verifier` | string | | Required with `Required`. The name of the crew's `serviceTokens` entry whose people's tokens this server takes |
 | `leaseUrl` | string | | The broker's lease endpoint for this server. Empty uses the address the operator sets, the crew's discussion gateway |
 | `onForbidden` | []string | none | At most four endpoints tried in order, with the same token, when the server answers 403 to the person. Each receives the token, so each must be `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8` and `[::1]` |
-| `relayContext` | bool | `false` | Keep `conversationId` and `principalId` in the `_meta` forwarded to the server, for a tool server that calls back through the gateway |
+| `relayContext` | bool | `false` | Keep `conversationId` and `principalId` in the `_meta` forwarded to the server, for a tool server that calls back through the gateway. Works in mode `Off` too: the server is then still called with its own credential, and only the two ids are added, never a token |
 | `accountName` | string | the verifier name | How a refusal names the account to connect |
 
 ### ToolOverride

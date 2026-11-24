@@ -50,7 +50,7 @@ An agent binds the thread's principal for exactly the model turn it runs, the wa
 | `conversationId` | the conversation the question belongs to |
 | `principalId` | the principal's `id`; left out for an anonymous caller, who has none |
 
-The runtime sets both keys from the thread. The model supplies only a call's arguments, and an argument it names `conversationId` or `principalId` stays an argument: it never reaches `_meta` and never replaces the runtime's value. These two ids are handles. No token is ever on the bus or in an agent, so an agent cannot hand a person's credential to a tool; a tool server that needs one asks the gateway for the credential of that conversation and person.
+The runtime sets both keys from the thread. The model supplies only a call's arguments, and an argument it names `conversationId` or `principalId` stays an argument: it never reaches `_meta` and never replaces the runtime's value. These two ids are handles. No token is ever on the bus or in an agent, so an agent cannot hand a person's credential to a tool; a tool server that needs one asks the gateway for the credential of that conversation and person. A tool server that is itself called with the gateway's own credential, but calls a per-person server through the gateway, is registered with `relayContext: true`: the gateway then keeps the two ids in the `_meta` it forwards to that server, in mode `Off` as in mode `Required`, so the inner call names the person. Without it the ids are removed.
 
 ## Subscribers
 
