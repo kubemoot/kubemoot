@@ -324,7 +324,9 @@ func (r *AgentReconciler) buildSidecarDeployment(ctx context.Context, agent *kub
 	if data, err := r.sidecarContractData(ctx, agent, mulling, triage); err == nil {
 		tmpl.Annotations[contractHashAnnotation] = hashString(data)
 	}
-	if err := applySidecar(&tmpl, harnessContainerName, r.sidecarPatch(agent, policyCMName)); err != nil {
+	patch := r.sidecarPatch(agent, policyCMName)
+	patch.SidecarEnv = agentIdentityEnv(r.crewOf(ctx, agent.Namespace))
+	if err := applySidecar(&tmpl, harnessContainerName, patch); err != nil {
 		return nil, fmt.Errorf("joining the pod to the Moot Mesh: %w", err)
 	}
 	d := &appsv1.Deployment{

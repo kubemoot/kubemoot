@@ -16,6 +16,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
@@ -136,5 +137,37 @@ func TestAgentsAreReconciledWhenTheCrewStartsOrStopsExposingTheCaller(t *testing
 	same.Spec.Description = "x"
 	if p.Update(event.UpdateEvent{ObjectOld: on, ObjectNew: same}) {
 		t.Error("an unrelated change fired")
+	}
+}
+
+func TestASidecarAgentsSidecarCarriesTheExposureOfItsNamespacesCrew(t *testing.T) {
+	for name, c := range map[string]struct {
+		crew *kubemootv1alpha1.Crew
+		want bool
+	}{
+		"exposing crew": {crewWithIdentity(true, &kubemootv1alpha1.DiscussionIdentity{ExposeToAgents: true}), true},
+		"identity off":  {crewWithIdentity(true, &kubemootv1alpha1.DiscussionIdentity{}), false},
+		"no access":     {crewWithIdentity(false, &kubemootv1alpha1.DiscussionIdentity{ExposeToAgents: true}), false},
+		"no crew":       {nil, false},
+	} {
+		var objs []client.Object
+		if c.crew != nil {
+			objs = append(objs, c.crew)
+		}
+		r, _ := harnessReconciler(t, objs...)
+		agent := sidecarAgent()
+		agent.Namespace = "ns"
+		d, err := r.buildSidecarDeployment(context.Background(), agent, harnessPick(testModelID, "rig0"), harnessPick("qwen3:4b", "rig1"), "p", "h1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sidecar := d.Spec.Template.Spec.InitContainers[0]
+		v, ok := envValue(sidecar.Env, identity.EnvExposeCaller)
+		if ok != c.want || (ok && v != identity.EnvTrue) {
+			t.Errorf("%s: sidecar %s = %q, %v; want set=%v", name, identity.EnvExposeCaller, v, ok, c.want)
+		}
+		if _, onHarness := envValue(d.Spec.Template.Spec.Containers[0].Env, identity.EnvExposeCaller); onHarness {
+			t.Errorf("%s: the harness container holds the switch", name)
+		}
 	}
 }

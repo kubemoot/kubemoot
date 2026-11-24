@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/callerline"
 	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
 
 	"github.com/kubemoot/kubemoot/agent-sidecar/internal/app"
@@ -38,7 +39,8 @@ func main() {
 	if *httpAddr == "" && contract.HTTPPort > 0 {
 		*httpAddr = fmt.Sprintf(":%d", contract.HTTPPort)
 	}
-	a := app.New(contract, app.Options{HTTPAddr: *httpAddr, Log: log})
+	expose := os.Getenv(callerline.EnvExposeCaller) == "true"
+	a := app.New(contract, app.Options{HTTPAddr: *httpAddr, Log: log, ExposeCaller: expose})
 	if err := a.Start(ctx); err != nil {
 		log.Error("sidecar did not start", "error", err)
 		os.Exit(1)

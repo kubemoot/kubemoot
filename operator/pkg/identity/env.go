@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/callerline"
 )
 
 // The environment a door reads its access settings from. The operator writes it for a
@@ -32,7 +34,7 @@ const (
 	EnvExposeLabel = "ACCESS_EXPOSE_LABEL"
 	// EnvExposeCaller is the agent-side switch, from the same Crew field: the agent puts the
 	// caller in its turn context. It is the agents' own variable, not a door's.
-	EnvExposeCaller = "KUBEMOOT_EXPOSE_CALLER"
+	EnvExposeCaller = callerline.EnvExposeCaller
 	// EnvTrue is the value that turns a boolean setting on.
 	EnvTrue = "true"
 )

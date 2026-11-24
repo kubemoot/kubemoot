@@ -74,7 +74,7 @@ func anyStrings(v any) []string {
 
 func TestTheHarnessGetsTheQuestionTheThreadAndTheInstructionsContext(t *testing.T) {
 	p := newPod(t, options{}, answer("ok"))
-	p.send(t, "thread_start", "human", "t2", map[string]any{"userQuery": askNodes})
+	p.send(t, "thread_start", "human", "t2", map[string]any{metaUserQuery: askNodes})
 	p.advisory(t, "t2")
 	p.nextOf(t, agree)
 	msg := p.h.firstMessage()

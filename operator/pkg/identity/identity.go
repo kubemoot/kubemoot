@@ -28,10 +28,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/callerline"
 )
 
 // The kinds of principal, as the bus schema names them.
@@ -190,25 +190,11 @@ func PrincipalOf(h Hasher, id *Identity) bus.Principal {
 }
 
 // MaxLabelChars is the longest label on a principal.
-const MaxLabelChars = 64
+const MaxLabelChars = callerline.MaxLabelChars
 
-// labelPattern is what a label may hold: the characters of a Kubernetes user name or an email
-// address. The same rule is held by the agent runtime and both sides are tested against
-// testdata/principal-label-cases.json.
-var labelPattern = regexp.MustCompile(`^[A-Za-z0-9._@:/+=-]+$`)
-
-// Label is the label of a Kubernetes user name: the name cut to MaxLabelChars, or empty when it
-// holds a character a label may not. A label is left out, never altered, so it is always one
-// plain token an agent's prompt can carry as data.
-func Label(subject string) string {
-	if len(subject) > MaxLabelChars {
-		subject = subject[:MaxLabelChars]
-	}
-	if !labelPattern.MatchString(subject) {
-		return ""
-	}
-	return subject
-}
+// Label is the label of a Kubernetes user name, by the rule in package callerline that the
+// agent sidecar and the agent runtime hold too.
+func Label(subject string) string { return callerline.Label(subject) }
 
 // SamePrincipal reports whether two principals are the same caller: the same kind and id.
 // Anonymous callers share the one anonymous principal; a principal with no id is no one in
