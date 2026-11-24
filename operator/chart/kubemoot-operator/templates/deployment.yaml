@@ -114,6 +114,12 @@ spec:
             - name: KEDA_NATS_MONITORING_ENDPOINT
               value: {{ .Values.scaleToZero.natsMonitoringEndpoint | default "nats-headless.nats.svc.cluster.local:8222" | quote }}
             {{- end }}
+            # The install CA: a Secret the operator makes when it is absent and never replaces, and the
+            # ConfigMap its public certificates are published in for the pods that verify with it.
+            - name: INSTALL_CA_SECRET
+              value: {{ .Values.global.installCA.secret | quote }}
+            - name: INSTALL_CA_CONFIGMAP
+              value: {{ .Values.global.installCA.configMap | quote }}
             {{- with .Values.discussionGateway.allowedOrigins }}
             # Browser origins whose pages may read a discussion gateway's streams.
             - name: DISCUSSION_GATEWAY_ALLOWED_ORIGINS
