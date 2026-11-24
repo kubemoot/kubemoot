@@ -31,11 +31,7 @@ serviceAccount:
 rbac:
   create: true
 
-# Sized from 7 days of live use (the pull request has the table). The operator holds an
-# informer cache per watched kind, so its memory grows with the objects in the cluster: a
-# cluster with many crews raises requests.memory and limits.memory together. There is no CPU
-# limit on purpose: the operator's start-up work (cache sync) is a short burst that a limit
-# only slows, and requests.cpu already protects its share when the node is busy.
+# The operator caches every kind it watches, so memory grows with the cluster: raise requests and the limit together. No CPU limit, so start-up bursts are not throttled.
 resources:
   limits:
     memory: 384Mi
@@ -45,10 +41,7 @@ resources:
     memory: 160Mi
     ephemeral-storage: 256Mi
 
-# The Go components in this chart (operator, crew liaison, accelerator-mcp) get GOMEMLIMIT set to
-# this percent of their memory limit, so the Go garbage collector works harder before the
-# kernel kills the container for exceeding it. 0 sets nothing. Only a limit written as a whole
-# number of Mi or Gi is converted; any other form gets no GOMEMLIMIT.
+# GOMEMLIMIT for the operator, liaison and accelerator-mcp, as a whole-number percent (0 to 100) of each memory limit; 0 sets none. 90 is a starting point.
 goMemLimitPercent: 90
 
 nodeSelector: {}
@@ -474,11 +467,11 @@ schedulingCrew:
 acceleratorMcp:
   enabled: true
   image: accelerator-mcp:0.0.0
-  # Measured use is about 20Mi with brief climbs to 40Mi, and no CPU worth a limit.
+  # Requests are for a small install; there is no CPU limit.
   resources:
     requests:
       cpu: 10m
-      memory: 32Mi
+      memory: 48Mi
     limits:
       memory: 128Mi
 
@@ -547,8 +540,7 @@ liaison:
   expose:
     enabled: false
     hostname: ""
-  # Measured use is about 7Mi idle and 43Mi at most; the limit keeps 3x that. The CPU limit stays
-  # because the liaison was never throttled under it.
+  # The CPU limit stays; the limit is about 3x the largest use seen.
   resources:
     limits:
       cpu: 500m

@@ -252,11 +252,20 @@ The operator keeps a cache of every kind it watches, so its memory grows with th
 crews and other objects in the cluster. On a large cluster raise `resources.requests.memory`
 and `resources.limits.memory` together; the container is killed when it passes the limit.
 
-The chart also sets `GOMEMLIMIT` on these three to `goMemLimitPercent` (default 90) of the
-memory limit, so the Go garbage collector works harder as the container nears the limit
-instead of the kernel killing it. Set `goMemLimitPercent: 0` to leave it unset. It is
-computed only from a limit written as whole `Mi` or `Gi`; write a limit any other way and
-you get no `GOMEMLIMIT`.
+The chart also sets `GOMEMLIMIT` on these three to `goMemLimitPercent` of the memory limit, so
+the Go garbage collector works harder as the container nears the limit instead of the kernel
+killing it. The value is a whole number from 0 to 100 (anything else fails the render); 0 sets
+none. 90 is a starting point: a lower number leaves more room for memory outside the Go heap
+and collects more often, which costs CPU. `GOMEMLIMIT` covers only the Go heap and runtime, not
+memory a container takes from outside them, so the rest of the limit is that room. It is computed only from a limit written as whole `Mi` or `Gi` (`1500M` or
+`1.5Gi` get none).
+
+Without a CPU limit, a Go program sizes its threads to the node's cores rather than to a quota.
+If a namespace ResourceQuota or LimitRange requires `limits.cpu`, set `resources.limits.cpu`
+(and `acceleratorMcp.resources.limits.cpu`) yourself; the chart renders no `limits.cpu` key
+otherwise. The operator, the liaison and accelerator-mcp are the only Go components the chart
+installs itself; the discussion gateways, bridges and sidecars are built by the operator, not
+by this chart.
 
 ### Optional: GitOps with Flux
 

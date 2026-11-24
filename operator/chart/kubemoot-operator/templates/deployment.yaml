@@ -76,9 +76,7 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
           env:
-            {{- with include "kubemoot-operator.goMemLimitEnv" (dict "root" . "memory" (dig "limits" "memory" "" (.Values.resources | default dict))) }}
-            {{- . | nindent 12 }}
-            {{- end }}
+            {{- include "kubemoot-operator.goMemLimitEnv" (dict "root" . "resources" .Values.resources "indent" 12) }}
             - name: OPERATOR_NAMESPACE
               valueFrom:
                 fieldRef:

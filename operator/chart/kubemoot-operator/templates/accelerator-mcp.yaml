@@ -69,9 +69,7 @@ spec:
   env:
     - name: NATS_URL
       value: {{ .Values.nats.url | quote }}
-    {{- with include "kubemoot-operator.goMemLimitEnv" (dict "root" . "memory" (dig "limits" "memory" "" (.Values.acceleratorMcp.resources | default dict))) }}
-    {{- . | nindent 4 }}
-    {{- end }}
+    {{- include "kubemoot-operator.goMemLimitEnv" (dict "root" . "resources" .Values.acceleratorMcp.resources "indent" 4) }}
   capabilities: [accelerators, calibration, model-servers]
   resources:
     {{- toYaml .Values.acceleratorMcp.resources | nindent 4 }}
