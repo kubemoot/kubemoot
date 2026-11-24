@@ -102,6 +102,20 @@ type runnableSetup struct {
 	runnable manager.Runnable
 }
 
+// mustAddInstallCA returns the install CA the environment describes and registers its
+// publisher, or returns nil when none is configured.
+func mustAddInstallCA(mgr ctrl.Manager) *controller.InstallCA {
+	installCA := controller.InstallCAFromEnv(mgr.GetClient(), os.Getenv)
+	if installCA == nil {
+		return nil
+	}
+	if err := mgr.Add(installCA); err != nil {
+		setupLog.Error(err, "unable to register the install CA publisher")
+		os.Exit(1)
+	}
+	return installCA
+}
+
 // mustAddRunnables registers the operator's non-controller runnables, logging
 // and exiting on any failure.
 func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher, reports reportsAPIFlags) {
@@ -461,6 +475,9 @@ func main() {
 	defer natsPublisher.Close()
 
 	netPol := newNetPolicySync(mgr)
+
+	// The install CA that signs the serving certificates of the services that carry tokens.
+	mustAddInstallCA(mgr)
 
 	// KubemootConfig controller is listed first to populate the cache before others start.
 	// Registration order is preserved from the original setup sequence.
