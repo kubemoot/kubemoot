@@ -49,7 +49,7 @@ function serviceOf(server: ModelServer): { name: string; namespace: string } | u
 /** Whether a pod is one of the pods behind the model server's Service. */
 export function podServes(pod: PodRef, server: ModelServer): boolean {
 	const service = serviceOf(server);
-	if (!service || service.namespace !== pod.namespace || !pod.name.startsWith(service.name + '-')) return false;
+	if (service?.namespace !== pod.namespace || !pod.name.startsWith(service.name + '-')) return false;
 	return POD_SUFFIX.test(pod.name.slice(service.name.length + 1));
 }
 

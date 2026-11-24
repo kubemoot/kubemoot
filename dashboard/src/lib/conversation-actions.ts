@@ -17,7 +17,7 @@ export interface RunState {
 
 /** Whether the conversation can be stopped, paused or resumed, from the messages on its thread. */
 export function runState(thread: Pick<Thread, 'status' | 'messages'> | undefined): RunState {
-	if (!thread || thread.status !== 'open') return { running: false, paused: false };
+	if (thread?.status !== 'open') return { running: false, paused: false };
 	const control = thread.messages.findLast((m) => m.messageType === 'thread_pause' || m.messageType === 'thread_resume');
 	return { running: true, paused: control?.messageType === 'thread_pause' };
 }

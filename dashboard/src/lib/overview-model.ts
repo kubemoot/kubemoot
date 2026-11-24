@@ -369,7 +369,7 @@ function natsFindings(status: NatsStatus): Finding[] {
 
 function natsBars(tile: NonNullable<ReturnType<typeof tileOf>>): TileBar[] {
 	const storage = tile.storage;
-	if (!storage || storage.fraction === null || storage.limit === null) return [];
+	if (storage?.fraction == null || storage.limit === null) return [];
 	return [bar('File storage', `${formatBytes(storage.used)} of ${formatBytes(storage.limit)}`, storage.fraction)];
 }
 

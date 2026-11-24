@@ -203,7 +203,7 @@ export function placementRow(call: PlacementCall): PlacementRowView {
 		reason: call.reason ?? '',
 		hasPrediction: call.predicted !== undefined,
 		...timesOf(call),
-		failed: call.actual !== undefined && call.actual.ok === false,
+		failed: call.actual?.ok === false,
 		alternatives: (call.alternatives ?? []).map((o) => alternativeView(o, call.model))
 	};
 }

@@ -141,7 +141,7 @@ export function matchesFilter(
 	now: Date = new Date()
 ): boolean {
 	if (filter.status && threadState(thread) !== filter.status) return false;
-	if (filter.mine && !(mineIds && mineIds.has(threadConversationId(thread) ?? ''))) return false;
+	if (filter.mine && !mineIds?.has(threadConversationId(thread) ?? '')) return false;
 	if (!inTimeRange(threadStartedAt(thread), { key: filter.range, from: filter.from, to: filter.to }, now)) return false;
 	return matchesSearch(searchableText(thread), parseSearch(filter.q));
 }

@@ -85,7 +85,7 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 	const hide = () => {
 		clearTimeout(timer);
 		if (openNow === hide) openNow = null;
-		tip.removeAttribute('data-open');
+		delete tip.dataset.open;
 		window.removeEventListener('keydown', onKey, true);
 		window.removeEventListener('scroll', hide, true);
 		window.removeEventListener('resize', hide);
@@ -96,7 +96,7 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 		if (node.getAttribute('aria-expanded') === 'true') return;
 		if (openNow && openNow !== hide) openNow();
 		openNow = hide;
-		tip.setAttribute('data-open', 'true');
+		tip.dataset.open = 'true';
 		place(tip, node, opts.placement);
 		window.addEventListener('keydown', onKey, true);
 		window.addEventListener('scroll', hide, true);
@@ -108,7 +108,7 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 	};
 	const onEnter = () => {
 		clearTimeout(timer);
-		if (tip.hasAttribute('data-open')) return;
+		if ('open' in tip.dataset) return;
 		timer = setTimeout(open, opts.delay);
 	};
 	// The pointer may cross onto the tooltip to read it, so leaving waits a moment.
@@ -145,7 +145,7 @@ export function tooltip(node: HTMLElement, param: TooltipParam) {
 		update(next: TooltipParam) {
 			opts = normalize(next, node);
 			fillText(tip, opts.text);
-			if (tip.hasAttribute('data-open')) place(tip, node, opts.placement);
+			if ('open' in tip.dataset) place(tip, node, opts.placement);
 		},
 		destroy() {
 			hide();
