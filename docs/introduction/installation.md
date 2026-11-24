@@ -238,6 +238,26 @@ chart, and [Observability](../../operating/observability/) covers the labels you
 Prometheus selects on, how to see the live list of metrics, and how to load the
 dashboards into your Grafana.
 
+### Memory and CPU of the operator and its Go components
+
+The operator, the crew liaison and accelerator-mcp are Go programs, and their chart defaults
+are small: the operator asks for 25m CPU and 160Mi and may use up to 384Mi, the liaison asks
+for 5m and 48Mi (limit 128Mi), and accelerator-mcp asks for 10m and 32Mi (limit 128Mi). All
+three are Burstable: the memory request is close to what they use, so under node pressure the
+kubelet evicts pods that use more than they asked for before it reaches these. The operator and
+accelerator-mcp have no CPU limit, because their start-up work is a short burst that a limit
+only slows; the liaison keeps one.
+
+The operator keeps a cache of every kind it watches, so its memory grows with the number of
+crews and other objects in the cluster. On a large cluster raise `resources.requests.memory`
+and `resources.limits.memory` together; the container is killed when it passes the limit.
+
+The chart also sets `GOMEMLIMIT` on these three to `goMemLimitPercent` (default 90) of the
+memory limit, so the Go garbage collector works harder as the container nears the limit
+instead of the kernel killing it. Set `goMemLimitPercent: 0` to leave it unset. It is
+computed only from a limit written as whole `Mi` or `Gi`; write a limit any other way and
+you get no `GOMEMLIMIT`.
+
 ### Optional: GitOps with Flux
 
 If you already manage your cluster with GitOps, you can skip the `helm` command above.

@@ -372,3 +372,30 @@ nothing when the helper rendered nothing. Pass "name" (the helper), "ctx" (what 
 {{ $out | nindent (int .indent) }}
 {{- end }}
 {{- end }}
+
+{{/*
+GOMEMLIMIT for a Go container: goMemLimitPercent of its memory limit, in MiB. Pass "root"
+and "memory" (the container's limits.memory). Renders nothing when the percent is 0 or the
+limit is not a whole number of Mi or Gi, so a limit written any other way gets no GOMEMLIMIT
+rather than a wrong one.
+*/}}
+{{- define "kubemoot-operator.goMemLimit" -}}
+{{- $pct := int (default 0 .root.Values.goMemLimitPercent) -}}
+{{- $mem := toString (default "" .memory) -}}
+{{- if and (gt $pct 0) (regexMatch "^[0-9]+(Mi|Gi)$" $mem) -}}
+{{- $n := int (regexFind "^[0-9]+" $mem) -}}
+{{- if hasSuffix "Gi" $mem }}{{ $n = mul $n 1024 }}{{ end -}}
+{{- printf "%dMiB" (div (mul $n $pct) 100) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The GOMEMLIMIT list item for a container's env, or nothing. Same arguments as goMemLimit.
+*/}}
+{{- define "kubemoot-operator.goMemLimitEnv" -}}
+{{- $v := include "kubemoot-operator.goMemLimit" . -}}
+{{- if $v -}}
+- name: GOMEMLIMIT
+  value: {{ $v | quote }}
+{{- end -}}
+{{- end }}
