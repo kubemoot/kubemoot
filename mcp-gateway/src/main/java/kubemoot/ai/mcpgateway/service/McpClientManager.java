@@ -37,8 +37,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeoutException;
@@ -79,9 +77,6 @@ public class McpClientManager {
             "version", "0.1.0"
         )
     );
-
-    // A URL that already ends in /mcp (optionally with a slash) is the MCP endpoint itself
-    private static final Pattern MCP_URL_ENDING = Pattern.compile("^(.*?)/mcp(/?)$");
 
     private final McpGatewayProperties properties;
     private final WebClient.Builder webClientBuilder;
@@ -419,10 +414,10 @@ public class McpClientManager {
 
         String baseUrl = registration.url();
         if (isStreamableHttp(registration.transport())) {
-            Matcher ending = MCP_URL_ENDING.matcher(baseUrl);
-            if (ending.matches()) {
-                baseUrl = ending.group(1);
-                mcpPaths.put(registration.id(), "/mcp" + ending.group(2));
+            if (Urls.endsWithMcp(baseUrl)) {
+                String slash = baseUrl.endsWith("/") ? "/" : "";
+                baseUrl = baseUrl.substring(0, baseUrl.length() - "/mcp".length() - slash.length());
+                mcpPaths.put(registration.id(), "/mcp" + slash);
             }
         }
         // A per-server clone, so a default header never reaches another server. Redirects are not
@@ -1097,7 +1092,7 @@ public class McpClientManager {
     /** The streamable-HTTP endpoint of a server, as the shared client reaches it: the URL when it ends in /mcp, else with /mcp added. */
     private static String callEndpoint(ServerRegistration server) {
         String url = server.url();
-        return MCP_URL_ENDING.matcher(url).matches() ? url : url.replaceAll("/+$", "") + "/mcp";
+        return Urls.endsWithMcp(url) ? url : Urls.trimTrailingSlashes(url) + "/mcp";
     }
 
     private static void requireHttpForPerPerson(String transport, CallerCredentialConfig config) {

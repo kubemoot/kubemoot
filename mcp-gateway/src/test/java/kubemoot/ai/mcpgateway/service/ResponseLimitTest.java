@@ -40,5 +40,6 @@ class ResponseLimitTest {
         assertTrue(ResponseLimit.describe(new DataBufferLimitException("x"), 100)
             .contains("mcp.gateway.max-response-size"));
         assertEquals("boom", ResponseLimit.describe(new RuntimeException("boom"), 100));
+        assertEquals("unknown error", ResponseLimit.describe(null, 100));
     }
 }

@@ -36,7 +36,7 @@ final class ResponseLimit {
         if (isExceeded(error)) {
             return "the reply was over the " + limitBytes + " byte limit (" + PROPERTY + ")";
         }
-        return error.getMessage();
+        return error == null ? "unknown error" : error.getMessage();
     }
 
     /** The error text; a negative size means the server did not declare one. */
