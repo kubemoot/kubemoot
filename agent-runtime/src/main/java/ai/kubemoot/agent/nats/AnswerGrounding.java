@@ -48,9 +48,12 @@ public final class AnswerGrounding {
         return new ArrayList<>(names);
     }
 
-    /** True for words joined by single hyphens: at least one hyphen, none doubled, none last. */
+    /**
+     * True for words joined by single hyphens: at least one hyphen, none doubled, none last. The
+     * pattern that finds candidates starts each word with a letter, so a hyphen is never first.
+     */
     private static boolean isHyphenated(String word) {
-        return word.indexOf('-') > 0 && !word.contains("--") && word.charAt(word.length() - 1) != '-';
+        return word.contains("-") && !word.contains("--") && word.charAt(word.length() - 1) != '-';
     }
 
     /** The names of {@code draft} that occur in none of {@code sources}. */
