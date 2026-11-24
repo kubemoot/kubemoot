@@ -54,8 +54,8 @@ func ragSearchServerName(ragSourceName string) string {
 }
 
 // ragSearchEndpoint is the MCP endpoint of a RAGSource's query service.
-func ragSearchEndpoint(ragSource *kubemootv1alpha1.RAGSource) string {
-	return ragQueryEndpoint(ragSource.Name, ragSource.Namespace, queryServicePort(ragSource)) + ragSearchPath
+func ragSearchEndpoint(engine kubemootv1alpha1.QueryServiceEngine, ragSource *kubemootv1alpha1.RAGSource) string {
+	return ragQueryEndpoint(engine, ragSource.Name, ragSource.Namespace, queryServicePort(ragSource)) + ragSearchPath
 }
 
 // ragSearchOffered reports whether the operator generates a search MCPServer for the
@@ -98,7 +98,7 @@ func ragSearchLabels(ragSource *kubemootv1alpha1.RAGSource) map[string]string {
 }
 
 // buildRAGSearchServer is the MCPServer that points the crew's gateway at the query service.
-func buildRAGSearchServer(ragSource *kubemootv1alpha1.RAGSource) *kubemootv1alpha1.MCPServer {
+func buildRAGSearchServer(engine kubemootv1alpha1.QueryServiceEngine, ragSource *kubemootv1alpha1.RAGSource) *kubemootv1alpha1.MCPServer {
 	return &kubemootv1alpha1.MCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ragSearchServerName(ragSource.Name),
@@ -106,7 +106,7 @@ func buildRAGSearchServer(ragSource *kubemootv1alpha1.RAGSource) *kubemootv1alph
 			Labels:    ragSearchLabels(ragSource),
 		},
 		Spec: kubemootv1alpha1.MCPServerSpec{
-			ExternalEndpoint: ragSearchEndpoint(ragSource),
+			ExternalEndpoint: ragSearchEndpoint(engine, ragSource),
 			Transport:        kubemootv1alpha1.TransportHTTP,
 		},
 	}
@@ -131,7 +131,7 @@ func (r *RAGSourceReconciler) reconcileSearchTool(ctx context.Context, ragSource
 // for. An MCPServer of the same name that the operator did not generate is left alone.
 func (r *RAGSourceReconciler) ensureSearchTool(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource) error {
 	log := logf.FromContext(ctx)
-	desired := buildRAGSearchServer(ragSource)
+	desired := buildRAGSearchServer(r.ConfigCache.GetQueryServiceEngine(), ragSource)
 	if err := controllerutil.SetControllerReference(ragSource, desired, r.Scheme); err != nil {
 		return err
 	}

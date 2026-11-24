@@ -382,6 +382,13 @@ spec:
                     description: QueryService is the default query service image for
                       RAGSource
                     type: string
+                  queryServiceGo:
+                    default: ghcr.io/kubemoot/query-service-go:latest
+                    description: |-
+                      QueryServiceGo is the image of the Go query service: one Deployment per crew namespace
+                      that serves every RAGSource of the namespace. It is used when queryService.engine is go.
+                      The operator chart stamps it from the release; a floating tag would break version pinning.
+                    type: string
                   workspaceAccess:
                     description: |-
                       WorkspaceAccess is the workspace-access image: the MCP server a crew runs
@@ -389,6 +396,22 @@ spec:
                       over the inline limit. An MCPServer selects it with spec.kubemootImage
                       instead of naming an image. The operator chart stamps it from the release;
                       there is no default, because a floating tag would break version pinning.
+                    type: string
+                type: object
+              queryService:
+                description: |-
+                  QueryService chooses the engine behind the RAG query services. Python, the default, runs
+                  one pod per RAGSource; go runs one Deployment per namespace that serves every RAGSource of
+                  the namespace.
+                properties:
+                  engine:
+                    description: |-
+                      Engine is the query service implementation: python (the default, also when unset) or go.
+                      Changing it moves every RAGSource to the other engine: the operator creates the new
+                      Deployments, points each RAGSource's status.queryEndpoint at them, and removes the old ones.
+                    enum:
+                    - python
+                    - go
                     type: string
                 type: object
               workspace:

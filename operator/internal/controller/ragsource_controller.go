@@ -79,6 +79,9 @@ type RAGSourceReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile handles RAGSource reconciliation
 func (r *RAGSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -121,7 +124,8 @@ func (r *RAGSourceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	r.reconcileQueryService(ctx, ragSource, embeddingModel)
 
-	return r.reconcileIndexingState(ctx, ragSource, embeddingModel)
+	res, err := r.reconcileIndexingState(ctx, ragSource, embeddingModel)
+	return r.pollWhileReadersMove(ragSource, res), err
 }
 
 // invalidScheduleMessage explains why the indexer's cron schedule cannot be parsed,
@@ -142,10 +146,8 @@ func (r *RAGSourceReconciler) invalidScheduleMessage(ragSource *kubemootv1alpha1
 // (at most 5 minutes), or sooner on any change to the RAGSource or its generated MCPServer.
 func (r *RAGSourceReconciler) reconcileQueryService(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel) {
 	log := logf.FromContext(ctx)
-	if queryServiceEnabled(ragSource) {
-		if err := r.ensureQueryService(ctx, ragSource, embeddingModel); err != nil {
-			log.Error(err, "Failed to ensure query service")
-		}
+	if err := r.reconcileQueryEngine(ctx, ragSource, embeddingModel); err != nil {
+		log.Error(err, "Failed to ensure query service")
 	}
 	if err := r.reconcileSearchTool(ctx, ragSource); err != nil {
 		log.Error(err, "Failed to reconcile the search tool")
@@ -1284,6 +1286,14 @@ func (r *RAGSourceReconciler) handleDeletion(ctx context.Context, ragSource *kub
 		}
 	}
 
+	// The namespace's query service stops answering for this RAGSource now, not at the next
+	// reconcile of another one.
+	if r.queryEngine() == kubemootv1alpha1.QueryServiceEngineGo {
+		if err := r.reconcileQueryGroup(ctx, ragSource.Namespace); err != nil {
+			log.Error(err, "Failed to update the query service for the deleted RAGSource")
+		}
+	}
+
 	// Note: We don't delete vectors from the vector store
 	// That's the responsibility of the admin
 
@@ -1367,6 +1377,24 @@ func (r *RAGSourceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&kubemootv1alpha1.EmbeddingModel{},
 			handler.EnqueueRequestsFromMapFunc(r.ragSourcesOfEmbeddingModel),
 			builder.WithPredicates(embeddingEndpointPredicate())).
+		// The Go engine's Deployment of a namespace is owned by no one RAGSource, so a change to it
+		// (its rollout finishing, someone editing it) reconciles the RAGSources of its namespace.
+		Watches(&appsv1.Deployment{},
+			handler.EnqueueRequestsFromMapFunc(r.ragSourcesOfQueryGroup),
+			builder.WithPredicates(queryGroupDeploymentPredicate())).
+		// The registry ConfigMap and Service of a namespace's Go query service: deleted or edited by
+		// someone, they are put back at once.
+		Watches(&corev1.ConfigMap{},
+			handler.EnqueueRequestsFromMapFunc(r.ragSourcesOfQueryGroup),
+			builder.WithPredicates(queryGroupObjectPredicate())).
+		Watches(&corev1.Service{},
+			handler.EnqueueRequestsFromMapFunc(r.ragSourcesOfQueryGroup),
+			builder.WithPredicates(queryGroupObjectPredicate())).
+		// A vector store Secret that appears or goes lets the RAGSources that read it be served
+		// or left out of the registry without waiting for the next poll.
+		Watches(&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.ragSourcesOfSecret),
+			builder.WithPredicates(predicate.Funcs{UpdateFunc: func(event.UpdateEvent) bool { return false }})).
 		// A finished indexing Job frees a slot on its embedding server: the RAGSources
 		// queued on that server start at once instead of at the next poll.
 		Watches(&batchv1.Job{},
@@ -1407,7 +1435,8 @@ func embeddingEndpointPredicate() predicate.Predicate {
 // Query Service Management
 // ============================================================================
 
-// ensureQueryService creates or updates the query service Deployment and Service
+// ensureQueryService creates or updates the Python engine's query service Deployment and
+// Service, one pair per RAGSource.
 func (r *RAGSourceReconciler) ensureQueryService(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, embeddingModel *kubemootv1alpha1.EmbeddingModel) error {
 	log := logf.FromContext(ctx)
 
@@ -1425,7 +1454,7 @@ func (r *RAGSourceReconciler) ensureQueryService(ctx context.Context, ragSource 
 	}
 
 	// Update status with query endpoint
-	endpoint := ragQueryEndpoint(ragSource.Name, ragSource.Namespace, queryServicePort(ragSource))
+	endpoint := ragQueryEndpoint(kubemootv1alpha1.QueryServiceEnginePython, ragSource.Name, ragSource.Namespace, queryServicePort(ragSource))
 	if ragSource.Status.QueryEndpoint != endpoint {
 		ragSource.Status.QueryEndpoint = endpoint
 		log.Info("Updated query endpoint", "endpoint", endpoint)
@@ -1523,7 +1552,7 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 		{Name: "KUBEMOOT_DB_HOST", Value: r.extractHost(ragSource.Spec.VectorStore.Endpoint)},
 		{Name: "KUBEMOOT_DB_PORT", Value: r.extractPort(ragSource.Spec.VectorStore.Endpoint)},
 		{Name: "KUBEMOOT_DB_NAME", Value: r.extractDBName(ragSource.Spec.VectorStore.Endpoint)},
-		{Name: "KUBEMOOT_DB_USER", Value: r.extractUser(ragSource.Spec.VectorStore.Endpoint)},
+		{Name: envDBUser, Value: r.extractUser(ragSource.Spec.VectorStore.Endpoint)},
 		{Name: "KUBEMOOT_COLLECTION", Value: serving.Collection},
 		{Name: "KUBEMOOT_TOP_K", Value: fmt.Sprintf("%d", topK)},
 		{Name: envPort, Value: fmt.Sprintf("%d", port)},
@@ -1541,7 +1570,7 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 	if ragSource.Spec.VectorStore.SecretRef != "" {
 		// Override username from secret
 		env = append(env, corev1.EnvVar{
-			Name: "KUBEMOOT_DB_USER",
+			Name: envDBUser,
 			ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{
@@ -1604,7 +1633,7 @@ func (r *RAGSourceReconciler) buildQueryServiceDeployment(ragSource *kubemootv1a
 		},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{Path: "/ready", Port: intstr.FromInt32(port)},
+				HTTPGet: &corev1.HTTPGetAction{Path: readyPath, Port: intstr.FromInt32(port)},
 			},
 			InitialDelaySeconds: 5,
 			PeriodSeconds:       10,

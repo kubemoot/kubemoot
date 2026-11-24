@@ -6,6 +6,13 @@ This service holds the same contract, so the agents' RAG tools, the MCP gateway'
 search and the operator's `/info` poll keep working when `status.queryEndpoint` points at a
 source under it.
 
+The operator runs it when the KubemootConfig sets `queryService.engine: go` (the operator chart
+value of the same name): one Deployment and Service per namespace that has RAGSources, named
+`<namespace>-query`, with the registry in a ConfigMap mounted as a directory and each vector store
+Secret mounted as a `credentialsDir`. A RAGSource's `status.queryEndpoint` is then
+`http://<namespace>-query.<namespace>:<port>/sources/<name>`. See `docs/reference/ragsource-guide.md`
+(Query service engines).
+
 It embeds the question through the model server's OpenAI-compatible `/v1/embeddings`
 endpoint, scales the vector to unit length, and runs a cosine query against the
 `data_<collection>` table the indexer writes (pgvector, via pgx).
