@@ -48,18 +48,70 @@ done
 [ "$(gomemlimit "$acc")" = 115MiB ] || fail "accelerator-mcp GOMEMLIMIT is $(gomemlimit "$acc")"
 [ "$(grep -c '^ *- name: GOMEMLIMIT$' <<<"$out")" = 3 ] || fail "GOMEMLIMIT is not set exactly three times"
 
-# A Gi limit converts; the percent follows the value.
-out="$(render --set resources.limits.memory=1Gi --set goMemLimitPercent=80)"
-[ "$(gomemlimit "$(op_container "$out")")" = 819MiB ] || fail "1Gi at 80 percent is not 819MiB"
+grep -q 'cpu: null' <<<"$out" && fail "the render emits a null CPU limit"
+
+# component_limit <component> <rendered>: that component's GOMEMLIMIT, empty when it has none.
+component_limit() {
+  case "$1" in
+    operator) gomemlimit "$(op_container "$2")" ;;
+    liaison) gomemlimit "$(liaison_container "$2")" ;;
+    accelerator-mcp) gomemlimit "$(acc_server "$2" | yq '{"env": .spec.env}')" ;;
+  esac
+}
+# Each component's own memory limit path in values.
+path_of() { case "$1" in operator) echo resources ;; liaison) echo liaison.resources ;; accelerator-mcp) echo acceleratorMcp.resources ;; esac; }
+
+# Table: limit written | percent | expected GOMEMLIMIT ("-" for none). Run for every component
+# with that component's own path, so one component's override never changes another's.
+cases=(
+  "512Mi|90|460MiB"     # 460.8 truncates down
+  "1Gi|90|921MiB"
+  "1Gi|80|819MiB"
+  "128Mi|100|128MiB"
+  "128Mi|0|-"
+  "1500M|90|-"          # decimal M is not Mi
+  "1.5Gi|90|-"          # a fraction is not a whole number of Gi
+  "134217728|90|-"      # bytes
+)
+for component in operator liaison accelerator-mcp; do
+  p="$(path_of "$component")"
+  for row in "${cases[@]}"; do
+    IFS='|' read -r limit pct want <<<"${row%%#*}"; want="${want%% *}"
+    out="$(render --set "$p.limits.memory=$limit" --set "goMemLimitPercent=$pct")"
+    got="$(component_limit "$component" "$out")"; [ -n "$got" ] || got="-"
+    [ "$got" = "$want" ] || fail "$component limit $limit at $pct percent gave $got, want $want"
+    # The other two components keep their defaults (345MiB operator, 115MiB the others) at 90.
+  done
+done
+
+# One component's override leaves the others on their defaults.
+out="$(render --set liaison.resources.limits.memory=512Mi)"
+[ "$(component_limit liaison "$out")" = 460MiB ] || fail "liaison override not applied"
+[ "$(component_limit operator "$out")" = 345MiB ] || fail "liaison override changed the operator"
+[ "$(component_limit accelerator-mcp "$out")" = 115MiB ] || fail "liaison override changed accelerator-mcp"
+out="$(render --set acceleratorMcp.resources.limits.memory=512Mi)"
+[ "$(component_limit accelerator-mcp "$out")" = 460MiB ] || fail "accelerator-mcp override not applied"
+[ "$(component_limit liaison "$out")" = 115MiB ] || fail "accelerator-mcp override changed the liaison"
+
+# No limit at all sets nothing.
+out="$(render --set-json 'resources.limits=null')"
+[ "$(component_limit operator "$out")" = "" ] || fail "operator got GOMEMLIMIT with no limit at all"
+out="$(render --set-json 'acceleratorMcp.resources.limits=null')"
+[ "$(component_limit accelerator-mcp "$out")" = "" ] || fail "accelerator-mcp got GOMEMLIMIT with no limit at all"
+
+# A CPU limit the user sets is rendered as written.
+out="$(render --set resources.limits.cpu=2)"
+[ "$(op_container "$out" | yq '.resources.limits.cpu')" = 2 ] || fail "a user CPU limit was lost"
 
 # Percent 0 sets nothing anywhere.
 out="$(render --set goMemLimitPercent=0)"
 grep -q 'GOMEMLIMIT' <<<"$out" && fail "GOMEMLIMIT rendered with goMemLimitPercent=0"
 
-# A limit written in another form (decimal M, bytes) is left without GOMEMLIMIT, not given a wrong one.
-out="$(render --set resources.limits.memory=400M)"
-[ "$(gomemlimit "$(op_container "$out")")" = "" ] || fail "operator got GOMEMLIMIT from an unconvertible limit"
-out="$(render --set-json 'resources.limits=null')"
-[ "$(gomemlimit "$(op_container "$out")")" = "" ] || fail "operator got GOMEMLIMIT with no limit at all"
+# Out of range, negative, fractional and non-numeric percents fail the render.
+for bad in 101 -1 abc 90.5 ""; do
+  if render --set "goMemLimitPercent=$bad" >/dev/null 2>&1; then fail "goMemLimitPercent=\"$bad\" rendered"; fi
+done
+out="$(render --set-string goMemLimitPercent=75 2>&1)" || fail "a numeric string percent was refused"
+[ "$(component_limit operator "$out")" = 288MiB ] || fail "string percent 75 of 384Mi is not 288MiB"
 
 echo "go resources render tests passed"

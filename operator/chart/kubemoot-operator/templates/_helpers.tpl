@@ -374,14 +374,22 @@ nothing when the helper rendered nothing. Pass "name" (the helper), "ctx" (what 
 {{- end }}
 
 {{/*
-GOMEMLIMIT for a Go container: goMemLimitPercent of its memory limit, in MiB. Pass "root"
-and "memory" (the container's limits.memory). Renders nothing when the percent is 0 or the
-limit is not a whole number of Mi or Gi, so a limit written any other way gets no GOMEMLIMIT
+GOMEMLIMIT in MiB for a Go container: goMemLimitPercent of the memory limit in its resources
+map. Pass "root" and "resources" (the whole map, which may be empty). Fails the render unless
+goMemLimitPercent is a whole number from 0 to 100. Renders nothing when the percent is 0 or
+the limit is not a whole number of Mi or Gi, so a limit written any other way gets no GOMEMLIMIT
 rather than a wrong one.
 */}}
 {{- define "kubemoot-operator.goMemLimit" -}}
-{{- $pct := int (default 0 .root.Values.goMemLimitPercent) -}}
-{{- $mem := toString (default "" .memory) -}}
+{{- $raw := toString .root.Values.goMemLimitPercent -}}
+{{- if not (regexMatch "^[0-9]+$" $raw) -}}
+{{- fail (printf "goMemLimitPercent must be a whole number from 0 to 100, got %q" $raw) -}}
+{{- end -}}
+{{- $pct := int $raw -}}
+{{- if gt $pct 100 -}}
+{{- fail (printf "goMemLimitPercent must be a whole number from 0 to 100, got %d" $pct) -}}
+{{- end -}}
+{{- $mem := toString (dig "limits" "memory" "" (.resources | default dict)) -}}
 {{- if and (gt $pct 0) (regexMatch "^[0-9]+(Mi|Gi)$" $mem) -}}
 {{- $n := int (regexFind "^[0-9]+" $mem) -}}
 {{- if hasSuffix "Gi" $mem }}{{ $n = mul $n 1024 }}{{ end -}}
@@ -390,12 +398,13 @@ rather than a wrong one.
 {{- end }}
 
 {{/*
-The GOMEMLIMIT list item for a container's env, or nothing. Same arguments as goMemLimit.
+The GOMEMLIMIT list item for a Go container's env, indented by "indent" with a leading newline,
+or nothing. Pass "root", "resources" (the container's whole resources map) and "indent".
 */}}
 {{- define "kubemoot-operator.goMemLimitEnv" -}}
 {{- $v := include "kubemoot-operator.goMemLimit" . -}}
 {{- if $v -}}
-- name: GOMEMLIMIT
-  value: {{ $v | quote }}
+{{- $pad := repeat (int .indent) " " -}}
+{{- printf "\n%s- name: GOMEMLIMIT\n%s  value: %s" $pad $pad ($v | quote) -}}
 {{- end -}}
 {{- end }}
