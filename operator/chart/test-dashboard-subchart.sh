@@ -48,6 +48,10 @@ only_read_verbs "workshop dashboard" "$(dash_only "$(render kubemoot-operator --
 # By default the dashboard's own ServiceAccount can only create TokenReviews: people read with their own token.
 default_rules="$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard" | yq -N 'select(.kind == "ClusterRole") | .rules[] | (.apiGroups | join(",")) + "/" + (.resources | join(",")) + ":" + (.verbs | join(","))')"
 [ "$default_rules" = "$TOKEN_REVIEW_RULE" ] || fail "the default dashboard ServiceAccount holds more than TokenReview create: $default_rules"
+# Namespace discovery is opt-in: with it the ServiceAccount also lists Crews, and nothing more.
+discovery_rules="$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard" --set rbac.crewNamespaceDiscovery=true | yq -N 'select(.kind == "ClusterRole") | .rules[] | (.apiGroups | join(",")) + "/" + (.resources | join(",")) + ":" + (.verbs | join(","))')"
+[ "$discovery_rules" = "$(printf '%s\n%s' "$TOKEN_REVIEW_RULE" 'kubemoot.ai/crews:list')" ] || fail "namespace discovery renders more than list on crews beside TokenReview create: $discovery_rules"
+only_read_verbs "standalone dashboard chart, namespace discovery" "$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard" --set rbac.crewNamespaceDiscovery=true)"
 anon_rules="$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard" --set auth.anonymousReadOnly=true | yq -N 'select(.kind == "ClusterRole") | .rules[] | (.resources | join(","))')"
 grep -q 'kubemoot.ai' <<<"$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard" --set auth.anonymousReadOnly=true | yq -N 'select(.kind == "ClusterRole") | .rules[].apiGroups[]')" \
   || fail "anonymous read-only mode renders no read rule for Kubemoot kinds ($anon_rules)"
