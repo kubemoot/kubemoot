@@ -8,6 +8,7 @@ import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.time.Duration;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -53,12 +54,19 @@ class McpServerControllerTest {
     }
 
     @Test
-    void aReplyWithoutOrWithAnUnknownSessionIsReturnedAndNothingIsStreamed() {
+    void aReplyWithoutASessionOrForAnotherSessionIsReturnedAndNotStreamedToAnOpenOne() {
         McpMessage request = McpMessage.request(2, "initialize", Map.of());
         McpMessage reply = McpMessage.response(2, Map.of());
         when(router.handleRequest(request)).thenReturn(Mono.just(reply));
 
-        StepVerifier.create(controller.handleMessage(null, request)).expectNext(reply).verifyComplete();
-        StepVerifier.create(controller.handleMessage("no-such-session", request)).expectNext(reply).verifyComplete();
+        StepVerifier.create(controller.connectSse())
+            .expectNextMatches(event -> "endpoint".equals(event.event()))
+            .then(() -> {
+                assertEquals(reply, controller.handleMessage(null, request).block());
+                assertEquals(reply, controller.handleMessage("no-such-session", request).block());
+            })
+            .expectNoEvent(Duration.ofMillis(200))
+            .thenCancel()
+            .verify();
     }
 }

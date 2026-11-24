@@ -1,6 +1,7 @@
 package kubemoot.ai.mcpgateway.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import kubemoot.ai.mcpgateway.model.CallerCredentialConfig.Mode;
 import org.junit.jupiter.api.Test;
 
@@ -130,9 +131,9 @@ class CallerCredentialConfigTest {
         assertEquals(Mode.REQUIRED, mapper.readValue("\"Required\"", Mode.class));
         assertEquals("\"Off\"", mapper.writeValueAsString(Mode.OFF));
         assertEquals("\"Required\"", mapper.writeValueAsString(Mode.REQUIRED));
-        assertThrows(com.fasterxml.jackson.databind.exc.InvalidFormatException.class,
+        assertThrows(InvalidFormatException.class,
             () -> mapper.readValue("\"REQUIRED\"", Mode.class));
-        assertThrows(com.fasterxml.jackson.databind.exc.InvalidFormatException.class,
+        assertThrows(InvalidFormatException.class,
             () -> mapper.readValue("\"required\"", Mode.class));
     }
 }

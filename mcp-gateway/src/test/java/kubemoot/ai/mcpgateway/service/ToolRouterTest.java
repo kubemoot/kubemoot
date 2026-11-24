@@ -3,6 +3,7 @@ package kubemoot.ai.mcpgateway.service;
 import kubemoot.ai.mcpgateway.model.McpMessage;
 import kubemoot.ai.mcpgateway.model.ToolInfo;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
@@ -112,7 +113,7 @@ class ToolRouterTest {
         when(manager.findServerForTool("t")).thenReturn("s1");
         when(manager.forwardRequest(anyString(), any(), any())).thenReturn(Mono.just(McpMessage.response(1, Map.of())));
         handle(new ToolRouter(manager, null), "tools/call", Map.of("name", "t", "arguments", "oops"));
-        var captor = org.mockito.ArgumentCaptor.forClass(McpMessage.class);
+        var captor = ArgumentCaptor.forClass(McpMessage.class);
         verify(manager).forwardRequest(anyString(), captor.capture(), any());
         assertEquals(Map.of(), captor.getValue().params().get("arguments"));
         assertNull(captor.getValue().params().get("_meta"));
