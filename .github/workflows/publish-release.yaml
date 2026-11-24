@@ -28,7 +28,8 @@
 #               previous release, with the provenance of every artifact the release
 #               signed attached as kubemoot_<version>.intoto.jsonl: created as a draft,
 #               given the file, then published, since releases are immutable once
-#               published (.github/scripts/create-github-releases.sh)
+#               published (.github/scripts/create-github-releases.sh), with the JSON Schemas of
+#               the CRDs as assets (.github/scripts/write-schema-assets.sh)
 #   dispatch    asks kubemoot/crews, kubemoot/kmctl and kubemoot/vscode-crewforge to build
 #               new candidates, which take the finals just published (repository_dispatch
 #               kubemoot-published; a dry run only lists them,
@@ -346,6 +347,28 @@ jobs:
           pattern: provenance-*
           merge-multiple: true
           path: provenance
+
+      # The release carries the JSON Schemas of the CRDs it ships, generated from its own
+      # source, so an editor or CI validates a crew's manifests offline against this version.
+      - name: Check out the release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: operator-chart-v${{ needs.publish.outputs.chart_version }}
+          path: release-source
+          sparse-checkout: operator
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: release-source/operator/go.mod
+          # This job writes the release: no restored cache runs in it.
+          cache: false
+
+      - name: Add the CRD schemas to the release files
+        env:
+          CHART_VERSION: ${{ needs.publish.outputs.chart_version }}
+        run: bash .github/scripts/write-schema-assets.sh release-files release-source/operator "operator-chart-v${CHART_VERSION}"
 
       - name: Create the GitHub Release
         env:

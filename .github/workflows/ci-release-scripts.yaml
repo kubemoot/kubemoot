@@ -29,6 +29,9 @@ on:
       - 'agent-runtime/src/main/java/ai/kubemoot/agent/nats/DiscussionArtifacts.java'
       - 'discussion-gateway/internal/api/artifacts.go'
       - 'operator/pkg/mesh/names.go'
+      - 'operator/config/crd/bases/**'
+      - 'operator/pkg/crdschema/**'
+      - 'operator/cmd/crd-schema/**'
       - 'workspace-access/internal/envcompat/envcompat.go'
   push:
     branches-ignore: [main]
@@ -55,6 +58,9 @@ on:
       - 'agent-runtime/src/main/java/ai/kubemoot/agent/nats/DiscussionArtifacts.java'
       - 'discussion-gateway/internal/api/artifacts.go'
       - 'operator/pkg/mesh/names.go'
+      - 'operator/config/crd/bases/**'
+      - 'operator/pkg/crdschema/**'
+      - 'operator/cmd/crd-schema/**'
       - 'workspace-access/internal/envcompat/envcompat.go'
 
 permissions:
@@ -84,11 +90,18 @@ jobs:
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.13'
+      # test-write-schema-assets.sh runs the CRD schema generator.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: operator/go.mod
+          cache-dependency-path: operator/go.sum
       - name: Tests
         run: |
           bash .github/scripts/test-push-token.sh
           bash .github/scripts/test-publish-release.sh
           bash .github/scripts/test-create-github-releases.sh
+          bash .github/scripts/test-write-schema-assets.sh
           bash .github/scripts/test-wait-for-operator-chart.sh
           bash .github/scripts/test-release-vllm-chart.sh
           bash .github/scripts/test-go-build-static.sh

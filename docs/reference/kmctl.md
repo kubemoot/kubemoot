@@ -280,6 +280,16 @@ and the layout its Crew Sources view expects a chart source to have.
 | `--dir DIR` | | Directory to write scaffold output (default: `.`) |
 | `--context` | | Kubeconfig context whose model catalog is checked for a model that can call tools (a global `kmctl` flag) |
 | `--chart` | | Lay the crew out as a Helm chart (`Chart.yaml`, `templates/`, `fitness/`) instead of loose manifests |
+| `--schema-url URL` | | The JSON Schema the editor files point at (default: the newest Kubemoot release's). For a mirror on a network that cannot reach GitHub |
+
+**Editor settings.** The scaffold writes `.vscode/settings.json` and `.vscode/extensions.json`,
+so a fresh crew opens in VS Code with no Problems. The settings map every YAML file of the crew
+to the Kubemoot [JSON Schema](../json-schemas/), which Red Hat YAML checks as you type: a
+misspelled field is an error and hover shows the field's description. With `--chart` they also
+associate `templates/` with the Helm language, since a chart's templates hold Helm actions and
+are not YAML until Helm renders them. The extensions file recommends Red Hat YAML, the
+Kubernetes extension, and CrewForge. A chart also gets a `.helmignore` that keeps `.vscode/`
+out of the packaged chart.
 
 **Display name.** `--display-name` is stored as the annotation `kubemoot.ai/display-name` on
 the `Crew` (in `crew.yaml`, or `templates/crew.yaml` for a chart) and, with `--chart`, in the
