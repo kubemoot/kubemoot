@@ -122,7 +122,6 @@ public final class CallManifest {
 
     /** A run of the white space Go's strings.Fields-style folding in workspace-access treats as space: ASCII only. */
     private static final Pattern ASCII_SPACE_RUNS = Pattern.compile("[ \\t\\n\\x0B\\f\\r]+");
-    private static final Pattern EDGE_SPACE = Pattern.compile("(?:^ )|(?: $)");
 
     /** All three kinds of result block, in the order they are removed. */
     private static final List<Pattern> RESULT_BLOCKS = List.of(RESULT_BLOCK, FAILED_RESULT_BLOCK, EMPTY_RESULT_BLOCK);
@@ -184,9 +183,16 @@ public final class CallManifest {
         return "args=" + argsSummary(arguments);
     }
 
+    /** The text without one leading and one trailing ASCII space (runs are already folded to one). */
+    static String withoutEdgeSpace(String text) {
+        int start = text.startsWith(" ") ? 1 : 0;
+        int end = text.length() > start && text.endsWith(" ") ? text.length() - 1 : text.length();
+        return text.substring(start, end);
+    }
+
     private static String oneLineArgs(String arguments) {
         String one = arguments == null ? ""
-                : EDGE_SPACE.matcher(ASCII_SPACE_RUNS.matcher(neutralize(arguments)).replaceAll(" ")).replaceAll("")
+                : withoutEdgeSpace(ASCII_SPACE_RUNS.matcher(neutralize(arguments)).replaceAll(" "))
                         .replace('[', '(').replace(']', ')');
         return one.isEmpty() ? "{}" : one;
     }

@@ -187,14 +187,18 @@ final class ResultType {
         if (cell.isEmpty() || cell.charAt(0) < 'A' || cell.charAt(0) > 'Z') {
             return false;
         }
-        for (int i = 1; i < cell.length(); i++) {
+        int i = 1;
+        while (i < cell.length()) {
             char c = cell.charAt(i);
             if (c == '(') {
-                i = closeParen(cell, i);
-                if (i < 0) {
+                int close = closeParen(cell, i);
+                if (close < 0) {
                     return false;
                 }
-            } else if (!isTitleChar(c)) {
+                i = close + 1;
+            } else if (isTitleChar(c)) {
+                i++;
+            } else {
                 return false;
             }
         }
