@@ -10,6 +10,8 @@ import (
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/kubemoot/kubemoot/discussion-gateway/internal/crewscope"
 )
 
 const (
@@ -271,9 +273,9 @@ func TestStopOfAnUnknownConversationIsNotFound(t *testing.T) {
 }
 
 // publishPause publishes a pause or resume the way the gateway or a person sends it.
-func (c controlSetup) publishControl(t *testing.T, thread, id, messageType string) {
+func (c controlSetup) publishControl(t *testing.T, id, messageType string) {
 	t.Helper()
-	publishDiscuss(t, c.js, msgOf(thread, id, messageType, ""))
+	publishDiscuss(t, c.js, msgOf(threadCtl, id, messageType, ""))
 }
 
 func TestTheStateOfAConversationSaysRunningPausedAndFinished(t *testing.T) {
@@ -284,11 +286,11 @@ func TestTheStateOfAConversationSaysRunningPausedAndFinished(t *testing.T) {
 		state.Turns[0].ThreadID != threadCtl || state.Turns[0].Question != "q of "+convCtl {
 		t.Fatalf("an open thread is running with its question: %+v", state)
 	}
-	c.publishControl(t, threadCtl, "p1", msgThreadPause)
+	c.publishControl(t, "p1", msgThreadPause)
 	if _, state := c.stateOf(t, convCtl); state.State != bus.TurnStatePaused {
 		t.Fatalf("after a pause: %+v", state)
 	}
-	c.publishControl(t, threadCtl, "r1", msgThreadResume)
+	c.publishControl(t, "r1", msgThreadResume)
 	if _, state := c.stateOf(t, convCtl); state.State != bus.TurnStateRunning {
 		t.Fatalf("after a resume: %+v", state)
 	}
@@ -300,10 +302,114 @@ func TestTheStateOfAConversationSaysRunningPausedAndFinished(t *testing.T) {
 	}
 }
 
+// logEvent writes an event of a thread to the coordinator's log, as the coordinator does.
+func (c controlSetup) logEvent(t *testing.T, thread string, ev bus.CoordinatorEvent) {
+	t.Helper()
+	ev.ThreadID = thread
+	data, _ := json.Marshal(ev)
+	if _, err := c.js.Publish(context.Background(), "kubemoot.coordinator.ns.pilot."+thread, data); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func enteredPhase(phase bus.CoordinatorEventFieldsPhase) bus.CoordinatorEvent {
+	return bus.CoordinatorEvent{Type: bus.CoordinatorEventTypePhaseEntered, Data: bus.CoordinatorEventFields{Phase: phase}}
+}
+
+func TestPausedIsReadFromTheCoordinatorsLogNotFromThePauseMessage(t *testing.T) {
+	c := newControlSetup(t)
+	c.seedAnswered(t, true)
+	c.logEvent(t, threadCtl, enteredPhase(bus.CoordinatorEventFieldsPhaseEVALUATING))
+	// a pause is asked while the draft is on the table: the coordinator ignores it and logs nothing
+	c.publishControl(t, "p-ignored", msgThreadPause)
+	if _, state := c.stateOf(t, convCtl); state.State != bus.TurnStateRunning {
+		t.Fatalf("a pause the coordinator did not enter is not paused: %+v", state)
+	}
+	c.logEvent(t, threadCtl, enteredPhase(bus.CoordinatorEventFieldsPhasePAUSED))
+	if _, state := c.stateOf(t, convCtl); state.State != bus.TurnStatePaused {
+		t.Fatalf("the coordinator entered PAUSED: %+v", state)
+	}
+	c.logEvent(t, threadCtl, enteredPhase(bus.CoordinatorEventFieldsPhaseEVALUATING))
+	if _, state := c.stateOf(t, convCtl); state.State != bus.TurnStateRunning {
+		t.Fatalf("the coordinator left PAUSED: %+v", state)
+	}
+}
+
+func TestATakenQuestionHasBegunWhenTheLogNamesItsRequestSequence(t *testing.T) {
+	c := newControlSetup(t)
+	c.seedAnswered(t, false) // an earlier, finished turn of the conversation
+	c.ask(t, tokenAlice, convCtl)
+	c.coordinatorTakes(t)
+	c.logEvent(t, threadCtl, bus.CoordinatorEvent{Type: bus.CoordinatorEventTypeThreadOpened,
+		Data: bus.CoordinatorEventFields{RequestSeq: 1}}) // the earlier turn answered another request
+	if _, state := c.stateOf(t, convCtl); len(state.Turns) != 2 || state.Turns[1].State != bus.TurnStateRunning ||
+		state.Turns[1].ThreadID != "" {
+		t.Fatalf("the earlier thread does not answer the taken question: %+v", state)
+	}
+	c.publishDiscuss(t, "thread-next", convCtl)
+	c.logEvent(t, "thread-next", bus.CoordinatorEvent{Type: bus.CoordinatorEventTypeThreadOpened,
+		Data: bus.CoordinatorEventFields{RequestSeq: 2}})
+	if _, state := c.stateOf(t, convCtl); len(state.Turns) != 2 {
+		t.Fatalf("once a thread names the request, the question is that thread: %+v", state)
+	}
+}
+
+// publishDiscuss starts a thread of the conversation.
+func (c controlSetup) publishDiscuss(t *testing.T, thread, conv string) {
+	t.Helper()
+	publishDiscuss(t, c.js, turnStart(thread, conv, "q of "+thread))
+}
+
+func TestACancelThatRacesTheCoordinatorTakingTheQuestionIsNotReportedAsCancelled(t *testing.T) {
+	c := newControlSetup(t)
+	c.ask(t, tokenAlice, convQueued)
+	_, waiting, err := readTurnsFor(t, c, convQueued)
+	if err != nil || len(waiting) != 1 || waiting[0].taken {
+		t.Fatalf("setup: %v %+v", err, waiting)
+	}
+	c.coordinatorTakes(t) // the coordinator pulls it after the gateway read the queue
+
+	cancelled, notBegun, err := cancelQueued(context.Background(), c.js, testScope(), waiting)
+
+	if err != nil || cancelled != 0 || notBegun != 1 {
+		t.Fatalf("cancelled %d, not begun %d, err %v: the crew had the question", cancelled, notBegun, err)
+	}
+}
+
+func readTurnsFor(t *testing.T, c controlSetup, conv string) (*threadReducer, []pendingQuestion, error) {
+	t.Helper()
+	return readTurns(context.Background(), c.js, testScope(), conv)
+}
+
+func testScope() crewscope.Scope { return crewscope.Scope{Namespace: "ns", Crew: pilotCrew} }
+
+func TestAStoppedCloseThatFailsLeavesTheStopUnconfirmed(t *testing.T) {
+	// The coordinator got the stop and its close never reached the bus: the thread stays open, so the
+	// gateway says unconfirmed and the thread reads as running with the stop requested.
+	withStopWait(t, stopSafetyNet)
+	c := newControlSetup(t)
+	c.seedAnswered(t, true)
+	synthesisOnly := msgOf(threadCtl, "half-stopped", msgSynthesis, "Stopped by the person who asked")
+	synthesisOnly["metadata"] = map[string]string{metaOutcome: outcomeStopped}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		publishDiscuss(t, c.js, synthesisOnly)
+	}()
+
+	code, got := c.stopAs(t, tokenAlice, convCtl)
+
+	if code != http.StatusAccepted || got.Outcome != bus.ConversationControlOutcomeUnconfirmed || len(got.Stopped) != 0 {
+		t.Fatalf("%d %+v: a stop without the close is not confirmed", code, got)
+	}
+	if _, state := c.stateOf(t, convCtl); state.State != bus.TurnStateRunning || !state.Turns[0].StopRequested {
+		t.Fatalf("%+v", state)
+	}
+}
+
 func TestAStopAfterTheCloseDoesNotMakeAFinishedTurnStopped(t *testing.T) {
 	c := newControlSetup(t)
 	c.seedAnswered(t, false)
-	c.publishControl(t, threadCtl, "late-stop", msgStopRequested)
+	c.publishControl(t, "late-stop", msgStopRequested)
 
 	_, state := c.stateOf(t, convCtl)
 

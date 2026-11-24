@@ -105,17 +105,33 @@ func readQueuedMessages(
 
 // unstarted are the conversation's questions whose discussion has not begun. A question no
 // coordinator has taken has no thread. The one question a coordinator has taken (it takes one at a
-// time) has begun once a thread of the conversation started at or after the time it was queued;
-// until then, and again between a thread's close and the acknowledgement of its question, only the
-// thread's start time tells the two apart.
-func unstarted(queue []pendingQuestion, conversation string, threads []conversationThread) []pendingQuestion {
+// time) has begun once a thread of the conversation records, in the coordinator's log, that it
+// answers the request at that stream sequence. When the log holds none of the conversation's
+// threads (it is off, or expired), the question has begun once a thread of the conversation started
+// at or after the time it was queued.
+func unstarted(
+	queue []pendingQuestion, conversation string, threads []conversationThread, logs map[string]threadLog,
+) []pendingQuestion {
 	var out []pendingQuestion
 	for _, q := range queue {
-		if q.req.ConversationID == conversation && (!q.taken || !startedSince(threads, q.requestedAt())) {
+		if q.req.ConversationID == conversation && (!q.taken || !begun(q, threads, logs)) {
 			out = append(out, q)
 		}
 	}
 	return out
+}
+
+// begun reports whether a thread answers the taken question q.
+func begun(q pendingQuestion, threads []conversationThread, logs map[string]threadLog) bool {
+	if len(logs) == 0 {
+		return startedSince(threads, q.requestedAt())
+	}
+	for _, l := range logs {
+		if l.requestSeq == q.seq {
+			return true
+		}
+	}
+	return false
 }
 
 // startedSince reports whether any thread started at or after at.

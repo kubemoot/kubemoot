@@ -256,10 +256,10 @@ func TestReadPendingStopsWhenTheContextIsDone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	read := 0
-	if err := readPending(ctx, consumer, 1, func(discussMsg) { read++ }); !errors.Is(err, context.Canceled) || read != 0 {
+	if err := readPending(ctx, consumer, 1, func(jetstream.Msg) { read++ }); !errors.Is(err, context.Canceled) || read != 0 {
 		t.Fatalf("err %v, read %d", err, read)
 	}
-	if err := readPending(context.Background(), consumer, 1, func(discussMsg) { read++ }); err != nil || read != 1 {
+	if err := readPending(context.Background(), consumer, 1, func(jetstream.Msg) { read++ }); err != nil || read != 1 {
 		t.Fatalf("err %v, read %d", err, read)
 	}
 }

@@ -124,6 +124,23 @@ class DiscussionOrchestratorStopTest {
     }
 
     @Test
+    void aStopWhoseCloseFailsLeavesTheThreadOpenAndStoppableAgain() {
+        var state = threadIn(Phase.EVALUATING);
+        org.mockito.Mockito.doThrow(new IllegalStateException("NATS is down")).doNothing().when(orchestrator)
+                .publishToThread(anyString(), anyString(), anyString(), anyString(), any());
+
+        orchestrator.handleStopRequest(state, THREAD, "discussion-gateway");
+
+        assertFalse(state.stopped, "a close that did not happen is not a stop");
+        assertEquals(Phase.EVALUATING, state.phase);
+
+        orchestrator.handleStopRequest(state, THREAD, "discussion-gateway");
+
+        assertEquals(Phase.CLOSED, state.phase, "the repeated stop closes it");
+        assertTrue(state.stopped);
+    }
+
+    @Test
     void aSecondStopIsIgnored() {
         var state = threadIn(Phase.EVALUATING);
         orchestrator.handleStopRequest(state, THREAD, "discussion-gateway");

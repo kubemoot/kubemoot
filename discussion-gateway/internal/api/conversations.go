@@ -166,9 +166,21 @@ func listConversations(
 // readSubject passes observe every message the discussion stream holds on filter, as they
 // were when the read began, within listReadTimeout.
 func readSubject(ctx context.Context, js jetstream.JetStream, filter string, observe func(discussMsg)) error {
+	return readStreamSubject(ctx, js, streamName, filter, func(msg jetstream.Msg) {
+		if m, ok := toDiscussMsg(msg); ok {
+			observe(m)
+		}
+	})
+}
+
+// readStreamSubject passes observe every message stream holds on filter, as they were when the read
+// began, within listReadTimeout.
+func readStreamSubject(
+	ctx context.Context, js jetstream.JetStream, stream, filter string, observe func(jetstream.Msg),
+) error {
 	ctx, cancel := context.WithTimeout(ctx, listReadTimeout)
 	defer cancel()
-	consumer, err := js.CreateConsumer(ctx, streamName, jetstream.ConsumerConfig{
+	consumer, err := js.CreateConsumer(ctx, stream, jetstream.ConsumerConfig{
 		AckPolicy:         jetstream.AckNonePolicy,
 		DeliverPolicy:     jetstream.DeliverAllPolicy,
 		FilterSubject:     filter,
@@ -177,21 +189,21 @@ func readSubject(ctx context.Context, js jetstream.JetStream, filter string, obs
 	if err != nil {
 		return err
 	}
-	defer deleteConsumer(ctx, js, consumer.CachedInfo().Name)
+	defer deleteConsumer(ctx, js, stream, consumer.CachedInfo().Name)
 	return readPending(ctx, consumer, int(consumer.CachedInfo().NumPending), observe)
 }
 
 // deleteConsumer removes a list's consumer, even when the request's context is done,
 // within a short bound. Its inactive threshold removes it otherwise.
-func deleteConsumer(ctx context.Context, js jetstream.JetStream, name string) {
+func deleteConsumer(ctx context.Context, js jetstream.JetStream, stream, name string) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	_ = js.DeleteConsumer(ctx, streamName, name)
+	_ = js.DeleteConsumer(ctx, stream, name)
 }
 
 // readPending reads the pending messages of consumer, which were there when it was
 // created, and passes each to observe. It stops with ctx's error when ctx is done.
-func readPending(ctx context.Context, consumer jetstream.Consumer, pending int, observe func(discussMsg)) error {
+func readPending(ctx context.Context, consumer jetstream.Consumer, pending int, observe func(jetstream.Msg)) error {
 	for pending > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -203,9 +215,7 @@ func readPending(ctx context.Context, consumer jetstream.Consumer, pending int, 
 		read := 0
 		for msg := range batch.Messages() {
 			read++
-			if m, ok := toDiscussMsg(msg); ok {
-				observe(m)
-			}
+			observe(msg)
 		}
 		if err := batch.Error(); err != nil && !errors.Is(err, jetstream.ErrNoMessages) {
 			return err

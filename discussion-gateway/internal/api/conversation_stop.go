@@ -184,7 +184,7 @@ func awaitClosed(
 	if err != nil {
 		return nil, err
 	}
-	defer deleteConsumer(ctx, js, consumer.CachedInfo().Name)
+	defer deleteConsumer(ctx, js, streamName, consumer.CachedInfo().Name)
 	var mu sync.Mutex
 	done := make(chan struct{})
 	var once sync.Once
