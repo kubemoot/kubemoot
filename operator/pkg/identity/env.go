@@ -12,6 +12,7 @@ package identity
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 
 	"k8s.io/client-go/kubernetes"
@@ -92,15 +93,46 @@ func serviceTokensFromEnv(getenv func(string) string) (Hasher, []Verifier, Autho
 	if len(key) == 0 {
 		return Hasher{}, nil, nil, fmt.Errorf("%s is set and %s is not: %w", EnvServiceTokens, EnvHashKey, ErrNoHashKey)
 	}
-	verifiers := make([]Verifier, 0, len(configs))
-	for _, c := range configs {
-		v, err := NewServiceTokenVerifier(c, key, nil)
+	chain, err := NewServiceTokenChain(configs, key, nil)
+	if err != nil {
+		return Hasher{}, nil, nil, err
+	}
+	return chain.Hasher, chain.Verifiers, chain.Authorizer, nil
+}
+
+// ServiceTokenChain is what a door needs to know a crew's subscribers: a verifier per
+// service, the keyed hasher that names them, and the authorizer of what they may do.
+type ServiceTokenChain struct {
+	Hasher     Hasher
+	Verifiers  []Verifier
+	Authorizer Authorizer
+}
+
+// NewServiceTokenChain builds the chain of a crew's service token verifiers. The gateway
+// builds it from its environment and the operator's report service from the Crew, so the
+// two verify, name and authorize a subscriber by the same code. configs are validated as
+// the CRD does. client, nil for the default, is what asks the services. Without the install's
+// key it is ErrNoHashKey, because a subscriber is
+// never named, and so never owns or reads anything, without it.
+func NewServiceTokenChain(configs []ServiceTokenConfig, key []byte, client *http.Client) (ServiceTokenChain, error) {
+	if len(key) == 0 {
+		return ServiceTokenChain{}, ErrNoHashKey
+	}
+	list := append([]ServiceTokenConfig(nil), configs...)
+	if err := NormalizeServiceTokens(list); err != nil {
+		return ServiceTokenChain{}, err
+	}
+	verifiers := make([]Verifier, 0, len(list))
+	for _, c := range list {
+		v, err := NewServiceTokenVerifier(c, key, client)
 		if err != nil {
-			return Hasher{}, nil, nil, err
+			return ServiceTokenChain{}, err
 		}
 		verifiers = append(verifiers, v)
 	}
-	return Hasher{Key: key}, verifiers, NewSubscriberAuthorizer(configs), nil
+	return ServiceTokenChain{
+		Hasher: Hasher{Key: key}, Verifiers: verifiers, Authorizer: NewSubscriberAuthorizer(list),
+	}, nil
 }
 
 // splitList splits a comma separated list, dropping blanks.

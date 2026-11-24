@@ -92,21 +92,31 @@ func ParseServiceTokens(raw string) ([]ServiceTokenConfig, error) {
 	if err := dec.Decode(&list); err != nil || dec.More() {
 		return nil, fmt.Errorf("%w: %s must be one JSON list", ErrServiceTokenConfig, EnvServiceTokens)
 	}
+	if err := NormalizeServiceTokens(list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// NormalizeServiceTokens fills the defaults of every entry in place and validates the list as
+// the CRD does. The list of a Crew's spec goes through it, as the list of the environment
+// does, so every door applies one set of rules.
+func NormalizeServiceTokens(list []ServiceTokenConfig) error {
 	seen := map[string]bool{}
 	for i := range list {
 		if err := list[i].normalize(); err != nil {
-			return nil, fmt.Errorf("%w: entry %d: %v", ErrServiceTokenConfig, i, err)
+			return fmt.Errorf("%w: entry %d: %v", ErrServiceTokenConfig, i, err)
 		}
 		if seen[list[i].Name] {
-			return nil, fmt.Errorf("%w: name %q is used twice", ErrServiceTokenConfig, list[i].Name)
+			return fmt.Errorf("%w: name %q is used twice", ErrServiceTokenConfig, list[i].Name)
 		}
 		seen[list[i].Name] = true
 		if len(list) > 1 && len(list[i].Audiences) == 0 {
-			return nil, fmt.Errorf("%w: entry %d: with more than one service each needs audiences, "+
+			return fmt.Errorf("%w: entry %d: with more than one service each needs audiences, "+
 				"so a token is sent only to the service it was issued for", ErrServiceTokenConfig, i)
 		}
 	}
-	return list, nil
+	return nil
 }
 
 // normalize fills the defaults and validates the entry.

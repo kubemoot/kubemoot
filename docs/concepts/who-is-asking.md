@@ -106,6 +106,18 @@ Keep the hash key secret and stable. Changing it changes every subscriber's id, 
 
 A Kubernetes caller needs `get` on the Crew to use it at all, checked with a SubjectAccessReview on every request. A review that cannot be made refuses the request (503) and never allows it. A subscriber may use the crew when a service token verifier named as their issuer is configured for it and either accepts everyone its service accepts or lists their subject. That is all they may do: reading other callers' conversations and controlling them remain Kubernetes rights, so a subscriber sees only their own conversations. Reading other callers' conversations is a separate right, `get` or `list` on the virtual resource `crews/conversations`, which the chart's ClusterRole `kubemoot-conversation-reader` grants and nobody is bound to by default. Stopping, pausing, resuming or deleting another caller's conversation is `update` or `delete` on it, granted by `kubemoot-conversation-controller`; see [who owns a conversation](../conversations-turns-and-threads/#who-owns-a-conversation).
 
+## The operator's report service
+
+The operator's report service (the conversation export, the crew memory export, the fitness report and the component status) checks the same two kinds of caller, with the same code. The crew's verifier chain is built from the Crew and its hash key Secret by the function the gateway builds its own with, so a person's token means the same thing at both.
+
+- A Kubernetes token is checked first with a TokenReview, and RBAC decides with a SubjectAccessReview. It is never sent to a service.
+- A token the API server does not know is tried against the crew's `serviceTokens` verifiers, but only on the conversation export. The person is named with the crew's hash key, and the export checks the owner record, so they can export their own conversations and no one else's. The memory export, the fitness report and the component status read what belongs to the crew, not to one person, so a subscriber is answered 401 there.
+- A crew with no readable hash key cannot name its subscribers, so the request is answered 503, and no service is asked.
+- A subscriber is never handed to the API server as a user name. Their subject is whatever a service said it is, so it could equal a real user's name; the exports of other callers' conversations (`crews/conversations`) therefore stay Kubernetes rights.
+- No request header names the caller. `X-Remote-User`, `Impersonate-User` and the like are not read.
+
+Callers whose kubeconfig signs in with a client certificate or an OIDC login hold no bearer token the report service can check, because the report service is reached directly, not through the API server. Use a ServiceAccount token (kmctl: `--token-service-account`; CrewForge: `crewforge.tokenServiceAccount`). Taking the identity the API server already authenticated needs an aggregated API, which is planned: the API server would pass the user it authenticated in headers the report service trusts only from the API server's front-proxy client certificate.
+
 ## Not claimed yet
 
 The principal travels on the bus as data, and the bus itself is open to any client of NATS. Kubemoot does not claim strict isolation between callers until the bus is divided per crew. The checks in the gateway close every path an HTTP caller has.

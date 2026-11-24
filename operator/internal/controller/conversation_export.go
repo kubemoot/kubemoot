@@ -49,7 +49,7 @@ func (d *downloadWriter) Write(p []byte) (int, error) {
 // conversation as a zip, or, for several id parameters, a zip of zips with a manifest of
 // what is included, refused, expired or failed. With report=true it answers the manifest as
 // JSON and no zip. The zip is built as it is sent and never stored. It is served behind
-// requireAccess, as the memory export is, and its memory part is the memory export's own
+// gate, as the memory export is, and its memory part is the memory export's own
 // screened OMPI files: a request for allowUnscreened is refused.
 func (s *ReportServer) serveConversationExport(w http.ResponseWriter, r *http.Request) {
 	scope, _ := crewscope.New(r.PathValue("namespace"), r.PathValue("crew")) // validated by memoryExportAccess

@@ -389,7 +389,10 @@ type ReportServer struct {
 	AllowConversation conversationexport.Allow
 	// Auth decides who may read each endpoint; nil answers 503 (fail closed).
 	Auth reportAuthorizer
-	Addr string
+	// Subscribers identifies the callers of a crew that accepts a service's token, for the
+	// routes that admit them; nil means only Kubernetes callers.
+	Subscribers *subscriberDirectory
+	Addr        string
 }
 
 // ComponentStatus is one control-plane component's health, in the spirit of
@@ -449,6 +452,9 @@ type reportRoute struct {
 	pattern string
 	access  accessFor
 	handler http.HandlerFunc
+	// subscribers admits a crew's subscribers by their own token. Only a route whose handler
+	// narrows a subscriber to what they own may set it.
+	subscribers bool
 }
 
 // healthzPattern is the one endpoint served without a token.
@@ -460,14 +466,15 @@ func (s *ReportServer) routeTable() []reportRoute {
 	return []reportRoute{
 		{"GET /componentstatuses",
 			func(*http.Request) (authorizationv1.ResourceAttributes, error) { return componentStatusAccess(), nil },
-			s.serveComponentStatuses},
-		{"GET /memory-export/{namespace}/{crew}", memoryExportAccess, s.serveMemoryExport},
-		{"GET /conversation-export/{namespace}/{crew}", memoryExportAccess, s.serveConversationExport},
+			s.serveComponentStatuses, false},
+		{"GET /memory-export/{namespace}/{crew}", memoryExportAccess, s.serveMemoryExport, false},
+		// A subscriber exports a conversation they own: mayExportConversation checks the owner.
+		{"GET /conversation-export/{namespace}/{crew}", memoryExportAccess, s.serveConversationExport, true},
 		{"GET /report/{namespace}/{name}",
 			func(r *http.Request) (authorizationv1.ResourceAttributes, error) {
 				return suiteAccess(r.PathValue("namespace"), r.PathValue("name")), nil
 			},
-			s.serveSuiteReport},
+			s.serveSuiteReport, false},
 	}
 }
 
@@ -477,7 +484,7 @@ func (s *ReportServer) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(healthzPattern, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	for _, rt := range s.routeTable() {
-		mux.HandleFunc(rt.pattern, s.requireAccess(rt.access, rt.handler))
+		mux.HandleFunc(rt.pattern, s.gate(rt.access, rt.subscribers, rt.handler))
 	}
 	return mux
 }
