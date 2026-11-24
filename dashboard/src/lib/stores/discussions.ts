@@ -404,7 +404,7 @@ export async function ensureThreadLoaded(threadId: string): Promise<void> {
  */
 export async function loadThreadBySubject(threadId: string, subject: string): Promise<boolean> {
 	const parsed = parseDiscussSubject(subject);
-	if (!parsed || parsed.threadId !== threadId) return get(threadsMap).has(threadId);
+	if (parsed?.threadId !== threadId) return get(threadsMap).has(threadId);
 	if (get(threadsMap).has(threadId)) {
 		await ensureThreadLoaded(threadId);
 		return true;

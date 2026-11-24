@@ -15,7 +15,7 @@
 					var pref = localStorage.getItem('kubemoot-dashboard-theme');
 					if (pref === 'light' || (pref === 'system' && matchMedia('(prefers-color-scheme: light)').matches)) theme = 'light';
 				} catch (e) {}
-				document.documentElement.setAttribute('data-theme', theme);
+				document.documentElement.dataset.theme = theme;
 			})();
 		</script>
 		%sveltekit.head%

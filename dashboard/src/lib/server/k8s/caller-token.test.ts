@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as k8s from '@kubernetes/client-node';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { BearerToken } from '../auth/bearer-token';
 import { runWithIdentity } from '../auth/identity';
 import {
@@ -20,7 +20,16 @@ import { FORBIDDEN_MESSAGE, SIGNED_OUT_MESSAGE, kubeFailure } from './errors';
 const SA_TOKEN = 'dashboard-service-account-token';
 const CALLER_TOKEN = 'callers-own-token';
 
+// A CI runner is itself a pod, so the in-cluster marker is set there; the tests choose the kubeconfig path.
+const inClusterHost = process.env.KUBERNETES_SERVICE_HOST;
+
+afterAll(() => {
+	if (inClusterHost === undefined) delete process.env.KUBERNETES_SERVICE_HOST;
+	else process.env.KUBERNETES_SERVICE_HOST = inClusterHost;
+});
+
 beforeAll(() => {
+	delete process.env.KUBERNETES_SERVICE_HOST;
 	const dir = mkdtempSync(join(tmpdir(), 'kubeconfig-'));
 	const file = join(dir, 'config');
 	writeFileSync(
