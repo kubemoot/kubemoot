@@ -12,7 +12,7 @@ export const ENV = {
 	clientKeyFile: 'NATS_CLIENT_KEY_FILE',
 	credsFile: 'NATS_CREDS_FILE',
 	user: 'NATS_USER',
-	password: 'NATS_PASSWORD',
+	userSecret: 'NATS_PASSWORD',
 	token: 'NATS_TOKEN'
 } as const;
 
@@ -29,12 +29,12 @@ export function validateNatsEnv(env: Env): void {
 	if (Boolean(get(env, ENV.clientCertFile)) !== Boolean(get(env, ENV.clientKeyFile))) {
 		throw new Error(`${ENV.clientCertFile} and ${ENV.clientKeyFile} must be set together`);
 	}
-	if (Boolean(get(env, ENV.user)) !== Boolean(env[ENV.password] ?? '')) {
-		throw new Error(`${ENV.user} and ${ENV.password} must be set together`);
+	if (Boolean(get(env, ENV.user)) !== Boolean(env[ENV.userSecret] ?? '')) {
+		throw new Error(`${ENV.user} and ${ENV.userSecret} must be set together`);
 	}
 	const kinds = [get(env, ENV.credsFile), get(env, ENV.user), get(env, ENV.token)].filter(Boolean).length;
 	if (kinds > 1) {
-		throw new Error(`set only one of ${ENV.credsFile}, ${ENV.user} with ${ENV.password}, or ${ENV.token}`);
+		throw new Error(`set only one of ${ENV.credsFile}, ${ENV.user} with ${ENV.userSecret}, or ${ENV.token}`);
 	}
 }
 
@@ -97,7 +97,7 @@ export function natsConnectionOptions(
 		out.authenticator = credsAuthenticator(requireFile(ENV.credsFile, creds, read));
 	} else if (get(env, ENV.user)) {
 		out.user = get(env, ENV.user);
-		out.pass = env[ENV.password] ?? '';
+		out.pass = env[ENV.userSecret] ?? '';
 	} else if (get(env, ENV.token)) {
 		out.token = get(env, ENV.token);
 	}
