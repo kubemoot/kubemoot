@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o harness-shim
 # goose 1.55.0, Apache-2.0, the statically linked (musl) linux amd64 release. The sha256 is
 # of the release asset goose-x86_64-unknown-linux-musl.tar.gz: it equals the digest GitHub
 # reports for the asset and the one computed on a download of it. Raise both values together.
-FROM docker.io/library/alpine:3.23@sha256:21f3e19bafab57a9ff7aa9dd571dac72f868370472c10f450cc0416cc1aca553 AS goose
+FROM docker.io/library/alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS goose
 # The release asset is amd64 only, so the stage refuses any other architecture.
 ARG GOOSE_VERSION=1.55.0
 ARG GOOSE_SHA256=fade147bd5ebc020ecea05453b0905397f1ebb01ee3de2f3678570c5c3502ed7
@@ -21,7 +21,7 @@ RUN [ "$(uname -m)" = "x86_64" ] || { echo "the goose release asset is amd64 onl
  && mkdir /out && tar -xzf /tmp/goose.tar.gz -C /out ./goose \
  && /out/goose --version
 
-FROM docker.io/library/alpine:3.23@sha256:21f3e19bafab57a9ff7aa9dd571dac72f868370472c10f450cc0416cc1aca553
+FROM docker.io/library/alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 # tzdata: the turn carries the requester's IANA time zone, which the command reads from TZ.
 RUN apk add --no-cache tzdata ca-certificates
 COPY --from=goose /out/goose /usr/local/bin/goose
