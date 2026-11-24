@@ -11,10 +11,10 @@ import (
 	"strings"
 )
 
-// errEnough stops a row walk once the first row has been seen.
 // errTableFmt wraps a failure reading one table.
 const errTableFmt = "table %s: %w"
 
+// errEnough stops a row walk once the first row has been seen.
 var errEnough = errors.New("enough")
 
 // shapeOf says what columns a relation has, so sections that read the same way can
