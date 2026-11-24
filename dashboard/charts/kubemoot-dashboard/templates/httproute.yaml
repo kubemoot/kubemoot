@@ -20,6 +20,6 @@ spec:
         type: PathPrefix
         value: {{ .Values.gateway.pathPrefix }}
     backendRefs:
-    - name: {{ include "kubemoot-dashboard.fullname" . }}
+    - name: {{ include "kubemoot-dashboard.frontServiceName" . }}
       port: {{ .Values.service.port }}
 {{- end }}

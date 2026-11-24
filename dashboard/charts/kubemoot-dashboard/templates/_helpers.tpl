@@ -245,3 +245,57 @@ kind of credential (a creds key, a user key with a password key, or a token key)
         path: nats.creds
 {{- end }}
 {{- end }}
+
+{{/*
+OIDC sign-in proxy (auth.oidc.enabled): oauth2-proxy in front of the dashboard. Its name is the
+dashboard's fullname plus "-oidc". Its pods carry a different app.kubernetes.io/name, so the
+dashboard Service never selects them.
+*/}}
+{{- define "kubemoot-dashboard.oidc.fullname" -}}
+{{- printf "%s-oidc" (include "kubemoot-dashboard.fullname" . | trunc 58 | trimSuffix "-") -}}
+{{- end }}
+
+{{- define "kubemoot-dashboard.oidc.selectorLabels" -}}
+app.kubernetes.io/name: {{ printf "%s-oidc" (include "kubemoot-dashboard.name" . | trunc 58 | trimSuffix "-") }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{- define "kubemoot-dashboard.oidc.labels" -}}
+helm.sh/chart: {{ include "kubemoot-dashboard.chart" . }}
+{{ include "kubemoot-dashboard.oidc.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: kubemoot
+app.kubernetes.io/component: oidc-proxy
+{{- end }}
+
+{{/* The headless Service whose DNS answer is the proxy pods' addresses, which the dashboard trusts. */}}
+{{- define "kubemoot-dashboard.oidc.podsName" -}}
+{{- printf "%s-pods" (include "kubemoot-dashboard.oidc.fullname" . | trunc 57 | trimSuffix "-") -}}
+{{- end }}
+
+{{/* Where the proxy answers: auth.oidc.proxyPrefix, else the gateway path prefix plus /oauth2. */}}
+{{- define "kubemoot-dashboard.oidc.proxyPrefix" -}}
+{{- default (printf "%s/oauth2" (trimSuffix "/" .Values.gateway.pathPrefix)) .Values.auth.oidc.proxyPrefix -}}
+{{- end }}
+
+{{/* The Service the route sends people to: the proxy when auth.oidc.enabled, else the dashboard. */}}
+{{- define "kubemoot-dashboard.frontServiceName" -}}
+{{- if .Values.auth.oidc.enabled -}}{{ include "kubemoot-dashboard.oidc.fullname" . }}{{- else -}}{{ include "kubemoot-dashboard.fullname" . }}{{- end -}}
+{{- end }}
+
+{{/* The options auth.oidc needs, checked: the issuer, client id, redirect URL and the Secret you create. */}}
+{{- define "kubemoot-dashboard.oidc.check" -}}
+{{- $o := .Values.auth.oidc -}}
+{{- if not $o.issuerUrl }}{{ fail "auth.oidc.issuerUrl is required when auth.oidc.enabled" }}{{ end -}}
+{{- if not $o.clientId }}{{ fail "auth.oidc.clientId is required when auth.oidc.enabled" }}{{ end -}}
+{{- if not $o.redirectUrl }}{{ fail "auth.oidc.redirectUrl is required when auth.oidc.enabled" }}{{ end -}}
+{{- if not $o.existingSecret }}{{ fail "auth.oidc.existingSecret is required when auth.oidc.enabled: create a Secret with the keys client-secret and cookie-secret; the chart never holds them" }}{{ end -}}
+{{- end }}
+
+{{/* True when the dashboard accepts the proxy's bearer token: the chart's own proxy, or a proxy you run. */}}
+{{- define "kubemoot-dashboard.trustedProxy" -}}
+{{- if or .Values.auth.oidc.enabled .Values.auth.trustedProxy.enabled -}}true{{- end -}}
+{{- end }}

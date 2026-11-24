@@ -2,7 +2,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { callerToken } from '#lib/server/auth/identity.js';
 import { SESSION_COOKIE, createSession, resetSessions } from '#lib/server/auth/session.js';
-import { ANONYMOUS_READ_ONLY_ENV } from '#lib/server/mode.js';
+import { ANONYMOUS_READ_ONLY_ENV, TRUSTED_PROXY_ADDRESSES_ENV, TRUSTED_PROXY_ENV } from '#lib/server/mode.js';
+import { resetTrustedProxy } from '#lib/server/auth/trusted-proxy.js';
+import * as tokenReview from '#lib/server/auth/token-review.js';
 import { handle } from './hooks.server';
 
 const ORIGIN = 'https://dash.example.test';
@@ -16,6 +18,8 @@ interface EventOptions {
 	headers?: Record<string, string>;
 	/** Whether the socket is TLS; omitted means the server cannot tell (no platform). */
 	encrypted?: boolean;
+	/** The socket's peer address; with it the platform exists even when encrypted is omitted. */
+	peer?: string;
 }
 
 function event(method: string, path: string, opts: EventOptions = {}) {
@@ -29,7 +33,10 @@ function event(method: string, path: string, opts: EventOptions = {}) {
 		event: {
 			request: new Request(`${urlOrigin}${path}`, { method, headers }),
 			url: new URL(`${urlOrigin}${path}`),
-			platform: opts.encrypted === undefined ? undefined : { req: { socket: { encrypted: opts.encrypted } } },
+			platform:
+				opts.encrypted === undefined && opts.peer === undefined
+					? undefined
+					: { req: { socket: { encrypted: opts.encrypted, remoteAddress: opts.peer } } },
 			cookies: { get: (n: string) => jar.get(n), delete: (n: string) => deleted.push(n) },
 			locals: {} as Record<string, unknown>
 		} as unknown as Parameters<typeof handle>[0]['event']
@@ -52,6 +59,10 @@ beforeEach(() => {
 	delete process.env[ANONYMOUS_READ_ONLY_ENV];
 	delete process.env.ORIGIN;
 	delete process.env.PROTOCOL_HEADER;
+	delete process.env[TRUSTED_PROXY_ENV];
+	delete process.env[TRUSTED_PROXY_ADDRESSES_ENV];
+	resetTrustedProxy();
+	vi.restoreAllMocks();
 });
 
 describe('without a session', () => {
@@ -176,5 +187,55 @@ describe('anonymous read-only mode', () => {
 		const { response, resolve } = await run(method, path);
 		expect([401, 405]).toContain(response.status);
 		expect(resolve).not.toHaveBeenCalled();
+	});
+});
+
+describe('behind the sign-in proxy', () => {
+	const PROXY = [10, 1, 2, 3].join('.');
+	const bearer = { authorization: 'Bearer id-token' };
+	const accept = () => vi.spyOn(tokenReview, 'reviewToken').mockResolvedValue({ username: 'oidc:ada' });
+
+	beforeEach(() => {
+		process.env[TRUSTED_PROXY_ENV] = 'true';
+		process.env[TRUSTED_PROXY_ADDRESSES_ENV] = PROXY;
+	});
+
+	it('runs the route as the person the proxy vouched for, with their token, and sets no cookie', async () => {
+		accept();
+		const { response, seenToken, locals } = await run('GET', '/crews', { headers: bearer, peer: PROXY });
+		expect(response.status).toBe(200);
+		expect(seenToken()).toBe('id-token');
+		expect(locals.user).toEqual({ username: 'oidc:ada' });
+		expect(locals.sessionId).toBeUndefined();
+	});
+
+	it('ignores the header from any other address', async () => {
+		const review = accept();
+		const { response, resolve } = await run('GET', '/crews', { headers: bearer, peer: [10, 9, 9, 9].join('.') });
+		expect(response.status).toBe(303);
+		expect(resolve).not.toHaveBeenCalled();
+		expect(review).not.toHaveBeenCalled();
+	});
+
+	it('ignores the header when the proxy is not turned on', async () => {
+		delete process.env[TRUSTED_PROXY_ENV];
+		const review = accept();
+		const { response } = await run('GET', '/api/kubemoot/crews', { headers: bearer, peer: PROXY });
+		expect(response.status).toBe(401);
+		expect(review).not.toHaveBeenCalled();
+	});
+
+	it('treats a token the API server refuses as signed out', async () => {
+		vi.spyOn(tokenReview, 'reviewToken').mockRejectedValue(new tokenReview.SignInError('invalid', 'no'));
+		const { response } = await run('GET', '/api/kubemoot/crews', { headers: bearer, peer: PROXY });
+		expect(response.status).toBe(401);
+	});
+
+	it('lets the proxy token win over a cookie of another person', async () => {
+		accept();
+		const id = createSession('someone-else', 'cookie-token', Date.now() + 60_000);
+		const { seenToken, locals } = await run('GET', '/crews', { headers: bearer, peer: PROXY, cookie: id });
+		expect(seenToken()).toBe('id-token');
+		expect(locals.user).toEqual({ username: 'oidc:ada' });
 	});
 });
