@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/kubemoot/kubemoot/mcp-bridge/internal/pipetest"
 )
 
 // TestHelperRunExec is not a test: the tests below run the test binary again with
@@ -29,32 +31,6 @@ func helper(t *testing.T, args ...string) *exec.Cmd {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperRunExec$")
 	cmd.Env = append(os.Environ(), "HELPER_EXEC_ARGS="+strings.Join(args, "\x1f"))
 	return cmd
-}
-
-// openPipe opens a FIFO end, which blocks until the other end is opened; the
-// deadline stops a child that never opens its end from hanging the test.
-func openPipe(t *testing.T, path string, flag int) *os.File {
-	t.Helper()
-	type result struct {
-		f   *os.File
-		err error
-	}
-	opened := make(chan result, 1)
-	go func() {
-		f, err := os.OpenFile(path, flag, 0)
-		opened <- result{f, err}
-	}()
-	select {
-	case r := <-opened:
-		if r.err != nil {
-			t.Fatal(r.err)
-		}
-		t.Cleanup(func() { _ = r.f.Close() })
-		return r.f
-	case <-time.After(15 * time.Second):
-		t.Fatalf("the command never opened its end of %s", path)
-		return nil
-	}
 }
 
 func makePipes(t *testing.T) string {
@@ -100,8 +76,8 @@ func TestRunExec_ConnectsTheCommandToThePipes(t *testing.T) {
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 
 	// The command opens stdin first, so that end is opened first here too.
-	writer := openPipe(t, filepath.Join(dir, "stdin"), os.O_WRONLY)
-	reader := openPipe(t, filepath.Join(dir, "stdout"), os.O_RDONLY)
+	writer := pipetest.Open(t, filepath.Join(dir, "stdin"), os.O_WRONLY)
+	reader := pipetest.Open(t, filepath.Join(dir, "stdout"), os.O_RDONLY)
 	if _, err := writer.WriteString("hello bridge\n"); err != nil {
 		t.Fatal(err)
 	}

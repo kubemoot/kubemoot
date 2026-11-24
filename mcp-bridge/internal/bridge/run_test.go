@@ -13,11 +13,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kubemoot/kubemoot/mcp-bridge/internal/pipetest"
 )
 
 // safetyDeadline bounds every wait below. A wait ends as soon as its state is
 // reached; the deadline only stops a broken test from hanging.
 const safetyDeadline = 15 * time.Second
+
+// httpClient bounds the plain requests; the SSE stream is read without a total
+// timeout because it stays open, and each wait on it is bounded by the test timeout.
+var httpClient = &http.Client{Timeout: safetyDeadline}
 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
@@ -30,6 +36,9 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 }
 
+// freePort finds a port that was free a moment ago. Bridge.New takes a port, not
+// a listener, so another process could take it before Run binds; that is rare
+// enough on a test machine to accept.
 func freePort(t *testing.T) int {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -51,14 +60,8 @@ type fakeServer struct {
 func startFakeServer(t *testing.T, dir string) *fakeServer {
 	t.Helper()
 	// Opening blocks until the bridge opens the other end of each pipe.
-	stdin, err := os.OpenFile(filepath.Join(dir, "stdin"), os.O_RDONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stdout, err := os.OpenFile(filepath.Join(dir, "stdout"), os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	stdin := pipetest.Open(t, filepath.Join(dir, "stdin"), os.O_RDONLY)
+	stdout := pipetest.Open(t, filepath.Join(dir, "stdout"), os.O_WRONLY)
 	f := &fakeServer{stdin: stdin, stdout: stdout, lines: make(chan string, 32), done: make(chan struct{})}
 	go f.serve()
 	return f
@@ -107,7 +110,7 @@ type sseClient struct {
 
 func connectSSE(t *testing.T, base string) *sseClient {
 	t.Helper()
-	resp, err := http.Get(base + "/sse")
+	resp, err := (&http.Client{}).Get(base + "/sse")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +140,7 @@ func (c *sseClient) next(t *testing.T) (event, data string) {
 
 func post(t *testing.T, url, body string) int {
 	t.Helper()
-	resp, err := http.Post(url, "application/json", strings.NewReader(body))
+	resp, err := httpClient.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +151,7 @@ func post(t *testing.T, url, body string) int {
 
 func status(t *testing.T, url string) int {
 	t.Helper()
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return 0
 	}
@@ -165,6 +168,7 @@ func startRun(t *testing.T) (base, dir string, cancel context.CancelFunc, runErr
 	b := New(dir, port, "/healthz")
 	var ctx context.Context
 	ctx, cancel = context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	runErr = make(chan error, 1)
 	go func() { runErr <- b.Run(ctx) }()
 	base = fmt.Sprintf("http://127.0.0.1:%d", port)
@@ -284,6 +288,9 @@ func TestMakePipes_AcceptsPipesLeftByAPreviousStart(t *testing.T) {
 	}
 }
 
+// The two goroutines pipeSession starts to open the FIFOs stay blocked after it
+// returns, because nothing ever opens the other ends. That is production behavior
+// too; the card "MCP Bridge Waits for Pipes on Shutdown" will fix pipeSession.
 func TestPipeSession_StopsWhenTheContextEndsBeforeAServerConnects(t *testing.T) {
 	b := New(t.TempDir(), 0, "/healthz")
 	if err := b.makePipes(); err != nil {
