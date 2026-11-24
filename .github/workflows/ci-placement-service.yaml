@@ -77,7 +77,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up GraalVM Community 25
-        uses: graalvm/setup-graalvm@d6eca2595046623d69d636041513c80abf745406 # v1.6.9
+        uses: graalvm/setup-graalvm@60e76998d25690099182b796e99b8804da582d90 # v1.6.10
         with:
           java-version: '25'
           distribution: 'graalvm-community'
@@ -147,7 +147,7 @@ jobs:
 
       - name: Set up the build helpers
         if: ${{ !inputs.native_check }}
-        uses: kubemoot/release-actions/setup@46be10555367466d5add34c0f37dc2ae86c40af6 # v0.12.0
+        uses: kubemoot/release-actions/setup@899dec57c20fafcccae4120d20bfd88e454f0a0f # v0.12.2
 
       # The run image must hold every shared library the binary links against; the image
       # would build and push without one and the pod would fail at startup. The

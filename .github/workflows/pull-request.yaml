@@ -12,4 +12,4 @@ permissions:
 
 jobs:
   all-checks:
-    uses: kubemoot/release-actions/.github/workflows/all-checks.yaml@2567883262a937e8aa9be375fd5dd4a31369fc80 # v0.12.1
+    uses: kubemoot/release-actions/.github/workflows/all-checks.yaml@899dec57c20fafcccae4120d20bfd88e454f0a0f # v0.12.2
