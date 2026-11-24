@@ -5,16 +5,17 @@ import { runWithIdentity } from './auth/identity';
 
 // A plain function, not vi.fn: a failing vi.fn call is reported as an unhandled error.
 const mocks = vi.hoisted(() => ({
-	/** Cluster-wide Crew lists made with the dashboard's own account (where to look). */
+	/** Cluster-wide Crew lists made with the dashboard's own account. */
 	lists: 0,
-	/** Cluster-wide Crew lists made with the caller's token (the fallback). */
-	callerLists: 0,
 	/** What each self-review asked, in order. */
 	asked: [] as Record<string, string>[],
+	/** Namespaces of the agent heartbeat keys on the bus. */
+	heartbeatNamespaces: [] as string[],
+	/** Namespaces of the Crews the service account lists, when it may. */
 	crewNamespaces: [] as string[],
 	allowed: new Set<string>(),
 	listFails: false,
-	callerListFails: false,
+	busFails: false,
 	reviewFails: false,
 	namespaces: ['team-a', 'team-b'] as string[]
 }));
@@ -30,13 +31,6 @@ vi.mock('./k8s/client.js', () => ({
 			return { items: mocks.crewNamespaces.map((namespace) => ({ metadata: { namespace, name: 'c' } })) };
 		}
 	}),
-	getCustomObjectsApi: () => ({
-		listClusterCustomObject: async () => {
-			mocks.callerLists++;
-			if (mocks.callerListFails) throw new Error('forbidden');
-			return { items: mocks.crewNamespaces.map((namespace) => ({ metadata: { namespace, name: 'c' } })) };
-		}
-	}),
 	getAuthorizationApi: () => ({
 		createSelfSubjectAccessReview: async ({ body }: { body: { spec: { resourceAttributes: Record<string, string> } } }) => {
 			const attrs = body.spec.resourceAttributes;
@@ -44,6 +38,18 @@ vi.mock('./k8s/client.js', () => ({
 			if (mocks.reviewFails) throw new Error('unauthorized');
 			return { status: { allowed: mocks.allowed.has(attrs.namespace) } };
 		}
+	})
+}));
+vi.mock('./nats-client.js', () => ({
+	getNatsConnection: async () => {
+		if (mocks.busFails) throw new Error('nats down');
+		return { jetstream: () => ({ views: { kv: async () => ({}) } }) };
+	}
+}));
+vi.mock('./kv-snapshot.js', () => ({
+	readKvSnapshot: async (_kv: unknown, pick: (e: { key: string; operation: string }) => unknown) => ({
+		values: Object.fromEntries(mocks.heartbeatNamespaces.map((ns, i) => [`k${i}`, pick({ key: `${ns}.agent-${i}`, operation: 'PUT' })])),
+		complete: true
 	})
 }));
 
@@ -63,21 +69,22 @@ const SUBJECT = (ns: string) => `kubemoot.discuss.${ns}.crew.chan.thread`;
 
 const reviewed = () => mocks.asked.map((a) => a.namespace);
 
-/** The cluster has Crews in these namespaces, and the signed-in person may get them in `allowed`. */
+/** Agents run in these namespaces, and the signed-in person may get Crews in `allowed`. */
 function cluster(holding: string[], allowed: string[] = holding) {
-	mocks.crewNamespaces = holding;
+	mocks.heartbeatNamespaces = holding;
 	mocks.allowed = new Set(allowed);
 }
 
 beforeEach(() => {
 	mocks.lists = 0;
-	mocks.callerLists = 0;
 	mocks.asked = [];
 	mocks.listFails = false;
-	mocks.callerListFails = false;
+	mocks.busFails = false;
 	mocks.reviewFails = false;
+	mocks.crewNamespaces = [];
 	mocks.namespaces = ['team-a', 'team-b'];
 	delete process.env.KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR;
+	delete process.env.KUBEMOOT_DASHBOARD_CREW_NAMESPACE_DISCOVERY;
 	resetScopeCache();
 });
 
@@ -133,22 +140,35 @@ describe('NATS reads of a signed-in caller', () => {
 		});
 	});
 
-	it('see nothing when neither the service account nor the caller may list Crews (fails closed)', async () => {
+	it('see nothing when the bus cannot be read (fails closed)', async () => {
 		cluster(['team-a'], ['team-a']);
-		mocks.listFails = true;
-		mocks.callerListFails = true;
+		mocks.busFails = true;
 		await asCaller(async () => {
 			expect(await callerNamespaces()).toEqual(new Set());
 			expect(messageSubjectAllowed(SUBJECT('team-a'))).toBe(false);
 		});
 	});
 
-	it('fall back to the caller\'s own list when the service account may not list Crews, and still review each namespace', async () => {
-		cluster(['team-a', 'team-b'], ['team-a']);
+	it('never list Crews with the service account unless the chart granted it', async () => {
+		cluster(['team-a']);
+		mocks.crewNamespaces = ['team-b'];
+		await asCaller(async () => expect(await callerNamespaces()).toEqual(new Set(['team-a'])));
+		expect(mocks.lists).toBe(0);
+	});
+
+	it('add the namespaces of Crews when the chart lets the service account list them', async () => {
+		process.env.KUBEMOOT_DASHBOARD_CREW_NAMESPACE_DISCOVERY = 'true';
+		cluster(['team-a'], ['team-a', 'team-b']);
+		mocks.crewNamespaces = ['team-b'];
+		await asCaller(async () => expect(await callerNamespaces()).toEqual(new Set(['team-a', 'team-b'])));
+		expect(mocks.lists).toBe(1);
+	});
+
+	it('keep the bus namespaces when the optional list fails', async () => {
+		process.env.KUBEMOOT_DASHBOARD_CREW_NAMESPACE_DISCOVERY = 'true';
+		cluster(['team-a']);
 		mocks.listFails = true;
 		await asCaller(async () => expect(await callerNamespaces()).toEqual(new Set(['team-a'])));
-		expect(mocks.callerLists).toBe(1);
-		expect(reviewed().sort((a, b) => a.localeCompare(b))).toEqual(['team-a', 'team-b']);
 	});
 
 	it('review only the namespaces the instance serves', async () => {
@@ -173,7 +193,6 @@ describe('NATS reads of a signed-in caller', () => {
 			await callerNamespaces();
 			await callerNamespaces();
 		});
-		expect(mocks.lists).toBe(1);
 		expect(reviewed()).toEqual(['team-a']);
 	});
 

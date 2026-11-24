@@ -6,8 +6,14 @@
 // list of the person's: a person with rights in one namespace sees that namespace's conversations
 // and no other.
 
-import { getAuthorizationApi, getCustomObjectsApi, getServiceAccountCustomObjectsApi } from './client.js';
+import { getAuthorizationApi, getServiceAccountCustomObjectsApi } from './client.js';
+import { readKvSnapshot } from '../kv-snapshot.js';
+import { crewNamespaceDiscovery } from '../mode.js';
+import { getNatsConnection } from '../nats-client.js';
 import { GROUP, VERSION } from './kubemoot-crds.js';
+
+/** The bucket of agent heartbeats, keyed `<namespace>.<agent>`. */
+const HEARTBEAT_BUCKET = 'kubemoot_agent_state';
 
 /** How many namespaces are reviewed at once. */
 export const REVIEW_CONCURRENCY = 8;
@@ -25,19 +31,35 @@ function namespacesOf(list: CrewList): string[] {
 }
 
 /**
- * The namespaces that hold at least one Crew, which is where a conversation can be. They are listed
- * with the dashboard's ServiceAccount (the chart grants it `list` on crews unless
- * `rbac.crewNamespaceDiscovery` is off); when that is refused, with the signed-in person's own token,
- * which then shows only what a cluster-wide reader may see. It says where to look, not what a person
- * may see: every namespace is reviewed with the person's token afterwards.
+ * The namespace of each agent key in the heartbeat bucket the dashboard already reads
+ * (`<namespace>.<agent>`): the namespaces that have run agents.
+ */
+export async function natsNamespaces(): Promise<string[]> {
+	const kv = await (await getNatsConnection()).jetstream().views.kv(HEARTBEAT_BUCKET, { bindOnly: true });
+	const { values } = await readKvSnapshot(kv, (entry) => (entry.operation === 'PUT' ? entry.key.split('.')[0] : undefined));
+	return [...new Set(Object.values(values).filter((ns): ns is string => typeof ns === 'string' && ns !== ''))];
+}
+
+/** The namespaces that hold a Crew, listed with the dashboard's ServiceAccount; only when the chart granted it. */
+async function listedNamespaces(): Promise<string[]> {
+	if (!crewNamespaceDiscovery()) return [];
+	return namespacesOf((await getServiceAccountCustomObjectsApi().listClusterCustomObject(listCrews)) as CrewList);
+}
+
+/**
+ * The namespaces to review for a person: those with agents on the bus, and, when the chart lets
+ * the ServiceAccount list Crews, those that hold a Crew. It says where to look, not what a person
+ * may see: every namespace is reviewed with the person's token afterwards. A source that fails
+ * adds nothing, so with none the answer is empty and the views show nothing.
  */
 export async function crewNamespaces(): Promise<string[]> {
-	try {
-		return namespacesOf((await getServiceAccountCustomObjectsApi().listClusterCustomObject(listCrews)) as CrewList);
-	} catch (err) {
-		console.warn(`The dashboard's ServiceAccount cannot list Crews (${errorClass(err)}); looking with the caller's own token`);
-		return namespacesOf((await getCustomObjectsApi().listClusterCustomObject(listCrews)) as CrewList);
+	const found = await Promise.allSettled([natsNamespaces(), listedNamespaces()]);
+	const names = new Set<string>();
+	for (const source of found) {
+		if (source.status === 'fulfilled') source.value.forEach((ns) => names.add(ns));
+		else console.warn(`A source of crew namespaces failed: ${errorClass(source.reason)}`);
 	}
+	return [...names];
 }
 
 /** What went wrong, by class and message only: an error never carries the token. */
@@ -52,7 +74,16 @@ export function errorClass(err: unknown): string {
 export async function mayGetCrews(namespace: string): Promise<boolean> {
 	try {
 		const review = await getAuthorizationApi().createSelfSubjectAccessReview({
-			body: { spec: { resourceAttributes: { namespace, verb: 'get', group: GROUP, resource: 'crews' } } }
+			body: {
+				spec: {
+					resourceAttributes: {
+						namespace,
+						verb: 'get',
+						group: GROUP,
+						resource: 'crews'
+					}
+				}
+			}
 		});
 		return review.status?.allowed === true;
 	} catch {

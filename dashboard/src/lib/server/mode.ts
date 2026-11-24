@@ -19,6 +19,8 @@
 //   KUBEMOOT_DASHBOARD_GATEWAY_URL=<url template>               (default: in-cluster Service)
 //       Where a crew's discussion gateway is; {crew} and {namespace} are replaced. Empty uses
 //       http://<crew>-discussion.<namespace>.svc.cluster.local.
+//   KUBEMOOT_DASHBOARD_CREW_NAMESPACE_DISCOVERY=true          (default: false)
+//       The ServiceAccount may list Crews, so namespaces holding crews are also found that way.
 //   KUBEMOOT_DASHBOARD_PROMETHEUS_URL=<url>                    (default: empty)
 //       A Prometheus the dashboard reads node accelerator busy and memory from (chart value
 //       metrics.prometheusUrl). Empty shows no busy or memory bars.
@@ -30,6 +32,7 @@
 export const NAMESPACE_SELECTOR_ENV = 'KUBEMOOT_DASHBOARD_NAMESPACE_SELECTOR';
 export const INFRA_NAMESPACE_ENV = 'KUBEMOOT_DASHBOARD_INFRA_NAMESPACE';
 export const ANONYMOUS_READ_ONLY_ENV = 'KUBEMOOT_DASHBOARD_ANONYMOUS_READ_ONLY';
+export const CREW_NAMESPACE_DISCOVERY_ENV = 'KUBEMOOT_DASHBOARD_CREW_NAMESPACE_DISCOVERY';
 export const SESSION_MAX_MINUTES_ENV = 'KUBEMOOT_DASHBOARD_SESSION_MAX_MINUTES';
 export const GATEWAY_URL_ENV = 'KUBEMOOT_DASHBOARD_GATEWAY_URL';
 export const PROMETHEUS_URL_ENV = 'KUBEMOOT_DASHBOARD_PROMETHEUS_URL';
@@ -66,6 +69,11 @@ export function dashboardMode(): DashboardMode {
 /** True when a visitor who has not signed in may see the read views (never ask or change). */
 export function anonymousReadOnly(): boolean {
 	return (process.env[ANONYMOUS_READ_ONLY_ENV] ?? '').trim().toLowerCase() === 'true';
+}
+
+/** True when the ServiceAccount may list Crews to find namespaces (chart value rbac.crewNamespaceDiscovery). */
+export function crewNamespaceDiscovery(): boolean {
+	return (process.env[CREW_NAMESPACE_DISCOVERY_ENV] ?? '').trim().toLowerCase() === 'true';
 }
 
 /** How long a sign-in lasts at most, in milliseconds. */
