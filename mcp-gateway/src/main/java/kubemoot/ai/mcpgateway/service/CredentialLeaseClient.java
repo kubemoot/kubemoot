@@ -108,7 +108,7 @@ public class CredentialLeaseClient {
         if (base == null || base.isBlank()) {
             return null;
         }
-        URI broker = URI.create(base.replaceAll("/+$", ""));
+        URI broker = URI.create(Urls.trimTrailingSlashes(base));
         if (config.leaseUrl() == null) {
             return URI.create(broker + LEASE_PATH);
         }
