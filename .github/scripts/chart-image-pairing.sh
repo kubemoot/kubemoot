@@ -16,11 +16,11 @@
 # that run finds every pin current.
 #
 # Filter semantics follow GitHub: "*" matches within a directory, "**" across them,
-# "?" one character, and the last pattern that matches a file decides (a "!" pattern
+# and the last pattern that matches a file decides (a "!" pattern
 # excludes what the patterns before it included). The parser reads the layout of this
 # repository's workflows: a top-level "on:" mapping with "push:" at two spaces,
 # "paths:" at four and the entries ("- pattern", at six) below it. A filter it cannot
-# read (paths-ignore, a "[" pattern, no paths list at the packaged commit, no git
+# read (paths-ignore, a "[", "?" or "+" pattern, no paths list at the packaged commit, no git
 # object) makes the rule undecidable, never "current".
 #
 # Source it from a script that has release-lib.sh of kubemoot/release-actions loaded.
@@ -44,7 +44,7 @@ workflow_push_paths() {
       sub(/^      -[[:space:]]*/, "")
       if (match($0, /^'\''[^'\'']*'\''/) || match($0, /^"[^"]*"/)) $0 = substr($0, 2, RLENGTH - 2)
       else { sub(/[[:space:]]+#.*$/, ""); sub(/[[:space:]]+$/, "") }
-      if ($0 ~ /\[/) { print "a [ pattern is not supported: " $0 > "/dev/stderr"; exit 3 }
+      if ($0 ~ /[[?+]/) { print "a [, ? or + pattern is not supported: " $0 > "/dev/stderr"; exit 3 }
       print
       next
     }
@@ -102,7 +102,7 @@ filter_at() {
 # NAME's release workflow had at COMMIT, "no" when not (a commit before the workflow
 # existed released nothing). Returns 1, printing why, when that cannot be told.
 commit_touches() {
-  local patterns files rc=0
+  local patterns files matched rc=0
   patterns=$(filter_at "$1" "$2") || rc=$?
   case "$rc" in
     0) ;;
@@ -110,9 +110,10 @@ commit_touches() {
     *) printf '%s\n' "$patterns"; return 1 ;;
   esac
   [ -n "$patterns" ] || { echo "yes"; return 0; }
-  files=$(git diff-tree -r -m --first-parent --root --no-commit-id --name-only "$1") \
+  files=$(git -c core.quotePath=false diff-tree -r -m --first-parent --root --no-commit-id --name-only "$1") \
     || { echo "cannot list the files of ${1}"; return 1; }
-  [ -n "$(touches_filter "$patterns" "$files")" ] && echo "yes" || echo "no"
+  matched=$(touches_filter "$patterns" "$files") || { echo "cannot match the filter of ${2} against ${1}"; return 1; }
+  [ -n "$matched" ] && echo "yes" || echo "no"
 }
 
 # stale_pins COMMIT PINS: for every "NAME VERSION" line of PINS (a "dashboard/NAME" line

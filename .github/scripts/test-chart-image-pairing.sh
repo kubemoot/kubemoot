@@ -44,6 +44,8 @@ check "pull_request paths before push are not the push filter" "a/**" \
 check "pull_request paths after push are not the push filter" "a/**" \
   "$(pf $'on:\n  push:\n    paths:\n      - a/**\n  pull_request:\n    paths:\n      - zzz/**\n')"
 check "paths-ignore is refused" 3 "$(pf_status $'on:\n  push:\n    paths-ignore:\n      - docs/**\n')"
+check "a ? pattern is refused" 3 "$(pf_status $'on:\n  push:\n    paths:\n      - \'a/b?.go\'\n')"
+check "a + pattern is refused" 3 "$(pf_status $'on:\n  push:\n    paths:\n      - \'a/b+.go\'\n')"
 check "a [ pattern is refused" 3 "$(pf_status $'on:\n  push:\n    paths:\n      - \'a/[ab].go\'\n')"
 
 # ---------------------------------------------------------------- the matcher
@@ -54,6 +56,7 @@ check "a single * stays in its directory" "" "$(tf 'operator/*.go' $'operator/pk
 check "a single * matches within the directory" yes "$(tf 'operator/*.go' $'operator/x.go')"
 check "a later ! pattern excludes" "" "$(tf $'operator/**\n!operator/**.md' $'operator/docs/a.md')"
 check "a ! pattern before the include does not exclude" yes "$(tf $'!operator/**.md\noperator/**' $'operator/docs/a.md')"
+check "a non-ASCII path name matches" yes "$(tf 'k/**' $'k/caf\xc3\xa9.go')"
 check "a . is literal" "" "$(tf 'a.b' $'axb')"
 check "the matcher finds one file among many" yes "$(tf 'k/**' $'z/1\nk/2')"
 

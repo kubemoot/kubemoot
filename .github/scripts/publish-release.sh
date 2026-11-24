@@ -69,6 +69,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/release-actions}"
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/release-chart-lib.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/chart-components.sh"
 
 RC_TAG="${RC_TAG:-latest}"
 DRY_RUN="${DRY_RUN:-true}"
@@ -95,11 +97,6 @@ cleanup() {
   [ -z "$CANDIDATE" ] || rm -rf "$(dirname "$CANDIDATE")"
 }
 trap cleanup EXIT
-
-# image_prefix NAME: the git tag prefix of an image's releases.
-image_prefix() {
-  if [ "$1" = "kubemoot-operator" ]; then echo "v"; else echo "$1-v"; fi
-}
 
 planned() {
   local n
@@ -154,7 +151,7 @@ collect_standalone() {
   local point="$1" name prefix rc
   for name in ${STANDALONE_IMAGES}; do
     planned "$name" && continue
-    prefix=$(image_prefix "$name")
+    prefix=$(component_tag_prefix "$name")
     rc=$(rl_latest_rc "$prefix" "$point")
     [ -n "$rc" ] || continue
     rl_tag_exists "${prefix}$(rl_final_of "${rc#"$prefix"}")" && continue
@@ -186,7 +183,7 @@ publish_image() {
   fi
   # An image an earlier release published (its final tag exists) is signed if it is not
   # yet, and attested only then.
-  rl_tag_exists "$(image_prefix "$name")${final}" && earlier=earlier
+  rl_tag_exists "$(component_tag_prefix "$name")${final}" && earlier=earlier
   rl_sign_artifact "${RELEASE_REGISTRY}/${name}" "$digest" $earlier
 }
 
@@ -369,7 +366,7 @@ main() {
 
   for i in "${!PLAN_NAMES[@]}"; do
     publish_image "${PLAN_NAMES[$i]}" "${PLAN_RCS[$i]}"
-    tag_final "$(image_prefix "${PLAN_NAMES[$i]}")" "${PLAN_RCS[$i]}"
+    tag_final "$(component_tag_prefix "${PLAN_NAMES[$i]}")" "${PLAN_RCS[$i]}"
   done
   push_charts
 
