@@ -33,7 +33,7 @@
 	import { browserTimeZone, conversationIds, exportHref, threadConversationId } from '#lib/conversation-export.js';
 	import { conversationTitle, runState } from '#lib/conversation-actions.js';
 	import type { ErasureReport } from '#lib/conversation-actions-client.js';
-	import { fetchConversationState, isActive, queueNote, runFromState } from '#lib/conversation-state.js';
+	import { fetchConversationState, isActive, queuedQuestions, runFromState, statusFromState, waitingText } from '#lib/conversation-state.js';
 	import type { ConversationState } from '#lib/types/bus.js';
 	import { page } from '$app/state';
 	import { AskBox, ConversationActions, OutsideFilterNote, ThreadDeleteDialog, ErasureReport as ErasureReportPanel, FilterBar } from '#lib/components/conversations/index.js';
@@ -305,11 +305,14 @@
 		};
 	});
 
+	const queued = $derived(queuedQuestions(convState));
+	const shownStatus = (t: { status: string; threadId: string }) =>
+		selected && t.threadId === selected.threadId ? statusFromState(convState, t.status) : t.status;
 	const waiting = $derived.by(() => {
 		if (!run.running) return '';
 		if (run.stopRequested) return 'Stopping...';
 		if (run.paused) return 'Paused. Resume it from the menu to continue.';
-		return (run.queuedOnly && queueNote(convState)) || 'The crew is working on an answer...';
+		return run.queuedOnly ? '' : 'The crew is working on an answer...';
 	});
 
 	onMount(() => {
@@ -347,7 +350,7 @@
 					{:else}
 						<span></span>
 					{/if}
-					<ThreadStatus status={t.status} />
+					<ThreadStatus status={shownStatus(t)} />
 				{/snippet}
 				{#each highlight(filter.q ? snippet(firstHit(t, filter.q) ?? conversationTitle(t), filter.q) : conversationTitle(t), filter.q) as piece, i (i)}{#if piece.hit}<mark>{piece.text}</mark>{:else}{piece.text}{/if}{/each}
 				{#snippet foot()}
@@ -365,7 +368,7 @@
 				{#if selected.crew}
 					<CrewBadge label={crewLabel($crewDirectory, selected.namespace, selected.crew)} title={crewTooltip($crewDirectory, selected.namespace, selected.crew)} />
 				{/if}
-				<ThreadStatus status={selected.status} />
+				<ThreadStatus status={shownStatus(selected)} />
 				{#snippet actions()}
 					<button class="action-btn" use:tooltip={ACTIONS.copyConversation} onclick={copyConversation} aria-label="Copy conversation"><CopyIcon done={copiedConversation} /></button>
 					<ConversationActions
@@ -407,6 +410,13 @@
 							{:else}
 								<div class="plain">{turn.text}</div>
 							{/if}
+						</div>
+					{/each}
+					{#each queued as q, i (i)}
+						<div class="bubble you queued-bubble">
+							<div class="bubble-head"><span class="who">You</span></div>
+							<div class="plain">{q.question}</div>
+							<div class="queued-note">{waitingText(q.ahead)}</div>
 						</div>
 					{/each}
 					{#if waiting}
@@ -474,6 +484,7 @@
 {/if}
 
 <style>
+	.queued-note { margin-top: 0.3rem; color: var(--color-text-muted); font-size: 0.78rem; }
 	.stopped { color: var(--color-text-muted); font-size: 0.85rem; }
 	.stopped strong { color: var(--color-text); font-weight: 600; margin-right: 0.35rem; }
 	.hint { color: var(--color-text-muted); font-size: 0.85rem; }

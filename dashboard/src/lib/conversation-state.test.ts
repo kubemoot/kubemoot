@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fetchConversationState, isActive, queueNote, runFromState } from './conversation-state';
+import { fetchConversationState, isActive, queueNote, queuedQuestions, runFromState, statusFromState, waitingText } from './conversation-state';
+import { statusLabel } from './thread-status';
 import type { ConversationState } from '#lib/types/bus.js';
 
 const scope = { namespace: 'ns', crew: 'pilot' };
@@ -63,5 +64,30 @@ describe('isActive', () => {
 		expect(isActive(state([{ state: 'finished' }, { state: 'queued' }]))).toBe(true);
 		expect(isActive(state([{ state: 'finished' }], 'finished'))).toBe(false);
 		expect(isActive(null)).toBe(false);
+	});
+});
+
+describe('the waiting question', () => {
+	const waiting = state([{ state: 'finished' }, { state: 'queued', question: 'And the nodes?', queuePosition: 3 }], 'queued');
+
+	it('is listed as the person\'s question with how many are ahead', () => {
+		expect(queuedQuestions(waiting)).toEqual([{ question: 'And the nodes?', ahead: 2 }]);
+		expect(queuedQuestions(null)).toEqual([]);
+		expect(queuedQuestions(state([{ state: 'running' }]))).toEqual([]);
+	});
+
+	it('says how many questions are ahead', () => {
+		expect(waitingText(0)).toBe('Waiting, next to be taken');
+		expect(waitingText(1)).toBe('Waiting, 1 question ahead');
+		expect(waitingText(2)).toBe('Waiting, 2 questions ahead');
+	});
+
+	it('shows Queued, or Active when a turn runs, instead of Closed while work is in flight', () => {
+		expect(statusFromState(waiting, 'closed')).toBe('queued');
+		expect(statusFromState(state([{ state: 'running' }, { state: 'queued', queuePosition: 2 }]), 'closed')).toBe('open');
+		expect(statusFromState(state([{ state: 'paused' }], 'paused'), 'closed')).toBe('open');
+		expect(statusFromState(state([{ state: 'finished' }], 'finished'), 'closed')).toBe('closed');
+		expect(statusFromState(null, 'synthesized')).toBe('synthesized');
+		expect(statusLabel('queued')).toBe('Queued');
 	});
 });
