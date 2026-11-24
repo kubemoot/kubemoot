@@ -185,8 +185,9 @@ func (h *Handler) renewCredential(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, credentialRenewal{ConversationID: id, ExpiresAt: expires.UTC().Format(time.RFC3339)})
 }
 
-// isOwner answers 404 for a conversation with no owner record and 403 for one the caller does
-// not own, and returns false after answering.
+// isOwner answers 404 for a conversation with no owner record and for one the caller does not
+// own, the one answer every conversation path gives so an id cannot be probed, and returns
+// false after answering.
 func (h *Handler) isOwner(w http.ResponseWriter, r *http.Request, scope crewscope.Scope, id string) bool {
 	store, ok := h.ownerStore(w, scope)
 	if !ok {
@@ -198,10 +199,8 @@ func (h *Handler) isOwner(w http.ResponseWriter, r *http.Request, scope crewscop
 	switch {
 	case err != nil:
 		h.failedCheck(w, scope, err)
-	case !found:
+	case !found, !sameOwner(owner, callerOf(r).Principal):
 		httpError(w, http.StatusNotFound, errConversationNotFound)
-	case !sameOwner(owner, callerOf(r).Principal):
-		httpError(w, http.StatusForbidden, "only the person who started the conversation may renew its credential")
 	default:
 		return true
 	}

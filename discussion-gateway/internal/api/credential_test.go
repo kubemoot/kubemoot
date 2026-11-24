@@ -229,8 +229,8 @@ func TestOnlyTheOwnerMayRenew(t *testing.T) {
 	r := newGrantRig(t, true, 0)
 	mine := personTokenUntil("person-1", time.Now().Add(10*time.Minute))
 	r.ask(t, mine, grantConv)
-	if resp := r.renew(t, personTokenUntil("person-2", time.Now().Add(20*time.Minute))); resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("another person: %d, want 403", resp.StatusCode)
+	if resp := r.renew(t, personTokenUntil("person-2", time.Now().Add(20*time.Minute))); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("another person: %d, want 404, as for any conversation that is not theirs", resp.StatusCode)
 	}
 	if r.held(t).Token() != mine {
 		t.Fatal("a non-owner changed the grant")
