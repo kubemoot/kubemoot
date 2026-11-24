@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	"github.com/kubemoot/kubemoot/operator/internal/gomem"
 	meshcontract "github.com/kubemoot/kubemoot/operator/pkg/mesh"
 )
 
@@ -140,6 +141,7 @@ func mounts(p SidecarPatch) []corev1.VolumeMount {
 func sidecarContainer(p SidecarPatch) corev1.Container {
 	always := corev1.ContainerRestartPolicyAlways
 	port := intstr.FromInt32(p.HTTPPort)
+	res := sidecarResources()
 	return corev1.Container{
 		Name:            SidecarContainerName,
 		Image:           p.Image,
@@ -148,16 +150,8 @@ func sidecarContainer(p SidecarPatch) corev1.Container {
 		Args:            []string{"--config=" + meshcontract.ContractDir + "/" + meshcontract.ContractFile},
 		Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: p.HTTPPort, Protocol: corev1.ProtocolTCP}},
 		VolumeMounts:    mounts(p),
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("25m"),
-				corev1.ResourceMemory: resource.MustParse("32Mi"),
-			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("250m"),
-				corev1.ResourceMemory: resource.MustParse("64Mi"),
-			},
-		},
+		Env:             gomem.With(nil, res),
+		Resources:       res,
 		SecurityContext: hardened(true),
 		// The start of the harness waits on this probe, so it must not depend on the harness:
 		// it passes when the sidecar listens. Readiness is state (NATS connected, the harness
@@ -169,6 +163,21 @@ func sidecarContainer(p SidecarPatch) corev1.Container {
 		},
 		ReadinessProbe: httpProbe("/readyz", port, 5),
 		LivenessProbe:  httpProbe("/healthz", port, 30),
+	}
+}
+
+// sidecarResources is the mesh sidecar's size: it uses about 1MiB of CPU at most and 16MiB of memory,
+// so the 64Mi limit is four times the largest use seen.
+func sidecarResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("5m"),
+			corev1.ResourceMemory: resource.MustParse("16Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
 	}
 }
 

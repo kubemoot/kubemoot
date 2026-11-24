@@ -93,8 +93,8 @@ func TestTheSidecarIsSmallAndLockedDown(t *testing.T) {
 	sc := applied(t).Spec.InitContainers[0]
 	req, lim, s := sc.Resources.Requests, sc.Resources.Limits, sc.SecurityContext
 	facts{
-		"cpu request":     {req.Cpu().String(), "25m"},
-		"memory request":  {req.Memory().String(), "32Mi"},
+		"cpu request":     {req.Cpu().String(), "5m"},
+		"memory request":  {req.Memory().String(), "16Mi"},
 		"cpu limit":       {lim.Cpu().String(), "250m"},
 		"memory limit":    {lim.Memory().String(), "64Mi"},
 		"non root":        {*s.RunAsNonRoot, true},

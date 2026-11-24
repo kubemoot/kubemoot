@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/gomem"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
@@ -433,6 +434,21 @@ func buildUserSidecars(mcpServer *kubemootv1alpha1.MCPServer) []corev1.Container
 	return sidecars
 }
 
+// defaultBridgeResources is the mcp-bridge sidecar's size: it uses about 3MiB at rest and 16MiB at
+// most, so the 64Mi limit is four times the largest use seen.
+func defaultBridgeResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("10m"),
+			corev1.ResourceMemory: resource.MustParse("16Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+	}
+}
+
 // withNamespaceEnv returns a copy of env with KUBEMOOT_NAMESPACE from the
 // downward API appended, unless env already sets it. MCP servers that build
 // namespaced subjects or keys (scheduling-mcp, workspace-access) read it.
@@ -712,6 +728,7 @@ func (r *MCPServerReconciler) applyBridgeSidecar(
 	})
 
 	restartAlways := corev1.ContainerRestartPolicyAlways
+	bridgeResources := defaultBridgeResources()
 	bridgeContainer := corev1.Container{
 		Name:            "mcp-bridge",
 		Image:           bridgeImage,
@@ -731,16 +748,8 @@ func (r *MCPServerReconciler) applyBridgeSidecar(
 			Name:      pipesVolName,
 			MountPath: bridgePipeDir,
 		}},
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("10m"),
-				corev1.ResourceMemory: resource.MustParse("16Mi"),
-			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("64Mi"),
-			},
-		},
+		Env:             gomem.With(nil, bridgeResources),
+		Resources:       bridgeResources,
 		SecurityContext: container.SecurityContext,
 		// Three-probe lifecycle. The crucial constraint: the MAIN
 		// container runs the MCP server THROUGH this bridge in exec mode

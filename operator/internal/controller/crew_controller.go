@@ -44,6 +44,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/internal/gomem"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/internal/netpol"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
@@ -551,6 +552,20 @@ func gatewayEnv(natsURL string, access *kubemootv1alpha1.DiscussionAccess) []cor
 	return append(env, gatewayAccessEnv(access)...)
 }
 
+// defaultGatewayResources is what a discussion gateway asks for and may use when the Crew sets
+// no spec.discussion.resources.
+func defaultGatewayResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("5m"),
+			corev1.ResourceMemory: resource.MustParse("48Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+}
+
 func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.Deployment {
 	name := r.gatewayName(crew)
 	replicas := int32(1)
@@ -560,17 +575,9 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 	// NATS URL from operator's own environment (set by helm values nats.url)
 	natsURL := os.Getenv("NATS_URL")
 
-	// Default resources
-	resources := corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("10m"),
-			corev1.ResourceMemory: resource.MustParse("16Mi"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("100m"),
-			corev1.ResourceMemory: resource.MustParse("64Mi"),
-		},
-	}
+	// Default resources: measured use is a few MiB at rest and 43MiB at most. There is no CPU
+	// limit: the gateway's start-up work is a short burst that a limit only slows.
+	resources := defaultGatewayResources()
 	if crew.Spec.Discussion != nil && crew.Spec.Discussion.Resources != nil {
 		resources = *crew.Spec.Discussion.Resources
 	}
@@ -605,7 +612,7 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 							Ports: []corev1.ContainerPort{
 								{Name: portNameHTTP, ContainerPort: crewGatewayPort, Protocol: corev1.ProtocolTCP},
 							},
-							Env: gatewayEnv(natsURL, discussionAccess(crew)),
+							Env: gomem.With(gatewayEnv(natsURL, discussionAccess(crew)), resources),
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: &noEscalation,
 								ReadOnlyRootFilesystem:   &nonRoot,

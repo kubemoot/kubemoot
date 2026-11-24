@@ -216,8 +216,8 @@ func TestSidecarPodKeepsSidecarResourcesAndIsBurstable(t *testing.T) {
 	agent.Spec.Harness.Name = "custom"
 	spec := buildSidecarPod(t, agent).Spec.Template.Spec
 	sc := spec.InitContainers[0]
-	wantQty(t, "sidecar request", sc.Resources.Requests, corev1.ResourceCPU, "25m")
-	wantQty(t, "sidecar request", sc.Resources.Requests, corev1.ResourceMemory, "32Mi")
+	wantQty(t, "sidecar request", sc.Resources.Requests, corev1.ResourceCPU, "5m")
+	wantQty(t, "sidecar request", sc.Resources.Requests, corev1.ResourceMemory, "16Mi")
 	wantQty(t, "sidecar limit", sc.Resources.Limits, corev1.ResourceCPU, "250m")
 	wantQty(t, "sidecar limit", sc.Resources.Limits, corev1.ResourceMemory, "64Mi")
 	h := spec.Containers[0]
