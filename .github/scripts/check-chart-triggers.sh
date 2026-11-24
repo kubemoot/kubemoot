@@ -7,6 +7,9 @@
 # Usage: check-chart-triggers.sh [REPO_ROOT]   (exit 0 = every image is covered)
 set -euo pipefail
 
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/chart-components.sh"
+
 root="${1:-.}"
 values="${root}/operator/chart/kubemoot-operator/values.yaml"
 chart_workflow="${root}/.github/workflows/release-chart.yaml"
@@ -20,18 +23,12 @@ triggers() {
   ' "$chart_workflow"
 }
 
-# The image names stamped from tags: "<key>: <name>:0.0.0" with no "/" in the name.
-stamped_images() {
-  grep -oE ':[[:space:]]+[a-z0-9-]+:0\.0\.0([[:space:]]|$)' "$values" \
-    | sed -E 's/^:[[:space:]]+//; s/:0\.0\.0.*$//' | sort -u
-}
-
 missing=0
 listed="$(triggers)"
 while IFS= read -r image; do
-  workflow="${root}/.github/workflows/release-${image}.yaml"
+  workflow="${root}/.github/workflows/$(component_workflow "$image")"
   if [ ! -f "$workflow" ]; then
-    echo "MISSING ${image}: no release workflow at .github/workflows/release-${image}.yaml"
+    echo "MISSING ${image}: no release workflow at .github/workflows/$(component_workflow "$image")"
     missing=$((missing + 1))
     continue
   fi
@@ -40,7 +37,7 @@ while IFS= read -r image; do
     echo "MISSING ${image}: \"${name}\" does not trigger the operator chart release"
     missing=$((missing + 1))
   fi
-done < <(stamped_images)
+done < <(stamped_images "$values")
 
 if [ "$missing" -gt 0 ]; then
   echo "${missing} image(s) would not reach the chart"
