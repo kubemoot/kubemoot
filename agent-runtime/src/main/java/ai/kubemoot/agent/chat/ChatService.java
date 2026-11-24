@@ -10,6 +10,8 @@ import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.mcp.WorkspaceTools;
 import ai.kubemoot.agent.mcp.WorkspaceScope;
+import ai.kubemoot.agent.nats.AnswerGrounding;
+import ai.kubemoot.agent.nats.NumberGrounding;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
 import ai.kubemoot.agent.modelserver.ChatModelPool;
@@ -529,6 +531,10 @@ public class ChatService {
     // answered without running execute_code before failing (never emit an
     // in-head number). See AgentProperties.Discuss.computeContract().
     static final int MAX_COMPUTE_RETRIES = 2;
+    // Re-prompts for figures no tool result holds (compute grounding) before the answer is withheld.
+    static final int MAX_GROUNDING_RETRIES = 1;
+    // Most characters of tool results kept for the compute grounding check.
+    private static final int MAX_SEEN_RESULT_CHARS = 4_000_000;
     // The workspace mount, and the [CALL key=...] lines that describe the stored files in a
     // contribution. The contract uses them to require that the compute agent reads the FILE. The
     // old mount, /artifacts/, is mounted beside it for one release, so code that opens either path
@@ -983,8 +989,13 @@ public class ChatService {
         if (computeContractNeedsRetry(aiMessage, state)) {
             return java.util.Optional.empty();
         }
+        // Compute grounding: a figure no tool result holds is sent back once, then withheld.
+        var grounded = groundedComputeAnswer(aiMessage, state);
+        if (grounded.isEmpty()) {
+            return java.util.Optional.empty();
+        }
         // No raw-output contract (or no tools ran): this agent reasons to its own answer.
-        return resolveReasonedText(aiMessage, state, serverName, pickReason);
+        return resolveReasonedText(grounded.get(), state, serverName, pickReason);
     }
 
     /**
@@ -1101,6 +1112,41 @@ public class ChatService {
         throw new ToolCallFailure(ToolCallFailure.FailureType.COMPUTE_CONTRACT_UNSATISFIED,
                 null, null, state.computeRetries,
                 "compute agent " + why + " after " + MAX_COMPUTE_RETRIES + " prompts");
+    }
+
+    /**
+     * Compute grounding (KUBEMOOT_DISCUSS_COMPUTE_GROUNDING): the figures of a compute agent's answer
+     * must occur in a result a tool returned to it or in the input it was given (NumberGrounding). A
+     * figure that occurs in neither is sent back once, and when it stays the answer becomes a NO_DATA
+     * statement that reports no figure. Returns empty when a re-prompt was queued (the caller
+     * continues the loop), else the message to answer with: the model's own when it is grounded or the
+     * check is off, or the withheld statement.
+     */
+    private boolean computeGroundingApplies(AiMessage aiMessage, ToolLoopState state) {
+        return properties.discuss().computeGrounding() && state.toolsExecuted
+                && !isNoDataDeclaration(aiMessage.text());
+    }
+
+    private java.util.Optional<AiMessage> groundedComputeAnswer(AiMessage aiMessage, ToolLoopState state) {
+        if (!computeGroundingApplies(aiMessage, state)) {
+            return java.util.Optional.of(aiMessage);
+        }
+        String answer = THINK_BLOCK.matcher(aiMessage.text() == null ? "" : aiMessage.text()).replaceAll(" ");
+        var ungrounded = NumberGrounding.ungrounded(answer, List.of(state.inputText(), state.seenResults.toString()));
+        if (ungrounded.isEmpty()) {
+            return java.util.Optional.of(aiMessage);
+        }
+        if (state.groundingRetries < MAX_GROUNDING_RETRIES) {
+            state.groundingRetries++;
+            state.allMessages.add(new UserMessage(NumberGrounding.reprompt(ungrounded)));
+            log.info("compute-grounding: agent {} stated {} figure(s) no result holds ({}) - re-prompt {}/{}",
+                    properties.agentName(), ungrounded.size(), AnswerGrounding.list(ungrounded),
+                    state.groundingRetries, MAX_GROUNDING_RETRIES);
+            return java.util.Optional.empty();
+        }
+        log.info("compute-grounding: agent {} kept {} figure(s) no result holds ({}) - answer withheld",
+                properties.agentName(), ungrounded.size(), AnswerGrounding.list(ungrounded));
+        return java.util.Optional.of(AiMessage.from(NumberGrounding.withheld(ungrounded)));
     }
 
     /**
@@ -1340,6 +1386,7 @@ public class ChatService {
         var admitted = budget.admit(toolRequest.name(), raw, toolerRawOutput, artifactKey);
         state.allMessages.add(new ToolExecutionResultMessage(
                 toolRequest.id(), toolRequest.name(), admitted.text()));
+        state.noteSeen(admitted.text());
         state.toolsExecuted = true;
         state.toolCalls++;
         if (admitted.replaced()) {
@@ -1569,6 +1616,16 @@ public class ChatService {
         ToolCallLedger ledger;
         int emptyNoToolsRetries = 0;
         int computeRetries = 0;
+        int groundingRetries = 0;
+        // What the tools returned to the model, for the compute grounding check; bounded.
+        final StringBuilder seenResults = new StringBuilder();
+
+        void noteSeen(String text) {
+            if (text != null && seenResults.length() < MAX_SEEN_RESULT_CHARS) {
+                seenResults.append(text, 0, Math.min(text.length(), MAX_SEEN_RESULT_CHARS - seenResults.length()))
+                        .append('\n');
+            }
+        }
         // True once an execute_code call's arguments referenced the artifact mount
         // (/kubemoot/workspace/...), i.e. the agent read the materialized FILE rather than
         // computing over the inline preview. Drives the compute contract.
@@ -1599,6 +1656,18 @@ public class ChatService {
         ToolLoopState(List<ChatMessage> messages) {
             this.allMessages = new ArrayList<>(messages);
             this.inputMessages = messages.size();
+        }
+
+        /** The text of the input the loop started with (the question and contributions), not the system prompt. */
+        String inputText() {
+            StringBuilder sb = new StringBuilder();
+            for (ChatMessage m : allMessages.subList(0, inputMessages)) {
+                String text = inputMessageText(m);
+                if (text != null) {
+                    sb.append(text).append('\n');
+                }
+            }
+            return sb.toString();
         }
 
         /**
