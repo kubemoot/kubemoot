@@ -340,8 +340,9 @@ large to post in the discussion by its key. The server reads the workspace from 
 chart value `nats.url` (a bundle's `tools.yaml` holds the literal) defaults to where the
 quickstart installs NATS. The crew needs a Kubemoot with the workspace names (0.95 or later).
 
-**Limits.** The prompts carry the namespace name, which Helm fills in at install, so a
-rendered bundle is tied to its namespace.
+**Limits.** The prompts name no namespace: Kubemoot tells each agent the namespace it runs in.
+A bundle's `access/rbac.yaml` still names one in its RoleBinding, so a bundle is bound to
+the namespace it was scaffolded for until you change that line.
 
 **Example (interactive):**
 
