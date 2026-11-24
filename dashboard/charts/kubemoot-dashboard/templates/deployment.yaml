@@ -38,6 +38,8 @@ spec:
               value: {{ .Chart.AppVersion | quote }}
             - name: KUBEMOOT_DASHBOARD_ANONYMOUS_READ_ONLY
               value: {{ .Values.auth.anonymousReadOnly | quote }}
+            - name: KUBEMOOT_DASHBOARD_CREW_NAMESPACE_DISCOVERY
+              value: {{ .Values.rbac.crewNamespaceDiscovery | quote }}
             - name: KUBEMOOT_DASHBOARD_SESSION_MAX_MINUTES
               value: {{ .Values.auth.sessionMaxMinutes | quote }}
             {{- with .Values.auth.origin }}
