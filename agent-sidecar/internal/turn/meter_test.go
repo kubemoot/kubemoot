@@ -121,3 +121,22 @@ func TestRememberKeepsAtMostMaxAnsweredAndDropsTheOldest(t *testing.T) {
 		t.Fatalf("newest missing or map holds %d", len(m.answered))
 	}
 }
+
+func TestMeterInfoIsWhatTheTurnWasOpenedWith(t *testing.T) {
+	m := NewMeter(Info{ThreadID: "t-1", TimeZone: "America/New_York"})
+	if got := m.Info(); got.ThreadID != "t-1" || got.TimeZone != "America/New_York" {
+		t.Fatalf("Info() = %+v", got)
+	}
+}
+
+func TestRegistryLastCallIsZeroUntilAModelCallFinishes(t *testing.T) {
+	r := NewRegistry()
+	if !r.LastCall().IsZero() {
+		t.Fatal("LastCall before any call should be the zero time")
+	}
+	m := r.Open("k", Info{ThreadID: "t"})
+	m.ModelCall("s", "m", "", 1, 1, 0)
+	if r.LastCall().IsZero() {
+		t.Fatal("LastCall not set after a finished model call")
+	}
+}
