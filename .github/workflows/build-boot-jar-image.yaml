@@ -54,6 +54,8 @@ jobs:
 
       # main pushes :<sha>, which the release retags, and :latest; any other ref pushes
       # only :branch-<sha> (build-image-buildpacks.sh decides the tags per ref).
+      # Spring Cloud Bindings is left out: Kubemoot reads no service bindings, and the
+      # buildpack's copy implements an interface Spring Boot 4 moved, so it stops startup.
       - name: Build and push with Paketo buildpacks
         env:
           REGISTRY_HOST_IP: ${{ vars.REGISTRY_HOST_IP }}
@@ -66,6 +68,7 @@ jobs:
             --sha "${SHA}" --ref "${GITHUB_REF}" \
             --builder builder-java-tiny --run-image run-tiny \
             --env "BP_JVM_VERSION=${JAVA_VERSION}" \
+            --env BP_SPRING_CLOUD_BINDINGS_DISABLED=true \
             --env BP_OCI_SOURCE=https://github.com/kubemoot/kubemoot \
             --env BP_OCI_LICENSES=Apache-2.0 \
             --env "BP_OCI_REVISION=${SHA}" \
