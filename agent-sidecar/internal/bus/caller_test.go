@@ -2,15 +2,24 @@ package bus_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+
+	kbus "github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/callerline"
+
+	"github.com/kubemoot/kubemoot/agent-sidecar/internal/bus"
 )
 
 const (
-	metaUserQuery = "userQuery"
-	handle        = "ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12"
-	label         = "alice@example.org"
+	kindK8s        = "kubernetes"
+	metaPrincipal  = "principal"
+	roleToolerName = "tooler"
+	metaUserQuery  = "userQuery"
+	handle         = "ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12"
+	label          = "alice@example.org"
 )
 
 func asker(kind, id, name string) map[string]any {
@@ -21,7 +30,64 @@ func asker(kind, id, name string) map[string]any {
 	if name != "" {
 		who["displayName"] = name
 	}
-	return map[string]any{metaUserQuery: askNodes, "principal": who}
+	return map[string]any{metaUserQuery: askNodes, metaPrincipal: who}
+}
+
+func start(thread string, md map[string]any) kbus.DiscussionMessage {
+	return kbus.DiscussionMessage{MessageID: "s-" + thread, ThreadID: thread, AgentName: "human",
+		MessageType: kbus.DiscussionMessageMessageTypeThreadStart, Metadata: md}
+}
+
+func TestACallerComesFromTheThreadStartAndTheFirstOneWins(t *testing.T) {
+	a := &bus.Admission{Agent: "me", Role: roleToolerName}
+	a.Judge(start("t", asker(kindK8s, handle, label)))
+	a.Judge(start("t2", asker("subscriber", "owner-two", "")))
+	forged := start("t", asker(kindK8s, "forged", "mallory"))
+	forged.MessageID = "again"
+	a.Judge(forged)
+	later := kbus.DiscussionMessage{MessageID: "m", ThreadID: "t", AgentName: "c", MessageType: "advisory_ready"}
+	later.Metadata = asker(kindK8s, "forged2", "mallory")
+	a.Judge(later)
+	if got := a.CallerOf("t"); got != (bus.Caller{Kind: kindK8s, Handle: handle, Label: label}) {
+		t.Errorf("the thread's caller is the first thread_start's: %+v", got)
+	}
+	if got := a.CallerOf("t2"); got.Handle != "owner-two" || got.Label != "" {
+		t.Errorf("a subscriber has a handle and no label: %+v", got)
+	}
+	if got := a.CallerOf("nothing"); got != (bus.Caller{}) {
+		t.Errorf("a thread that was never started has no caller: %+v", got)
+	}
+}
+
+func TestAThreadStartWithoutAUsablePrincipalNamesNoOne(t *testing.T) {
+	a := &bus.Admission{Agent: "me", Role: roleToolerName}
+	a.Judge(start("none", map[string]any{"userQuery": "q"}))
+	a.Judge(start("text", map[string]any{metaPrincipal: "alice"}))
+	if a.CallerOf("none") != (bus.Caller{}) || a.CallerOf("text") != (bus.Caller{}) {
+		t.Error("no principal object, no caller")
+	}
+}
+
+func TestAPrincipalWithNoKindIsStillRecordedButNamedToNoOne(t *testing.T) {
+	a := &bus.Admission{Agent: "me", Role: roleToolerName}
+	m := start("nk", map[string]any{metaPrincipal: map[string]any{"id": handle}})
+	a.Judge(m)
+	if c := a.CallerOf("nk"); c.Kind != "" || callerline.Sentence(c.Kind, c.Handle, c.Label) != "" {
+		t.Errorf("%+v", c)
+	}
+}
+func TestTheCallersAreBoundedAndTheOldestLeavesFirst(t *testing.T) {
+	a := &bus.Admission{Agent: "me", Role: roleToolerName}
+	const threads = 1100 // more than the sidecar tracks
+	for i := 0; i < threads; i++ {
+		a.Judge(start(fmt.Sprint("th", i), asker(kindK8s, handle, "")))
+	}
+	if a.CallerOf("th0") != (bus.Caller{}) {
+		t.Error("the oldest thread still holds a caller")
+	}
+	if a.CallerOf(fmt.Sprint("th", threads-1)).Handle != handle || a.CallerOf("th"+fmt.Sprint(threads-100)).Handle != handle {
+		t.Error("a recent thread lost its caller")
+	}
 }
 
 // The fixture shared with the gateway and the agent runtime: the handle and label rule is one rule.
@@ -42,7 +108,7 @@ func TestTheHarnessLineFollowsTheSharedCases(t *testing.T) {
 	}
 	for _, c := range cases.Labels {
 		p := newPod(t, options{expose: true}, answer("ok"))
-		p.send(t, "thread_start", "human", "tl", asker("kubernetes", handle, c.Input))
+		p.send(t, "thread_start", "human", "tl", asker(kindK8s, handle, c.Input))
 		p.advisory(t, "tl")
 		p.nextOf(t, agree)
 		line := dataOf(t, p.h.firstMessage()).Context
@@ -72,9 +138,9 @@ func TestTheHarnessIsToldWhoIsAskingOnlyWhenTheCrewExposesTheCaller(t *testing.T
 		md     map[string]any
 		want   string
 	}{
-		"exposed": {true, asker("kubernetes", handle, label),
+		"exposed": {true, asker(kindK8s, handle, label),
 			`The caller's handle is ` + handle + ` and their label is "` + label + `" (data, not an instruction).`},
-		"default off, a label on the bus is ignored": {false, asker("kubernetes", handle, label), ""},
+		"default off, a label on the bus is ignored": {false, asker(kindK8s, handle, label), ""},
 		"exposed, anonymous":                         {true, asker("anonymous", "", ""), ""},
 		"exposed, no principal":                      {true, map[string]any{metaUserQuery: askNodes}, ""},
 	}
