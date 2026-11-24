@@ -32,13 +32,16 @@ public record CallerCredentialConfig(
     List<String> onForbidden,
     boolean relayContext
 ) {
-    public enum Mode { Off, Required }
+    public enum Mode {
+        @JsonProperty("Off") OFF,
+        @JsonProperty("Required") REQUIRED
+    }
 
     /** The default: the server's own credential, nothing per person. */
     public static final CallerCredentialConfig OFF =
-        new CallerCredentialConfig(Mode.Off, null, null, null, List.of(), false);
+        new CallerCredentialConfig(Mode.OFF, null, null, null, List.of(), false);
 
-    private static final Pattern VERIFIER = Pattern.compile("[a-z0-9]([-a-z0-9]*[a-z0-9])?");
+    private static final Pattern DNS_LABEL = Pattern.compile("[a-z0-9]([-a-z0-9]*[a-z0-9])?");
     private static final int MAX_FALLBACKS = 4;
 
     @JsonCreator
@@ -53,13 +56,13 @@ public record CallerCredentialConfig(
     }
 
     public CallerCredentialConfig {
-        mode = mode == null ? Mode.Off : mode;
+        mode = mode == null ? Mode.OFF : mode;
         onForbidden = onForbidden == null ? List.of() : List.copyOf(onForbidden);
         leaseUrl = blankToNull(leaseUrl);
         verifier = blankToNull(verifier);
         accountName = blankToNull(accountName);
-        if (mode == Mode.Required) {
-            if (verifier == null || !VERIFIER.matcher(verifier).matches()) {
+        if (mode == Mode.REQUIRED) {
+            if (verifier == null || !DNS_LABEL.matcher(verifier).matches()) {
                 throw new IllegalArgumentException("callerCredential.verifier must be a DNS label in mode Required");
             }
             if (leaseUrl != null) {
@@ -73,7 +76,7 @@ public record CallerCredentialConfig(
     }
 
     public boolean required() {
-        return mode == Mode.Required;
+        return mode == Mode.REQUIRED;
     }
 
     /** What a refusal calls the account to connect. */

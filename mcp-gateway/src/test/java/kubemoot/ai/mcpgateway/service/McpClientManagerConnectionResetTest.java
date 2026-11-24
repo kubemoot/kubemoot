@@ -331,11 +331,10 @@ class McpClientManagerConnectionResetTest {
     }
 
     /** The count stays at the expected value for a window; a count that has not moved is a state, not a delay. */
-    private static void assertStaysAt(int expected, java.util.function.IntSupplier count, String why)
-            throws InterruptedException {
+    private static void assertStaysAt(int expected, java.util.function.IntSupplier count, String why) {
         for (int i = 0; i < 8; i++) {
             assertEquals(expected, count.getAsInt(), why);
-            Thread.sleep(50);
+            Mono.delay(Duration.ofMillis(50)).block();
         }
     }
 

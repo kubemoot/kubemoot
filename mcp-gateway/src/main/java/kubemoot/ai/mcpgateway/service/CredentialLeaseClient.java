@@ -108,16 +108,16 @@ public class CredentialLeaseClient {
         if (base == null || base.isBlank()) {
             return null;
         }
-        URI broker = URI.create(Urls.trimTrailingSlashes(base));
+        URI brokerUri = URI.create(Urls.trimTrailingSlashes(base));
         if (config.leaseUrl() == null) {
-            return URI.create(broker + LEASE_PATH);
+            return URI.create(brokerUri + LEASE_PATH);
         }
         // The gateway's own token goes only to the broker it is configured with, whatever a
         // registration says: a lease address must share that address's scheme, host and port.
         URI requested = URI.create(config.leaseUrl());
-        boolean sameOrigin = broker.getScheme().equalsIgnoreCase(requested.getScheme())
-            && broker.getHost().equalsIgnoreCase(requested.getHost())
-            && broker.getPort() == requested.getPort();
+        boolean sameOrigin = brokerUri.getScheme().equalsIgnoreCase(requested.getScheme())
+            && brokerUri.getHost().equalsIgnoreCase(requested.getHost())
+            && brokerUri.getPort() == requested.getPort();
         if (!sameOrigin) {
             log.warn("Credential lease refused: the registered lease address is not the configured broker");
             return null;
