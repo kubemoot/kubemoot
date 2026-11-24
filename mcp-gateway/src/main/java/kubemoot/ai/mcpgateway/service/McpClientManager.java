@@ -413,12 +413,10 @@ public class McpClientManager {
         servers.put(registration.id(), registration);
 
         String baseUrl = registration.url();
-        if (isStreamableHttp(registration.transport())) {
-            if (Urls.endsWithMcp(baseUrl)) {
-                String slash = baseUrl.endsWith("/") ? "/" : "";
-                baseUrl = baseUrl.substring(0, baseUrl.length() - "/mcp".length() - slash.length());
-                mcpPaths.put(registration.id(), "/mcp" + slash);
-            }
+        if (isStreamableHttp(registration.transport()) && Urls.endsWithMcp(baseUrl)) {
+            String slash = baseUrl.endsWith("/") ? "/" : "";
+            baseUrl = baseUrl.substring(0, baseUrl.length() - "/mcp".length() - slash.length());
+            mcpPaths.put(registration.id(), "/mcp" + slash);
         }
         // A per-server clone, so a default header never reaches another server. Redirects are not
         // followed (Reactor Netty default), so the header is never re-sent to another host.
