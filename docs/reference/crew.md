@@ -148,7 +148,7 @@ Setting `access` turns verification on. A caller sends its Kubernetes token as `
 
 ### What the agents are told about the caller
 
-`spec.discussion.identity.exposeToAgents` (default `false`) puts the caller in each native agent's turn context: the opaque handle (the principal's hashed id) and, for a Kubernetes caller, the user name as a label. Off, no prompt changes and no user name is on the bus. It needs `access`: a Crew with `exposeToAgents: true` and no `access` is refused. See [Telling the agents who is asking](../../concepts/who-is-asking/#telling-the-agents-who-is-asking).
+`spec.discussion.identity.exposeToAgents` (default `false`) puts the caller in each agent's turn context, native or harness: the opaque handle (the principal's hashed id) and, for a Kubernetes caller, the user name as a label. Off, no prompt changes and no user name is on the bus. It needs `access`: a Crew with `exposeToAgents: true` and no `access` is refused. See [Telling the agents who is asking](../../concepts/who-is-asking/#telling-the-agents-who-is-asking).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

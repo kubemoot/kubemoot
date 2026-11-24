@@ -963,6 +963,9 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 // crewOf is the Crew of a namespace (a crew maps to a namespace), or nil when there is none or the
 // list cannot be read.
 func (r *AgentReconciler) crewOf(ctx context.Context, namespace string) *kubemootv1alpha1.Crew {
+	if r.Client == nil {
+		return nil
+	}
 	list := &kubemootv1alpha1.CrewList{}
 	if err := r.List(ctx, list, client.InNamespace(namespace)); err != nil || len(list.Items) == 0 {
 		return nil

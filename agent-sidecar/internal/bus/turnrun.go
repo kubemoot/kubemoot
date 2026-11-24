@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	kbus "github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/callerline"
 
 	"github.com/kubemoot/kubemoot/agent-sidecar/internal/a2a"
 	"github.com/kubemoot/kubemoot/agent-sidecar/internal/obs"
@@ -229,8 +230,17 @@ func (t *turnRun) message() *sdk.Message {
 		Models: t.r.ModelAliases, TurnKey: t.key, DeadlineSeconds: t.r.Turn.DeadlineSeconds,
 		Now: time.Now().UTC().Format(time.RFC3339)}
 	in.RequestDate, in.TimeZone = t.meter.Info().RequestDate, t.meter.Info().TimeZone
-	in.Context = a2a.ContextLine(in.RequestDate, in.TimeZone, t.r.ID.Namespace, t.r.ID.Crew)
+	in.Context = a2a.ContextLine(in.RequestDate, in.TimeZone, t.r.ID.Namespace, t.r.ID.Crew, t.callerSentence())
 	return a2a.NewTurn(t.msg.ThreadID, questionOf(t.msg), in)
+}
+
+// callerSentence says who is asking, only when the crew exposes the caller to its agents.
+func (t *turnRun) callerSentence() string {
+	if !t.r.ExposeCaller {
+		return ""
+	}
+	c := t.r.admit.CallerOf(t.msg.ThreadID)
+	return callerline.Sentence(c.Kind, c.Handle, c.Label)
 }
 
 func phaseOf(t kbus.DiscussionMessageMessageType) string {

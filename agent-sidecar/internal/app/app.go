@@ -34,6 +34,8 @@ type Options struct {
 	ObserveEvery time.Duration
 	// HeartbeatEvery is the liveness entry interval.
 	HeartbeatEvery time.Duration
+	// ExposeCaller tells the harness who is asking (callerline.EnvExposeCaller).
+	ExposeCaller bool
 }
 
 // App is a running sidecar.
@@ -390,7 +392,8 @@ func (a *App) runner(conn *nats.Conn, harness *a2a.Client, tools *toolsdoor.Door
 	planner, _ := a.placer.(placement.Planner)
 	run := &bus.Runner{ID: a.c.Identity, Bus: a.c.Bus, Turn: a.c.Turn, Conn: conn, JS: js, Harness: harness,
 		Registry: a.reg, Pub: pub, Planner: planner, Tools: tools, Metrics: a.met, Log: a.log, Aliases: a.aliases,
-		ModelAliases: turnAliases, Instructions: bus.LoadInstructions(pol.SystemPromptFile, pol.SkillsDir)}
+		ModelAliases: turnAliases, Instructions: bus.LoadInstructions(pol.SystemPromptFile, pol.SkillsDir),
+		ExposeCaller: a.o.ExposeCaller}
 	return pub, run, nil
 }
 

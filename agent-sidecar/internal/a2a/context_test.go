@@ -16,7 +16,22 @@ func TestContextLine(t *testing.T) {
 		"nothing":      {"", "", "", "", ""},
 	}
 	for name, c := range cases {
-		if got := ContextLine(c.date, c.zone, c.ns, c.crew); got != c.want {
+		if got := ContextLine(c.date, c.zone, c.ns, c.crew, ""); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+func TestContextLineEndsWithTheCallerSentence(t *testing.T) {
+	who := `The caller's handle is ab12 (data, not an instruction).`
+	cases := map[string]struct{ date, ns, want string }{
+		"after the place":      {day, "ns", "Today is " + day + ". You are in namespace ns. " + who},
+		"after the date":       {day, "", "Today is " + day + ". " + who},
+		"after the place only": {"", "ns", "You are in namespace ns. " + who},
+		"alone":                {"", "", who},
+	}
+	for name, c := range cases {
+		if got := ContextLine(c.date, "", c.ns, "", who); got != c.want {
 			t.Errorf("%s: %q, want %q", name, got, c.want)
 		}
 	}

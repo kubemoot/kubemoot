@@ -44,8 +44,10 @@ type TurnInput struct {
 // ContextLine is the turn context line, for example "Today is 2026-11-20 (America/New_York).
 // You are in namespace crew-homelab-pilot, crew homelab-pilot." A part that is not known is left
 // out. It carries the date and never a clock time, so it is the same for every turn of a
-// discussion. The native agents build the same line (agent-runtime, TurnContext); change them together.
-func ContextLine(requestDate, timeZone, namespace, crew string) string {
+// discussion. caller is the sentence that says who is asking (callerline.Sentence), added at the
+// end; empty adds nothing, which is every crew's default. The native agents build the same line
+// (agent-runtime, TurnContext); change them together.
+func ContextLine(requestDate, timeZone, namespace, crew, caller string) string {
 	var parts []string
 	if requestDate != "" {
 		today := "Today is " + requestDate
@@ -56,6 +58,9 @@ func ContextLine(requestDate, timeZone, namespace, crew string) string {
 	}
 	if place := placeOf(namespace, crew); place != "" {
 		parts = append(parts, "You are in "+place+".")
+	}
+	if caller != "" {
+		parts = append(parts, caller)
 	}
 	return strings.Join(parts, " ")
 }

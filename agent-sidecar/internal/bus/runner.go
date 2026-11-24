@@ -72,6 +72,10 @@ type Runner struct {
 	WarnEvery time.Duration
 	// MaxDeliver is the consumer's delivery limit; zero means the operator's 3.
 	MaxDeliver int
+	// ExposeCaller adds who is asking to the turn's context line (the crew's
+	// spec.discussion.identity.exposeToAgents, KUBEMOOT_EXPOSE_CALLER). Off, the default, no
+	// prompt changes.
+	ExposeCaller bool
 
 	admit *Admission
 	once  sync.Once

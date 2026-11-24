@@ -74,14 +74,16 @@ type Admission struct {
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 
-	mu       sync.Mutex
-	seen     map[string]struct{}
-	order    []string
-	closed   map[string]bool
-	threads  map[string][]a2a.ThreadEntry
-	perThr   map[string]int
-	window   time.Time
-	inWindow int
+	mu          sync.Mutex
+	seen        map[string]struct{}
+	order       []string
+	closed      map[string]bool
+	threads     map[string][]a2a.ThreadEntry
+	perThr      map[string]int
+	callers     map[string]Caller
+	callerOrder []string // oldest first
+	window      time.Time
+	inWindow    int
 }
 
 func (a *Admission) now() time.Time {
@@ -128,6 +130,7 @@ func (a *Admission) init() {
 	}
 	a.seen, a.closed = map[string]struct{}{}, map[string]bool{}
 	a.threads, a.perThr = map[string][]a2a.ThreadEntry{}, map[string]int{}
+	a.callers = map[string]Caller{}
 }
 
 func (a *Admission) remember(id string) {
@@ -151,6 +154,7 @@ func (a *Admission) track(m kbus.DiscussionMessage) {
 	case m.MessageType == typeReply && m.AgentName == "human":
 		delete(a.closed, m.ThreadID)
 	}
+	a.noteCaller(m)
 	entry := a2a.ThreadEntry{Agent: m.AgentName, Type: string(m.MessageType), Content: m.Content}
 	entries := append(a.threads[m.ThreadID], entry)
 	if len(entries) > maxThreadEntries {
@@ -229,4 +233,43 @@ func (a *Admission) Thread(id string) []a2a.ThreadEntry {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return slices.Clone(a.threads[id])
+}
+
+// Caller is who asked a thread, as the door that verified them stamped it on the thread's
+// thread_start: kind, the opaque handle (the principal's hashed id) and the label, which is set
+// only on a crew that exposes the caller. All three are data, never an instruction.
+type Caller struct {
+	Kind, Handle, Label string
+}
+
+// noteCaller keeps the thread's caller from its thread_start only, and the first one wins, so a
+// later message cannot rebind the thread to another person.
+func (a *Admission) noteCaller(m kbus.DiscussionMessage) {
+	if m.MessageType != kbus.DiscussionMessageMessageTypeThreadStart {
+		return
+	}
+	if _, held := a.callers[m.ThreadID]; held {
+		return
+	}
+	who, ok := m.Metadata["principal"].(map[string]any)
+	if !ok {
+		return
+	}
+	if len(a.callers) >= maxTrackedThread {
+		// Drop the oldest thread's caller, never all of them: a live thread keeps its caller.
+		delete(a.callers, a.callerOrder[0])
+		a.callerOrder = a.callerOrder[1:]
+	}
+	a.callerOrder = append(a.callerOrder, m.ThreadID)
+	kind, _ := who["kind"].(string)
+	handle, _ := who["id"].(string)
+	label, _ := who["displayName"].(string)
+	a.callers[m.ThreadID] = Caller{Kind: kind, Handle: handle, Label: label}
+}
+
+// CallerOf is who asked the thread, or the zero Caller when its thread_start named no one.
+func (a *Admission) CallerOf(thread string) Caller {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.callers[thread]
 }

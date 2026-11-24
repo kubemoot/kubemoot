@@ -217,3 +217,22 @@ func TestAHarnessHasAReadOnlyRootFileSystemAndNothingElseIsLoosened(t *testing.T
 		t.Errorf("harness security context = %+v", s)
 	}
 }
+
+func TestTheSidecarGetsItsOwnEnvironmentAndTheHarnessNone(t *testing.T) {
+	tmpl := template()
+	p := patch()
+	p.SidecarEnv = []corev1.EnvVar{{Name: "KUBEMOOT_EXPOSE_CALLER", Value: "true"}}
+	if err := ApplySidecar(tmpl, "agent", p); err != nil {
+		t.Fatal(err)
+	}
+	if v, n := env(tmpl.Spec.InitContainers[0], "KUBEMOOT_EXPOSE_CALLER"); n != 1 || v != "true" {
+		t.Errorf("sidecar: %q x%d", v, n)
+	}
+	if _, n := env(tmpl.Spec.Containers[0], "KUBEMOOT_EXPOSE_CALLER"); n != 0 {
+		t.Error("the harness is told the switch; it only receives the sentence in its context line")
+	}
+	none := applied(t)
+	if _, n := env(none.Spec.InitContainers[0], "KUBEMOOT_EXPOSE_CALLER"); n != 0 {
+		t.Error("the switch is set without being asked for")
+	}
+}

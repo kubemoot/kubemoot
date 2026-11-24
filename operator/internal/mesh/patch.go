@@ -69,6 +69,9 @@ type SidecarPatch struct {
 	NativeTools meshcontract.NativeTools
 	// HarnessEnv is extra environment for the harness, set after the mesh variables.
 	HarnessEnv []corev1.EnvVar
+	// SidecarEnv is extra environment for the sidecar itself, such as the switch that tells the
+	// harness who is asking.
+	SidecarEnv []corev1.EnvVar
 }
 
 // ApplySidecar joins the pod to the mesh: it adds the sidecar as a native sidecar container
@@ -150,7 +153,7 @@ func sidecarContainer(p SidecarPatch) corev1.Container {
 		Args:            []string{"--config=" + meshcontract.ContractDir + "/" + meshcontract.ContractFile},
 		Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: p.HTTPPort, Protocol: corev1.ProtocolTCP}},
 		VolumeMounts:    mounts(p),
-		Env:             gomem.With(nil, res),
+		Env:             gomem.With(slices.Clone(p.SidecarEnv), res),
 		Resources:       res,
 		SecurityContext: hardened(true),
 		// The start of the harness waits on this probe, so it must not depend on the harness:

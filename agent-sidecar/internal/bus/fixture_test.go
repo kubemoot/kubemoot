@@ -155,6 +155,7 @@ type options struct {
 	deadline    time.Duration
 	concurrency int
 	role        string
+	expose      bool         // the crew exposes the caller to its agents
 	log         *slog.Logger // the runner's logger; nil is the default logger
 }
 
@@ -201,7 +202,7 @@ func newPodWith(t *testing.T, ctx context.Context, o options,
 		DeadlineSeconds: int(o.deadline / time.Second)}, Conn: nc, JS: js, Harness: h, Registry: reg, Pub: p.pub,
 		Planner: p.planner, Tools: p.tools, Metrics: metrics, Aliases: map[string][]string{aliasDefault: {modelQwen}},
 		ModelAliases: map[string]any{aliasDefault: aliasDefault}, HeartbeatFirst: 200 * time.Millisecond,
-		HeartbeatEvery: 200 * time.Millisecond, NakDelay: 100 * time.Millisecond, Log: o.log}
+		HeartbeatEvery: 200 * time.Millisecond, NakDelay: 100 * time.Millisecond, Log: o.log, ExposeCaller: o.expose}
 	p.record(t)
 	sub, err := p.runner.Subscribe(ctx)
 	if err != nil {
@@ -234,7 +235,7 @@ func (p *pod) sendWith(t *testing.T, typ, from, thread, content string, md map[s
 // advisory publishes the coordinator's advisory_ready convening the named agents (none: everyone).
 func (p *pod) advisory(t *testing.T, thread string, circle ...string) kbus.DiscussionMessage {
 	t.Helper()
-	md := map[string]any{"userQuery": askNodes}
+	md := map[string]any{metaUserQuery: askNodes}
 	if len(circle) > 0 {
 		in := make([]any, len(circle))
 		for i, c := range circle {

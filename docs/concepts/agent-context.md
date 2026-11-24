@@ -404,7 +404,7 @@ Today is 2026-11-20 (America/New_York). You are in namespace crew-homelab-pilot,
   so a crew bundle is portable between namespaces.
 - **The caller only when the crew says so.** With `spec.discussion.identity.exposeToAgents`
   the line ends with the caller's opaque handle and, for a Kubernetes caller, a label. By
-  default it holds neither. See
+  default it holds neither. A harness agent's sidecar writes the same sentence. See
   [Telling the agents who is asking](../who-is-asking/#telling-the-agents-who-is-asking).
 
 Native agents place the line right after the system prompt. A harness agent receives the
