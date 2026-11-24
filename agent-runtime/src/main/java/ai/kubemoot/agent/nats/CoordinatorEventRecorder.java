@@ -408,7 +408,7 @@ final class CoordinatorEventRecorder {
         d.put("path", path);
         d.set("members", strings(s.innerCircle));
         putText(d, "brief", brief);
-        s.memberTasks.writeTo(d, reasoned);
+        s.memberTasks.get().writeTo(d, reasoned);
         d.set("technologies", strings(technologies));
         d.set("skills", strings(s.selectedSkills));
         d.put("confidence", s.triageConfidence);
@@ -515,7 +515,7 @@ final class CoordinatorEventRecorder {
         }
         var event = new CoordinatorEvent(eventId, type, s.threadId, s.trace.round(), clock.get(), coordinator, data);
         String subject = subjectFor.apply(s.crew, s.threadId);
-        OutageBackoff.Wait wait = s.closeWait;
+        OutageBackoff.Wait wait = s.closeWait.get();
         AppendResult result = wait == null ? eventLog.append(subject, event, s.trace.lastSequence())
                 : eventLog.append(subject, event, s.trace.lastSequence(), wait);
         if (result.isAppended()) {

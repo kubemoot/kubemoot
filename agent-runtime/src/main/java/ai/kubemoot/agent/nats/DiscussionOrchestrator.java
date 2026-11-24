@@ -39,6 +39,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -291,15 +292,15 @@ public class DiscussionOrchestrator {
     private final ConcurrentHashMap<String, CompletableFuture<String>> pendingResults = new ConcurrentHashMap<>();
 
     /** Writes each decision to the thread's coordinator log; does nothing unless KUBEMOOT_COORDINATOR_EVENT_LOG is true. */
-    private volatile CoordinatorEventRecorder events;
+    private final AtomicReference<CoordinatorEventRecorder> events = new AtomicReference<>();
     /** The discussion, its phases and who was convened, as trace spans. */
     private final DiscussionSpans spans = new DiscussionSpans();
 
     /** Picks up the threads a restarted coordinator had in flight; does nothing unless KUBEMOOT_COORDINATOR_RESUME is true. */
-    private volatile CoordinatorResume resume = CoordinatorResume.off();
+    private final AtomicReference<CoordinatorResume> resume = new AtomicReference<>(CoordinatorResume.off());
 
     /** Per-thread ownership leases, so more than one replica can run; does nothing unless KUBEMOOT_COORDINATOR_LEASE is true. */
-    private volatile CoordinatorLeases leases = CoordinatorLeases.off();
+    private final AtomicReference<CoordinatorLeases> leases = new AtomicReference<>(CoordinatorLeases.off());
 
     // Conversation history: durable via NATS KV, with in-memory read-through cache.
     // Allows follow-up questions to reference prior answers (e.g., "How many of these rigs have GPUs?")
@@ -422,32 +423,32 @@ public class DiscussionOrchestrator {
         }
 
         this.autoTransitions = buildAutoTransitions();
-        this.events = CoordinatorEventRecorder.fromConfig(properties.agentName(), natsProvider, mapper, metrics);
-        this.resume = CoordinatorResume.fromConfig(this, natsProvider, mapper, metrics);
-        this.leases = resume.leases();
+        this.events.set(CoordinatorEventRecorder.fromConfig(properties.agentName(), natsProvider, mapper, metrics));
+        this.resume.set(CoordinatorResume.fromConfig(this, natsProvider, mapper, metrics));
+        this.leases.set(resume.get().leases());
     }
 
     /** Package-private: replace the event recorder, so a unit test can read the events a thread writes. */
     void useEventRecorder(CoordinatorEventRecorder recorder) {
-        this.events = recorder;
+        this.events.set(recorder);
     }
 
     /** Package-private: replace the resume, so a unit test can restart a coordinator on a fake bus. */
     void useResume(CoordinatorResume replacement) {
-        this.resume = replacement;
-        this.leases = replacement.leases();
+        this.resume.set(replacement);
+        this.leases.set(replacement.leases());
     }
 
     CoordinatorLeases leases() {
-        return leases;
+        return leases.get();
     }
 
     CoordinatorEventRecorder recorder() {
-        return events;
+        return events.get();
     }
 
     CoordinatorResume resume() {
-        return resume;
+        return resume.get();
     }
 
     private volatile boolean subscribed = false;
@@ -480,9 +481,9 @@ public class DiscussionOrchestrator {
      * takes them at once instead of after the lease lapses.
      */
     void onShutdown(@Observes ShutdownEvent event) {
-        if (leases.enabled()) {
+        if (leases.get().enabled()) {
             threads.values().forEach(state -> state.trace.fence());
-            leases.releaseAll();
+            leases.get().releaseAll();
         }
     }
 
@@ -494,12 +495,12 @@ public class DiscussionOrchestrator {
 
         // With resume on, find the threads the last coordinator left in flight and hold their live
         // messages back before the subscription below delivers any.
-        resume.discover();
+        resume.get().discover();
 
         // Subscribe to this namespace's crew-scoped discussion subjects
         CrewScope scope = natsProvider.scope();
         String sub = scope.discussWildcard();
-        if (leases.enabled()) {
+        if (leases.get().enabled()) {
             // A stream consumer, so each message arrives with its stream sequence (see DiscussionFeed).
             DiscussionFeed.subscribe(conn, dispatcher, sub, this::handleMessage);
         } else {
@@ -536,7 +537,7 @@ public class DiscussionOrchestrator {
         scheduler.scheduleAtFixedRate(this::reapOrphanArtifacts,
                 ORPHAN_REAP_INTERVAL_MINUTES, ORPHAN_REAP_INTERVAL_MINUTES, TimeUnit.MINUTES);
 
-        resume.launch(llmExecutor);
+        resume.get().launch(llmExecutor);
         startLeases();
 
         subscribed = true;
@@ -547,11 +548,11 @@ public class DiscussionOrchestrator {
 
     /** With leases on: renews them, and looks for threads whose owner stopped renewing. */
     private void startLeases() {
-        if (!leases.enabled()) {
+        if (!leases.get().enabled()) {
             return;
         }
-        leases.start(scheduler);
-        scheduler.scheduleWithFixedDelay(() -> resume.scan(llmExecutor), CoordinatorResume.SCAN_EVERY.toMillis(),
+        leases.get().start(scheduler);
+        scheduler.scheduleWithFixedDelay(() -> resume.get().scan(llmExecutor), CoordinatorResume.SCAN_EVERY.toMillis(),
                 CoordinatorResume.SCAN_EVERY.toMillis(), TimeUnit.MILLISECONDS);
         log.info("Coordinator leases are on: this replica owns the threads it holds a lease for");
     }
@@ -624,7 +625,7 @@ public class DiscussionOrchestrator {
         if (conn == null) return null;
 
         var request = new ThreadStart(userQuery, conversationId, crew, asker);
-        var match = resume.matchRequest(requestSeq);
+        var match = resume.get().matchRequest(requestSeq);
         if (match != null && match.closed()) {
             return answerFromClosedThread(match, request);
         }
@@ -719,7 +720,7 @@ public class DiscussionOrchestrator {
      */
     private String awaitAnswer(ThreadState state, RequestMatch match, String threadId) throws Exception {
         var future = pendingResults.computeIfAbsent(threadId, k -> new CompletableFuture<>());
-        if (leases.enabled() && state.trace.fenced()) {
+        if (leases.get().enabled() && state.trace.fenced()) {
             future.completeExceptionally(new ThreadLostException(threadId));
         }
         if (match != null && state.phase == Phase.CLOSED) {
@@ -754,13 +755,13 @@ public class DiscussionOrchestrator {
         state.crew = request.crew();
         state.asker.set(request.asker());
         // Tied to a request only when a restarted coordinator can use it to find the thread again.
-        state.requestSeq = resume.enabled() ? requestSeq : 0;
-        if (!leases.acquire(threadId)) {
+        state.requestSeq = resume.get().enabled() ? requestSeq : 0;
+        if (!leases.get().acquire(threadId)) {
             throw new IllegalStateException("the lease for thread " + threadId + " could not be taken");
         }
         threads.put(threadId, state);
         metrics.threadStarted();
-        events.opened(state, "request");
+        events.get().opened(state, "request");
         spans.opened(threadId, state.crew, "request");
         return state;
     }
@@ -820,7 +821,7 @@ public class DiscussionOrchestrator {
      */
     private void startThread(Connection conn, ThreadState state, ThreadStart request) throws Exception {
         String threadId = state.threadId;
-        String derivedId = resume.enabled() ? events.openMessageId(state) : null;
+        String derivedId = resume.get().enabled() ? events.get().openMessageId(state) : null;
         var conversationContext = buildConversationContext(request.conversationId());
         var metadata = buildThreadStartMetadata(request.userQuery(), state.primaryChannel, request.conversationId(),
                 conversationContext, request.crew(), threadId, request.asker());
@@ -866,13 +867,13 @@ public class DiscussionOrchestrator {
     /** Enters the thread's current phase in the trace and in the coordinator's event log. */
     private boolean enterPhase(ThreadState state, String reason) {
         spans.phase(state.threadId, state.phase.name().toLowerCase(java.util.Locale.ROOT), reason);
-        return events.phaseEntered(state, reason);
+        return events.get().phaseEntered(state, reason);
     }
 
     /** Ends the thread's spans and writes its close to the coordinator's event log. */
     private boolean closedThread(ThreadState state, String reason, String channel) {
         spans.closed(state.threadId, reason);
-        return events.closed(state, reason, channel);
+        return events.get().closed(state, reason, channel);
     }
 
     // Visible for testing
@@ -886,7 +887,7 @@ public class DiscussionOrchestrator {
             var msg = mapper.readTree(data);
             String threadId = JsonFields.text(msg, FIELD_THREAD_ID);
             // A thread being resumed holds its live messages until the ones it missed are applied.
-            if (!threadId.isEmpty() && resume.holdsLive(threadId, data, streamSequence)) return;
+            if (!threadId.isEmpty() && resume.get().holdsLive(threadId, data, streamSequence)) return;
             if (!threadId.isEmpty() && !admits(threadId, msg)) return;
             try (var ignored = spans.inThread(threadId)) {
                 applyMessage(msg, ReplayFilter.LIVE, null, streamSequence);
@@ -902,14 +903,14 @@ public class DiscussionOrchestrator {
      * {@code thread_start}, which the replica that wins the thread's lease takes up.
      */
     private boolean admits(String threadId, JsonNode msg) {
-        return !leases.enabled() || threads.containsKey(threadId) || claimsExternalThread(threadId, msg);
+        return !leases.get().enabled() || threads.containsKey(threadId) || claimsExternalThread(threadId, msg);
     }
 
     private boolean claimsExternalThread(String threadId, JsonNode msg) {
         return MSG_THREAD_START.equals(JsonFields.text(msg, FIELD_MESSAGE_TYPE))
                 && !properties.agentName().equals(JsonFields.text(msg, FIELD_AGENT_NAME))
                 && addressedToThisCrew(msg.path(FIELD_METADATA))
-                && leases.acquire(threadId);
+                && leases.get().acquire(threadId);
     }
 
     /** A live message that waited behind a resume gate; the gate is open, so it is applied as any live message is. */
@@ -948,7 +949,7 @@ public class DiscussionOrchestrator {
         if (isOwnControlEcho(agentName, messageType)) return;
 
         var state = known != null ? known : threads.computeIfAbsent(threadId, k -> new ThreadState(threadId));
-        if (events.fenced(state)) return;
+        if (events.get().fenced(state)) return;
 
         if (isDuplicateMessage(state, msg)) return;
         noteSequence(state, messageType, streamSequence);
@@ -1002,7 +1003,7 @@ public class DiscussionOrchestrator {
         if (handled) {
             // Stamped once the control's effect is decided (and logged), never before: an event
             // written in between must not claim a sequence whose control it does not account for.
-            state.discussSeq = Math.max(state.discussSeq, streamSequence);
+            state.raiseDiscussSeq(streamSequence);
         }
         return handled;
     }
@@ -1012,7 +1013,7 @@ public class DiscussionOrchestrator {
         boolean control = MSG_STOP_REQUESTED.equals(messageType) || MSG_THREAD_PAUSE.equals(messageType)
                 || MSG_THREAD_RESUME.equals(messageType);
         if (!control) {
-            state.discussSeq = Math.max(state.discussSeq, streamSequence);
+            state.raiseDiscussSeq(streamSequence);
         }
     }
 
@@ -1075,7 +1076,7 @@ public class DiscussionOrchestrator {
         String conversationId = JsonFields.text(meta, FIELD_CONVERSATION_ID);
         state.conversationId = conversationId.isBlank() ? null : conversationId;
         enterAdvisory(state);
-        events.opened(state, "external");
+        events.get().opened(state, "external");
         spans.opened(state.threadId, state.crew, "external");
         enterPhase(state, "thread_start");
         metrics.threadStarted();
@@ -1212,7 +1213,7 @@ public class DiscussionOrchestrator {
         if (TERMINAL_SIGNALS.contains(messageType)) {
             state.phaseRoster.get().recordTerminalSignal(agentName);
         }
-        events.signalApplied(state, agentName, messageType, msg);
+        events.get().signalApplied(state, agentName, messageType, msg);
     }
 
     private void dispatchSignal(ThreadState state, String agentName, String messageType,
@@ -1408,7 +1409,7 @@ public class DiscussionOrchestrator {
     void handleThreadReopen(ThreadState state, String threadId,
                             String messageType, String agentName) {
         if (state.phase != Phase.CLOSED || !"reply".equals(messageType) || !"human".equals(agentName)
-                || !leases.acquire(threadId)) {
+                || !leases.get().acquire(threadId)) {
             return;
         }
         // The roster resets before the phase flips, so the phase checker never sees
@@ -1428,7 +1429,7 @@ public class DiscussionOrchestrator {
         state.ratify.reset();
         state.stopped = false;
         state.receipt.startRound(state.phaseStarted);
-        events.reopened(state);
+        events.get().reopened(state);
         log.info("Thread {} reopened by human reply → EVALUATING", threadId);
     }
 
@@ -1650,7 +1651,7 @@ public class DiscussionOrchestrator {
         if (rosterSignalled(state)) {
             log.info("Thread {} every participant of {} has signalled after {}s - transitioning",
                     state.threadId, state.phase, elapsed);
-            events.settled(state, "roster_signalled");
+            events.get().settled(state, "roster_signalled");
             cfg.advance().run();
             return;
         }
@@ -1662,7 +1663,7 @@ public class DiscussionOrchestrator {
         if (cfg.fastPath() && hasSufficientConsensus(state, now)) {
             log.info("Thread {} sufficient consensus ({} agrees), settling - {} pending dropped",
                     state.threadId, toolerAgreeCount(state), state.pendingEvaluations.size());
-            events.settled(state, "fast_path");
+            events.get().settled(state, "fast_path");
             cfg.advance().run();
             return;
         }
@@ -1679,14 +1680,14 @@ public class DiscussionOrchestrator {
     private void advanceIfSettled(ThreadState state, Instant now, long elapsed, PhaseSettle cfg) {
         if (hasSubstantiveSignal(state, toolerAgreeCount(state)) && isQuiet(state, now)) {
             log.info("Thread {} all participants settled after {}s - transitioning", state.threadId, elapsed);
-            events.settled(state, "quiet");
+            events.get().settled(state, "quiet");
             cfg.advance().run();
             return;
         }
         if (!state.pendingEvaluations.isEmpty()) return;        // someone still pending
         if (isColdStartWaiting(state, elapsed, cfg)) return;    // 0 signals, agents scaling from zero
         log.info("Thread {} no pending participants after {}s - transitioning", state.threadId, elapsed);
-        events.settled(state, "no_pending");
+        events.get().settled(state, "no_pending");
         cfg.advance().run();
     }
 
@@ -1780,8 +1781,8 @@ public class DiscussionOrchestrator {
      * each path is its own helper.
      */
     private void runAdvisoryGeneration(ThreadState state) {
-        state.advisoryModelUse = null;
-        state.memberTasks = MemberTasks.NONE;
+        state.advisoryModelUse.set(null);
+        state.memberTasks.set(MemberTasks.NONE);
         try {
             // Pre-filter, then reason: the resume vector search ranks the crew by
             // similarity to the question and returns the top-K; the coordinator reasons
@@ -1822,7 +1823,7 @@ public class DiscussionOrchestrator {
             state.advisoryContent = outcome.wisdom();
             state.advisoryTechnologies = new CopyOnWriteArrayList<>(outcome.technologies());
             state.primaryChannel = classifyChannelFromAdvisory(outcome.technologies());
-            boolean logged = events.subcommitteeConvened(state, reasoning, outcome);
+            boolean logged = events.get().subcommitteeConvened(state, reasoning, outcome);
 
             metrics.advisoryCompleted(Duration.ofMillis(outcome.inferenceMs()));
             log.info("Thread {} advisory done in {}ms: technologies={}, layers={}, channel={}",
@@ -1839,7 +1840,7 @@ public class DiscussionOrchestrator {
             log.warn("Advisory generation failed for thread {}: {}", state.threadId, LogContent.reason(e));
             // Still publish advisory_ready without advisory content, and reset the clock so
             // toolers get a full evaluation window.
-            if (events.advisoryFailed(state)) {
+            if (events.get().advisoryFailed(state)) {
                 releaseToolers(state, List.of(), "Advisory generation failed");
             }
         }
@@ -1853,7 +1854,7 @@ public class DiscussionOrchestrator {
      */
     void announceSubcommittee(ThreadState state, List<String> technologies, List<String> layers, String wisdom,
                               long inferenceMs) {
-        publishAdvisory(state.threadId, technologies, layers, wisdom, inferenceMs, state.advisoryModelUse);
+        publishAdvisory(state.threadId, technologies, layers, wisdom, inferenceMs, state.advisoryModelUse.get());
         publishSubcommittee(state);
         // advisory_ready triggers tooler evaluation (includes innerCircle)
         releaseToolers(state, technologies, wisdom);
@@ -1864,7 +1865,7 @@ public class DiscussionOrchestrator {
      * is written to the log, and only then is advisory_ready published.
      */
     private void releaseToolers(ThreadState state, List<String> technologies, String wisdom) {
-        if (!events.enabled()) {
+        if (!events.get().enabled()) {
             // Log off: the order discussions have always had, advisory_ready first.
             publishAdvisoryReady(state, technologies, wisdom);
             resetEvaluationClock(state);
@@ -1888,7 +1889,7 @@ public class DiscussionOrchestrator {
             if (conn == null || circle == null || circle.isEmpty()) return;
             spans.convened(state.threadId, circle);
             var members = SubcommitteeLine.members(mapper, new java.util.TreeSet<>(circle), loadCrewResumes());
-            String derivedId = events.messageId(state, CoordinatorEvent.SUBCOMMITTEE_CONVENED, SubcommitteeLine.MESSAGE_TYPE);
+            String derivedId = events.get().messageId(state, CoordinatorEvent.SUBCOMMITTEE_CONVENED, SubcommitteeLine.MESSAGE_TYPE);
             var message = Map.of(
                     FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                     FIELD_THREAD_ID, state.threadId,
@@ -1915,7 +1916,7 @@ public class DiscussionOrchestrator {
         state.triageConfidence = 0.9; // Reasoning path is high confidence
         log.info("Thread {} - reasoning selected {} agents in {}ms: {}",
                 state.threadId, reasoning.selected().size(), reasoning.inferenceMs(), reasoning.selected());
-        state.memberTasks = reasoning.memberTasks();
+        state.memberTasks.set(reasoning.memberTasks());
         return new AdvisoryOutcome(reasoning.technologies(), List.of(), reasoning.memberTasks().combined(),
                 reasoning.inferenceMs());
     }
@@ -1937,7 +1938,7 @@ public class DiscussionOrchestrator {
                 ? chatService.triageChatWithTokens(systemPrompt, advisoryPrompt)
                 : chatService.simpleLlmCallWithTokens(systemPrompt, advisoryPrompt);
         long inferenceMs = System.currentTimeMillis() - inferenceStart;
-        state.advisoryModelUse = advisoryResult.modelUse();
+        state.advisoryModelUse.set(advisoryResult.modelUse());
         recordPlacedCall(state, PHASE_ADVISORY, advisoryResult);
         state.advisoryInputTokens = advisoryResult.inputTokens();
         state.advisoryOutputTokens = advisoryResult.outputTokens();
@@ -1980,7 +1981,7 @@ public class DiscussionOrchestrator {
         state.pendingEvaluations.clear();
         state.phaseRoster.set(PhaseRoster.of(evaluationRoster(state.innerCircle, analystNamesFromResumes())));
         state.advisoryPending.set(false);
-        return events.evaluationStarted(state);
+        return events.get().evaluationStarted(state);
     }
 
     /**
@@ -2098,7 +2099,7 @@ public class DiscussionOrchestrator {
             // not the triage model, so the coordinator has full reasoning capacity.
             var result = chatService.simpleLlmCallWithTokens(systemPrompt, prompt);
             long inferenceMs = System.currentTimeMillis() - inferenceStart;
-            state.advisoryModelUse = result.modelUse();
+            state.advisoryModelUse.set(result.modelUse());
             recordPlacedCall(state, PHASE_ADVISORY, result);
 
             String response = result.text();
@@ -2329,7 +2330,7 @@ public class DiscussionOrchestrator {
             putFirstToken(metadata, chatService.lastSimpleCall());
             putMemberTasks(metadata, threads.get(threadId));
 
-            String derivedId = events.messageId(threads.get(threadId), CoordinatorEvent.SUBCOMMITTEE_CONVENED, MSG_ADVISORY);
+            String derivedId = events.get().messageId(threads.get(threadId), CoordinatorEvent.SUBCOMMITTEE_CONVENED, MSG_ADVISORY);
             var advisory = Map.of(
                     FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                     FIELD_THREAD_ID, threadId,
@@ -2354,9 +2355,9 @@ public class DiscussionOrchestrator {
     /** The members' own tasks, so each reads only its own in place of the advisory text. */
     // Visible for testing
     static void putMemberTasks(Map<String, Object> metadata, ThreadState state) {
-        if (state != null && state.memberTasks.hasTasks()) {
-            metadata.put(MemberTasks.FIELD, state.memberTasks.tasks());
-            metadata.put(MemberTasks.SHARED_BRIEF, state.memberTasks.sharedBrief());
+        if (state != null && state.memberTasks.get().hasTasks()) {
+            metadata.put(MemberTasks.FIELD, state.memberTasks.get().tasks());
+            metadata.put(MemberTasks.SHARED_BRIEF, state.memberTasks.get().sharedBrief());
         }
     }
 
@@ -2367,8 +2368,8 @@ public class DiscussionOrchestrator {
 
             var metadata = advisoryReadyMetadata(state, technologies, wisdom);
             // With a task per member the text names every member's task, so the message agents read carries none of it.
-            String advisorySummary = advisorySummary(technologies, state.memberTasks.hasTasks() ? "" : wisdom);
-            String derivedId = events.messageId(state, CoordinatorEvent.EVALUATION_STARTED, MSG_ADVISORY_READY);
+            String advisorySummary = advisorySummary(technologies, state.memberTasks.get().hasTasks() ? "" : wisdom);
+            String derivedId = events.get().messageId(state, CoordinatorEvent.EVALUATION_STARTED, MSG_ADVISORY_READY);
 
             var message = Map.of(
                     FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
@@ -2396,7 +2397,7 @@ public class DiscussionOrchestrator {
         var metadata = new HashMap<String, Object>();
         metadata.put(FIELD_USER_QUERY, state.userQuery);
         metadata.put(FIELD_PRIMARY_CHANNEL, state.primaryChannel);
-        putRanOn(metadata, state.advisoryModelUse);
+        putRanOn(metadata, state.advisoryModelUse.get());
         if (!technologies.isEmpty()) {
             metadata.put(FIELD_TECHNOLOGIES, technologies);
         }
@@ -2471,7 +2472,7 @@ public class DiscussionOrchestrator {
         for (String reviewer : reviewers) {
             state.pendingEvaluations.put(reviewer, deadline);
         }
-        boolean logged = events.reviewStarted(state);
+        boolean logged = events.get().reviewStarted(state);
         log.info("Thread {} review roster: {}", state.threadId, reviewers);
         return logged;
     }
@@ -2542,15 +2543,10 @@ public class DiscussionOrchestrator {
 
     /** The helper that loads the list of the thread's stored files for the first review. */
     private ReviewCatalog reviewCatalog() {
-        var held = reviewCatalog;
-        if (held == null) {
-            held = new ReviewCatalog(natsProvider, chatService);
-            reviewCatalog = held;
-        }
-        return held;
+        return reviewCatalog.updateAndGet(held -> held != null ? held : new ReviewCatalog(natsProvider, chatService));
     }
 
-    private volatile ReviewCatalog reviewCatalog;
+    private final AtomicReference<ReviewCatalog> reviewCatalog = new AtomicReference<>();
 
     /** What the evaluation found, as the first review shows it: each agree and concern, cut. */
     private static String reviewSummary(ThreadState state) {
@@ -2595,7 +2591,7 @@ public class DiscussionOrchestrator {
                         state.threadId, analystCircle.size(), analystCircle);
             }
 
-            String derivedId = events.messageId(state, CoordinatorEvent.REVIEW_STARTED, MSG_REVIEW_READY);
+            String derivedId = events.get().messageId(state, CoordinatorEvent.REVIEW_STARTED, MSG_REVIEW_READY);
             var message = Map.of(
                     FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                     FIELD_THREAD_ID, state.threadId,
@@ -2630,7 +2626,7 @@ public class DiscussionOrchestrator {
         state.primaryChannel = channel;
         state.advisoryContent = reasoning.brief();
         state.phase = Phase.SYNTHESIZING;
-        boolean logged = events.answeredDirectly(state, reasoning);
+        boolean logged = events.get().answeredDirectly(state, reasoning);
         enterPhase(state, "direct");
         metrics.advisoryCompleted(Duration.ofMillis(reasoning.inferenceMs()));
         log.info("Thread {} - coordinator selected no toolers; answering directly from reasoning ({}ms), no tooler wake",
@@ -2643,7 +2639,7 @@ public class DiscussionOrchestrator {
         // not an anomaly.
         if (logged) {
             publishAdvisory(state.threadId, reasoning.technologies(), List.of(),
-                    reasoning.brief(), reasoning.inferenceMs(), state.advisoryModelUse);
+                    reasoning.brief(), reasoning.inferenceMs(), state.advisoryModelUse.get());
         }
         completeSynthesisPhase(state, channel, reasoning.brief(), Instant.now(), "direct");
     }
@@ -2660,7 +2656,7 @@ public class DiscussionOrchestrator {
             state.phase = Phase.SYNTHESIZING;
             enterPhase(state, "direct");
         }
-        publishAdvisory(state.threadId, technologies, List.of(), brief, 0, state.advisoryModelUse);
+        publishAdvisory(state.threadId, technologies, List.of(), brief, 0, state.advisoryModelUse.get());
         completeSynthesisPhase(state, resolveChannel(state), brief, Instant.now(), "direct");
     }
 
@@ -2701,7 +2697,7 @@ public class DiscussionOrchestrator {
             if (stored == null) {
                 return;
             }
-            events.synthesisStarted(state);
+            events.get().synthesisStarted(state);
             // Count tooler agrees (excluding researchers like internet search)
             long synthToolerAgrees = state.agreeSignals.keySet().stream()
                     .filter(name -> !state.researcherAgents.contains(name)).count();
@@ -3106,7 +3102,7 @@ public class DiscussionOrchestrator {
             publishThreadClose(state.threadId, ch);
             state.phase = Phase.CLOSED;
             closedThread(state, "no_signals", ch);
-            events.checkAtClose(state);
+            events.get().checkAtClose(state);
             completePending(state.threadId, null);
             return null;
         }
@@ -3274,7 +3270,7 @@ public class DiscussionOrchestrator {
         }
         boolean owner = beginClose(state);
         try {
-            events.synthesisDone(state, outcome, channel, response);
+            events.get().synthesisDone(state, outcome, channel, response);
             finishClose(state, channel, response, outcome);
         } finally {
             endClose(state, owner);
@@ -3288,7 +3284,7 @@ public class DiscussionOrchestrator {
 
     private void endClose(ThreadState state, boolean owner) {
         if (owner) {
-            state.closeWait = null;
+            state.closeWait.set(null);
         }
     }
 
@@ -3299,12 +3295,12 @@ public class DiscussionOrchestrator {
      * repeat of one that got out before the restart is dropped.
      */
     void finishClose(ThreadState state, String channel, String response, String outcome) {
-        if (state.closeWait == null) {
-            state.closeWait = outage.startWait();
+        if (state.closeWait.get() == null) {
+            state.closeWait.set(outage.startWait());
         }
         if (notOurs(state)) {
             // Another coordinator owns the thread: publish nothing, but do not keep the asker waiting.
-            state.closeWait = null;
+            state.closeWait.set(null);
             completeFenced(state);
             return;
         }
@@ -3313,10 +3309,10 @@ public class DiscussionOrchestrator {
         state.answer = response;
         state.phase = Phase.CLOSED;
         closedThread(state, outcome, channel);
-        events.checkAtClose(state);
+        events.get().checkAtClose(state);
         metrics.threadCompleted(Duration.between(state.threadCreated, Instant.now()));
         completePending(state.threadId, response);
-        leases.release(state.threadId);
+        leases.get().release(state.threadId);
     }
 
     /**
@@ -3324,7 +3320,7 @@ public class DiscussionOrchestrator {
      * to its end (see {@link #threadLost}); without them the asker is released with no answer.
      */
     private void completeFenced(ThreadState state) {
-        if (leases.enabled()) {
+        if (leases.get().enabled()) {
             threadLost(state.threadId);
         } else {
             completePending(state.threadId, null);
@@ -3338,7 +3334,7 @@ public class DiscussionOrchestrator {
      */
     boolean threadIsOpen(String threadId) {
         ThreadState state = threads.get(threadId);
-        return state != null ? state.phase != Phase.CLOSED : resume.isResuming(threadId);
+        return state != null ? state.phase != Phase.CLOSED : resume.get().isResuming(threadId);
     }
 
     /**
@@ -3347,7 +3343,7 @@ public class DiscussionOrchestrator {
      * closed thread with a lease released at close.
      */
     private boolean notOurs(ThreadState state) {
-        return events.fenced(state) || (state.phase != Phase.CLOSED && !leases.holds(state.threadId));
+        return events.get().fenced(state) || (state.phase != Phase.CLOSED && !leases.get().holds(state.threadId));
     }
 
     /**
@@ -3362,7 +3358,7 @@ public class DiscussionOrchestrator {
         }
         state.trace.fence();
         spans.closed(threadId, "lost");
-        leases.release(threadId);
+        leases.get().release(threadId);
         var future = pendingResults.remove(threadId);
         if (future != null) {
             future.completeExceptionally(new ThreadLostException(threadId));
@@ -3538,7 +3534,7 @@ public class DiscussionOrchestrator {
         for (ThreadState state : threads.values()) {
             if (shouldTrackWaking(state, agentName)) {
                 state.pendingEvaluations.put(agentName, wakingDeadline);
-                events.wake(state, agentName, MSG_WAKING, wakingDeadline);
+                events.get().wake(state, agentName, MSG_WAKING, wakingDeadline);
                 affected++;
             }
         }
@@ -3554,7 +3550,7 @@ public class DiscussionOrchestrator {
         for (ThreadState state : threads.values()) {
             if (state.pendingEvaluations.containsKey(agentName)) {
                 state.pendingEvaluations.put(agentName, triageDeadline);
-                events.wake(state, agentName, MSG_READY, triageDeadline);
+                events.get().wake(state, agentName, MSG_READY, triageDeadline);
                 affected++;
             }
         }
@@ -3652,7 +3648,7 @@ public class DiscussionOrchestrator {
                 state.phaseRoster.get().recordTerminalSignal(timedOutAgent);
                 state.lastSignalReceived = Instant.now();
                 metrics.evaluationTimedOut();
-                events.timedOut(state, timedOutAgent);
+                events.get().timedOut(state, timedOutAgent);
                 publishSyntheticFailure(timedOutAgent, state.threadId,
                         state.primaryChannel != null ? state.primaryChannel : CHANNEL_GENERAL);
                 return true;
@@ -3994,7 +3990,7 @@ public class DiscussionOrchestrator {
                          Map<String, Object> metadata) {
         try {
             var thread = threads.get(threadId);
-            String derivedId = events.messageId(thread, CoordinatorEvent.SYNTHESIS_DONE, messageType);
+            String derivedId = events.get().messageId(thread, CoordinatorEvent.SYNTHESIS_DONE, messageType);
             var message = new HashMap<String, Object>(Map.of(
                     FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
                     FIELD_THREAD_ID, threadId,
@@ -4034,7 +4030,7 @@ public class DiscussionOrchestrator {
 
     /** The outage wait of the close in progress on {@code state}, or a new one when it has none. */
     private OutageBackoff.Wait waitOf(ThreadState state) {
-        OutageBackoff.Wait wait = state != null ? state.closeWait : null;
+        OutageBackoff.Wait wait = state != null ? state.closeWait.get() : null;
         return wait != null ? wait : outage.startWait();
     }
 
@@ -4176,7 +4172,7 @@ public class DiscussionOrchestrator {
             }
 
             var close = new HashMap<String, Object>();
-            String derivedId = events.closeMessageId(state);
+            String derivedId = events.get().closeMessageId(state);
             close.put(FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId));
             close.put(FIELD_THREAD_ID, threadId);
             close.put(FIELD_AGENT_NAME, properties.agentName());
@@ -4831,7 +4827,7 @@ public class DiscussionOrchestrator {
             return false; // a sweep owns it; revisit next pass
         }
         try {
-            if (events.fenced(state)) {
+            if (events.get().fenced(state)) {
                 // Another coordinator owns the thread: close nothing, release the asker, drop the entry.
                 completeFenced(state);
                 evicted.add(state.threadId);
@@ -4852,7 +4848,7 @@ public class DiscussionOrchestrator {
             completePending(state.threadId, null);
             state.phase = Phase.CLOSED;
             closedThread(state, "zombie", channel);
-            events.checkAtClose(state);
+            events.get().checkAtClose(state);
         } finally {
             state.transitioning.set(false);
         }
@@ -5032,7 +5028,7 @@ public class DiscussionOrchestrator {
         if (!state.ratify.everyoneAnswered()) {
             return;
         }
-        events.settled(state, "roster_signalled");
+        events.get().settled(state, "roster_signalled");
         if (state.ratify.objections().isEmpty() || !ratifyPolicy.allowsRevisionAfter(state.ratify.round())) {
             releaseRatification(state, state.ratify.outcome());
         } else if (state.ratify.beginRevision()) {
@@ -5084,8 +5080,7 @@ public class DiscussionOrchestrator {
                     state.ratify.objections());
             var result = chatService.simpleLlmCallWithTokens(systemPromptFor(state), prompt);
             recordPlacedCall(state, PHASE_SYNTHESIS, result);
-            state.synthesisInputTokens += result.inputTokens();
-            state.synthesisOutputTokens += result.outputTokens();
+            state.addSynthesisTokens(result.inputTokens(), result.outputTokens());
             if (state.phase != Phase.RATIFY) {
                 return;
             }
@@ -5293,7 +5288,7 @@ public class DiscussionOrchestrator {
         final AtomicBoolean checkQueued = new AtomicBoolean(false);
         // The one outage wait of the close in progress, shared by its log events and its publishes,
         // so a close waits out a NATS restart at most once. Null while the thread is open.
-        volatile OutageBackoff.Wait closeWait;
+        final AtomicReference<OutageBackoff.Wait> closeWait = new AtomicReference<>();
         // True while the advisory LLM call is running asynchronously.
         // Evaluation phase must not transition while advisory is pending —
         // agents won't respond until advisory_ready is published.
@@ -5321,13 +5316,30 @@ public class DiscussionOrchestrator {
          * feed does not carry sequences.
          */
         volatile long discussSeq;
+        private static final AtomicLongFieldUpdater<ThreadState> DISCUSS_SEQ =
+                AtomicLongFieldUpdater.newUpdater(ThreadState.class, "discussSeq");
+        private static final AtomicLongFieldUpdater<ThreadState> SYNTHESIS_IN =
+                AtomicLongFieldUpdater.newUpdater(ThreadState.class, "synthesisInputTokens");
+        private static final AtomicLongFieldUpdater<ThreadState> SYNTHESIS_OUT =
+                AtomicLongFieldUpdater.newUpdater(ThreadState.class, "synthesisOutputTokens");
+
+        /** Raises the highest applied stream sequence; a lower one changes nothing. Safe across threads. */
+        void raiseDiscussSeq(long streamSequence) {
+            DISCUSS_SEQ.accumulateAndGet(this, streamSequence, Math::max);
+        }
+
+        /** Adds a synthesis call's tokens to the thread's totals. Safe across threads. */
+        void addSynthesisTokens(long input, long output) {
+            SYNTHESIS_IN.addAndGet(this, input);
+            SYNTHESIS_OUT.addAndGet(this, output);
+        }
         /** The answer, once the thread has closed with one. */
         volatile String answer;
 
         // Advisory tracking
         volatile String advisoryContent;
         /** What the coordinator asked of each convened member; none when it gave no per-member tasks. */
-        volatile MemberTasks memberTasks = MemberTasks.NONE;
+        final AtomicReference<MemberTasks> memberTasks = new AtomicReference<>(MemberTasks.NONE);
         List<String> advisoryTechnologies = new CopyOnWriteArrayList<>();
         // Tracks when the last agent signal arrived (for settle-window early transitions)
         volatile Instant lastSignalReceived;
@@ -5377,7 +5389,7 @@ public class DiscussionOrchestrator {
         volatile long advisoryInputTokens;
         volatile long advisoryOutputTokens;
         // Where the advisory call ran; null until it has.
-        volatile ModelUse advisoryModelUse;
+        final AtomicReference<ModelUse> advisoryModelUse = new AtomicReference<>();
         volatile long triageInputTokens;
         volatile long triageOutputTokens;
         volatile long synthesisInputTokens;
@@ -5411,7 +5423,7 @@ public class DiscussionOrchestrator {
          */
         synchronized boolean markStopped() {
             // A close already under way is the answer: a stop that comes after it changes nothing.
-            if (!canStop(phase) || stopped || closeWait != null) {
+            if (!canStop(phase) || stopped || closeWait.get() != null) {
                 return false;
             }
             stopped = true;
@@ -5420,10 +5432,10 @@ public class DiscussionOrchestrator {
 
         /** Starts the close's outage wait unless the thread already has one; true when this caller started it. */
         synchronized boolean startCloseWait(Supplier<OutageBackoff.Wait> start) {
-            if (closeWait != null) {
+            if (closeWait.get() != null) {
                 return false;
             }
-            closeWait = start.get();
+            closeWait.set(start.get());
             return true;
         }
 

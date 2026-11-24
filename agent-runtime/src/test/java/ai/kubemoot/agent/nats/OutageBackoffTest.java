@@ -67,4 +67,17 @@ class OutageBackoffTest {
     void theBriefWaitIsShorterThanTheCloseWait() {
         assertTrue(OutageBackoff.brief().bound().compareTo(OutageBackoff.standard().bound()) < 0);
     }
+
+    @Test
+    void anInterruptedPauseGivesUpAndKeepsTheInterruptFlagAndThePause() {
+        var wait = new OutageBackoff(Duration.ofSeconds(30), Duration.ofSeconds(5), Duration.ofSeconds(10)).start();
+        Thread.currentThread().interrupt();
+        try {
+            assertFalse(wait.next());
+            assertTrue(Thread.currentThread().isInterrupted(), "the interrupt is kept for the caller");
+            assertEquals(Duration.ofSeconds(5), wait.pause(), "the pause did not double");
+        } finally {
+            Thread.interrupted();
+        }
+    }
 }

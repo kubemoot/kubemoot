@@ -667,7 +667,7 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void advisoryReadyMetadata_namesTheModelAndServerTheAdvisoryCallRanOn() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        state.advisoryModelUse = new ai.kubemoot.agent.chat.ModelUse("alt-model:14b", "server-b");
+        state.advisoryModelUse.set(new ai.kubemoot.agent.chat.ModelUse("alt-model:14b", "server-b"));
 
         var meta = orchestrator.advisoryReadyMetadata(state, List.of(), "");
 

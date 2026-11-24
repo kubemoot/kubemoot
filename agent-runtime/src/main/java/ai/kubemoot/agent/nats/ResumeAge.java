@@ -19,7 +19,6 @@ final class ResumeAge {
     /** The limit when nothing is set. */
     static final Duration DEFAULT = Duration.ofMinutes(30);
 
-    private static final Pattern WHOLE = Pattern.compile("^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$");
     private static final Pattern PART = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)(ns|us|ms|s|m|h)");
     private static final Map<String, Long> NANOS = Map.of(
             "ns", 1L, "us", 1_000L, "ms", 1_000_000L, "s", 1_000_000_000L,
@@ -37,18 +36,20 @@ final class ResumeAge {
         if (trimmed.isEmpty() || "0".equals(trimmed)) {
             return Optional.of(Duration.ZERO);
         }
-        if (!WHOLE.matcher(trimmed).matches()) {
-            return Optional.empty();
-        }
         try {
             long nanos = 0;
+            int end = 0;
             Matcher part = PART.matcher(trimmed);
             while (part.find()) {
+                if (part.start() != end) {
+                    return Optional.empty();
+                }
+                end = part.end();
                 long partNanos = new BigDecimal(part.group(1)).multiply(BigDecimal.valueOf(NANOS.get(part.group(2))))
                         .toBigInteger().longValueExact();
                 nanos = Math.addExact(nanos, partNanos);
             }
-            return Optional.of(Duration.ofNanos(nanos));
+            return end == trimmed.length() ? Optional.of(Duration.ofNanos(nanos)) : Optional.empty();
         } catch (ArithmeticException e) {
             return Optional.empty();
         }

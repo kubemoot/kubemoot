@@ -68,7 +68,7 @@ class DiscussionOrchestratorCallerTest {
         var state = new DiscussionOrchestrator.ThreadState("t2");
         var first = OutageBackoff.brief().start();
         assertTrue(state.startCloseWait(() -> first));
-        assertTrue(state.closeWait == first);
+        assertTrue(state.closeWait.get() == first);
         assertFalse(state.startCloseWait(() -> {
             throw new AssertionError("a close already has its wait");
         }));
@@ -81,7 +81,7 @@ class DiscussionOrchestratorCallerTest {
         assertFalse(state.markStopped());
 
         var closing = new DiscussionOrchestrator.ThreadState("t4");
-        closing.closeWait = OutageBackoff.brief().start();
+        closing.closeWait.set(OutageBackoff.brief().start());
         assertFalse(closing.markStopped());
 
         var closed = new DiscussionOrchestrator.ThreadState("t5");

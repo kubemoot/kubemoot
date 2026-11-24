@@ -145,7 +145,7 @@ class DiscussionOrchestratorReasoningSelectTest {
 
         orchestrator.runReasoningSelectBrief(state, SAMPLE_RESUMES);
 
-        assertEquals(new ai.kubemoot.agent.chat.ModelUse("alt-model:14b", "server-b"), state.advisoryModelUse);
+        assertEquals(new ai.kubemoot.agent.chat.ModelUse("alt-model:14b", "server-b"), state.advisoryModelUse.get());
     }
 
     @Test

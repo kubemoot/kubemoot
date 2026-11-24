@@ -122,7 +122,7 @@ public final class CallManifest {
 
     /** A run of the white space Go's strings.Fields-style folding in workspace-access treats as space: ASCII only. */
     private static final Pattern ASCII_SPACE_RUNS = Pattern.compile("[ \\t\\n\\x0B\\f\\r]+");
-    private static final Pattern EDGE_SPACE = Pattern.compile("^ | $");
+    private static final Pattern EDGE_SPACE = Pattern.compile("(?:^ )|(?: $)");
 
     /** All three kinds of result block, in the order they are removed. */
     private static final List<Pattern> RESULT_BLOCKS = List.of(RESULT_BLOCK, FAILED_RESULT_BLOCK, EMPTY_RESULT_BLOCK);

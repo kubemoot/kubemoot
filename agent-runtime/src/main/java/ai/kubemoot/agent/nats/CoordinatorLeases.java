@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
@@ -66,7 +67,7 @@ final class CoordinatorLeases {
     private final Predicate<String> stillNeeded;
     private final Consumer<String> onLost;
     private final Map<String, Held> held = new HashMap<>();
-    private volatile LeaseStore store;
+    private final AtomicReference<LeaseStore> store = new AtomicReference<>();
 
     /**
      * @param keyPrefix   goes before a name to make the key (the namespace and crew, so crews do not meet)
@@ -153,7 +154,7 @@ final class CoordinatorLeases {
             return true;
         } catch (Exception e) {
             log.warn("Taking the lease {} failed: {}", name, LogContent.reason(e));
-            store = null;
+            store.set(null);
             return false;
         }
     }
@@ -180,7 +181,7 @@ final class CoordinatorLeases {
             store().release(key(name), lease.revision());
         } catch (Exception e) {
             log.warn("Releasing the lease {} failed (it lapses by itself): {}", name, LogContent.reason(e));
-            store = null;
+            store.set(null);
         }
     }
 
@@ -235,7 +236,7 @@ final class CoordinatorLeases {
             }
         } catch (Exception e) {
             log.warn("Renewing the lease {} failed: {}", name, LogContent.reason(e));
-            store = null;
+            store.set(null);
             if (sentAt - lease.renewedAtNanos() >= FENCE.toNanos()) {
                 synchronized (this) {
                     forget(name, lease, "it was not renewed within " + FENCE.toSeconds() + "s", lost);
@@ -258,10 +259,10 @@ final class CoordinatorLeases {
     }
 
     private LeaseStore store() throws Exception {
-        LeaseStore current = store;
+        LeaseStore current = store.get();
         if (current == null) {
             current = storeSource.open();
-            store = current;
+            store.set(current);
         }
         return current;
     }
