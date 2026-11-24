@@ -21,6 +21,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 	"github.com/kubemoot/kubemoot/operator/pkg/natsconn/natstest"
 )
@@ -71,13 +72,13 @@ func TestPublishReachesASubscriberAndOnChangeSkipsAnUnchangedPayload(t *testing.
 			t.Fatal(err)
 		}
 	}
-	for _, w := range []string{`{"k":"v"}`, `"one"`, `"two"`} {
-		requireNext(t, got, w)
+	// A message published after the duplicate must be the next one received: had the
+	// duplicate been sent, it would arrive before the sentinel.
+	if err := p.Publish("test.subject", "sentinel"); err != nil {
+		t.Fatal(err)
 	}
-	select {
-	case extra := <-got:
-		t.Fatalf("an unchanged payload was sent again: %s", extra)
-	case <-time.After(200 * time.Millisecond):
+	for _, w := range []string{`{"k":"v"}`, `"one"`, `"two"`, `"sentinel"`} {
+		requireNext(t, got, w)
 	}
 
 	p.ForgetPublished("test.subject")
@@ -147,7 +148,10 @@ func TestEnsureConsumerMigratesAPullConsumerToPushAndDeleteIsIdempotent(t *testi
 	}
 }
 
-const kvBucket = "kv"
+const (
+	kvBucket   = "kv"
+	artsBucket = "arts"
+)
 
 func putKeys(t *testing.T, p *Publisher, keys ...string) {
 	t.Helper()
@@ -302,17 +306,17 @@ func TestObjectStoreOperationsOnAMissingBucketReportIt(t *testing.T) {
 
 func TestObjectStoreRoundTrip(t *testing.T) {
 	p, _ := jetStreamPublisher(t)
-	if store, err := p.EnsureObjectStore("arts", time.Hour); err != nil || store == nil {
+	if store, err := p.EnsureObjectStore(artsBucket, time.Hour); err != nil || store == nil {
 		t.Fatalf("EnsureObjectStore = %v, %v", store, err)
 	}
-	if keys, err := p.ListObjects("arts", "x"); keys != nil || err != nil {
+	if keys, err := p.ListObjects(artsBucket, "x"); keys != nil || err != nil {
 		t.Fatalf("an empty bucket lists (%v, %v), want (nil, nil)", keys, err)
 	}
 	putObjects(t, p, map[string]string{"suite1/a": "AAA", "suite1/b": "BBB", "suite2/a": "CCC"})
-	if b, err := p.GetObject("arts", "suite1/a"); err != nil || string(b) != "AAA" {
+	if b, err := p.GetObject(artsBucket, "suite1/a"); err != nil || string(b) != "AAA" {
 		t.Errorf("GetObject = %q, %v", b, err)
 	}
-	keys, err := p.ListObjects("arts", "suite1/")
+	keys, err := p.ListObjects(artsBucket, "suite1/")
 	slices.Sort(keys)
 	if err != nil || !slices.Equal(keys, []string{"suite1/a", "suite1/b"}) {
 		t.Errorf("ListObjects = %v, %v", keys, err)
@@ -322,7 +326,7 @@ func TestObjectStoreRoundTrip(t *testing.T) {
 func putObjects(t *testing.T, p *Publisher, objects map[string]string) {
 	t.Helper()
 	for k, v := range objects {
-		info, err := p.PutObject("arts", k, []byte(v), time.Hour)
+		info, err := p.PutObject(artsBucket, k, []byte(v), time.Hour)
 		if err != nil || info == nil || info.Size != uint64(len(v)) {
 			t.Fatalf("PutObject(%s) = %+v, %v", k, info, err)
 		}
@@ -331,19 +335,19 @@ func putObjects(t *testing.T, p *Publisher, objects map[string]string) {
 
 func TestDeleteObjectIsIdempotent(t *testing.T) {
 	p, _ := jetStreamPublisher(t)
-	if _, err := p.PutObject("arts", "k", []byte("x"), time.Hour); err != nil {
+	if _, err := p.PutObject(artsBucket, "k", []byte("x"), time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	wantNoErr(t, "DeleteObject", p.DeleteObject("arts", "k"))
-	wantNoErr(t, "DeleteObject of an absent object, so a purge can repeat", p.DeleteObject("arts", "k"))
-	if _, err := p.GetObject("arts", "k"); err == nil {
+	wantNoErr(t, "DeleteObject", p.DeleteObject(artsBucket, "k"))
+	wantNoErr(t, "DeleteObject of an absent object, so a purge can repeat", p.DeleteObject(artsBucket, "k"))
+	if _, err := p.GetObject(artsBucket, "k"); err == nil {
 		t.Error("a deleted object is still readable")
 	}
 }
 
 func TestConversationOwnerWithoutABucketIsAnErrorNotNoOwner(t *testing.T) {
 	p, _ := jetStreamPublisher(t)
-	scope := crewscope.Scope{Namespace: "ns", Crew: "crew"}
+	scope := testScope()
 	if _, found, err := p.ConversationOwner(context.Background(), scope, "c1"); err == nil || found {
 		t.Fatalf("found=%v err=%v, want an error so it never reads as 'no owner'", found, err)
 	}
@@ -351,12 +355,12 @@ func TestConversationOwnerWithoutABucketIsAnErrorNotNoOwner(t *testing.T) {
 
 func TestConversationOwnerReadsTheRecord(t *testing.T) {
 	p, _ := jetStreamPublisher(t)
-	scope := crewscope.Scope{Namespace: "ns", Crew: "crew"}
+	scope := testScope()
 	rec, _ := json.Marshal(bus.ConversationOwner{Owner: bus.Principal{Kind: bus.PrincipalKindKubernetes}})
-	if err := p.PutKVValue(bus.ConversationsBucket, bus.ConversationOwnerKey("ns", "crew", "c1"), rec); err != nil {
+	if err := p.PutKVValue(bus.ConversationsBucket, bus.ConversationOwnerKey(testScope().Namespace, testScope().Crew, "c1"), rec); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.PutKVValue(bus.ConversationsBucket, bus.ConversationOwnerKey("ns", "crew", "bad"), []byte("not json")); err != nil {
+	if err := p.PutKVValue(bus.ConversationsBucket, bus.ConversationOwnerKey(testScope().Namespace, testScope().Crew, "bad"), []byte("not json")); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -371,9 +375,39 @@ func TestConversationOwnerReadsTheRecord(t *testing.T) {
 	}
 }
 
-func TestOpenConversationExportAndCrewMemoryConnect(t *testing.T) {
+func TestOpenConversationExportBuildsOverTheConnection(t *testing.T) {
 	p, _ := jetStreamPublisher(t)
 	if b, err := p.OpenConversationExport(); err != nil || b == nil || b.Source == nil || b.Memory == nil {
 		t.Errorf("OpenConversationExport = %+v, %v", b, err)
 	}
 }
+
+func TestOpenCrewMemoryFailsUntilTheBucketExists(t *testing.T) {
+	p, _ := jetStreamPublisher(t)
+	if mem, err := p.OpenCrewMemory(); err == nil {
+		t.Errorf("OpenCrewMemory with no crew memory bucket = %v, nil; an export must not read it as no facts", mem)
+	}
+	if err := p.PutKVValue(crewmemory.Bucket, "ns.crew.topic.key", []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	if mem, err := p.OpenCrewMemory(); err != nil || mem == nil {
+		t.Errorf("OpenCrewMemory = %v, %v", mem, err)
+	}
+}
+
+func TestUnconfiguredPublisherReportsErrNotConfigured(t *testing.T) {
+	t.Setenv("NATS_URL", "")
+	p := NewPublisher("")
+	scope := testScope()
+	if _, err := p.OpenCrewMemory(); !errors.Is(err, errNotConfigured) {
+		t.Errorf("OpenCrewMemory = %v, want errNotConfigured", err)
+	}
+	if _, err := p.OpenConversationExport(); !errors.Is(err, errNotConfigured) {
+		t.Errorf("OpenConversationExport = %v, want errNotConfigured", err)
+	}
+	if _, _, err := p.ConversationOwner(context.Background(), scope, "id"); !errors.Is(err, errNotConfigured) {
+		t.Errorf("ConversationOwner = %v, want errNotConfigured", err)
+	}
+}
+
+func testScope() crewscope.Scope { return crewscope.Scope{Namespace: "ns", Crew: "crew"} }
