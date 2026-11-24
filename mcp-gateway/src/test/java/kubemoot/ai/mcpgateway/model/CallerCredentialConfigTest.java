@@ -123,4 +123,16 @@ class CallerCredentialConfigTest {
         assertTrue(new CallerToken("t", Instant.now().minusSeconds(1)).expired(Instant.now()));
         assertFalse(new CallerToken("t", null).expired(Instant.now()));
     }
+
+    @Test
+    void theModeNamesOnTheWireAreOffAndRequiredAndCaseSensitive() throws Exception {
+        assertEquals(Mode.OFF, mapper.readValue("\"Off\"", Mode.class));
+        assertEquals(Mode.REQUIRED, mapper.readValue("\"Required\"", Mode.class));
+        assertEquals("\"Off\"", mapper.writeValueAsString(Mode.OFF));
+        assertEquals("\"Required\"", mapper.writeValueAsString(Mode.REQUIRED));
+        assertThrows(com.fasterxml.jackson.databind.exc.InvalidFormatException.class,
+            () -> mapper.readValue("\"REQUIRED\"", Mode.class));
+        assertThrows(com.fasterxml.jackson.databind.exc.InvalidFormatException.class,
+            () -> mapper.readValue("\"required\"", Mode.class));
+    }
 }
