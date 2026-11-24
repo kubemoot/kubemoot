@@ -421,6 +421,15 @@ kmctl fitness run my-suite -n kubemoot
 The command exits 1 when the suite failed its gates, its tool smoke failed, or it was
 stopped, and 0 otherwise.
 
+### Run a tier of a crew's scenarios
+
+```bash
+kmctl fitness run --tier smoke --crew my-crew -n crew-my-crew
+```
+
+`smoke`, `standard` and `full` select the crew's scenarios by the tiers the scenarios name;
+see [Tiers](../../reference/crewfitnesssuite/#tiers).
+
 ### Smoke-test a single scenario
 
 ```bash

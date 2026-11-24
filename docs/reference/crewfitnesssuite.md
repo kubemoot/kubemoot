@@ -33,7 +33,8 @@ spec:
 | `crewRef` | string | required | Crew in the same namespace that the suite runs against. |
 | `description` | string | | Purpose of the suite. Shown on the dashboard and in the XLSX Overview tab. |
 | `iterations` | int | required, at least 1 | How many times each script runs. The suite creates `len(scripts) x iterations` runs. |
-| `scripts` | list | required, at least 1 | The scripts to run, in order. Each entry has a `testRef` and exactly one of `testContent` (inline script) or `configMapRef` (ConfigMap holding `<testRef>.adl`). |
+| `scripts` | list | required, at least 1, unless `tier` is set | The scripts to run, in order. Each entry has a `testRef` and exactly one of `testContent` (inline script) or `configMapRef` (ConfigMap holding `<testRef>.adl`). With `tier` set, leave it out: the operator writes the scripts it resolves here when the suite starts. |
+| `tier` | `smoke`, `standard` or `full` | | Run a named part of the crew's own scenarios instead of listing scripts. Set at creation, immutable. See [Tiers](#tiers). |
 | `concurrency` | int | `1` | Maximum runs in flight at once. Keep it at 1 for baselines: parallel runs share the crew and its model servers, so they measure contention. |
 | `perIterationTimeout` | duration | `10m` | Wall-clock cap for one iteration. |
 | `artifactRetention` | duration | `168h` | Object Store TTL for the XLSX, used only when the suite creates the shared bucket. The install creates it with the limit of the chart value `nats.stores.fitnessArtifacts`, and an existing bucket keeps that limit. |
@@ -59,6 +60,8 @@ spec:
 | `artifactRef` | Bucket, object key (`<namespace>/<suite>/<runId>.xlsx`), and size of the XLSX, set once it is written. |
 | `error` | Why the suite itself failed to execute (phase `Error`), in one sentence. A tool smoke failure is in the `ToolSmoke` condition message instead. See [Pass and score](#pass-and-score). |
 | `toolSmoke` | The table the tool smoke produced: `passed`, `failures`, and one row per tool (`server`, `tool`, `invoked`, `passed`, `error`, `durationMs`), failures first. See [Tool smoke](#tool-smoke). |
+| `tier` | On a suite with `spec.tier`: the tier, the ConfigMap it was read from, the scenarios it chose, and how many scenarios the crew has. See [Tiers](#tiers). |
+| `pathCoverage` | Which call paths the run exercised, read from its own transcripts, and the paths it missed. See [Path coverage](#path-coverage). |
 | `rejudge` | On a re-judge suite: the `source` run, how many `transcripts` were copied, and `notInSource`, the scenarios of this suite the source run has no answer for. |
 | `scenarios` | Per-scenario rollup of the finished iterations, in spec order. See [Results in status](#results-in-status). |
 | `consistency` | How reliably the scenarios pass: the mean pass^k, the scenarios to check, and for a regression suite the scenarios below 100%. See [Consistency](#consistency-pass-and-pass-k). |
@@ -77,6 +80,90 @@ spec:
 | `Cancelled` | yes | `spec.cancel` stopped the suite. Completed iterations are kept and the XLSX is marked partial. |
 | `ToolSmokeFailed` | yes | The tool smoke found a failing MCP tool, so the suite stopped before any model ran. No iteration was created and no artifact is written. See [Tool smoke](#tool-smoke). |
 | `Failed`, `Error` | yes | The suite itself could not execute, such as an invalid spec. |
+
+## Tiers
+
+A crew's fitness suite is as large as its scenarios, and most changes do not need all of them. A tier names how much of the suite a run covers, so one set of scenarios serves all three:
+
+| Tier | Covers | For |
+|------|--------|-----|
+| `smoke` | A few scenarios chosen so that together they take every call path: triage, the tool loop, simple calls, thinking on and off, each model and provider the crew uses, one question with a trap. Minutes, not hours. | Call plumbing, client libraries, engine adapters, operator wiring, image or chart changes. It shows that the paths work, not that the answers are good. |
+| `standard` | The scenarios a change to crew behavior is gated on. | Features that change what the crew does. |
+| `full` | Every scenario the crew ships, labelled or not. Use several iterations when two arms are compared. | Prompt, model and scheduling decisions, and measurements of record. |
+
+Compare results only within a tier, on the same judge references. A tier is fixed by what the scenarios say, not picked by hand for each change, so two runs of one tier cover the same scenarios until a scenario's label changes.
+
+A scenario names the tiers it belongs to in an ADL constant:
+
+```text
+DEFINE CONST TIERS AS "smoke standard"
+```
+
+The words are `smoke` and `standard`, separated by spaces or commas. A scenario with no `TIERS` constant belongs to no named tier and runs only in `full`. The label lives in the scenario, so a tier is reviewed in the same change that edits the scenario, and a crew author chooses its own tiers. Only ADL scenarios carry the label; a prose Markdown scenario runs in `full` only.
+
+To run a tier, set `spec.tier` and leave out `spec.scripts`:
+
+```yaml
+apiVersion: kubemoot.ai/v1alpha1
+kind: CrewFitnessSuite
+metadata:
+  name: homelab-smoke
+  namespace: crew-homelab-pilot
+spec:
+  crewRef: homelab-pilot
+  iterations: 1
+  tier: smoke
+```
+
+When the suite starts, the operator reads the ConfigMap `<crewRef>-fitness` in the suite's namespace, which the crew chart ships (one key per scenario, `<name>.adl`), keeps the scenarios that name the tier (every scenario for `full`), orders them by name, and writes them into `spec.scripts` with their text inline. The suite then keeps the text it ran, even if the crew is upgraded and its scenarios change while the suite runs, and every consumer of a suite (the report, the re-judge, `kmctl fitness scenarios`) reads the scripts as usual. `status.tier` records what was resolved:
+
+```yaml
+status:
+  tier:
+    name: smoke
+    source: homelab-pilot-fitness
+    available: 76
+    scenarios: [k8s-pod-status, proxmox-vm-list, smoke-cluster-namespaces]
+    resolvedAt: "2026-11-23T14:02:11Z"
+```
+
+The suite ends in phase `Error`, with the reason in `status.error` and no model asked, when:
+
+- the ConfigMap `<crewRef>-fitness` does not exist in the namespace;
+- the ConfigMap holds no scenario;
+- no scenario carries the tier (a tier that selects nothing would measure nothing);
+- a scenario names a tier the operator does not know (a typo such as `smok` must not shrink a tier without a word), or names `full`, which needs no label;
+- `spec.scripts` is also set (the tier chooses the scripts; set one or the other).
+
+The API server refuses a suite at creation when `spec.tier` is not `smoke`, `standard` or `full`, when it is empty, when neither `spec.scripts` nor `spec.tier` is set, when `spec.tier` is combined with `spec.rejudge`, and any later change to `spec.tier`.
+
+## Path coverage
+
+A smoke run exists to take every call path, so the suite says which paths its run took. Once the run is terminal, `status.pathCoverage` counts the run's placed model calls, read from the scheduler's records in the run's own transcripts (the receipt of each discussion), not from what the suite was meant to do:
+
+```yaml
+status:
+  pathCoverage:
+    calls: 87
+    transcripts: 8
+    kinds:     [{name: tool-turn, calls: 52}, {name: triage, calls: 21}, {name: simple, calls: 14}]
+    phases:    [{name: evaluation, calls: 52}, {name: triage, calls: 21}, {name: synthesis, calls: 8}, ...]
+    models:    [{name: qwen3:8b, calls: 61}, {name: qwen3:32b, calls: 26}]
+    providers: [{name: vllm, calls: 70}, {name: ollama, calls: 17}]
+    thinking:  [{name: "off", calls: 66}, {name: "on", calls: 21}]
+    gaps:      ["no call on provider ollama"]
+```
+
+| Field | Meaning |
+|-------|---------|
+| `calls`, `transcripts` | The placed calls counted, and the iterations whose transcript held at least one. `calls: 0` means the transcripts held none (a run from before the receipt was kept in the transcript) and the other fields are empty. |
+| `kinds` | The path that sent the call: `triage`, `tool-turn` (a turn of the tool loop) or `simple` (a call with no tools). |
+| `phases` | Where in the thread the call happened: `advisory`, `selection`, `triage`, `evaluation` or `synthesis`. |
+| `models`, `providers` | The model the call ran on, and the engine type of the model server it ran on (the `engine` of the realm's model servers). A name the operator cannot resolve counts as `unknown`. |
+| `thinking` | The thinking setting of the agent that made the call: `on` or `off` when the Agent sets `spec.think`, `default` when it leaves the model's own default, `unknown` when no agent of the crew has that name. The setting is the agent's configuration, not a flag on the call. |
+| `gaps` | What the crew has that the run never took: a call kind or phase with no call, an engine type among the crew's model servers with no call, a thinking setting some agent declares with no call. Empty means every declared path was exercised. |
+
+The operator writes the table for every suite, tiered or not. An empty `gaps` on a smoke run is the evidence that the plumbing was covered; a non-empty one says which path to add a scenario for, or which one the run could not reach. Models have no declared list to compare with, because the scheduler picks the model at call time, so the table reports the models used and leaves the comparison to the reader.
 
 ## Tool smoke
 

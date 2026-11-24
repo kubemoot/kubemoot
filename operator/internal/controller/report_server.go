@@ -163,6 +163,7 @@ func iterationFromTranscript(suite *kubemootv1alpha1.CrewFitnessSuite, key strin
 		// Factuality + fabrication are computed in the scenario aggregator directly
 		// from Assertions + Synthesis, so no per-run sentinel field can be forgotten.
 		Synthesis:     synthesis,
+		Calls:         callsFromEvents(doc.Events),
 		InventedNames: doc.InventedNames,
 		Question:      doc.Question,
 		Correctness:   correctnessScore(passed, total),

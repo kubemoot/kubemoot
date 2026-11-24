@@ -42,6 +42,7 @@ import (
 	"unicode"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/fitnessscript"
 )
 
 // --- Factuality: deterministic, drift-tolerant ground truth -----------------
@@ -238,6 +239,9 @@ type transcriptEvent struct {
 	// FailureType and LastError are the signal metadata of a failure finding.
 	FailureType string `json:"failureType,omitempty"`
 	LastError   string `json:"lastError,omitempty"`
+
+	// Receipt is on the done event: the model calls the scheduler placed.
+	Receipt *fitnessscript.EventReceipt `json:"receipt,omitempty"`
 }
 
 // pct is num/den as a 0-100 percentage; 0 when den is non-positive.

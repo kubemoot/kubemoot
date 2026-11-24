@@ -1192,6 +1192,7 @@ kmctl fitness list [-n <namespace>] [-A]
 kmctl fitness get <suite> [-n <namespace>]
 kmctl fitness scenarios <suite> [-n <namespace>]
 kmctl fitness run <suite> [-n <namespace>] [--scenario <name>] [--timeout <duration>]
+kmctl fitness run --tier <smoke|standard|full> --crew <crew> [--name <suite>] [--iterations <n>] [--dry-run]
 kmctl fitness download <suite> [-n <namespace>] [--output-file FILE]
 kmctl fitness pause <suite> [-n <namespace>] [--dry-run]
 kmctl fitness resume <suite> [-n <namespace>] [--dry-run]
@@ -1274,6 +1275,7 @@ kmctl fitness scenarios demo-starter
 
 ```
 kmctl fitness run <suite> [-n <namespace>] [--scenario <name>] [--timeout <duration>]
+kmctl fitness run --tier <smoke|standard|full> --crew <crew> [--name <suite>] [--iterations <n>] [--dry-run]
 ```
 
 Run a suite and wait for completion. Polls progress and prints it as the run
@@ -1296,6 +1298,13 @@ To run a single scenario in isolation, pass `--scenario`. This creates a single
 | `--scenario` | Run only this named scenario as a single CrewFitness |
 | `-f`, `--filename` | Apply a CrewFitnessSuite manifest, then run it |
 | `--timeout` | How long to wait for completion (default: 30m) |
+| `--tier` | Create a suite that runs this tier of the crew's own scenarios, and wait for it: `smoke`, `standard` or `full`. See [Tiers](../crewfitnesssuite/#tiers) |
+| `--crew` | With `--tier`: the crew whose scenarios the tier selects (required) |
+| `--name` | With `--tier`: the suite's name (default: generated from the crew and tier) |
+| `--iterations` | With `--tier`: how many times each scenario runs (default: 1) |
+| `--dry-run` | With `--tier`: have the API server check the suite and your access, and create nothing |
+
+`--tier` creates a `CrewFitnessSuite` with `spec.tier` and no scripts, so it cannot be combined with a suite name, `-f` or `--scenario`. The operator reads the ConfigMap `<crew>-fitness` in the namespace when the suite starts, chooses the scenarios of the tier, and records them in `status.tier`. `kmctl fitness get <suite> -o yaml` shows them and, once the run ends, `status.pathCoverage`: the call paths the run exercised and the ones it missed. The command needs `create` on `crewfitnesssuites`.
 
 **Example (full suite):**
 
@@ -1306,6 +1315,15 @@ kmctl fitness run demo-starter -n kubemoot
 # [2/10] concept-routing    passed (1m 3s)
 # ...
 # Result: 9 passed, 1 failed
+```
+
+**Example (smoke tier of a crew):**
+
+```bash
+kmctl fitness run --tier smoke --crew homelab-pilot -n crew-homelab-pilot
+# created crewfitnesssuite/homelab-pilot-smoke-x7k2p (tier smoke, crew homelab-pilot, 1 iteration(s) of each scenario)
+# Running    3/8 done  (gates passed 3, failed 0)
+# Completed  8/8 done  (gates passed 8, failed 0)
 ```
 
 **Example (single scenario smoke test):**

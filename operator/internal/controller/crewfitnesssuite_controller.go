@@ -265,6 +265,9 @@ func (r *CrewFitnessSuiteReconciler) finalizeSuite(ctx context.Context, suite *k
 // startSuite transitions a Pending suite into Running by stamping a runId
 // and recording StartedAt + the total-iteration count.
 func (r *CrewFitnessSuiteReconciler) startSuite(ctx context.Context, suite *kubemootv1alpha1.CrewFitnessSuite) (ctrl.Result, error) {
+	if res, stop, err := r.resolveSuiteTier(ctx, suite); stop || err != nil {
+		return res, err
+	}
 	if err := validateSuiteSpec(suite); err != nil {
 		return r.setSuiteError(ctx, suite, err.Error())
 	}
@@ -667,7 +670,7 @@ func (r *CrewFitnessSuiteReconciler) persistArtifact(ctx context.Context, suite 
 		return ctrl.Result{RequeueAfter: artifactRetryInterval}, false, nil
 	}
 	suite.Status.ArtifactRef = ref
-	addInventedCounts(r.store(), suite)
+	r.recordTranscriptStatus(ctx, suite)
 	if err := r.Status().Update(ctx, suite); err != nil {
 		return ctrl.Result{}, false, err
 	}

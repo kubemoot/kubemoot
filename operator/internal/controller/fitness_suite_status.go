@@ -137,23 +137,19 @@ func scenarioResults(scripts []kubemootv1alpha1.SuiteScript, results []Iteration
 // addInventedCounts reads the run's transcripts and sets inventedNameRuns on
 // status.scenarios. The rows of a running suite come from the finished
 // CrewFitness children, which carry no transcript, so the count is added once the
-// run is terminal and its transcripts are final. The rows are rolled up by
-// scenarioResults, the one place that counts iterations, and only the count is
-// copied. Without a store, with a failed listing, or when a transcript could not
-// be read (a transient failure must not lower a correct count), the rows keep
-// what they hold.
+// run is terminal and its transcripts are final. Without a store, with a failed
+// listing, or when a transcript could not be read (a transient failure must not
+// lower a correct count), the rows keep what they hold.
 func addInventedCounts(store objectStore, suite *kubemootv1alpha1.CrewFitnessSuite) {
-	if store == nil || suite.Status.RunID == "" || len(suite.Status.Scenarios) == 0 {
-		return
+	if results, ok := readRunResults(store, suite); ok {
+		setInventedCounts(suite, results)
 	}
-	keys, err := store.ListObjects(FitnessArtifactsBucket, suiteRunPrefix(suite.Namespace, suite.Name, suite.Status.RunID))
-	if err != nil {
-		return
-	}
-	results := readTranscriptResults(suite, store, keys)
-	if len(results) < countTranscriptKeys(keys) {
-		return
-	}
+}
+
+// setInventedCounts copies the invented-name count of each scenario onto its
+// status row. The rows are rolled up by scenarioResults, the one place that counts
+// iterations, and only the count is copied.
+func setInventedCounts(suite *kubemootv1alpha1.CrewFitnessSuite, results []IterationResult) {
 	runs := map[string]int32{}
 	for _, row := range scenarioResults(suite.Spec.Scripts, results) {
 		runs[row.Name] = row.InventedNameRuns
