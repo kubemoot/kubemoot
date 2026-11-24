@@ -196,7 +196,7 @@ class ChatServiceCapacityTest {
         service(null, candidates(70, 60)).directChat(request(), true, CapacityWait.NONE);
 
         var seen = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.modelserver.CallObservation.class);
-        verify(history).record(seen.capture(), any());
+        verify(history).observe(seen.capture(), any());
         var o = seen.getValue();
         assertEquals("ollama-a", o.server());
         assertEquals(WARM_CANDIDATE, o.model());
@@ -248,7 +248,7 @@ class ChatServiceCapacityTest {
         service(null, null).directChat(request(), true, CapacityWait.NONE);
 
         var seen = org.mockito.ArgumentCaptor.forClass(ai.kubemoot.agent.modelserver.CallObservation.class);
-        verify(history).record(seen.capture(), any());
+        verify(history).observe(seen.capture(), any());
         assertEquals(PREFERRED, seen.getValue().model());
         assertTrue(seen.getValue().coldStart());
     }

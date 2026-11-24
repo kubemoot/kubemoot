@@ -181,8 +181,8 @@ public class PerformanceHistory {
     // ---- writes ----
 
     /** Records one model request; ignored when it names no server or model. */
-    public void record(CallObservation o) {
-        record(o, null);
+    public void observe(CallObservation o) {
+        observe(o, null);
     }
 
     /**
@@ -191,7 +191,7 @@ public class PerformanceHistory {
      * metrics, and the prediction beside what the request measured is kept with the
      * request. A null {@code call} records the request alone.
      */
-    public void record(CallObservation o, PlacedCall call) {
+    public void observe(CallObservation o, PlacedCall call) {
         if (o == null || !o.attributable()) {
             return;
         }

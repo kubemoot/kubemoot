@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -42,12 +43,12 @@ final class ResultType {
     private static final char COMMA = ',';
     private static final char NEWLINE = '\n';
 
-    /** Nesting the Go decoders accept (encoding/json and yaml.v3 stop at 10,000); the parsers here stop earlier by default. */
     /** The characters Go's unicode.IsSpace accepts. */
     private static final String GO_SPACE = "\t\n\u000B\f\r \u0085\u00A0\u1680"
             + "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A"
             + "\u2028\u2029\u202F\u205F\u3000";
 
+    /** Nesting the Go decoders accept (encoding/json and yaml.v3 stop at 10,000); the parsers here stop earlier by default. */
     private static final int MAX_NESTING = 10_000;
 
     /** Most bytes of text a YAML check is made on: parsing builds the whole document. Go's {@code maxYAMLBytes} is the same. */
@@ -377,24 +378,24 @@ final class ResultType {
         int expected = -1;
         int i = 0;
         while (i < text.length()) {
-            int[] record = readRecord(text, i);
-            if (record == null || (expected >= 0 && record[1] != expected)) {
+            Optional<int[]> parsed = readRecord(text, i);
+            if (parsed.isEmpty() || (expected >= 0 && parsed.get()[1] != expected)) {
                 return false;
             }
-            expected = record[1];
-            i = record[0];
+            expected = parsed.get()[1];
+            i = parsed.get()[0];
         }
         return expected >= MIN_CSV_FIELDS;
     }
 
-    /** Reads one record from {@code at}: the position after it and its field count; null on a bad quote. */
-    private static int[] readRecord(String text, int at) {
+    /** Reads one record from {@code at}: the position after it and its field count; empty on a bad quote. */
+    private static Optional<int[]> readRecord(String text, int at) {
         int i = at;
         int fields = 0;
         while (true) {
             i = text.startsWith("\"", i) ? endOfQuoted(text, i) : endOfBare(text, i);
             if (i < 0) {
-                return null;
+                return Optional.empty();
             }
             fields++;
             if (i < text.length() && text.charAt(i) == COMMA) {
@@ -403,7 +404,7 @@ final class ResultType {
                 break;
             }
         }
-        return new int[] {i < text.length() ? i + 1 : i, fields};
+        return Optional.of(new int[] {i < text.length() ? i + 1 : i, fields});
     }
 
     /** The position after an unquoted field (at a comma, line end or the end); -1 when it holds a quote. */

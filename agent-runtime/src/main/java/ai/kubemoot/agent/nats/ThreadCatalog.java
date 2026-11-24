@@ -198,8 +198,10 @@ final class ThreadCatalog {
                 + " rows=" + (rowsKnown ? Long.toString(rows) : UNKNOWN) + " pattern=" + first.pattern(prefix) + "]";
     }
 
-    /** The catalog line of one call: its key, tool, arguments, shape and size. */
-    /** Package-private so the shared fixture test (ThreadCatalogTest) can render one line. */
+    /**
+     * The catalog line of one call: its key, tool, arguments, shape and size. Package-private so
+     * the shared fixture test (ThreadCatalogTest) can render one line.
+     */
     String callLine(Entry e) {
         return ENTRY_PREFIX + e.relativeKey(prefix) + " tool=" + CallManifest.neutralize(e.tool()) + " " + CallManifest.argsField(e.args())
                 + " type=" + (e.type().isEmpty() ? UNKNOWN : e.type())

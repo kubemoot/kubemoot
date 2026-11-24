@@ -23,11 +23,11 @@ public final class LogCapture implements AutoCloseable {
     private final List<String> lines = new ArrayList<>();
     private final Handler handler = new Handler() {
         @Override
-        public void publish(LogRecord record) {
-            StringBuilder line = new StringBuilder(record instanceof ExtLogRecord ext
-                    ? ext.getFormattedMessage() : String.valueOf(record.getMessage()));
-            if (record.getThrown() != null) {
-                line.append(' ').append(record.getThrown());
+        public void publish(LogRecord logRecord) {
+            StringBuilder line = new StringBuilder(logRecord instanceof ExtLogRecord ext
+                    ? ext.getFormattedMessage() : String.valueOf(logRecord.getMessage()));
+            if (logRecord.getThrown() != null) {
+                line.append(' ').append(logRecord.getThrown());
             }
             synchronized (lines) {
                 lines.add(line.toString());

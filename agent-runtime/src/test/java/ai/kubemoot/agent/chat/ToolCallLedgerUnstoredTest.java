@@ -23,8 +23,8 @@ class ToolCallLedgerUnstoredTest {
 
     private final ToolCallLedger ledger = ToolCallLedger.unstoredForLoop("th", "obs-advisor", OptionalLong.empty());
 
-    private String record(String tool, String args, String result, boolean error) {
-        return ledger.record(new ToolCallLedger.Call(tool, "id", args, T0, 4), result, error, 1_000_000);
+    private String recordCall(String tool, String args, String result, boolean error) {
+        return ledger.recordCall(new ToolCallLedger.Call(tool, "id", args, T0, 4), result, error, 1_000_000);
     }
 
     @Test
@@ -36,7 +36,7 @@ class ToolCallLedgerUnstoredTest {
 
     @Test
     void aCallIsListedWithItsArgumentsAndItsResultAndNoKey() {
-        assertNull(record("artifact_select", "{\"q\": \"events\"}", "node-a NotReady", false), "no key: nothing was stored");
+        assertNull(recordCall("artifact_select", "{\"q\": \"events\"}", "node-a NotReady", false), "no key: nothing was stored");
 
         String manifest = ledger.manifest();
 
@@ -51,7 +51,7 @@ class ToolCallLedgerUnstoredTest {
 
     @Test
     void anEmptyResultGetsTheEmptyBlock() {
-        record("workspace_grep", "{}", "  \n", false);
+        recordCall("workspace_grep", "{}", "  \n", false);
 
         String manifest = ledger.manifest();
 
@@ -61,7 +61,7 @@ class ToolCallLedgerUnstoredTest {
 
     @Test
     void aFailedResultGetsTheFailedBlock() {
-        record("t", "{}", "boom", true);
+        recordCall("t", "{}", "boom", true);
 
         assertTrue(ledger.manifest().contains("error=true stored=no]\n[FAILED RESULT]\nboom\n[END RESULT]"), ledger.manifest());
     }
@@ -69,7 +69,7 @@ class ToolCallLedgerUnstoredTest {
     @Test
     void aResultTooLargeToShowSaysItIsNotStoredAndNotShown() {
         String large = "x".repeat(DiscussionRoom.perResultChars(OptionalLong.empty()) + 1);
-        record("big", "{\"a\": 1}", large, false);
+        recordCall("big", "{\"a\": 1}", large, false);
 
         String manifest = ledger.manifest();
 
@@ -83,7 +83,7 @@ class ToolCallLedgerUnstoredTest {
     @Test
     void theResultsOfManyCallsShareTheContributionRoomLikeStoredOnes() {
         for (int i = 0; i < 30; i++) {
-            record("t" + i, "{}", "r".repeat(DiscussionRoom.perResultChars(OptionalLong.empty()) - 1), false);
+            recordCall("t" + i, "{}", "r".repeat(DiscussionRoom.perResultChars(OptionalLong.empty()) - 1), false);
         }
 
         String manifest = ledger.manifest();
@@ -94,7 +94,7 @@ class ToolCallLedgerUnstoredTest {
 
     @Test
     void aFailedCallWithNoTextIsAnUnstoredCallLine() {
-        record("t", "{}", "", true);
+        recordCall("t", "{}", "", true);
 
         String manifest = ledger.manifest();
 
@@ -104,14 +104,14 @@ class ToolCallLedgerUnstoredTest {
 
     @Test
     void aResultHoldingACallMarkerIsNotPosted() {
-        record("t", "{}", "see " + CallManifest.UNSTORED_CALL_PREFIX + "x", false);
+        recordCall("t", "{}", "see " + CallManifest.UNSTORED_CALL_PREFIX + "x", false);
 
         assertTrue(ledger.manifest().contains("[NOT STORED tool=t"), ledger.manifest());
     }
 
     @Test
     void aFailedCallWithNoTextPostsTheNoTextBlockSoEveryLineHasABlock() {
-        record("t", "{}", " ", true);
+        recordCall("t", "{}", " ", true);
 
         assertTrue(ledger.manifest().contains("error=true stored=no]\n" + CallManifest.FAILED_NO_TEXT_TEXT), ledger.manifest());
     }
@@ -119,7 +119,7 @@ class ToolCallLedgerUnstoredTest {
     @Test
     void droppedCallsSayTheirResultsAreNotStoredAndNotAvailable() {
         for (int i = 0; i < 100; i++) {
-            record("events_list", "{\"n\": " + i + "}", "", false);
+            recordCall("events_list", "{\"n\": " + i + "}", "", false);
         }
 
         String manifest = ledger.manifest();
@@ -154,7 +154,7 @@ class ToolCallLedgerUnstoredTest {
             String result = call.has("resultChars") ? "x".repeat(call.get("resultChars").asInt())
                     : call.get("result").asText();
             for (int i = 0; i < (call.has("repeat") ? call.get("repeat").asInt() : 1); i++) {
-                one.record(new ToolCallLedger.Call(call.get("tool").asText(), "id", call.get("args").asText(), T0, 4),
+                one.recordCall(new ToolCallLedger.Call(call.get("tool").asText(), "id", call.get("args").asText(), T0, 4),
                         result, call.path("error").asBoolean(false), 1_000_000);
             }
         }
@@ -164,7 +164,7 @@ class ToolCallLedgerUnstoredTest {
     @Test
     void aStoringLedgerKeepsItsKeysAndFooter() {
         var storing = new ToolCallLedger(new ChatServiceCallFilesTest.FakeStore(), "th", "a");
-        storing.record(new ToolCallLedger.Call("t", "id", "{}", T0, 1), "[]", false, 1_000_000);
+        storing.recordCall(new ToolCallLedger.Call("t", "id", "{}", T0, 1), "[]", false, 1_000_000);
 
         String manifest = storing.manifest();
 

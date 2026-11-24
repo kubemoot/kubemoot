@@ -600,8 +600,8 @@ public class ChatService {
     ToolLoopResult callWithToolLoop(List<ChatMessage> messages) {
         MullingPick pick = pickMullingChatModel(PromptSize.chars(messages, tools().specs()), CallObservation.KIND_TOOL_TURN);
         try {
-            // Legacy/test entry defaults to reasoning behavior, with no raw output;
-            // the tooler raw-output contract is opt-in via the 5-arg overload.
+            // Legacy/test entry defaults to reasoning behavior, with no raw output.
+            // The tooler raw-output contract is opt-in via the 5-arg overload.
             return callWithToolLoop(messages,
                     observed(pick, CallObservation.KIND_TOOL_TURN),
                     pick.serverName(), pick.pickReason(), false, contextLengthOf(pick));
@@ -968,7 +968,7 @@ public class ChatService {
         // The reply is not in state.allMessages yet, so the report describes the prompt that was sent.
         var report = PromptReport.of(state.allMessages, specs, charsPerToken);
         log.info(report.line(properties.agentName(), state.modelCalls, contextLength, reported));
-        report.record(reported);
+        report.recordTotals(reported);
     }
 
     /**
@@ -1031,7 +1031,7 @@ public class ChatService {
         //  - TOOL_GAP -> it lacks the needed tool TYPE: keep it as the
         //               contribution so the coordinator routes it to concern /
         //               gap detection / onboarding (load-bearing, do not reroute).
-        // Otherwise the tooler's statement of what it found leads, then the descriptions of its files;
+        // Otherwise the tooler's statement of what it found leads, then the descriptions of its files:
         // with no statement (or no store) the raw tool output IS the contribution (the data path).
         String finalText = aiMessage.text() == null ? "" : aiMessage.text().strip();
         if (declaresGatherFailed(finalText)) {
@@ -1450,7 +1450,7 @@ public class ChatService {
             return null;
         }
         var call = new ToolCallLedger.Call(request.name(), request.id(), request.arguments(), started, durationMs);
-        return state.ledger.record(call, raw, isGatherErrorResult(raw), MAX_TOOL_RESULT_CHARS);
+        return state.ledger.recordCall(call, raw, isGatherErrorResult(raw), MAX_TOOL_RESULT_CHARS);
     }
 
     /**
@@ -1540,7 +1540,7 @@ public class ChatService {
         }
         var tracker = state.perToolFailures.computeIfAbsent(toolName,
                 t -> new ToolFailureTracker(MAX_SAME_TOOL_FAILURES, MAX_CORRECTING_TOOL_FAILURES));
-        var verdict = tracker.record(arguments, result, knownRepeat);
+        var verdict = tracker.recordFailure(arguments, result, knownRepeat);
         int count = tracker.failures();
         state.totalToolFailures++;
         log.info("Tool '{}' returned error ({} times in this loop, {} total, {}, {})",
@@ -2475,17 +2475,22 @@ public class ChatService {
      */
     private PromptWindow windowOf(MullingPick pick) {
         long picked = contextLengthOf(pick);
-        java.util.OptionalLong tokens = picked > 0 ? java.util.OptionalLong.of(picked)
-                : pick.serverName().isEmpty() ? simpleCallContextTokens() : java.util.OptionalLong.empty();
+        java.util.OptionalLong tokens = java.util.OptionalLong.empty();
+        if (picked > 0) {
+            tokens = java.util.OptionalLong.of(picked);
+        } else if (pick.serverName().isEmpty()) {
+            tokens = simpleCallContextTokens();
+        }
+        final java.util.OptionalLong windowTokens = tokens;
         return new PromptWindow() {
             @Override
             public java.util.OptionalLong tokens() {
-                return tokens;
+                return windowTokens;
             }
 
             @Override
             public java.util.OptionalLong roomAfter(String system, String user) {
-                return roomIn(tokens, system, user);
+                return roomIn(windowTokens, system, user);
             }
         };
     }
@@ -2573,7 +2578,7 @@ public class ChatService {
             return timed;
         } finally {
             if (context != null) {
-                performanceHistory.record(timed == null
+                performanceHistory.observe(timed == null
                         ? context.measured(false, start, System.currentTimeMillis() - start, 0L, 0L)
                         : context.streamed(true, start, timed, inputTokens(timed.response().tokenUsage()),
                                 outputTokens(timed.response().tokenUsage())), context.call());

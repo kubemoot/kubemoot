@@ -11,6 +11,7 @@ import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.locks.ReentrantLock;
@@ -41,7 +42,7 @@ public class NatsConnectionProvider implements NatsLink {
     /** Opens a connection; replaced in tests so no server is needed. */
     @FunctionalInterface
     interface Connector {
-        Connection connect(Options options) throws Exception;
+        Connection connect(Options options) throws IOException, InterruptedException;
     }
 
     @Inject

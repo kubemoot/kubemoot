@@ -88,7 +88,7 @@ class NatsConnectionProviderTest {
         return new NatsConnectionProvider(props("nats://nats:4222", "ns", "crew"), options -> {
             calls.incrementAndGet();
             var next = results.poll();
-            if (next instanceof Exception e) {
+            if (next instanceof java.io.IOException e) {
                 throw e;
             }
             return (Connection) next;
@@ -173,7 +173,7 @@ class NatsConnectionProviderTest {
         var p = new NatsConnectionProvider(props("nats://nats:4222", "ns", "crew"), o -> {
             calls.incrementAndGet();
             var next = results.poll();
-            if (next instanceof Exception e) {
+            if (next instanceof java.io.IOException e) {
                 throw e;
             }
             return (Connection) next;

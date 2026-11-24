@@ -60,7 +60,7 @@ public class NativeSelfTest {
         checks.forEach((name, body) -> {
             try {
                 body.run();
-            } catch (Throwable t) {
+            } catch (Exception | AssertionError | LinkageError t) {
                 failures.add(name + ": " + t);
             }
         });

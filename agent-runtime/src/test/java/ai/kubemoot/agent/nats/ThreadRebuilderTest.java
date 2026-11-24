@@ -19,7 +19,7 @@ class ThreadRebuilderTest extends ResumeRestartHarness {
 
     @Test
     void theRebuiltStateMatchesTheLogAtEveryPointOfAThread() throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
 
         for (int written = 1; written < rec.events().size(); written++) {
             var prefix = rec.events().subList(0, written);
@@ -45,7 +45,7 @@ class ThreadRebuilderTest extends ResumeRestartHarness {
 
     @Test
     void theTextOfASignalComesFromTheMessageTheLogNamed() throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
         int afterAgrees = 0;
         for (int i = 0; i < rec.events().size(); i++) {
             if (rec.events().get(i).data().path("signal").asText().equals("agree")) {

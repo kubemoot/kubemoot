@@ -69,15 +69,15 @@ public final class ObservedChatModel implements ChatModel {
             cold.set(false);
             return response;
         } finally {
-            record(response, coldNow, start);
+            recordResponse(response, coldNow, start);
         }
     }
 
-    private void record(ChatResponse response, boolean coldNow, long start) {
+    private void recordResponse(ChatResponse response, boolean coldNow, long start) {
         try {
             TokenUsage usage = response == null ? null : response.tokenUsage();
             CallContext sent = context.withColdStart(coldNow);
-            history.record(sent.measured(response != null, start,
+            history.observe(sent.measured(response != null, start,
                     System.currentTimeMillis() - start,
                     tokens(usage == null ? null : usage.inputTokenCount()),
                     tokens(usage == null ? null : usage.outputTokenCount())), sent.call());

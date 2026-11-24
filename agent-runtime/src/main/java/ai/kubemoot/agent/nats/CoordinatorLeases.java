@@ -7,6 +7,7 @@ import org.eclipse.microprofile.config.ConfigProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -53,7 +54,7 @@ final class CoordinatorLeases {
 
     /** Opens the lease store, or fails when NATS is not reachable. */
     interface StoreSource {
-        LeaseStore open() throws Exception;
+        LeaseStore open() throws IOException;
     }
 
     private record Held(long revision, long renewedAtNanos, long takenAtNanos) {
@@ -258,7 +259,7 @@ final class CoordinatorLeases {
         return keyPrefix.get() + name;
     }
 
-    private LeaseStore store() throws Exception {
+    private LeaseStore store() throws IOException {
         LeaseStore current = store.get();
         if (current == null) {
             current = storeSource.open();

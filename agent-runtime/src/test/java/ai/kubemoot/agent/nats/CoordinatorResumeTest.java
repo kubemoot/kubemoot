@@ -50,7 +50,7 @@ class CoordinatorResumeTest extends ResumeRestartHarness {
     /** Restarts after each event, with the coordinator's last effect done and not done; returns the actions taken. */
     private Set<String> restartAtEveryEvent(List<Step> script, boolean hasAnalysts, String selectionJson)
             throws Exception {
-        Recorded rec = record(script, hasAnalysts, selectionJson);
+        Recorded rec = recordRun(script, hasAnalysts, selectionJson);
         assertEquals("CLOSED", rec.outcome().phase());
         var actions = new HashSet<String>();
         for (boolean effectsDone : new boolean[] {true, false}) {
@@ -100,7 +100,7 @@ class CoordinatorResumeTest extends ResumeRestartHarness {
 
     @Test
     void messagesAgentsSentWhileNoCoordinatorRanAreAppliedOnceAndLogged() throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
         int afterEvaluationStarted = indexOf(rec.events(), "evaluation_started") + 1;
         // Steps 2 to 8 are the agents' messages for the evaluation; the first four are sent while down.
         Restarted restarted = restartAfter(rec, afterEvaluationStarted, true, true, SELECT_THREE, 4, () -> { });
@@ -120,7 +120,7 @@ class CoordinatorResumeTest extends ResumeRestartHarness {
 
     @Test
     void aLiveMessageForAThreadBeingResumedWaitsForTheGapAndIsThenAppliedOnce() throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
         int afterEvaluationStarted = indexOf(rec.events(), "evaluation_started") + 1;
         String live = "{\"messageId\":\"live-1\",\"threadId\":\"" + THREAD + "\",\"agentName\":\"k8s-workloads\","
                 + "\"messageType\":\"agree\",\"content\":\"12 pods\",\"channel\":\"broadcast\","
@@ -141,7 +141,7 @@ class CoordinatorResumeTest extends ResumeRestartHarness {
     @Test
     void aStopSentWhileNoCoordinatorRanMovesTheThreadOnceAndTheContinuationDoesNotStartTheSynthesisAgain()
             throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
         int afterEvaluationStarted = indexOf(rec.events(), "evaluation_started") + 1;
         published.clear();
         timeline.clear();
@@ -163,7 +163,7 @@ class CoordinatorResumeTest extends ResumeRestartHarness {
 
     @Test
     void aThreadThatCannotBeReadBackIsClosedSoItsAgentsStopAndNoBlankThreadIsMadeOfItsMessages() throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
         int afterEvaluationStarted = indexOf(rec.events(), "evaluation_started") + 1;
         published.clear();
         timeline.clear();
@@ -192,7 +192,7 @@ class CoordinatorResumeTest extends ResumeRestartHarness {
 
     @Test
     void aThreadAnotherCoordinatorAlreadyTookIsNotTakenOverAndItsGateOpens() throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
         int afterEvaluationStarted = indexOf(rec.events(), "evaluation_started") + 1;
         published.clear();
         timeline.clear();
@@ -219,7 +219,7 @@ class CoordinatorResumeTest extends ResumeRestartHarness {
 
     @Test
     void ifTheResumesCannotBeScheduledTheGatesStillOpen() throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
         int afterEvaluationStarted = indexOf(rec.events(), "evaluation_started") + 1;
         published.clear();
         timeline.clear();
@@ -243,7 +243,7 @@ class CoordinatorResumeTest extends ResumeRestartHarness {
 
     @Test
     void aThreadWhoseLogIsIncompleteIsClosedNotResumed() throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
         int afterConvened = indexOf(rec.events(), "subcommittee_convened") + 1;
         published.clear();
         timeline.clear();
@@ -268,7 +268,7 @@ class CoordinatorResumeTest extends ResumeRestartHarness {
 
     @Test
     void aRequestHandedAgainForAnAbandonedThreadStartsANewOne() throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
         int afterConvened = indexOf(rec.events(), "subcommittee_convened") + 1;
         published.clear();
         timeline.clear();

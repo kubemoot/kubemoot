@@ -136,7 +136,7 @@ abstract class ResumeRestartHarness extends CoordinatorThreadTestBase {
     }
 
     /** Runs {@code script} from the start on a fresh orchestrator and records everything a restart needs. */
-    protected Recorded record(List<Step> script, boolean hasAnalysts, String selectionJson) throws Exception {
+    protected Recorded recordRun(List<Step> script, boolean hasAnalysts, String selectionJson) throws Exception {
         published.clear();
         timeline.clear();
         inbound.clear();

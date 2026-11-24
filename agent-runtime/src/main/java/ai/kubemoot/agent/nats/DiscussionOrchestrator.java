@@ -750,7 +750,7 @@ public class DiscussionOrchestrator {
      * Waits for the thread's answer. A thread another replica owns ends the wait with
      * {@link ThreadLostException}, so the caller follows it.
      */
-    private String awaitAnswer(ThreadState state, RequestMatch match, String threadId) throws Exception {
+    private String awaitAnswer(ThreadState state, RequestMatch match, String threadId) throws ExecutionException, InterruptedException, java.util.concurrent.TimeoutException {
         var future = pendingResults.computeIfAbsent(threadId, k -> new CompletableFuture<>());
         if (leases.get().enabled() && state.trace.fenced()) {
             future.completeExceptionally(new ThreadLostException(threadId));
@@ -1251,7 +1251,7 @@ public class DiscussionOrchestrator {
     private void dispatchSignal(ThreadState state, String agentName, String messageType,
                                 String content, JsonNode msg) {
         switch (messageType) {
-            case "triaging" -> handleTriagingSignal(state, agentName, msg);
+            case "triaging" -> handleTriagingSignal(state, agentName);
             case "evaluating" -> handleEvaluatingSignal(state, agentName, msg);
             case "heartbeat" -> handleHeartbeatSignal(state, agentName, msg);
             case MSG_WAITING -> handleWaitingSignal(state, agentName, msg);
@@ -1292,7 +1292,7 @@ public class DiscussionOrchestrator {
                 truncate(content, LOG_PREVIEW_CHARS));
     }
 
-    private void handleTriagingSignal(ThreadState state, String agentName, JsonNode msg) {
+    private void handleTriagingSignal(ThreadState state, String agentName) {
         // Agent is queued on the triage GPU — set a generous deadline so the
         // coordinator doesn't close the thread while agents wait in GPU queue.
         // This deadline will be replaced by the evaluating signal's tighter deadline
@@ -3961,12 +3961,9 @@ public class DiscussionOrchestrator {
     }
 
     /**
-     * Load system prompt from file (composed by operator from PromptModules).
-     * Cached after first successful read.
-     */
-    /**
      * The coordinator's system prompt followed by the turn context line: the asker's date and
-     * zone as the thread fixed them, and the crew's namespace and name.
+     * zone as the thread fixed them, and the crew's namespace and name. The prompt is loaded from
+     * the file the operator composes from PromptModules, cached after the first successful read.
      */
     String systemPromptFor(ThreadState state) {
         var asker = state.asker.get();
@@ -5124,7 +5121,7 @@ public class DiscussionOrchestrator {
         var kind = RatifyReply.Kind.ofSignal(messageType);
         int round = msg.path(FIELD_METADATA).path(RatifyText.FIELD_RATIFIES).asInt(0);
         String draftId = msg.path(FIELD_METADATA).path(RatifyText.FIELD_DRAFT_ID).asText("");
-        if (kind == null || round == 0 || !state.ratify.record(agentName, kind, content, round, draftId)) {
+        if (kind == null || round == 0 || !state.ratify.recordReply(agentName, kind, content, round, draftId)) {
             return;
         }
         state.pendingEvaluations.remove(agentName);
@@ -5171,7 +5168,7 @@ public class DiscussionOrchestrator {
             String agent = entry.getKey();
             int round = state.ratify.round();
             log.warn("Thread {} - {} did not ratify round {} within its deadline", state.threadId, agent, round);
-            state.ratify.record(agent, RatifyReply.Kind.FAILURE, "did not answer within the deadline", round,
+            state.ratify.recordReply(agent, RatifyReply.Kind.FAILURE, "did not answer within the deadline", round,
                     state.ratify.draftId());
             state.phaseRoster.get().recordTerminalSignal(agent);
             publishSyntheticFailure(agent, state.threadId,

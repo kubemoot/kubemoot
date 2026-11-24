@@ -117,7 +117,7 @@ final class RatifyState {
      * and nothing recorded, when it is not the draft on the table, the agent is not on the roster, or it
      * answered already.
      */
-    synchronized boolean record(String agent, RatifyReply.Kind kind, String text, int answeredRound,
+    synchronized boolean recordReply(String agent, RatifyReply.Kind kind, String text, int answeredRound,
                                 String answeredDraftId) {
         if (answeredRound != round || !draftId.equals(answeredDraftId) || !roster.contains(agent)
                 || replies.containsKey(agent)) {

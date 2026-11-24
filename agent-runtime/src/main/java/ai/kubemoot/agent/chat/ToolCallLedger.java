@@ -77,7 +77,7 @@ final class ToolCallLedger {
      * Store one call's result as its own object. Returns the object key, or null when the write
      * failed. The body is the tool's own result text, cut at {@code maxChars}.
      */
-    String record(Call call, String result, boolean error, int maxChars) {
+    String recordCall(Call call, String result, boolean error, int maxChars) {
         String text = result == null ? "" : result;
         if (store == null) {
             return recordUnstored(call, text, error, maxChars);
@@ -206,12 +206,13 @@ final class ToolCallLedger {
         long errors = calls.stream().filter(ToolCallRecord::error).count();
         String head = CallManifest.HEADER_PREFIX + "agent=" + agent + " calls=" + calls.size() + " errors=" + errors
                 + (store == null ? " stored=no" : " prefix=" + prefix) + "]\n";
+        String keyHint = prefix.isEmpty() ? "." : "; the key " + prefix + "*-<tool> reads every call of one tool as one table.";
         String foot = store == null ? "" : "\n" + CallManifest.FOOTER_PREFIX + "; a result not shown above is only in its file. Read a key with "
                 + WorkspaceTools.QUERY + " (SQL; the columns are listed on the call line, and "
                 + WorkspaceTools.DESCRIBE + " lists every one), "
                 + WorkspaceTools.HEAD + ", " + WorkspaceTools.TAIL + ", " + WorkspaceTools.GREP + ", or "
                 + "execute_code over the file " + WorkspaceTools.MOUNT + "/<key>"
-                + (prefix.isEmpty() ? "." : "; the key " + prefix + "*-<tool> reads every call of one tool as one table.");
+                + keyHint;
         int room = MAX_MANIFEST_CHARS - head.length() - foot.length();
         return head + lines(room) + foot;
     }

@@ -27,20 +27,20 @@ class RatifyStateTest {
 
     @Test
     void aReplyCountsOnlyForTheCurrentRoundAndOnlyFromTheRoster() {
-        assertFalse(state.record(A, RatifyReply.Kind.AGREE, "ok", 2, state.draftId()), "another round");
-        assertFalse(state.record(A, RatifyReply.Kind.AGREE, "ok", 1, "a-draft-before-a-restart"), "another draft");
-        assertFalse(state.record("stranger", RatifyReply.Kind.AGREE, "ok", 1, state.draftId()), "not on the roster");
-        assertTrue(state.record(A, RatifyReply.Kind.AGREE, "ok", 1, state.draftId()));
-        assertFalse(state.record(A, RatifyReply.Kind.BLOCK, "changed my mind", 1, state.draftId()), "the first answer stands");
+        assertFalse(state.recordReply(A, RatifyReply.Kind.AGREE, "ok", 2, state.draftId()), "another round");
+        assertFalse(state.recordReply(A, RatifyReply.Kind.AGREE, "ok", 1, "a-draft-before-a-restart"), "another draft");
+        assertFalse(state.recordReply("stranger", RatifyReply.Kind.AGREE, "ok", 1, state.draftId()), "not on the roster");
+        assertTrue(state.recordReply(A, RatifyReply.Kind.AGREE, "ok", 1, state.draftId()));
+        assertFalse(state.recordReply(A, RatifyReply.Kind.BLOCK, "changed my mind", 1, state.draftId()), "the first answer stands");
         assertFalse(state.everyoneAnswered());
-        assertTrue(state.record(B, RatifyReply.Kind.AGREE, "ok", 1, state.draftId()));
+        assertTrue(state.recordReply(B, RatifyReply.Kind.AGREE, "ok", 1, state.draftId()));
         assertTrue(state.everyoneAnswered());
     }
 
     @Test
     void aTableThatAgreedIsRatifiedAndTheAnswerIsTheDraftAsItIs() {
-        state.record(A, RatifyReply.Kind.AGREE, "", 1, state.draftId());
-        state.record(B, RatifyReply.Kind.AGREE, "", 1, state.draftId());
+        state.recordReply(A, RatifyReply.Kind.AGREE, "", 1, state.draftId());
+        state.recordReply(B, RatifyReply.Kind.AGREE, "", 1, state.draftId());
 
         assertEquals(RatifyState.RATIFIED, state.outcome());
         assertEquals(DRAFT, state.releaseText());
@@ -49,8 +49,8 @@ class RatifyStateTest {
 
     @Test
     void aConcernAndABlockAreObjectionsAndAFailureIsNot() {
-        state.record(A, RatifyReply.Kind.CONCERN, "names a node that is not there", 1, state.draftId());
-        state.record(B, RatifyReply.Kind.FAILURE, "deadline", 1, state.draftId());
+        state.recordReply(A, RatifyReply.Kind.CONCERN, "names a node that is not there", 1, state.draftId());
+        state.recordReply(B, RatifyReply.Kind.FAILURE, "deadline", 1, state.draftId());
 
         assertEquals(1, state.objections().size());
         assertEquals(List.of(B), state.failures());
@@ -59,8 +59,8 @@ class RatifyStateTest {
 
     @Test
     void aReleasedAnswerNamesEveryStandingObjectionAndEveryAgentThatDidNotAnswer() {
-        state.record(A, RatifyReply.Kind.BLOCK, "there are 14 nodes, not 15", 1, state.draftId());
-        state.record(B, RatifyReply.Kind.FAILURE, "deadline", 1, state.draftId());
+        state.recordReply(A, RatifyReply.Kind.BLOCK, "there are 14 nodes, not 15", 1, state.draftId());
+        state.recordReply(B, RatifyReply.Kind.FAILURE, "deadline", 1, state.draftId());
 
         String text = state.releaseText();
 
@@ -71,16 +71,16 @@ class RatifyStateTest {
 
     @Test
     void anObjectionWithNoReasonIsStillShown() {
-        state.record(A, RatifyReply.Kind.CONCERN, "", 1, state.draftId());
-        state.record(B, RatifyReply.Kind.AGREE, "", 1, state.draftId());
+        state.recordReply(A, RatifyReply.Kind.CONCERN, "", 1, state.draftId());
+        state.recordReply(B, RatifyReply.Kind.AGREE, "", 1, state.draftId());
 
         assertTrue(state.releaseText().contains("k8s-nodes (concern): no reason given"));
     }
 
     @Test
     void aFailureAloneIsNotRatifiedButIsNoObjection() {
-        state.record(A, RatifyReply.Kind.AGREE, "", 1, state.draftId());
-        state.record(B, RatifyReply.Kind.FAILURE, "deadline", 1, state.draftId());
+        state.recordReply(A, RatifyReply.Kind.AGREE, "", 1, state.draftId());
+        state.recordReply(B, RatifyReply.Kind.FAILURE, "deadline", 1, state.draftId());
 
         assertEquals(RatifyState.NOT_RATIFIED, state.outcome());
         assertTrue(state.objections().isEmpty());
@@ -88,8 +88,8 @@ class RatifyStateTest {
 
     @Test
     void aRevisionStartsTheNextRoundWithTheSameRosterAndKeepsWhatWasRaised() {
-        state.record(A, RatifyReply.Kind.CONCERN, "15 is wrong", 1, state.draftId());
-        state.record(B, RatifyReply.Kind.AGREE, "", 1, state.draftId());
+        state.recordReply(A, RatifyReply.Kind.CONCERN, "15 is wrong", 1, state.draftId());
+        state.recordReply(B, RatifyReply.Kind.AGREE, "", 1, state.draftId());
         assertTrue(state.beginRevision());
         assertFalse(state.beginRevision(), "one revision at a time");
 
@@ -100,8 +100,8 @@ class RatifyStateTest {
         assertEquals(java.util.Set.of(A, B), state.roster());
         assertFalse(state.everyoneAnswered(), "the new round is unanswered");
         assertEquals(1, state.answeredObjections().size());
-        assertTrue(state.record(A, RatifyReply.Kind.AGREE, "", 2, state.draftId()));
-        assertTrue(state.record(B, RatifyReply.Kind.AGREE, "", 2, state.draftId()));
+        assertTrue(state.recordReply(A, RatifyReply.Kind.AGREE, "", 2, state.draftId()));
+        assertTrue(state.recordReply(B, RatifyReply.Kind.AGREE, "", 2, state.draftId()));
         assertEquals(RatifyState.RATIFIED, state.outcome());
         assertEquals(1, ((List<?>) state.metadata().get("earlierObjections")).size());
     }
@@ -125,7 +125,7 @@ class RatifyStateTest {
 
     @Test
     void aStopAfterSomeAnsweredNamesOnlyTheOthers() {
-        state.record(A, RatifyReply.Kind.AGREE, "", 1, state.draftId());
+        state.recordReply(A, RatifyReply.Kind.AGREE, "", 1, state.draftId());
 
         assertEquals(List.of(B), state.absent());
         assertEquals(RatifyState.NOT_RATIFIED, state.outcome());
@@ -134,13 +134,13 @@ class RatifyStateTest {
     @Test
     void aStaleDraftIdIsNeverCountedAfterARevision() {
         String first = state.draftId();
-        state.record(A, RatifyReply.Kind.CONCERN, "wrong", 1, first);
-        state.record(B, RatifyReply.Kind.AGREE, "", 1, first);
+        state.recordReply(A, RatifyReply.Kind.CONCERN, "wrong", 1, first);
+        state.recordReply(B, RatifyReply.Kind.AGREE, "", 1, first);
         assertTrue(state.beginRevision());
         assertTrue(state.revise("14 nodes."));
 
-        assertFalse(state.record(A, RatifyReply.Kind.AGREE, "", 2, first), "a reply to the first draft");
-        assertTrue(state.record(A, RatifyReply.Kind.AGREE, "", 2, state.draftId()));
+        assertFalse(state.recordReply(A, RatifyReply.Kind.AGREE, "", 2, first), "a reply to the first draft");
+        assertTrue(state.recordReply(A, RatifyReply.Kind.AGREE, "", 2, state.draftId()));
     }
 
     @Test
@@ -175,8 +175,8 @@ class RatifyStateTest {
 
     @Test
     void metadataCarriesTheStateTheRoundsAndWhoSaidWhat() {
-        state.record(A, RatifyReply.Kind.BLOCK, "wrong count", 1, state.draftId());
-        state.record(B, RatifyReply.Kind.AGREE, "", 1, state.draftId());
+        state.recordReply(A, RatifyReply.Kind.BLOCK, "wrong count", 1, state.draftId());
+        state.recordReply(B, RatifyReply.Kind.AGREE, "", 1, state.draftId());
 
         var meta = state.metadata();
 
@@ -189,7 +189,7 @@ class RatifyStateTest {
 
     @Test
     void theRevisionPromptPutsTheEvidenceTheDraftAndTheObjectionsInFront() {
-        state.record(A, RatifyReply.Kind.CONCERN, "15 is wrong", 1, state.draftId());
+        state.recordReply(A, RatifyReply.Kind.CONCERN, "15 is wrong", 1, state.draftId());
         String prompt = RatifyText.revisionPrompt("EVIDENCE", DRAFT, state.objections());
 
         assertTrue(prompt.startsWith("EVIDENCE"));

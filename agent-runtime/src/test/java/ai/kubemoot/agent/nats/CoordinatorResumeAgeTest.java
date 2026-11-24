@@ -25,7 +25,7 @@ class CoordinatorResumeAgeTest extends ResumeRestartHarness {
 
     /** The log as a coordinator that stopped after the evaluation started left it, and when that coordinator last wrote. */
     private long logAfterEvaluationStarted(boolean withRequest) throws Exception {
-        Recorded rec = record(fullScript(), true, SELECT_THREE);
+        Recorded rec = recordRun(fullScript(), true, SELECT_THREE);
         int written = 0;
         for (int i = 0; i < rec.events().size(); i++) {
             if (rec.events().get(i).type().equals("evaluation_started")) {

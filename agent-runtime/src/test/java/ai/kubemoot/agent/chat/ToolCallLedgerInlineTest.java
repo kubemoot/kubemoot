@@ -26,8 +26,8 @@ class ToolCallLedgerInlineTest {
         return new ToolCallLedger(store, "th", "k8s-workloads", window);
     }
 
-    private static String record(ToolCallLedger ledger, String tool, String result, boolean error) {
-        return ledger.record(new ToolCallLedger.Call(tool, "id", "{}", T0, 5), result, error, 1_000_000);
+    private static String recordCall(ToolCallLedger ledger, String tool, String result, boolean error) {
+        return ledger.recordCall(new ToolCallLedger.Call(tool, "id", "{}", T0, 5), result, error, 1_000_000);
     }
 
     private static String table(int bytes) {
@@ -42,9 +42,9 @@ class ToolCallLedgerInlineTest {
         String cronJobs = table(856);
         String jobs = "JOBS-ONLY\n" + table(25_652);
         String events = "No events found";
-        record(ledger, "resources_list", cronJobs, false);
-        record(ledger, "resources_list", jobs, false);
-        record(ledger, "events_list", events, false);
+        recordCall(ledger, "resources_list", cronJobs, false);
+        recordCall(ledger, "resources_list", jobs, false);
+        recordCall(ledger, "events_list", events, false);
 
         String manifest = ledger.manifest();
 
@@ -60,7 +60,7 @@ class ToolCallLedgerInlineTest {
     @Test
     void theLargeTableStillStaysInItsFileOnA128kWindow() {
         var ledger = ledger(WINDOW_128K);
-        record(ledger, "resources_list", table(25_662), false);
+        recordCall(ledger, "resources_list", table(25_662), false);
 
         assertFalse(ledger.manifest().contains("[RESULT]"), "12,288 characters is one result's share on 128k");
     }
@@ -69,9 +69,9 @@ class ToolCallLedgerInlineTest {
     void aResultAtTheLimitGoesInAndOneOverItDoesNot() {
         int limit = DiscussionRoom.perResultChars(WINDOW_32K);
         var at = ledger(WINDOW_32K);
-        record(at, "t", "x".repeat(limit), false);
+        recordCall(at, "t", "x".repeat(limit), false);
         var over = ledger(WINDOW_32K);
-        record(over, "t", "x".repeat(limit + 1), false);
+        recordCall(over, "t", "x".repeat(limit + 1), false);
 
         assertTrue(at.manifest().contains("[RESULT]"));
         assertFalse(over.manifest().contains("[RESULT]"));
@@ -81,7 +81,7 @@ class ToolCallLedgerInlineTest {
     void aResultThatDoesNotFitIsNeverCutItIsAbsent() {
         var ledger = ledger(WINDOW_32K);
         String big = "row\n".repeat(2_000);
-        record(ledger, "t", big, false);
+        recordCall(ledger, "t", big, false);
 
         String manifest = ledger.manifest();
 
@@ -96,7 +96,7 @@ class ToolCallLedgerInlineTest {
         String result = "y".repeat(1_000);
         int calls = total / (result.length() + "[RESULT]\n\n[END RESULT]".length() + 1) + 3;
         for (int i = 0; i < calls; i++) {
-            record(ledger, "t", result, false);
+            recordCall(ledger, "t", result, false);
         }
 
         int posted = count(ledger.manifest(), "[RESULT]");
@@ -109,8 +109,8 @@ class ToolCallLedgerInlineTest {
     @Test
     void aResultThatDoesNotFitLeavesTheRoomForALaterSmallOne() {
         var ledger = ledger(WINDOW_32K);
-        record(ledger, "big", "z".repeat(DiscussionRoom.perResultChars(WINDOW_32K) + 1), false);
-        record(ledger, "small", "ok", false);
+        recordCall(ledger, "big", "z".repeat(DiscussionRoom.perResultChars(WINDOW_32K) + 1), false);
+        recordCall(ledger, "small", "ok", false);
 
         String manifest = ledger.manifest();
 
@@ -121,8 +121,8 @@ class ToolCallLedgerInlineTest {
     @Test
     void aFailedCallPostsItsErrorTextInAFailedBlockAnOkResultInAResultBlock() {
         var ledger = ledger(WINDOW_32K);
-        record(ledger, "bad", "object not found", true);
-        record(ledger, "good", "3 pods", false);
+        recordCall(ledger, "bad", "object not found", true);
+        recordCall(ledger, "good", "3 pods", false);
 
         String manifest = ledger.manifest();
 
@@ -137,7 +137,7 @@ class ToolCallLedgerInlineTest {
     void aResultComesBackExactlyFromItsBlockTrailingNewlineAndAll() {
         var ledger = ledger(WINDOW_32K);
         String result = "line one\n\nline [three]\n";
-        record(ledger, "t", result, false);
+        recordCall(ledger, "t", result, false);
 
         Matcher block = CallManifest.RESULT_BLOCK.matcher(ledger.manifest());
 
@@ -148,7 +148,7 @@ class ToolCallLedgerInlineTest {
     @Test
     void aResultThatHoldsTheClosingMarkerItselfStaysInItsFile() {
         var ledger = ledger(WINDOW_32K);
-        record(ledger, "t", "a\n[END RESULT]\nb", false);
+        recordCall(ledger, "t", "a\n[END RESULT]\nb", false);
 
         assertFalse(ledger.manifest().contains("[RESULT]"));
     }
@@ -156,7 +156,7 @@ class ToolCallLedgerInlineTest {
     @Test
     void aResultThatLooksLikeACallLineStaysInItsFile() {
         var ledger = ledger(WINDOW_32K);
-        record(ledger, "t", "x [CALL key=a/001-b tool=b] y", false);
+        recordCall(ledger, "t", "x [CALL key=a/001-b tool=b] y", false);
 
         assertFalse(ledger.manifest().contains("[RESULT]"));
     }
@@ -164,9 +164,9 @@ class ToolCallLedgerInlineTest {
     @Test
     void anEmptyOrBlankResultGetsTheEmptyBlock() {
         var ledger = ledger(WINDOW_32K);
-        record(ledger, "a", "", false);
-        record(ledger, "b", "  \n ", false);
-        record(ledger, "c", null, false);
+        recordCall(ledger, "a", "", false);
+        recordCall(ledger, "b", "  \n ", false);
+        recordCall(ledger, "c", null, false);
 
         String manifest = ledger.manifest();
 
@@ -179,7 +179,7 @@ class ToolCallLedgerInlineTest {
     @Test
     void theEmptyBlockFollowsItsCallLine() {
         var ledger = ledger(WINDOW_32K);
-        record(ledger, "workspace_grep", "", false);
+        recordCall(ledger, "workspace_grep", "", false);
 
         String manifest = ledger.manifest();
 
@@ -189,8 +189,8 @@ class ToolCallLedgerInlineTest {
     @Test
     void theEmptyBlockIsPostedEvenWhenTheContributionHasNoRoomLeft() {
         var ledger = ledger(OptionalLong.of(1));
-        record(ledger, "big", "x".repeat(10), false);
-        record(ledger, "none", "", false);
+        recordCall(ledger, "big", "x".repeat(10), false);
+        recordCall(ledger, "none", "", false);
 
         assertTrue(ledger.manifest().contains(CallManifest.EMPTY_RESULT_TEXT), ledger.manifest());
     }
@@ -198,7 +198,7 @@ class ToolCallLedgerInlineTest {
     @Test
     void aFailedCallWithNoTextHasNoEmptyBlock() {
         var ledger = ledger(WINDOW_32K);
-        record(ledger, "a", "", true);
+        recordCall(ledger, "a", "", true);
 
         assertFalse(ledger.manifest().contains(CallManifest.EMPTY_RESULT_OPEN), ledger.manifest());
     }
@@ -206,7 +206,7 @@ class ToolCallLedgerInlineTest {
     @Test
     void anEmptyJsonListStaysAResultBlockWithItsText() {
         var ledger = ledger(WINDOW_32K);
-        record(ledger, "a", "[]", false);
+        recordCall(ledger, "a", "[]", false);
 
         String manifest = ledger.manifest();
 
@@ -217,7 +217,7 @@ class ToolCallLedgerInlineTest {
     @Test
     void aResultCutAtTheStorageCapIsNotPosted() {
         var ledger = ledger(WINDOW_32K);
-        ledger.record(new ToolCallLedger.Call("t", "i", "{}", T0, 1), "w".repeat(100), false, 50);
+        ledger.recordCall(new ToolCallLedger.Call("t", "i", "{}", T0, 1), "w".repeat(100), false, 50);
 
         assertFalse(ledger.manifest().contains("[RESULT]"), "the file itself holds only part of it");
     }
@@ -226,7 +226,7 @@ class ToolCallLedgerInlineTest {
     void aCallThatCouldNotBeStoredPostsNoResult() {
         store.failWrites = true;
         var ledger = ledger(WINDOW_32K);
-        record(ledger, "t", "small", false);
+        recordCall(ledger, "t", "small", false);
 
         String manifest = ledger.manifest();
 
@@ -237,8 +237,8 @@ class ToolCallLedgerInlineTest {
     @Test
     void anUnknownWindowUsesTheFixedRoom() {
         var ledger = ledger(OptionalLong.empty());
-        record(ledger, "fits", "a".repeat(DiscussionRoom.perResultChars(OptionalLong.empty())), false);
-        record(ledger, "over", "b".repeat(DiscussionRoom.perResultChars(OptionalLong.empty()) + 1), false);
+        recordCall(ledger, "fits", "a".repeat(DiscussionRoom.perResultChars(OptionalLong.empty())), false);
+        recordCall(ledger, "over", "b".repeat(DiscussionRoom.perResultChars(OptionalLong.empty()) + 1), false);
 
         assertEquals(1, count(ledger.manifest(), "[RESULT]"));
     }
@@ -247,7 +247,7 @@ class ToolCallLedgerInlineTest {
     void aLongManifestKeepsTheLineOfEveryCallThatPostsAResult() {
         var ledger = ledger(WINDOW_32K);
         for (int i = 0; i < 90; i++) {
-            record(ledger, "tool_number_" + i, i == 89 ? "last result" : "z".repeat(5_000), false);
+            recordCall(ledger, "tool_number_" + i, i == 89 ? "last result" : "z".repeat(5_000), false);
         }
 
         String manifest = ledger.manifest();
@@ -263,7 +263,7 @@ class ToolCallLedgerInlineTest {
     @Test
     void theDescriptionsPassedToTheSynthesizerStillCarryTheKeysRelativeToTheThread() {
         var ledger = ledger(WINDOW_32K);
-        String key = record(ledger, "pods_list", "ok", false);
+        String key = recordCall(ledger, "pods_list", "ok", false);
 
         assertEquals("ns/crew/th/k8s-workloads/001-pods_list", key, "the store keeps the long key");
         assertTrue(ledger.manifest().contains("[CALL key=k8s-workloads/001-pods_list "));

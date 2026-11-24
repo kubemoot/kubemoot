@@ -716,12 +716,12 @@ class ChatServiceToolLoopTest {
     @Test
     void directChat_nonTooler_toolThenText_returnsReasonedText_notRawOutput() {
         // Regression guard (2026-06-13): the fitness JUDGE calls a tool
-        // (collect_scenario) to fetch the synthesis, then MUST reason to a
+        // collect_scenario to fetch the synthesis, then MUST reason to a
         // verdict. The raw-output contract applies to TOOLERS on the board only;
         // a non-tooler reaching the runtime via the direct chat() / one-arg
         // directChat() path must return its reasoned TEXT, never the raw tool
         // result. Returning raw output here zeroed the deferred judge
-        // ("no verdict after retries"). See callWithToolLoop(.., toolerRawOutput).
+        // ("no verdict after retries"). See the toolerRawOutput parameter of callWithToolLoop.
         var toolSpec = ToolSpecification.builder().name("collect_scenario").description("Fetch").build();
         var toolExecutor = mock(ToolExecutor.class);
         when(toolExecutor.execute(any(), any())).thenReturn("{\"synthesis\": \"the crew said X\"}");

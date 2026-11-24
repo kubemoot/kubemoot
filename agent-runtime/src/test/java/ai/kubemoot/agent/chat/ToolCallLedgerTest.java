@@ -20,8 +20,8 @@ class ToolCallLedgerTest {
         return CallManifest.RESULT_BLOCK.matcher(manifest).replaceAll("");
     }
 
-    private String record(String tool, String args, String result, boolean error) {
-        return ledger.record(new ToolCallLedger.Call(tool, "id", args, T0, 12), result, error, 1_000_000);
+    private String recordCall(String tool, String args, String result, boolean error) {
+        return ledger.recordCall(new ToolCallLedger.Call(tool, "id", args, T0, 12), result, error, 1_000_000);
     }
 
     @Test
@@ -30,7 +30,7 @@ class ToolCallLedgerTest {
         unreadable.failReserve = true;
         var l = new ToolCallLedger(unreadable, "th", "agent-x");
 
-        String key = l.record(new ToolCallLedger.Call("pods_list", "id", "{}", T0, 12), "[{\"x\":1}]", false, 1_000_000);
+        String key = l.recordCall(new ToolCallLedger.Call("pods_list", "id", "{}", T0, 12), "[{\"x\":1}]", false, 1_000_000);
 
         assertNull(key);
         assertTrue(unreadable.bodies.isEmpty(), "nothing is written under a number that could repeat an earlier one");
@@ -39,9 +39,9 @@ class ToolCallLedgerTest {
 
     @Test
     void theManifestIsTheSameTextForTheSameCalls() {
-        record("pods_list", "{\"namespace\":\"a\"}", "[{\"x\":1}]", false);
+        recordCall("pods_list", "{\"namespace\":\"a\"}", "[{\"x\":1}]", false);
         var other = new ToolCallLedger(new ChatServiceCallFilesTest.FakeStore(), "th", "agent-x");
-        other.record(new ToolCallLedger.Call("pods_list", "id", "{\"namespace\":\"a\"}", T0, 99),
+        other.recordCall(new ToolCallLedger.Call("pods_list", "id", "{\"namespace\":\"a\"}", T0, 99),
                 "[{\"x\":1}]", false, 1_000_000);
 
         assertEquals(other.manifest(), ledger.manifest(), "time and duration are not in the manifest");
@@ -49,7 +49,7 @@ class ToolCallLedgerTest {
 
     @Test
     void theManifestNamesThePrefixAndHowToReadAToolAsOneTable() {
-        record("pods_list", "{}", "[]", false);
+        recordCall("pods_list", "{}", "[]", false);
 
         String manifest = ledger.manifest();
 
@@ -62,7 +62,7 @@ class ToolCallLedgerTest {
     @Test
     void anOverlongManifestDropsArgumentsThenOldestLinesAndStaysInline() {
         for (int i = 0; i < 120; i++) {
-            record("tool_number_" + i, "{\"argument\":\"" + "v".repeat(200) + "\"}", "[{\"x\":1}]", false);
+            recordCall("tool_number_" + i, "{\"argument\":\"" + "v".repeat(200) + "\"}", "[{\"x\":1}]", false);
         }
 
         String manifest = descriptions(ledger.manifest());
@@ -75,7 +75,7 @@ class ToolCallLedgerTest {
 
     @Test
     void aFewCallsKeepTheirArgumentsCutToASummary() {
-        record("t", "{\"a\":\n   \"" + "z".repeat(200) + "\"}", "[]", false);
+        recordCall("t", "{\"a\":\n   \"" + "z".repeat(200) + "\"}", "[]", false);
 
         String manifest = ledger.manifest();
 
@@ -88,7 +88,7 @@ class ToolCallLedgerTest {
     void argumentsUnderTheLimitAreNotCutAndCarryNoMarker() {
         String args = "{\"k\": \"" + "a".repeat(CallManifest.ARGS_SUMMARY_CHARS - 9) + "\"}";
         assertEquals(CallManifest.ARGS_SUMMARY_CHARS, args.length());
-        record("t", args, "[]", false);
+        recordCall("t", args, "[]", false);
 
         String manifest = ledger.manifest();
 
@@ -100,7 +100,7 @@ class ToolCallLedgerTest {
     @Test
     void argumentsOneOverTheLimitCarryTheMarker() {
         String args = "a".repeat(CallManifest.ARGS_SUMMARY_CHARS + 1);
-        record("t", args, "[]", false);
+        recordCall("t", args, "[]", false);
 
         assertTrue(ledger.manifest().contains(" args=" + "a".repeat(CallManifest.ARGS_SUMMARY_CHARS)
                 + "... (args cut at 60 of 61 chars) type="), ledger.manifest());
@@ -110,7 +110,7 @@ class ToolCallLedgerTest {
     void unicodeArgumentsAreCutOnACharacterBoundaryAndCountedInCharacters() {
         String emoji = new String(Character.toChars(0x1F600));
         String args = emoji.repeat(CallManifest.ARGS_SUMMARY_CHARS + 5);
-        record("t", args, "[]", false);
+        recordCall("t", args, "[]", false);
 
         String manifest = ledger.manifest();
 
@@ -122,7 +122,7 @@ class ToolCallLedgerTest {
     @Test
     void manyEmptyCallsStayWithinTheSizeOfAContributionAndAreCounted() {
         for (int i = 0; i < 100; i++) {
-            record("workspace_grep", "{\"pattern\":\"p" + i + "\"}", "", false);
+            recordCall("workspace_grep", "{\"pattern\":\"p" + i + "\"}", "", false);
         }
 
         String manifest = ledger.manifest();
@@ -137,9 +137,9 @@ class ToolCallLedgerTest {
     @Test
     void whenCallsAreDroppedACallWithDataKeepsItsLineBeforeAnEmptyOne() {
         for (int i = 0; i < 60; i++) {
-            record("tool_" + i, "{}", "", false);
+            recordCall("tool_" + i, "{}", "", false);
         }
-        record("the_data", "{}", "pod-a Running", false);
+        recordCall("the_data", "{}", "pod-a Running", false);
 
         String manifest = ledger.manifest();
 
@@ -152,14 +152,14 @@ class ToolCallLedgerTest {
     void theNotStoredLineCarriesTheSameMarker() {
         String args = "q".repeat(CallManifest.ARGS_SUMMARY_CHARS + 10);
         store.failWrites = true;
-        record("t", args, "[]", false);
+        recordCall("t", args, "[]", false);
 
         assertTrue(ledger.manifest().contains("(args cut at 60 of 70 chars)"), ledger.manifest());
     }
 
     @Test
     void squareBracketsInArgumentsCannotEndTheCallLineEarly() {
-        record("t", "{\"ids\":[1,2]}", "[]", false);
+        recordCall("t", "{\"ids\":[1,2]}", "[]", false);
 
         String manifest = ledger.manifest();
 
@@ -174,7 +174,7 @@ class ToolCallLedgerTest {
     void anyResultOverTheCapIsStoredAsPlainText() {
         for (String result : new String[] {"name: a\nitems:\n" + "  - x\n".repeat(20), "a,b\n" + "1,2\n".repeat(20),
                 "NAME   READY\n" + "a      1/1\n".repeat(20)}) {
-            String key = ledger.record(new ToolCallLedger.Call("t", "i", "{}", T0, 1), result, false, 20);
+            String key = ledger.recordCall(new ToolCallLedger.Call("t", "i", "{}", T0, 1), result, false, 20);
 
             assertEquals("text/plain", store.headers.get(key).get(CallHeaders.CONTENT_TYPE), result);
             assertTrue(ledger.manifest().contains("type=text/plain "), "the [CALL] line shows the stored type");
@@ -189,7 +189,7 @@ class ToolCallLedgerTest {
 
     @Test
     void aResultOverTheCapIsCutMarkedAndFlagged() {
-        String key = ledger.record(new ToolCallLedger.Call("t", "i", "{}", T0, 1), "[" + "1,".repeat(50) + "1]",
+        String key = ledger.recordCall(new ToolCallLedger.Call("t", "i", "{}", T0, 1), "[" + "1,".repeat(50) + "1]",
                 false, 20);
 
         var h = store.headers.get(key);
@@ -200,7 +200,7 @@ class ToolCallLedgerTest {
 
     @Test
     void argumentsInTheHeaderAreCut() {
-        String key = record("t", "x".repeat(5_000), "[]", false);
+        String key = recordCall("t", "x".repeat(5_000), "[]", false);
 
         assertEquals(CallHeaders.MAX_ARGUMENTS_CHARS + " ...[truncated]".length(),
                 store.headers.get(key).get(CallHeaders.TOOL_CALL_ARGUMENTS).length());
@@ -209,10 +209,10 @@ class ToolCallLedgerTest {
     @Test
     void aCallWhoseWriteFailedIsCountedAndNamedNotStored() {
         assertFalse(ledger.holdsOutput());
-        record("t", "{}", "[]", false);
+        recordCall("t", "{}", "[]", false);
         assertTrue(ledger.holdsOutput());
         store.failWrites = true;
-        assertNull(record("u", "{\"a\":1}", "[]", true));
+        assertNull(recordCall("u", "{\"a\":1}", "[]", true));
         assertEquals(2, ledger.size());
 
         String manifest = ledger.manifest();
@@ -226,7 +226,7 @@ class ToolCallLedgerTest {
     @Test
     void aLedgerWhoseEveryWriteFailedHasNoPrefixAndStillDescribesTheCalls() {
         store.failWrites = true;
-        record("t", "{}", "[]", false);
+        recordCall("t", "{}", "[]", false);
 
         String manifest = ledger.manifest();
 
@@ -264,9 +264,9 @@ class ToolCallLedgerTest {
 
     @Test
     void theManifestLineSaysTheFormatAndNamesTheColumns() {
-        record("pods_list", "{}", "NAME      READY   STATUS\npod-a     1/1     Running\n", false);
-        record("nodes_list", "{}", "[{\"name\":\"n1\",\"taints\":[]}]", false);
-        record("logs", "{}", "plain log line", false);
+        recordCall("pods_list", "{}", "NAME      READY   STATUS\npod-a     1/1     Running\n", false);
+        recordCall("nodes_list", "{}", "[{\"name\":\"n1\",\"taints\":[]}]", false);
+        recordCall("logs", "{}", "plain log line", false);
 
         String manifest = ledger.manifest();
 
@@ -279,8 +279,8 @@ class ToolCallLedgerTest {
     void everyColumnOfAWideTableIsListedAndABracketCannotEndTheLine() {
         String header = java.util.stream.IntStream.rangeClosed(1, 14).mapToObj(i -> "COL" + i)
                 .collect(java.util.stream.Collectors.joining("  "));
-        record("wide", "{}", header + "\nrow\n", false);
-        record("odd", "{}", "[{\"" + "k".repeat(40) + "\":1,\"a]b\":2}]", false);
+        recordCall("wide", "{}", header + "\nrow\n", false);
+        recordCall("odd", "{}", "[{\"" + "k".repeat(40) + "\":1,\"a]b\":2}]", false);
 
         String manifest = ledger.manifest();
 
@@ -299,7 +299,7 @@ class ToolCallLedgerTest {
     void aTableWiderThanTheListLimitCountsTheRest() {
         String header = java.util.stream.IntStream.rangeClosed(1, ColumnNames.MAX_LISTED + 3).mapToObj(i -> "C" + i)
                 .collect(java.util.stream.Collectors.joining("  "));
-        record("wide", "{}", header + "\nrow\n", false);
+        recordCall("wide", "{}", header + "\nrow\n", false);
 
         String manifest = ledger.manifest();
 
@@ -312,7 +312,7 @@ class ToolCallLedgerTest {
         String header = java.util.stream.IntStream.rangeClosed(1, 50).mapToObj(i -> "COLUMN" + i)
                 .collect(java.util.stream.Collectors.joining("  "));
         for (int i = 0; i < 9; i++) {
-            record("wide_" + i, "{}", header + "\nrow\n", false);
+            recordCall("wide_" + i, "{}", header + "\nrow\n", false);
         }
 
         String manifest = ledger.manifest();
@@ -324,14 +324,14 @@ class ToolCallLedgerTest {
 
     @Test
     void theFooterSaysWhereEveryColumnIsListed() {
-        record("pods_list", "{}", "NAME  READY\na  1/1\n", false);
+        recordCall("pods_list", "{}", "NAME  READY\na  1/1\n", false);
 
         assertTrue(ledger.manifest().contains("workspace_describe lists every one"), ledger.manifest());
     }
 
     @Test
     void aCutResultIsTextWithNoFields() {
-        ledger.record(new ToolCallLedger.Call("t", "i", "{}", T0, 1), "[{\"a\":1}," + "{\"a\":1},".repeat(50) + "{\"a\":1}]",
+        ledger.recordCall(new ToolCallLedger.Call("t", "i", "{}", T0, 1), "[{\"a\":1}," + "{\"a\":1},".repeat(50) + "{\"a\":1}]",
                 false, 20);
 
         String manifest = ledger.manifest();
@@ -343,7 +343,7 @@ class ToolCallLedgerTest {
     @Test
     void aTightManifestDropsArgumentsBeforeColumns() {
         for (int i = 0; i < 20; i++) {
-            record("tool_number_" + i, "{\"argument\":\"" + "v".repeat(200) + "\"}",
+            recordCall("tool_number_" + i, "{\"argument\":\"" + "v".repeat(200) + "\"}",
                     "NAME  READY  STATUS\nx  1/1  Running\n", false);
         }
 
@@ -356,7 +356,7 @@ class ToolCallLedgerTest {
 
     @Test
     void theFooterNamesTheWaysToReadAKeyIncludingExecuteCode() {
-        record("pods_list", "{}", "[]", false);
+        recordCall("pods_list", "{}", "[]", false);
 
         String manifest = ledger.manifest();
 
@@ -366,7 +366,7 @@ class ToolCallLedgerTest {
 
     @Test
     void headersAreInTheOrderTheyAreDocumented() {
-        String key = record("t", "{}", "[]", true);
+        String key = recordCall("t", "{}", "[]", true);
         Map<String, String> h = new LinkedHashMap<>(store.headers.get(key));
 
         assertEquals("gen_ai.operation.name", h.keySet().iterator().next());
