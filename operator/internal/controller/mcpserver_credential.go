@@ -19,6 +19,9 @@ import (
 )
 
 const (
+	// bearerPrefix precedes a token in an Authorization header value.
+	bearerPrefix = "Bearer "
+
 	// Secret keys an MCPServer's registry.authSecretRef may carry.
 	secretKeyBearerToken = "bearer-token"
 	secretKeyAPIKey      = "api-key"
@@ -108,7 +111,7 @@ func resolveRegistryCredential(ctx context.Context, c client.Reader, mcp *kubemo
 func credentialFromSecret(name, authHeader string, data map[string][]byte) (*registryCredential, error) {
 	var cred *registryCredential
 	if token := strings.TrimSpace(string(data[secretKeyBearerToken])); token != "" {
-		cred = &registryCredential{Header: headerAuthorization, Value: "Bearer " + token}
+		cred = &registryCredential{Header: headerAuthorization, Value: bearerPrefix + token}
 	} else if key := strings.TrimSpace(string(data[secretKeyAPIKey])); key != "" {
 		header := authHeader
 		if header == "" {
@@ -167,7 +170,7 @@ func (r *MCPGatewayReconciler) attachRegistrationCredential(ctx context.Context,
 		payload["auth"] = cred
 		return cred, nil
 	}
-	if token, ok := strings.CutPrefix(cred.Value, "Bearer "); ok && cred.Header == headerAuthorization {
+	if token, ok := strings.CutPrefix(cred.Value, bearerPrefix); ok && cred.Header == headerAuthorization {
 		payload["auth_type"] = "bearer"
 		payload["auth_token"] = token
 	}
@@ -180,7 +183,7 @@ func (c *registryCredential) redact(text string) string {
 		return text
 	}
 	text = strings.ReplaceAll(text, c.Value, redactedValue)
-	return strings.ReplaceAll(text, strings.TrimPrefix(c.Value, "Bearer "), redactedValue)
+	return strings.ReplaceAll(text, strings.TrimPrefix(c.Value, bearerPrefix), redactedValue)
 }
 
 // secretToMCPServers lists the MCPServers (in its namespace) that name

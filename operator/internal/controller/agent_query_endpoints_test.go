@@ -65,7 +65,6 @@ func TestEgressQueryServicesAgreeWithEnv(t *testing.T) {
 	if err := kubemootv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add scheme: %v", err)
 	}
-	off := false
 	cases := map[string]kubemootv1alpha1.AgentSpec{
 		"coordinator with sources": {DiscussRole: roleCoordinator,
 			RAGSources: []kubemootv1alpha1.RAGSourceRef{{Name: npDocs, Priority: 1}, {Name: "kb"}}},
@@ -74,41 +73,47 @@ func TestEgressQueryServicesAgreeWithEnv(t *testing.T) {
 		"nothing":            {},
 	}
 	for name, spec := range cases {
-		t.Run(name, func(t *testing.T) {
-			agent := &kubemootv1alpha1.Agent{
-				ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: agreeNS, Labels: map[string]string{labelCrew: agreeCrew}},
-				Spec:       spec,
-			}
-			// "kb" has its query service switched off: neither side may list it.
-			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-				&kubemootv1alpha1.RAGSource{ObjectMeta: metav1.ObjectMeta{Name: "kb", Namespace: agreeNS},
-					Spec: kubemootv1alpha1.RAGSourceSpec{QueryService: &kubemootv1alpha1.QueryServiceConfig{Enabled: &off}}},
-			).Build()
-			r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache(), NetPol: &NetPolicySync{Client: cli, Scheme: scheme}}
-			ctx := context.Background()
+		t.Run(name, func(t *testing.T) { requireEgressAgreesWithEnv(t, scheme, spec) })
+	}
+}
 
-			env := map[string]string{}
-			for _, e := range r.buildEnvVars(ctx, agent, &modelPick{}, &modelPick{}, 8080) {
-				env[e.Name] = e.Value
-			}
-			fromEnv := envQueryEndpoints(env)
-			listed := r.queryServiceEndpoints(ctx, agent)
-			sort.Strings(listed)
-			if !reflect.DeepEqual(append([]string{}, fromEnv...), append([]string{}, listed...)) {
-				t.Fatalf("env lists %v, egress is built from %v", fromEnv, listed)
-			}
+// requireEgressAgreesWithEnv builds one agent from spec and fails if its env endpoints and its
+// egress destinations differ.
+func requireEgressAgreesWithEnv(t *testing.T, scheme *runtime.Scheme, spec kubemootv1alpha1.AgentSpec) {
+	t.Helper()
+	off := false
+	agent := &kubemootv1alpha1.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: agreeNS, Labels: map[string]string{labelCrew: agreeCrew}},
+		Spec:       spec,
+	}
+	// "kb" has its query service switched off: neither side may list it.
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&kubemootv1alpha1.RAGSource{ObjectMeta: metav1.ObjectMeta{Name: "kb", Namespace: agreeNS},
+			Spec: kubemootv1alpha1.RAGSourceSpec{QueryService: &kubemootv1alpha1.QueryServiceConfig{Enabled: &off}}},
+	).Build()
+	r := &AgentReconciler{Client: cli, Scheme: scheme, ConfigCache: NewConfigCache(), NetPol: &NetPolicySync{Client: cli, Scheme: scheme}}
+	ctx := context.Background()
 
-			want := make([]netpol.Dest, 0, len(fromEnv))
-			for _, endpoint := range fromEnv {
-				want = append(want, netpol.DestsFromURL(endpoint)...)
-			}
-			got, err := r.queryServiceDests(ctx, agent)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(destKeys(want), destKeys(got)) {
-				t.Fatalf("env endpoints allow %v, egress allows %v", destKeys(want), destKeys(got))
-			}
-		})
+	env := map[string]string{}
+	for _, e := range r.buildEnvVars(ctx, agent, &modelPick{}, &modelPick{}, 8080) {
+		env[e.Name] = e.Value
+	}
+	fromEnv := envQueryEndpoints(env)
+	listed := r.queryServiceEndpoints(ctx, agent)
+	sort.Strings(listed)
+	if !reflect.DeepEqual(append([]string{}, fromEnv...), append([]string{}, listed...)) {
+		t.Fatalf("env lists %v, egress is built from %v", fromEnv, listed)
+	}
+
+	want := make([]netpol.Dest, 0, len(fromEnv))
+	for _, endpoint := range fromEnv {
+		want = append(want, netpol.DestsFromURL(endpoint)...)
+	}
+	got, err := r.queryServiceDests(ctx, agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(destKeys(want), destKeys(got)) {
+		t.Fatalf("env endpoints allow %v, egress allows %v", destKeys(want), destKeys(got))
 	}
 }

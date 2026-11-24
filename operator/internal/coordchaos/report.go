@@ -159,26 +159,32 @@ func (r Report) evidence() string {
 	var b strings.Builder
 	for _, c := range r.Cases {
 		for _, t := range c.Trials {
-			if c.Case.Mode == ModeControl {
-				for _, n := range t.Notes {
-					fmt.Fprintf(&b, "\n- %s trial %d: %s\n", c.Case.Name, t.Number, n)
-				}
-			}
-			if t.Error != "" {
-				fmt.Fprintf(&b, "\n- %s trial %d: error: %s\n", c.Case.Name, t.Number, t.Error)
-			}
-			for _, v := range t.Violations {
-				fmt.Fprintf(&b, "\n- %s trial %d: %s: %s\n", c.Case.Name, t.Number, v.Check, v.Detail)
-				if len(v.Evidence) > 0 {
-					fmt.Fprintf(&b, "  evidence: %s\n", strings.Join(v.Evidence, ", "))
-				}
-			}
+			writeTrialEvidence(&b, c, t)
 		}
 	}
 	if b.Len() == 0 {
 		return ""
 	}
 	return "\n## Evidence\n" + b.String()
+}
+
+// writeTrialEvidence appends what one trial of a case leaves to explain: the notes of a
+// control run, an error, and each violation with its evidence.
+func writeTrialEvidence(b *strings.Builder, c CaseResult, t Trial) {
+	if c.Case.Mode == ModeControl {
+		for _, n := range t.Notes {
+			fmt.Fprintf(b, "\n- %s trial %d: %s\n", c.Case.Name, t.Number, n)
+		}
+	}
+	if t.Error != "" {
+		fmt.Fprintf(b, "\n- %s trial %d: error: %s\n", c.Case.Name, t.Number, t.Error)
+	}
+	for _, v := range t.Violations {
+		fmt.Fprintf(b, "\n- %s trial %d: %s: %s\n", c.Case.Name, t.Number, v.Check, v.Detail)
+		if len(v.Evidence) > 0 {
+			fmt.Fprintf(b, "  evidence: %s\n", strings.Join(v.Evidence, ", "))
+		}
+	}
 }
 
 func landedTrial(ts []Trial) Trial {

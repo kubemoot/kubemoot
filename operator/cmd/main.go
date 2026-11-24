@@ -62,6 +62,9 @@ import (
 const (
 	tlsCertFile = "tls.crt"
 	tlsKeyFile  = "tls.key"
+
+	// registerFailMsg is logged when the manager refuses a runnable.
+	registerFailMsg = "unable to register runnable"
 )
 
 var (
@@ -167,7 +170,7 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher, r
 	}
 	for _, r := range runnables {
 		if err := mgr.Add(r.runnable); err != nil {
-			setupLog.Error(err, "unable to register runnable", "runnable", r.name)
+			setupLog.Error(err, registerFailMsg, "runnable", r.name)
 			os.Exit(1)
 		}
 	}
@@ -211,7 +214,7 @@ func mustAddAggregatedReports(
 		}},
 	} {
 		if err := mgr.Add(everyReplica{r.runnable}); err != nil {
-			setupLog.Error(err, "unable to register runnable", "runnable", r.name)
+			setupLog.Error(err, registerFailMsg, "runnable", r.name)
 			os.Exit(1)
 		}
 	}
@@ -229,7 +232,7 @@ func mustAddModelLifecycleServer(
 		Refresher:  servers,
 	}
 	if err := mgr.Add(server); err != nil {
-		setupLog.Error(err, "unable to register runnable", "runnable", "model lifecycle server")
+		setupLog.Error(err, registerFailMsg, "runnable", "model lifecycle server")
 		os.Exit(1)
 	}
 	// Publishes every server's state once the bus is ready, so a draining mark a previous
@@ -240,7 +243,7 @@ func mustAddModelLifecycleServer(
 		Ready:   func() error { return natsPublisher.BucketsReady(controller.ServerStateBucket) },
 	}
 	if err := mgr.Add(republisher); err != nil {
-		setupLog.Error(err, "unable to register runnable", "runnable", "server state republisher")
+		setupLog.Error(err, registerFailMsg, "runnable", "server state republisher")
 		os.Exit(1)
 	}
 }

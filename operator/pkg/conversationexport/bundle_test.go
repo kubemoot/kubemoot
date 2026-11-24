@@ -83,27 +83,34 @@ func TestBundleHoldsEachConversationZipUnchanged(t *testing.T) {
 		t.Fatalf("included = %+v", bm.Included)
 	}
 	for _, e := range bm.Included {
-		var alone bytes.Buffer
-		if _, err := b.WriteConversation(context.Background(), &alone, testScope, e.ConversationID, Options{}); err != nil {
-			t.Fatal(err)
+		requireBundledZipUnchanged(t, b, files, e)
+	}
+}
+
+// requireBundledZipUnchanged fails unless the zip a bundle holds for one conversation matches
+// the zip that conversation exports on its own.
+func requireBundledZipUnchanged(t *testing.T, b *Builder, files map[string][]byte, e Entry) {
+	t.Helper()
+	var alone bytes.Buffer
+	if _, err := b.WriteConversation(context.Background(), &alone, testScope, e.ConversationID, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	inner := unzip(t, files[e.File])
+	want := unzip(t, alone.Bytes())
+	if len(inner) != len(want) {
+		t.Errorf("%s: inner zip has %d files, standalone %d", e.File, len(inner), len(want))
+	}
+	for name, body := range want {
+		if name == "manifest.json" {
+			continue // names the conversation, which differs per id
 		}
-		inner := unzip(t, files[e.File])
-		want := unzip(t, alone.Bytes())
-		if len(inner) != len(want) {
-			t.Errorf("%s: inner zip has %d files, standalone %d", e.File, len(inner), len(want))
+		if string(inner[name]) != string(body) {
+			t.Errorf("%s: %s differs from the standalone zip", e.File, name)
 		}
-		for name, body := range want {
-			if name == "manifest.json" {
-				continue // names the conversation, which differs per id
-			}
-			if string(inner[name]) != string(body) {
-				t.Errorf("%s: %s differs from the standalone zip", e.File, name)
-			}
-		}
-		var m Manifest
-		if err := json.Unmarshal(inner["manifest.json"], &m); err != nil || m.ConversationID != e.ConversationID {
-			t.Errorf("%s: its manifest names %q", e.File, m.ConversationID)
-		}
+	}
+	var m Manifest
+	if err := json.Unmarshal(inner["manifest.json"], &m); err != nil || m.ConversationID != e.ConversationID {
+		t.Errorf("%s: its manifest names %q", e.File, m.ConversationID)
 	}
 }
 
