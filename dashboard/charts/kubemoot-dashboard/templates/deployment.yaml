@@ -52,6 +52,18 @@ spec:
             - name: HOST_HEADER
               value: x-forwarded-host
             {{- end }}
+            {{- if include "kubemoot-dashboard.trustedProxy" . }}
+            - name: KUBEMOOT_DASHBOARD_TRUSTED_PROXY
+              value: "true"
+            {{- if .Values.auth.oidc.enabled }}
+            - name: KUBEMOOT_DASHBOARD_TRUSTED_PROXY_HOST
+              value: {{ printf "%s.%s.svc" (include "kubemoot-dashboard.oidc.podsName" .) .Release.Namespace | quote }}
+            {{- end }}
+            {{- with .Values.auth.trustedProxy.addresses }}
+            - name: KUBEMOOT_DASHBOARD_TRUSTED_PROXY_ADDRESSES
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.metrics.prometheusUrl }}
             - name: KUBEMOOT_DASHBOARD_PROMETHEUS_URL
               value: {{ . | quote }}

@@ -6,6 +6,7 @@ import { decideAccess, isWrite, pathInApp, type Decision } from '#lib/server/aut
 import { runWithIdentity, type RequestIdentity } from '#lib/server/auth/identity.js';
 import { expectedOrigin, sameOrigin } from '#lib/server/auth/same-origin.js';
 import { SESSION_COOKIE, getSession, type Session } from '#lib/server/auth/session.js';
+import { proxySession } from '#lib/server/auth/trusted-proxy.js';
 
 function refuseOrRedirect(decision: Exclude<Decision, { action: 'allow' }>): Response {
 	if (decision.action === 'redirect') return new Response(null, { status: 303, headers: { Location: appBase() + decision.to } });
@@ -26,12 +27,25 @@ function requestOrigin(event: Parameters<Handle>[0]['event']): string {
 }
 
 /** The live session of the request's cookie; a cookie whose session is gone or expired is removed. */
-function sessionOf(event: Parameters<Handle>[0]['event']): Session | undefined {
+function cookieSession(event: Parameters<Handle>[0]['event']): Session | undefined {
 	const cookie = event.cookies.get(SESSION_COOKIE);
 	const session = getSession(cookie);
 	if (cookie && !session) event.cookies.delete(SESSION_COOKIE, { path: appBase() || '/' });
-	event.locals.user = session ? { username: session.username } : null;
 	event.locals.sessionId = session ? cookie : undefined;
+	return session;
+}
+
+/**
+ * The request's session: the one the sign-in proxy's token opens (only from the proxy, only when
+ * trusted, see proxySession), else the cookie's. The socket's own address names the sender; a
+ * forwarded-for header is never read, because a client can write it.
+ */
+async function sessionOf(event: Parameters<Handle>[0]['event']): Promise<Session | undefined> {
+	const peer = (event.platform?.req.socket as { remoteAddress?: string } | undefined)?.remoteAddress;
+	const viaProxy = await proxySession(event.request.headers, peer);
+	const session = viaProxy ?? cookieSession(event);
+	if (viaProxy) event.locals.sessionId = undefined;
+	event.locals.user = session ? { username: session.username } : null;
 	return session;
 }
 
@@ -39,7 +53,8 @@ function sessionOf(event: Parameters<Handle>[0]['event']): Session | undefined {
  * The one gate in front of every route.
  *
  * 1. A request that could change something must come from the dashboard's own origin (CSRF).
- * 2. The session cookie, an opaque id, finds the signed-in person's session in server memory.
+ * 2. The session cookie, an opaque id, finds the signed-in person's session in server memory;
+ *    behind the sign-in proxy, its bearer token opens the session instead.
  * 3. A visitor with no session sees the sign-in page for every page, or a 401 for the API,
  *    unless anonymous read-only mode is on, which allows reads only.
  * 4. Of the writes, only sign-in, sign-out and asking a crew are served; every other method
@@ -54,7 +69,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 			return jsonError(403, `Cross-origin request refused: expected an Origin of ${expected}.`, { expectedOrigin: expected });
 		}
 	}
-	const session = sessionOf(event);
+	const session = await sessionOf(event);
 	const decision = decideAccess({
 		method,
 		path: pathInApp(event.url.pathname, appBase()),

@@ -59,7 +59,7 @@ gateway:                      # nest under dashboard: in the operator chart's va
   pathPrefix: /dashboard
 ```
 
-The dashboard asks every visitor to sign in with a token, whether or not the chart publishes the route. Serve it over HTTPS: the session cookie is `Secure`, and a token pasted over plain HTTP crosses the network readable. When a proxy ends TLS in front of the dashboard, make sure the dashboard sees the public origin (adapter-node's `ORIGIN` environment variable, or its protocol and host header variables), because every request that changes something must carry an `Origin` that matches it. Sign-in through your identity provider (OIDC behind an OAuth2 proxy) is planned and will use the same seam.
+The dashboard asks every visitor to sign in with a token, whether or not the chart publishes the route. Serve it over HTTPS: the session cookie is `Secure`, and a token pasted over plain HTTP crosses the network readable. When a proxy ends TLS in front of the dashboard, make sure the dashboard sees the public origin (adapter-node's `ORIGIN` environment variable, or its protocol and host header variables), because every request that changes something must carry an `Origin` that matches it. People who have no Kubernetes token can sign in through your identity provider; see [Signing in with your identity provider](#signing-in-with-your-identity-provider).
 
 ## Signing in
 
@@ -482,3 +482,41 @@ The browser talks to the SvelteKit server with server-sent events. Only the serv
 - [Agent reference](../../reference/agent/)
 
 A link from one page to the other opens its target and keeps it open: a thread or conversation older than the loaded history is read directly, and one the current filter would hide is shown anyway under the note **Outside the current filter**, with a **Show all** link that clears the filter. The filter itself is never changed for you. The open thread stays in the Moot address (`?thread=`) so a reload keeps it.
+
+## Signing in with your identity provider
+
+People who have no Kubernetes account of their own can sign in with the identity provider your organization already uses (any OpenID Connect provider). An adopted project, [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/), does the sign-in in front of the dashboard and hands the dashboard the person's ID token; Kubemoot adds no sign-in code of its own. It is off by default and renders nothing until you turn it on.
+
+**The API server must trust the same issuer.** The dashboard makes every Kubernetes call with the person's own token, so the cluster itself has to accept the ID token: start the API server with `--oidc-issuer-url` (the same issuer as below), `--oidc-client-id` (the same client id) and the claim flags you use (`--oidc-username-claim`, `--oidc-groups-claim`, and `--oidc-username-prefix` if you want one). On a managed cluster that is the provider's own OIDC setting; on Talos it is the machine configuration's API server arguments. Without it every sign-in is refused, because the TokenReview that checks the token answers that it is not authenticated. What a person then sees is decided by RBAC for their OIDC user and groups, exactly as for a Kubernetes user: bind the roles you want to them, for example `kubemoot-viewer`.
+
+1. Register a client for the dashboard at your provider, with the redirect URL `https://<public host><path prefix>/oauth2/callback` (for the default route, `https://kubemoot.example.com/dashboard/oauth2/callback`).
+2. Create the Secret yourself, in the dashboard's namespace. The chart never creates it and never holds a value:
+
+   ```bash
+   kubectl create secret generic dashboard-oidc -n <namespace> \
+     --from-literal=client-secret='<the provider client secret>' \
+     --from-literal=cookie-secret="$(openssl rand -base64 32 | tr -- '+/' '-_')"
+   ```
+
+3. Turn it on (under `dashboard:` in the operator chart), together with the gateway route and the public origin:
+
+   ```yaml
+   auth:
+     origin: https://kubemoot.example.com
+     oidc:
+       enabled: true
+       issuerUrl: https://idp.example.com/realms/main
+       clientId: kubemoot-dashboard
+       redirectUrl: https://kubemoot.example.com/dashboard/oauth2/callback
+       existingSecret: dashboard-oidc
+   gateway:
+     enabled: true
+   ```
+
+What the chart then renders: an oauth2-proxy Deployment (its image pinned by digest, no service account token mounted), its Service, and a headless Service whose addresses are the proxy's pods. The HTTPRoute (or Ingress) sends people to the proxy, and the proxy sends signed-in requests on to the dashboard Service with the ID token as `Authorization: Bearer`. A NetworkPolicy lets only the proxy's pods reach the dashboard port, so the proxy is the only way in; a plain `kubectl port-forward` to the dashboard pod still works for an administrator, because the kubelet's path is not subject to it on most network plugins (check yours).
+
+The dashboard accepts that header only when `auth.trustedProxy` is on (`auth.oidc.enabled` turns it on) and only from the proxy's addresses; from any other address, or when it is off, the header is ignored and a person signs in as before. It checks the token with the same TokenReview as a pasted one, then opens the usual in-memory session, which ends when the token does. A token the API server refuses, or one that has expired, opens nothing. Signing out of the dashboard does not sign the person out of the provider; their next request signs them in again from the proxy, so sign out at `<path prefix>/oauth2/sign_out`.
+
+To put your own proxy in front instead, set `auth.trustedProxy.enabled: true` and list its addresses in `auth.trustedProxy.addresses`, and restrict who can reach the dashboard port with your own NetworkPolicy.
+
+The ID token's lifetime bounds the session, and the token is checked once when the session opens: if the provider revokes a person, their dashboard session keeps working until the token expires, though the API server still decides every call with RBAC. Ask your provider for a short token lifetime; keep the proxy's session cookie `Secure` (the default).

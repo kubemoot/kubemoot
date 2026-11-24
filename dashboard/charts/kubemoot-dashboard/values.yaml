@@ -103,6 +103,57 @@ auth:
   # Where a crew's discussion gateway is, with {crew} and {namespace} replaced. Empty uses the
   # crew's in-cluster Service, http://<crew>-discussion.<namespace>.svc.cluster.local.
   gatewayUrl: ""
+  # Sign-in through a proxy that vouches for people (off by default). On, the dashboard accepts
+  # "Authorization: Bearer <token>" from the proxy's addresses and from no one else, checks the
+  # token with the same TokenReview as a pasted one, and opens the usual in-memory session.
+  # auth.oidc.enabled turns this on for the proxy it renders; set this alone only to put your own
+  # proxy in front, and then list its addresses, and block every other way in with a
+  # NetworkPolicy. Off, an incoming Authorization header is ignored.
+  trustedProxy:
+    enabled: false
+    # Addresses of the proxy, in addition to the ones the chart's own proxy has.
+    addresses: []
+  # OIDC sign-in for people who have no Kubernetes account of their own: oauth2-proxy (an
+  # adopted project) signs them in with your identity provider and passes the ID token to the
+  # dashboard. The cluster's API server must trust the same issuer (kube-apiserver --oidc-issuer-url,
+  # --oidc-client-id and the claim flags): the dashboard makes every call with that token, so what
+  # the person may see is decided by RBAC for their OIDC user and groups. Without that, every
+  # sign-in is refused. Off by default: nothing below renders.
+  oidc:
+    enabled: false
+    # The identity provider's issuer URL, the same as the API server's --oidc-issuer-url.
+    issuerUrl: ""
+    # The client id registered for the dashboard at the provider, and its redirect URL:
+    # https://<public host>/<proxy prefix>/callback, for example https://dashboard.example.com/dashboard/oauth2/callback
+    clientId: ""
+    redirectUrl: ""
+    # A Secret in this namespace that you create, holding the key client-secret (the provider's
+    # client secret) and the key cookie-secret (32 random bytes, base64: for example
+    # `openssl rand -base64 32 | tr -- '+/' '-_'`). The chart never creates it and never holds a
+    # value.
+    existingSecret: ""
+    # Where the proxy answers (its sign-in, callback and sign-out). Empty is the gateway
+    # pathPrefix followed by /oauth2, so a route for the dashboard's prefix reaches it too.
+    proxyPrefix: ""
+    scope: "openid email profile"
+    # Which e-mail domains the proxy lets through; * lets any person the provider signs in
+    # reach the dashboard, and what they may see is still decided by RBAC.
+    emailDomains:
+      - "*"
+    # The session cookie is sent only over HTTPS. Turn off only for a plain-HTTP test.
+    cookieSecure: true
+    # Extra oauth2-proxy arguments, for example --oidc-groups-claim=roles.
+    extraArgs: []
+    replicaCount: 1
+    # Pinned by digest, and updated like every dependency. A private mirror overrides it.
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
 
 # Service configuration
 service:

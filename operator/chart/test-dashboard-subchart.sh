@@ -165,6 +165,57 @@ if yq -N '.metadata.labels | keys | .[]' <<<"$reader" | grep -q 'rbac.authorizat
 bad="$(yq -N '.rules[0].verbs += ["delete"]' <<<"$reader" | yq -N '.rules[].verbs[]' | sort -u | tr '\n' ' ')"
 [ "$bad" != "get list watch " ] || fail "the operator reader verbs check accepted a delete verb"
 
+# yq's == matches a trailing * as a glob in the selectors below.
+# OIDC sign-in (auth.oidc): off renders nothing of it; on renders oauth2-proxy pinned by digest,
+# a headless Service of its pod addresses, and a NetworkPolicy that lets only the proxy reach the
+# dashboard; the route then goes to the proxy; the chart holds no secret value.
+dash="$here/../../dashboard/charts/kubemoot-dashboard"
+oidc_set=(--set auth.oidc.enabled=true --set auth.oidc.issuerUrl=https://idp.example.test --set auth.oidc.clientId=kubemoot
+  --set auth.oidc.redirectUrl=https://dash.example.test/dashboard/oauth2/callback --set auth.oidc.existingSecret=dash-oidc --set gateway.enabled=true)
+off="$(helm template x "$dash" --set gateway.enabled=true)"
+if grep -qiE 'oauth2|NetworkPolicy|TRUSTED_PROXY' <<<"$off"; then fail "OIDC objects or settings render with auth.oidc off"; fi
+[ "$(yq -N 'select(.kind == "HTTPRoute") | .spec.rules[0].backendRefs[0].name' <<<"$off")" = "x-kubemoot-dashboard" ] || fail "the route does not go to the dashboard when OIDC is off"
+on="$(helm template x "$dash" "${oidc_set[@]}")"
+for kind in Deployment Service NetworkPolicy; do
+  n="$(yq -N "select(.kind == \"$kind\" and .metadata.name == \"x-kubemoot-dashboard-*\")" <<<"$on" | grep -c '^kind:' || true)"
+  [ "$n" -ge 1 ] || fail "OIDC render has no proxy $kind"
+done
+proxy_image="$(yq -N 'select(.kind == "Deployment" and .metadata.name == "x-kubemoot-dashboard-oidc") | .spec.template.spec.containers[0].image' <<<"$on")"
+grep -qE '^quay.io/oauth2-proxy/oauth2-proxy:v[0-9.]+@sha256:[0-9a-f]{64}$' <<<"$proxy_image" || fail "the proxy image is not pinned by digest: $proxy_image"
+[ "$(yq -N 'select(.kind == "HTTPRoute") | .spec.rules[0].backendRefs[0].name' <<<"$on")" = "x-kubemoot-dashboard-oidc" ] || fail "the route does not go to the proxy when OIDC is on"
+[ "$(yq -N 'select(.kind == "NetworkPolicy") | .spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/name"]' <<<"$on")" = "kubemoot-dashboard-oidc" ] || fail "the NetworkPolicy does not admit the proxy"
+[ "$(yq -N 'select(.kind == "NetworkPolicy") | .spec.ingress | length' <<<"$on")" = "1" ] || fail "the NetworkPolicy admits more than the proxy"
+[ "$(yq -N 'select(.kind == "NetworkPolicy") | .spec.podSelector.matchLabels["app.kubernetes.io/name"]' <<<"$on")" = "kubemoot-dashboard" ] || fail "the NetworkPolicy does not select the dashboard pods"
+[ "$(yq -N 'select(.kind == "Service" and .metadata.name == "x-kubemoot-dashboard-oidc-pods") | .spec.clusterIP' <<<"$on")" = "None" ] || fail "the proxy pod-address Service is not headless"
+[ "$(env_of "$on" KUBEMOOT_DASHBOARD_TRUSTED_PROXY)" = "true" ] || fail "OIDC did not turn on the trusted proxy"
+[ "$(env_of "$on" KUBEMOOT_DASHBOARD_TRUSTED_PROXY_HOST)" = "x-kubemoot-dashboard-oidc-pods.default.svc" ] || fail "the trusted proxy host is wrong"
+# The two secrets come from the installer's Secret by reference; the chart renders no Secret and no value.
+[ "$(yq -N 'select(.kind == "Secret")' <<<"$on")" = "" ] || fail "OIDC render holds a Secret"
+refs="$(yq -N 'select(.kind == "Deployment" and .metadata.name == "x-kubemoot-dashboard-oidc") | .spec.template.spec.containers[0].env[] | .name + "=" + .valueFrom.secretKeyRef.name + "/" + .valueFrom.secretKeyRef.key' <<<"$on" | sort | tr '\n' ' ')"
+[ "$refs" = "OAUTH2_PROXY_CLIENT_SECRET=dash-oidc/client-secret OAUTH2_PROXY_COOKIE_SECRET=dash-oidc/cookie-secret " ] || fail "the proxy secrets are not read from the installer's Secret: $refs"
+if grep -qiE -- '--(client|cookie)-secret' <<<"$on"; then fail "a proxy secret is passed as an argument"; fi
+# A long release name keeps every proxy name and label value within 63 characters.
+long="$(helm template x "$dash" "${oidc_set[@]}" --set fullnameOverride=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)"
+too_long="$(yq -N 'select(.kind == "Service" or .kind == "Deployment") | (.metadata.name, .spec.selector.matchLabels["app.kubernetes.io/name"], .spec.selector["app.kubernetes.io/name"], .spec.template.metadata.labels["app.kubernetes.io/name"]) | select(. != null and length > 63)' <<<"$long")"
+[ -z "$too_long" ] || fail "a proxy name or label value is over 63 characters: $too_long"
+# Required settings are refused when missing, and the secret is never optional.
+for missing in issuerUrl clientId redirectUrl existingSecret; do
+  if helm template x "$dash" "${oidc_set[@]}" --set "auth.oidc.$missing=" >/dev/null 2>&1; then fail "auth.oidc without $missing was accepted"; fi
+done
+# The proxy answers under the route's prefix, and the dashboard's own RBAC is unchanged by it.
+grep -q -- '--proxy-prefix=/dashboard/oauth2"' <<<"$on" || fail "the proxy prefix does not follow the gateway path prefix"
+[ "$(helm template x "$dash" "${oidc_set[@]}" --set gateway.pathPrefix=/ | grep -c -- '--proxy-prefix=/oauth2"$')" = "1" ] || fail "the proxy prefix for a root route is wrong"
+oidc_rules="$(yq -N 'select(.kind == "ClusterRole") | .rules[] | (.apiGroups | join(",")) + "/" + (.resources | join(",")) + ":" + (.verbs | join(","))' <<<"$on")"
+[ "$oidc_rules" = "$TOKEN_REVIEW_RULE" ] || fail "OIDC changed the dashboard ServiceAccount rights: $oidc_rules"
+# The trusted proxy alone (your own proxy) turns the dashboard switch on and lists its addresses, and renders no proxy.
+own="$(helm template x "$dash" --set auth.trustedProxy.enabled=true --set 'auth.trustedProxy.addresses={10.0.0.1,10.0.0.2}')"
+[ "$(env_of "$own" KUBEMOOT_DASHBOARD_TRUSTED_PROXY_ADDRESSES)" = "10.0.0.1,10.0.0.2" ] || fail "auth.trustedProxy.addresses did not reach the Deployment"
+if grep -q 'oauth2-proxy' <<<"$own"; then fail "auth.trustedProxy alone rendered the proxy"; fi
+# The operator chart passes the same values through to its dashboard.
+sub="$(render kubemoot-operator --set dashboard.enabled=true --set dashboard.auth.oidc.enabled=true --set dashboard.auth.oidc.issuerUrl=https://idp.example.test \
+  --set dashboard.auth.oidc.clientId=kubemoot --set dashboard.auth.oidc.redirectUrl=https://dash.example.test/oauth2/callback --set dashboard.auth.oidc.existingSecret=dash-oidc)"
+[ "$(yq -N 'select(.kind == "NetworkPolicy" and .metadata.name == "*only-oidc-proxy") | .kind' <<<"$sub")" = "NetworkPolicy" ] || fail "the operator chart's dashboard renders no proxy policy"
+
 # Standalone chart keeps its own defaults.
 standalone="$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard")"
 grep -q 'image: ghcr.io/kubemoot/dashboard:' <<<"$standalone" || fail "standalone dashboard image changed"
