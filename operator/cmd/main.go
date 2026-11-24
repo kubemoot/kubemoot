@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"net/http"
 	"os"
@@ -54,6 +55,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/internal/retention"
 	kubemootscheduler "github.com/kubemoot/kubemoot/operator/internal/scheduler"
 	kubemootwebhook "github.com/kubemoot/kubemoot/operator/internal/webhook"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -94,11 +96,24 @@ type runnableSetup struct {
 
 // mustAddRunnables registers the operator's non-controller runnables, logging
 // and exiting on any failure.
-func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
+func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher, reports reportsAPIFlags) {
 	kube, err := kubernetes.NewForConfig(mgr.GetConfig())
 	if err != nil {
 		setupLog.Error(err, "unable to create the Kubernetes client for access reviews")
 		os.Exit(1)
+	}
+	reportServer := &controller.ReportServer{
+		Client:        mgr.GetClient(),
+		Publisher:     natsPublisher,
+		Memory:        natsPublisher,
+		Conversations: natsPublisher,
+		Owners:        natsPublisher,
+		// The report service is reachable by any pod; every endpoint checks the
+		// caller's token and RBAC before it answers.
+		Auth: controller.NewReviewAuthorizer(kube),
+		// A crew's subscriber exports their own conversation with their own token.
+		Subscribers: controller.NewSubscriberDirectory(mgr.GetClient()),
+		Addr:        ":8082",
 	}
 	runnables := []runnableSetup{
 		// Agent self-scheduling poller. Reads the kubemoot_scheduled KV bucket
@@ -143,22 +158,54 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 		// On-demand fitness report server: generates the XLSX fresh from transcripts
 		// on each download (no pre-baked artifact), so every report reflects the
 		// currently deployed generator. The dashboard's download endpoint proxies here.
-		{"fitness report server", &controller.ReportServer{
-			Client:        mgr.GetClient(),
-			Publisher:     natsPublisher,
-			Memory:        natsPublisher,
-			Conversations: natsPublisher,
-			Owners:        natsPublisher,
-			// The report service is reachable by any pod; every endpoint checks the
-			// caller's token and RBAC before it answers.
-			Auth: controller.NewReviewAuthorizer(kube),
-			// A crew's subscriber exports their own conversation with their own token.
-			Subscribers: controller.NewSubscriberDirectory(mgr.GetClient()),
-			Addr:        ":8082",
-		}},
+		{"fitness report server", reportServer},
 	}
 	for _, r := range runnables {
 		if err := mgr.Add(r.runnable); err != nil {
+			setupLog.Error(err, "unable to register runnable", "runnable", r.name)
+			os.Exit(1)
+		}
+	}
+	mustAddAggregatedReports(mgr, reportServer, kube, reports)
+}
+
+// reportsAPIFlags says where the aggregated report API listens and which certificate it serves.
+type reportsAPIFlags struct {
+	addr     string
+	certPath string
+	certName string
+	certKey  string
+	http2    bool
+}
+
+// everyReplica runs a runnable on every replica, the leader or not.
+type everyReplica struct{ manager.Runnable }
+
+func (everyReplica) NeedLeaderElection() bool { return false }
+
+// mustAddAggregatedReports serves the report endpoints as an aggregated API when an address
+// is given: the API server forwards the callers it authenticated (any kubeconfig) and the
+// caller's own RBAC decides. With no address nothing listens and the plain report service
+// is unchanged.
+func mustAddAggregatedReports(
+	mgr ctrl.Manager, reports *controller.ReportServer, kube kubernetes.Interface, f reportsAPIFlags,
+) {
+	if f.addr == "" {
+		return
+	}
+	watcher := setupCertWatcher(f.certPath, f.certName, f.certKey, "reports-api")
+	if watcher == nil {
+		setupLog.Error(errors.New("--reports-api-cert-path is required"), "the aggregated report API needs a certificate")
+		os.Exit(1)
+	}
+	for _, r := range []runnableSetup{
+		{"reports-api certificate watcher", watcher},
+		{"aggregated report API", &controller.AggregatedReportServer{
+			Reports: reports, Trust: identity.NewRequestHeaderTrust(nil), Client: kube,
+			Certificate: watcher.GetCertificate, Addr: f.addr, EnableHTTP2: f.http2,
+		}},
+	} {
+		if err := mgr.Add(everyReplica{r.runnable}); err != nil {
 			setupLog.Error(err, "unable to register runnable", "runnable", r.name)
 			os.Exit(1)
 		}
@@ -244,6 +291,7 @@ type managerFlags struct {
 	probeAddr            string
 	secureMetrics        bool
 	enableHTTP2          bool
+	reports              reportsAPIFlags
 }
 
 // parseFlags registers and parses all command-line flags.
@@ -274,6 +322,12 @@ func parseFlags() managerFlags {
 		"The directory that contains the metrics server certificate.")
 	flag.StringVar(&f.metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
 	flag.StringVar(&f.metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
+	flag.StringVar(&f.reports.addr, "reports-api-bind-address", "",
+		"The address the aggregated report API (reports.kubemoot.ai) binds to, such as :8444. Empty disables it.")
+	flag.StringVar(&f.reports.certPath, "reports-api-cert-path", "",
+		"The directory that contains the aggregated report API's serving certificate.")
+	flag.StringVar(&f.reports.certName, "reports-api-cert-name", "tls.crt", "The name of the report API certificate file.")
+	flag.StringVar(&f.reports.certKey, "reports-api-cert-key", "tls.key", "The name of the report API key file.")
 	flag.BoolVar(&f.enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	opts := zap.Options{Development: true}
@@ -474,7 +528,8 @@ func main() {
 	})
 	// +kubebuilder:scaffold:builder
 
-	mustAddRunnables(mgr, natsPublisher)
+	f.reports.http2 = f.enableHTTP2
+	mustAddRunnables(mgr, natsPublisher, f.reports)
 	mustAddModelLifecycleServer(mgr, natsPublisher, modelServers)
 
 	// Register validating webhooks

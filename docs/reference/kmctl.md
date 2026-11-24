@@ -1213,8 +1213,15 @@ read them), expired (Kubemoot no longer holds them) or failed (a store could not
 kmctl prints each of those after the download, then `wrote N conversation(s) of
 <namespace>/<crew> to <file>`.
 
-Unlike the other conversation commands, `export` port-forwards to the operator's report
-Service, not to the crew, with your kubeconfig token, as the dashboard does. You need
+Unlike the other conversation commands, `export` talks to the operator, not to the crew.
+When the operator serves its [aggregated report API](../../operating/dashboard/#the-aggregated-report-api)
+(`reportsAPI.enabled`), kmctl calls it through the API server with your own kubeconfig,
+whatever it signs in with (a client certificate, OIDC or a token), and the API server
+vouches for you; no port-forward and no token minting. kmctl finds it by asking the API
+server for `reports.kubemoot.ai/v1alpha1`. When it is not installed, when you name the
+Service with `--operator-namespace` or `--operator-service`, or when you pass
+`--token-service-account`, kmctl port-forwards to the operator's report Service with
+your kubeconfig token, as the dashboard does. You need
 `get` on the Crew, and the operator checks it; reaching the Service takes `get` on
 `services`, `list` on `pods` and `create` on `pods/portforward` in the operator's
 namespace. Another caller's conversation takes `get` on `crews/conversations` (the
