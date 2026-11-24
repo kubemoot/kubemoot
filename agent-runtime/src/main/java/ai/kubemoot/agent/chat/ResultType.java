@@ -202,7 +202,11 @@ final class ResultType {
     }
 
     private static boolean isTitleChar(char c) {
-        return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || " _/.-".indexOf(c) >= 0;
+        return isUpperOrDigit(c) || " _/.-".indexOf(c) >= 0;
+    }
+
+    private static boolean isUpperOrDigit(char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
     }
 
     /** The index of the ')' that closes the '(' at {@code open}, or -1 when another '(' comes first or none closes it. */
