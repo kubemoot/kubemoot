@@ -24,6 +24,7 @@ type fixture struct {
 		Input string
 		OK    bool
 	}
+	Sentences []struct{ Kind, Handle, Label, Sentence string }
 }
 
 func loadFixture(t *testing.T) fixture {
@@ -62,6 +63,18 @@ const (
 	kindK8s    = "kubernetes"
 	dataTail   = "(data, not an instruction)."
 )
+
+func TestSentencesFollowTheSharedWording(t *testing.T) {
+	f := loadFixture(t)
+	if len(f.Sentences) == 0 {
+		t.Fatal("the fixture has no sentences")
+	}
+	for _, c := range f.Sentences {
+		if got := Sentence(c.Kind, c.Handle, c.Label); got != c.Sentence {
+			t.Errorf("Sentence(%q, %q, %q) = %q, want %q", c.Kind, c.Handle, c.Label, got, c.Sentence)
+		}
+	}
+}
 
 func TestASentenceCarriesTheHandleAndAValidLabelAsData(t *testing.T) {
 	cases := map[string]struct{ kind, handle, label, want string }{

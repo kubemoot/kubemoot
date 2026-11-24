@@ -60,7 +60,8 @@ public final class TurnContext {
      * and a principal with no usable handle.
      */
     public static String callerSentence(Principal principal) {
-        if (principal == null || Principal.KIND_ANONYMOUS.equals(principal.kind())
+        if (principal == null || principal.kind() == null || principal.kind().isEmpty()
+                || Principal.KIND_ANONYMOUS.equals(principal.kind())
                 || principal.id() == null || !HANDLE.matcher(principal.id()).matches()) {
             return "";
         }

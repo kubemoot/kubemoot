@@ -13,6 +13,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"github.com/kubemoot/kubemoot/operator/pkg/callerline"
 	"github.com/kubemoot/kubemoot/operator/pkg/mesh"
 
 	"github.com/kubemoot/kubemoot/agent-sidecar/internal/a2a"
@@ -36,6 +37,14 @@ type Options struct {
 	HeartbeatEvery time.Duration
 	// ExposeCaller tells the harness who is asking (callerline.EnvExposeCaller).
 	ExposeCaller bool
+}
+
+// ExposeCallerFromEnv reads the switch that tells the harness who is asking
+// (callerline.EnvExposeCaller). Only the exact value "true", which the operator writes, turns it
+// on; empty, "false", "TRUE", "1" or any other text leaves it off, so a stray value never puts a
+// person in a prompt.
+func ExposeCallerFromEnv(getenv func(string) string) bool {
+	return getenv(callerline.EnvExposeCaller) == "true"
 }
 
 // App is a running sidecar.

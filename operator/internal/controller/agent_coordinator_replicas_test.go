@@ -73,18 +73,19 @@ func TestCoordinatorWithLeasesOffRunsOneReplicaWithRecreateWhateverTheSpecAsks(t
 }
 
 // sidecarCoordinator is a coordinator Agent in sidecar harness mode asking for 3 replicas.
-func sidecarCoordinator(realm *kubemootv1alpha1.CoordinatorConfig) (*AgentReconciler, *kubemootv1alpha1.Agent) {
+func sidecarCoordinator(t *testing.T, realm *kubemootv1alpha1.CoordinatorConfig) (*AgentReconciler, *kubemootv1alpha1.Agent) {
 	cache := NewConfigCache()
 	cache.Update(&kubemootv1alpha1.KubemootConfig{Spec: kubemootv1alpha1.KubemootConfigSpec{Coordinator: realm}})
 	agent := sidecarAgent()
 	agent.Spec.DiscussRole = roleCoordinator
 	agent.Spec.Deployment = &kubemootv1alpha1.DeploymentConfig{Replicas: 3}
-	return &AgentReconciler{ConfigCache: cache}, agent
+	scheme := gatewayScheme(t)
+	return &AgentReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), Scheme: scheme, ConfigCache: cache}, agent
 }
 
 func TestSidecarCoordinatorIsHeldToOneReplicaAndRecreateWhenLeasesAreOff(t *testing.T) {
 	for name, realm := range leasesOffRealms() {
-		r, agent := sidecarCoordinator(realm)
+		r, agent := sidecarCoordinator(t, realm)
 
 		d, err := r.buildSidecarDeployment(context.Background(), agent, harnessPick(testModelID, "rig0"),
 			harnessPick("qwen3:4b", "rig1"), "policy", "h1")
@@ -99,7 +100,7 @@ func TestSidecarCoordinatorIsHeldToOneReplicaAndRecreateWhenLeasesAreOff(t *test
 }
 
 func TestSidecarCoordinatorKeepsItsReplicasAndRollsWithRollingUpdateWhenLeasesAreOn(t *testing.T) {
-	r, agent := sidecarCoordinator(leasesOn())
+	r, agent := sidecarCoordinator(t, leasesOn())
 
 	d, err := r.buildSidecarDeployment(context.Background(), agent, harnessPick(testModelID, "rig0"),
 		harnessPick("qwen3:4b", "rig1"), "policy", "h1")

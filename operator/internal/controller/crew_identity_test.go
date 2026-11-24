@@ -148,7 +148,7 @@ func TestASidecarAgentsSidecarCarriesTheExposureOfItsNamespacesCrew(t *testing.T
 		"exposing crew": {crewWithIdentity(true, &kubemootv1alpha1.DiscussionIdentity{ExposeToAgents: true}), true},
 		"identity off":  {crewWithIdentity(true, &kubemootv1alpha1.DiscussionIdentity{}), false},
 		"no access":     {crewWithIdentity(false, &kubemootv1alpha1.DiscussionIdentity{ExposeToAgents: true}), false},
-		"no crew":       {nil, false},
+		"crew absent":   {nil, false},
 	} {
 		var objs []client.Object
 		if c.crew != nil {
