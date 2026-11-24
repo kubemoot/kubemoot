@@ -137,7 +137,7 @@ func (r *AgentReconciler) queryServiceEndpoints(ctx context.Context, agent *kube
 		out = append(out, t.Endpoint)
 	}
 	if agent.Spec.DiscussRole == roleCoordinator {
-		out = append(out, resumeSearchEndpoint(agent, agent.Labels[labelCrew]))
+		out = append(out, resumeSearchEndpoint(r.ConfigCache.GetQueryServiceEngine(), agent, agent.Labels[labelCrew]))
 	}
 	return out
 }

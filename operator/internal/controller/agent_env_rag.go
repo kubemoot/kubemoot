@@ -87,7 +87,7 @@ func ragSourceEnv(i int, ref kubemootv1alpha1.RAGSourceRef, endpoint string) []c
 func (r *AgentReconciler) ragQueryEndpointFor(ctx context.Context, name, namespace string) (string, bool) {
 	ragSource := &kubemootv1alpha1.RAGSource{}
 	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, ragSource); err != nil {
-		return ragQueryEndpoint(name, namespace, defaultQueryServicePort), true
+		return ragQueryEndpoint(r.ConfigCache.GetQueryServiceEngine(), name, namespace, defaultQueryServicePort), true
 	}
 	if !queryServiceEnabled(ragSource) {
 		return "", false
@@ -95,18 +95,13 @@ func (r *AgentReconciler) ragQueryEndpointFor(ctx context.Context, name, namespa
 	if ragSource.Status.QueryEndpoint != "" {
 		return ragSource.Status.QueryEndpoint, true
 	}
-	return ragQueryEndpoint(name, namespace, queryServicePort(ragSource)), true
+	return ragQueryEndpoint(r.ConfigCache.GetQueryServiceEngine(), name, namespace, queryServicePort(ragSource)), true
 }
 
 // queryServiceEnabled reports whether the RAGSource runs a query service; it does unless switched off.
 func queryServiceEnabled(ragSource *kubemootv1alpha1.RAGSource) bool {
 	qs := ragSource.Spec.QueryService
 	return qs == nil || kubemootv1alpha1.BoolOrTrue(qs.Enabled)
-}
-
-// ragQueryEndpoint is the in-cluster URL of a RAGSource's query service.
-func ragQueryEndpoint(name, namespace string, port int32) string {
-	return fmt.Sprintf("http://%s-query.%s:%d", name, namespace, port)
 }
 
 // queryServicePort is the RAGSource's query service port, or the default.

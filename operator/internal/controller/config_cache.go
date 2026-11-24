@@ -34,6 +34,7 @@ const DefaultKubemootConfigName = "default"
 const (
 	FallbackIndexerImage           = "ghcr.io/kubemoot/indexer:latest"
 	FallbackQueryServiceImage      = "ghcr.io/kubemoot/query-service:latest"
+	FallbackQueryServiceGoImage    = "ghcr.io/kubemoot/query-service-go:latest"
 	FallbackAgentRuntimeImage      = "ghcr.io/kubemoot/agent-runtime:latest"
 	FallbackAgentSidecarImage      = "ghcr.io/kubemoot/agent-sidecar:latest"
 	FallbackHarnessGooseImage      = "ghcr.io/kubemoot/harness-goose:latest"
@@ -102,6 +103,31 @@ func (c *ConfigCache) GetQueryServiceImage() string {
 		return c.config.Spec.Images.QueryService
 	}
 	return FallbackQueryServiceImage
+}
+
+// GetQueryServiceGoImage returns the Go query service image from config or fallback
+func (c *ConfigCache) GetQueryServiceGoImage() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config != nil && c.config.Spec.Images.QueryServiceGo != "" {
+		return c.config.Spec.Images.QueryServiceGo
+	}
+	return FallbackQueryServiceGoImage
+}
+
+// GetQueryServiceEngine returns the query service engine: python unless the KubemootConfig
+// chooses go. A nil cache, no config and an unknown value all read as python.
+func (c *ConfigCache) GetQueryServiceEngine() kubemootv1alpha1.QueryServiceEngine {
+	if c == nil {
+		return kubemootv1alpha1.QueryServiceEnginePython
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.config != nil && c.config.Spec.QueryService != nil &&
+		c.config.Spec.QueryService.Engine == kubemootv1alpha1.QueryServiceEngineGo {
+		return kubemootv1alpha1.QueryServiceEngineGo
+	}
+	return kubemootv1alpha1.QueryServiceEnginePython
 }
 
 // GetAgentRuntimeImage returns the agent runtime image from config or fallback

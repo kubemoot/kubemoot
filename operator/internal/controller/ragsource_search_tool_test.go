@@ -73,11 +73,11 @@ func getSearchServer(c client.Client) (*kubemootv1alpha1.MCPServer, error) {
 
 func TestRAGSearchEndpointUsesTheQueryServicePort(t *testing.T) {
 	rs := searchTestRAGSource(nil)
-	if got, want := ragSearchEndpoint(rs), searchTestEndpoint; got != want {
+	if got, want := ragSearchEndpoint(kubemootv1alpha1.QueryServiceEnginePython, rs), searchTestEndpoint; got != want {
 		t.Errorf("endpoint = %q, want %q", got, want)
 	}
 	rs.Spec.QueryService = &kubemootv1alpha1.QueryServiceConfig{Port: 9100}
-	if got, want := ragSearchEndpoint(rs), "http://kubectl-reference-query.crew-a:9100/mcp"; got != want {
+	if got, want := ragSearchEndpoint(kubemootv1alpha1.QueryServiceEnginePython, rs), "http://kubectl-reference-query.crew-a:9100/mcp"; got != want {
 		t.Errorf("custom port endpoint = %q, want %q", got, want)
 	}
 }
@@ -117,7 +117,7 @@ func TestRAGSearchOffered(t *testing.T) {
 }
 
 func TestBuildRAGSearchServerPointsTheGatewayAtTheQueryService(t *testing.T) {
-	ms := buildRAGSearchServer(searchTestRAGSource(nil))
+	ms := buildRAGSearchServer(kubemootv1alpha1.QueryServiceEnginePython, searchTestRAGSource(nil))
 	if ms.Spec.ExternalEndpoint != searchTestEndpoint {
 		t.Errorf("endpoint = %q", ms.Spec.ExternalEndpoint)
 	}
@@ -265,7 +265,7 @@ func TestReconcileSearchToolLeavesAServerGeneratedForAnotherRAGSourceAlone(t *te
 	other := searchTestRAGSource(func(rs *kubemootv1alpha1.RAGSource) {
 		rs.Name, rs.UID = "another-source", types.UID("uid-other")
 	})
-	theirs := buildRAGSearchServer(other)
+	theirs := buildRAGSearchServer(kubemootv1alpha1.QueryServiceEnginePython, other)
 	theirs.Name = searchTestServer
 	if err := controllerutil.SetControllerReference(other, theirs, gatewayScheme(t)); err != nil {
 		t.Fatalf("owner: %v", err)

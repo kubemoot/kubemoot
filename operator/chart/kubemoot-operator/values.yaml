@@ -397,6 +397,14 @@ workspace: {}
   # queryEngine: sqlite   # sqlite | duckdb | none
   # defaultAccess: read
 
+# The RAG query service. Engine python (the default) runs one pod per RAGSource, as before. Engine
+# go runs one Deployment per namespace that serves every RAGSource of the namespace from a registry
+# the operator writes, in far less memory. Setting go moves every RAGSource to it and removes the
+# per-RAGSource pods once the new one is available; setting python moves them back the same way.
+# The Go service reads pgvector only. See docs/reference/ragsource-guide.md.
+queryService:
+  engine: python   # python | go
+
 # Scale-to-zero configuration for KEDA-based agent autoscaling
 scaleToZero:
   enabled: false  # Enable when KEDA is deployed
@@ -585,6 +593,7 @@ kubemootConfig:
   images:
     indexer: indexer:0.0.0
     queryService: query-service:0.0.0
+    queryServiceGo: query-service-go:0.0.0
     agentRuntime: agent-runtime:0.0.0
     agentSidecar: agent-sidecar:0.0.0
     harnessGoose: harness-goose:0.0.0

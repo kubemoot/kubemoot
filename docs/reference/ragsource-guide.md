@@ -21,7 +21,7 @@ RAGSource CR
     │       ├── Generate embeddings (model server, /v1/embeddings)
     │       └── Store vectors in pgvector (Spring AI schema: data_{collection})
     │
-    ├─── Query Service (Python/FastAPI)
+    ├─── Query Service (Python/FastAPI, or Go: see Query service engines)
     │       ├── Deployment + Service (auto-deployed)
     │       ├── POST /query - semantic search
     │       └── GET /info - collection stats (used by verification)
@@ -36,6 +36,7 @@ RAGSource CR
 |-----------|-------|----------|
 | Indexer | `registry.example.com/kubemoot/indexer` | Java (Spring Boot) |
 | Query Service | `registry.example.com/kubemoot/query-service` | Python (FastAPI) |
+| Query Service (Go engine) | `registry.example.com/kubemoot/query-service-go` | Go |
 | Docling Serve | `quay.io/docling-project/docling-serve-cpu` | Python |
 
 All image versions are managed centrally via the KubemootConfig singleton - never hardcode image tags.
@@ -185,7 +186,8 @@ treats it like changed source data and rebuilds on its own:
    beside the current one. Readers stay on the current index and the RAGSource stays `Ready`.
 2. When the build is complete, `status.index` becomes the new index and the query service
    moves to it.
-3. When the query service has finished replacing its pods and reads only the new collection,
+3. When the query service reads only the new collection (its Deployment has finished replacing
+   its pods or, under the Go engine, every pod reports the new collection on the current registry),
    a cleanup Job deletes the old collection (`status.retiredCollections` lists what waits).
 
 A build that fails leaves the current index serving, says so in `status.message` and is
@@ -376,7 +378,7 @@ The controller passes configuration to the indexer job via environment variables
 
 ## Query Service
 
-The controller automatically deploys a query service (Python FastAPI) for each RAGSource. This provides the HTTP API that agents use for semantic search.
+The controller automatically deploys a query service for the RAGSources of each namespace. This provides the HTTP API that agents use for semantic search. Which engine runs it, and how many pods, is the cluster's choice: see [Query service engines](#query-service-engines).
 
 ### API Endpoints
 
@@ -386,6 +388,75 @@ The controller automatically deploys a query service (Python FastAPI) for each R
 | `/mcp` | POST | MCP (streamable HTTP) with one tool, `<ragsource>_search(query, top_k)`. Runs the same similarity query as `/query` and returns each passage with its source path and score |
 | `/info` | GET | Collection stats including `document_count` |
 | `/health` | GET | Health check |
+
+### Query service engines
+
+The cluster chooses how query services run with `queryService.engine` in the
+[KubemootConfig](../kubemootconfig-guide/#query-service) (the operator chart value of the same name):
+
+| | `python` (the default) | `go` |
+|---|---|---|
+| Runs | one Deployment and Service per RAGSource, `<ragsource>-query` | one Deployment and Service per namespace that has RAGSources, `<namespace>-query` |
+| Image | `images.queryService`, or the RAGSource's `spec.queryService.image` | `images.queryServiceGo` (the RAGSource's `image` is not read: it names a Python image) |
+| `status.queryEndpoint` | `http://<ragsource>-query.<namespace>:<port>` | `http://<namespace>-query.<namespace>:<port>/sources/<ragsource>` |
+| Memory | about 90 MiB a pod, so a crew with ten RAGSources runs about 900 MiB | a pod of a few tens of MiB per namespace, however many RAGSources it has |
+| Vector stores | pgvector | pgvector only: a RAGSource on another type is left out of the registry |
+
+Everything an agent, the MCP gateway or the operator's own check calls is the same: the routes
+under the endpoint (`/query`, `/info`, `/health`, `/mcp`) answer the same way, so the endpoint is
+the only thing that changes. Every place that builds an endpoint before a RAGSource reports one (an
+agent whose RAGSource is not applied yet, a coordinator's resume search) builds it the same way.
+
+#### How the Go engine runs
+
+The operator writes a registry ConfigMap, `<namespace>-query-registry`, from every RAGSource of
+the namespace that has a query service: its name, vector store endpoint, collection, vector size,
+credentials directory, default result count and the embedding endpoint and model of the index
+readers use. The Deployment mounts it as a directory, so a change reaches the running pods in
+about a minute with no restart, and the service swaps to the new registry in one step. A pod keeps
+the registry it has when a new one is invalid or a connection in it cannot be opened.
+
+- **Adding or removing a RAGSource** adds or removes its entry. Nothing restarts.
+- **An index swap** (see [When the embedding model changes](#when-the-embedding-model-changes))
+  changes the entry's collection. The old collection is deleted only after every pod's `/ready`
+  reports the registry version the operator wrote and the new collection for the RAGSource, so a
+  pod that has not yet picked up the registry never loses its collection.
+- **Credentials**: each distinct `spec.vectorStore.secretRef` is mounted once as a directory
+  (`/etc/kubemoot/credentials/<secret>`, files `username` and `password`). The service reads it again
+  on every rescan, so a rotated Secret takes effect with no restart. A RAGSource whose Secret is
+  missing or has no `password` is not listed, and a RAGSource that was listed keeps its entry while
+  its Secret is briefly missing, so one bad Secret never takes the namespace's other searches away.
+  The registry holds no password. An endpoint that carries one (`postgres://user:pass@host`) puts it in
+  the ConfigMap, so use `secretRef`.
+- **A RAGSource that cannot be served yet** (its EmbeddingModel is not ready) keeps the entry it
+  had, or is left out until it can be.
+
+**Ownership.** The Deployment, Service and ConfigMap of a namespace are owned by every RAGSource of
+the namespace that has a query service (owner references, none of them the controller). Kubernetes
+deletes an object only when all its owners are gone, so deleting the last RAGSource removes the
+service and deleting one of three removes only its entry. The operator does not wait for garbage
+collection: it rewrites the registry when a RAGSource is deleted, and deletes the group when none
+is left or the last one sets `spec.queryService.enabled: false`.
+
+**Settings are per namespace.** One service serves the namespace, so the fields of
+`spec.queryService` resolve across the namespace's RAGSources the same way every time:
+
+| Field | Under the Go engine |
+|---|---|
+| `enabled` | per RAGSource: `false` leaves it out of the registry and gives it no endpoint |
+| `topK` | per RAGSource: its default result count in the registry (cut to 100) |
+| `replicas` | the largest any RAGSource asks for |
+| `port` | not read: the service always listens on 8000, so every endpoint is known before the Service exists |
+| `resources` | the first RAGSource by name that sets them; without any, 20m and 32Mi requested, 500m and 256Mi limited |
+| `image` | not read |
+
+**Switching engines.** Set `queryService.engine` to `go` and each RAGSource's `status.queryEndpoint`
+changes at once. A RAGSource's own Deployment and Service stay until the namespace's new
+Deployment has rolled out, then they are deleted. Setting `python` again does the reverse: the
+namespace's Deployment, Service and registry are deleted once every RAGSource there has its own
+Deployment rolled out. A RAGSource named exactly like its namespace has a Python Deployment that
+shares the name `<namespace>-query` with the group's; the operator replaces it, and tells the two
+apart by the `kubemoot.ai/query-group` label only the group's objects carry.
 
 ### Status Integration
 
@@ -401,6 +472,8 @@ status:
     chunkCount: 823
     lastIndexed: "2026-02-07T15:30:00Z"
 ```
+
+Under the Go engine the endpoint names the namespace's service and the RAGSource: `http://homelab-pilot-query.homelab-pilot:8000/sources/kubectl-reference`.
 
 Agents reference RAGSources by name. The agent runtime resolves the name → `queryEndpoint` → calls `/query` with the user's question → injects results into the system prompt.
 

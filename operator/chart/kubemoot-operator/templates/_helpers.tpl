@@ -201,6 +201,17 @@ workspace.queryEngine, else the old artifacts.queryEngine, else sqlite.
 {{- end }}
 
 {{/*
+The RAG query service engine, checked: python (the default) or go.
+*/}}
+{{- define "kubemoot-operator.queryServiceEngine" -}}
+{{- $engine := (.Values.queryService | default dict).engine | default "python" -}}
+{{- if not (has $engine (list "python" "go")) -}}
+{{- fail (printf "queryService.engine must be python or go, got %q" $engine) -}}
+{{- end -}}
+{{- $engine -}}
+{{- end }}
+
+{{/*
 The cluster-wide default workspace access, or empty when none is set. Any value but none, read,
 write or readWrite fails the render.
 */}}

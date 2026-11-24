@@ -126,8 +126,8 @@ func resumeRAGSourceName(crewName string) string {
 // resumeSearchEndpoint is the URL of the crew's resume query service, which the
 // coordinator is given as KUBEMOOT_RESUME_SEARCH_ENDPOINT and its egress allows. crew
 // is the crew label; an empty one means the agent's namespace is the crew.
-func resumeSearchEndpoint(agent *kubemootv1alpha1.Agent, crew string) string {
-	return fmt.Sprintf("http://%s-query.%s:%d", resumeRAGSourceName(stringOrDefault(crew, agent.Namespace)), agent.Namespace, resumeQueryPort)
+func resumeSearchEndpoint(engine kubemootv1alpha1.QueryServiceEngine, agent *kubemootv1alpha1.Agent, crew string) string {
+	return ragQueryEndpoint(engine, resumeRAGSourceName(stringOrDefault(crew, agent.Namespace)), agent.Namespace, resumeQueryPort)
 }
 
 // resumesUnchanged reports whether the resume RAGSource already carries hash and

@@ -1111,7 +1111,7 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 		// endpoint → agent-runtime falls back to keyword self-selection.
 		env = append(env, corev1.EnvVar{
 			Name:  "KUBEMOOT_RESUME_SEARCH_ENDPOINT",
-			Value: resumeSearchEndpoint(agent, crew),
+			Value: resumeSearchEndpoint(r.ConfigCache.GetQueryServiceEngine(), agent, crew),
 		})
 		env = append(env, r.coordinatorEventLogEnvVars()...)
 		env = append(env, r.coordinatorResumeEnvVars()...)

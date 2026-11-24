@@ -33,6 +33,13 @@ type ImageConfig struct {
 	// +optional
 	QueryService string `json:"queryService,omitempty"`
 
+	// QueryServiceGo is the image of the Go query service: one Deployment per crew namespace
+	// that serves every RAGSource of the namespace. It is used when queryService.engine is go.
+	// The operator chart stamps it from the release; a floating tag would break version pinning.
+	// +kubebuilder:default="ghcr.io/kubemoot/query-service-go:latest"
+	// +optional
+	QueryServiceGo string `json:"queryServiceGo,omitempty"`
+
 	// AgentRuntime is the default agent runtime image for Agent deployments
 	// +kubebuilder:default="ghcr.io/kubemoot/agent-runtime:latest"
 	// +optional
@@ -227,6 +234,34 @@ type KubemootConfigSpec struct {
 	// +kubebuilder:default={}
 	// +optional
 	Coordinator *CoordinatorConfig `json:"coordinator,omitempty"`
+
+	// QueryService chooses the engine behind the RAG query services. Python, the default, runs
+	// one pod per RAGSource; go runs one Deployment per namespace that serves every RAGSource of
+	// the namespace.
+	// +optional
+	QueryService *QueryServiceSettings `json:"queryService,omitempty"`
+}
+
+// QueryServiceEngine names the implementation that answers RAGSource similarity searches.
+// +kubebuilder:validation:Enum=python;go
+type QueryServiceEngine string
+
+const (
+	// QueryServiceEnginePython runs the Python query service, one Deployment and Service per
+	// RAGSource.
+	QueryServiceEnginePython QueryServiceEngine = "python"
+	// QueryServiceEngineGo runs the Go query service, one Deployment and Service per namespace
+	// that serves every RAGSource of the namespace from a registry ConfigMap.
+	QueryServiceEngineGo QueryServiceEngine = "go"
+)
+
+// QueryServiceSettings configures the RAG query services cluster-wide.
+type QueryServiceSettings struct {
+	// Engine is the query service implementation: python (the default, also when unset) or go.
+	// Changing it moves every RAGSource to the other engine: the operator creates the new
+	// Deployments, points each RAGSource's status.queryEndpoint at them, and removes the old ones.
+	// +optional
+	Engine QueryServiceEngine `json:"engine,omitempty"`
 }
 
 // CoordinatorConfig configures the crew coordinators.

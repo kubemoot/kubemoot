@@ -8,6 +8,7 @@ metadata:
 spec:
   images:
     indexer: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.indexer) | quote }}
+    queryServiceGo: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.queryServiceGo) | quote }}
     queryService: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.queryService) | quote }}
     agentRuntime: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.agentRuntime) | quote }}
     agentSidecar: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.agentSidecar) | quote }}
@@ -21,6 +22,8 @@ spec:
     workspaceAccess: {{ include "kubemoot-operator.image" (dict "root" $ "image" .) | quote }}
     {{- end }}
     doclingServe: {{ include "kubemoot-operator.image" (dict "root" $ "image" .Values.kubemootConfig.images.doclingServe) | quote }}
+  queryService:
+    engine: {{ include "kubemoot-operator.queryServiceEngine" . | quote }}
   workspace:
     queryEngine: {{ include "kubemoot-operator.workspaceQueryEngine" . | quote }}
     {{- with (include "kubemoot-operator.workspaceDefaultAccess" .) }}

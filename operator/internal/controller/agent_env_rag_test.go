@@ -154,7 +154,7 @@ func TestQueryServiceEndpointHelpers(t *testing.T) {
 	if got := queryServicePort(rs); got != 8123 {
 		t.Fatalf("custom port: got %d", got)
 	}
-	if got := ragQueryEndpoint("docs", "ns", 8000); got != "http://docs-query.ns:8000" {
+	if got := ragQueryEndpoint(kubemootv1alpha1.QueryServiceEnginePython, "docs", "ns", 8000); got != "http://docs-query.ns:8000" {
 		t.Fatalf("endpoint: got %q", got)
 	}
 }

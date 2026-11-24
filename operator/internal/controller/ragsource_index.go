@@ -307,6 +307,9 @@ func (r *RAGSourceReconciler) readersMoved(ctx context.Context, rs *kubemootv1al
 	if !queryServiceEnabled(rs) {
 		return true
 	}
+	if r.queryEngine() == kubemootv1alpha1.QueryServiceEngineGo {
+		return r.groupReadersMoved(ctx, rs, collection)
+	}
 	dep := &appsv1.Deployment{}
 	key := types.NamespacedName{Namespace: rs.Namespace, Name: queryServiceDeploymentName(rs)}
 	if err := r.Get(ctx, key, dep); err != nil {

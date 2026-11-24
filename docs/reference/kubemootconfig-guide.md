@@ -48,6 +48,7 @@ The singleton must be named `default`. The operator creates it via the Helm char
 |-------|------|---------|-------------|
 | `images.indexer` | string | `ghcr.io/kubemoot/indexer:latest` | RAGSource indexer job image |
 | `images.queryService` | string | `ghcr.io/kubemoot/query-service:latest` | RAGSource query service image |
+| `images.queryServiceGo` | string | `ghcr.io/kubemoot/query-service-go:latest` | Query service image of the Go engine (`queryService.engine: go`). The operator chart stamps a pinned tag from the release |
 | `images.agentRuntime` | string | `ghcr.io/kubemoot/agent-runtime:latest` | Agent deployment image |
 | `images.agentSidecar` | string | `ghcr.io/kubemoot/agent-sidecar:latest` | [Moot Mesh](../../architecture/moot-mesh/) sidecar image, added to the pod of an Agent whose `spec.harness.mode` is `sidecar`. The operator chart stamps a pinned tag from the release |
 | `images.harnessGoose` | string | `ghcr.io/kubemoot/harness-goose:latest` | The [goose seat](../../architecture/the-harness-seam/) image: the harness shim and the goose binary. An Agent whose `spec.harness.name` is `goose` and that names no image runs it. The operator chart stamps a pinned tag from the release |
@@ -76,6 +77,12 @@ Every tool result is always stored as its own file in the discussion workspace; 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `workspace.queryEngine` | enum | `sqlite` | The engine behind the `workspace_query` tool of the [workspace-access](../../concepts/workspace/#query-with-sql) read-ops server. `sqlite` is the default, also when the field or the whole `workspace` object is left out (the old `artifacts.queryEngine` is read when this one is not set): it runs inside the workspace-access process, so nothing is added to the image, and it answers small artifacts in milliseconds with a few MB of memory. `none` is the explicit way to turn the tool off: no query tool is offered. `duckdb` is the option for large data: it is faster on large scans, but the workspace-access image must carry the `duckdb` program, and without it the server logs why and offers no query tool. See [Query engines](../../concepts/workspace/#query-engines). The operator sets `WORKSPACE_QUERY_ENGINE` on every MCPServer that selects `spec.kubemootImage: workspaceAccess`; a server that sets the variable itself keeps its own value. For `sqlite` and `duckdb` (everything but `none`) the operator also adds a 1Gi `emptyDir` at `/kubemoot/workspace` and sets `TMPDIR` to it (see [Workspace directory](../../concepts/workspace/#workspace-directory)). The operator chart sets it from the value `workspace.queryEngine` |
+
+### Query service
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `queryService.engine` | enum | `python` | The engine behind every RAGSource's query service: `python` (also when the field or the whole `queryService` object is left out) runs one Deployment and Service per RAGSource; `go` runs one Deployment and Service per namespace that has RAGSources, serving all of them from a registry the operator writes. Changing it moves every RAGSource to the other engine: the new Deployments start and `status.queryEndpoint` changes at once, and the old engine's Deployments, Services and registry are deleted for a namespace once the new ones have rolled out, so searches keep being answered during the move. The Go engine reads pgvector only, and its image is `images.queryServiceGo`. See [Query service engines](../ragsource-guide/#query-service-engines). The operator chart sets it from the value `queryService.engine` |
 
 ### Workspace
 

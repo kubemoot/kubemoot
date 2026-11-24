@@ -24,7 +24,7 @@ out="$(config_images)"
 # Every Kubemoot-built image is pinned to an explicit tag (0.0.0 in git, stamped at
 # release), never latest. workspaceAccess is how a crew's workspace MCPServer runs the
 # workspace-access image without naming a version.
-for key in indexer queryService agentRuntime agentSidecar harnessGoose mcpGateway mcpBridge discussionGateway fitnessRunner workspaceAccess; do
+for key in indexer queryService queryServiceGo agentRuntime agentSidecar harnessGoose mcpGateway mcpBridge discussionGateway fitnessRunner workspaceAccess; do
   value="$(yq -N ".$key" <<<"$out")"
   [ -n "$value" ] && [ "$value" != null ] || fail "KubemootConfig spec.images.$key is not rendered"
   case "$value" in *:latest) fail "spec.images.$key floats: $value" ;; esac
@@ -32,6 +32,9 @@ done
 
 [ "$(yq -N .workspaceAccess <<<"$out")" = "ghcr.io/kubemoot/workspace-access:0.0.0" ] \
   || fail "workspaceAccess should be the registry-prefixed workspace-access image"
+
+[ "$(yq -N .queryServiceGo <<<"$out")" = "ghcr.io/kubemoot/query-service-go:0.0.0" ] \
+  || fail "queryServiceGo should be the registry-prefixed query-service-go image"
 
 # The old artifactAccess value is never rendered under its old name. kubemootConfig.images.workspaceAccess
 # wins over it; the old value is the workspace image only when workspaceAccess is empty.
@@ -200,6 +203,21 @@ fi
 if helm template kubemoot-operator "$chart" --namespace kubemoot --set artifacts.queryEngine=oracle >/dev/null 2>&1; then
   fail "artifacts.queryEngine=oracle should fail the render"
 fi
+
+# The RAG query service engine defaults to python, takes go, reaches the KubemootConfig, refuses
+# any other value at render time, and the CRD accepts the same engines.
+query_service_engine() { helm template kubemoot-operator "$chart" --namespace kubemoot "$@" \
+  | yq -N 'select(.kind == "KubemootConfig") | .spec.queryService.engine'; }
+[ "$(query_service_engine)" = "python" ] || fail "queryService.engine should default to python"
+for engine in python go; do
+  [ "$(query_service_engine --set queryService.engine=$engine)" = "$engine" ] \
+    || fail "queryService.engine=$engine does not reach KubemootConfig"
+done
+if helm template kubemoot-operator "$chart" --namespace kubemoot --set queryService.engine=rust >/dev/null 2>&1; then
+  fail "queryService.engine=rust should fail the render"
+fi
+qs_engines="$(yq -N "$crd_spec.queryService.properties.engine.enum | join(\",\")" "$crd_file_config")"
+[ "$qs_engines" = "python,go" ] || fail "CRD queryService.engine enum is $qs_engines, the chart accepts python,go"
 
 # The cluster-wide default workspace access is rendered only when the chart sets it, takes the four
 # access values, and refuses any other.

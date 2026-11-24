@@ -32,6 +32,7 @@ on:
       - Release MCP Gateway
       - Release Placement Service
       - Release Query Service
+      - Release Query Service (Go)
       - Release Test Runner
     types: [completed]
     branches: [main]
