@@ -99,14 +99,14 @@ func do(t *testing.T, method, url, token, body string, header ...string) *http.R
 	return resp
 }
 
-// queued returns the nth request (1-based) the gateway put on the request stream.
-func queued(t *testing.T, js jetstream.JetStream, n uint64) bus.DiscussionRequest {
+// queued returns the first request the gateway put on the request stream.
+func queued(t *testing.T, js jetstream.JetStream) bus.DiscussionRequest {
 	t.Helper()
 	stream, err := js.Stream(context.Background(), "KUBEMOOT_REQUEST")
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := stream.GetMsg(context.Background(), n)
+	raw, err := stream.GetMsg(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestAVerifiedCallerBecomesTheQueuedRequestsPrincipalAndABodyPrincipalIsIgno
 	if resp := do(t, http.MethodPost, srv.URL+postPath, tokenAlice, body); resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
-	p := queued(t, js, 1).Principal
+	p := queued(t, js).Principal
 	want := identity.Hasher{}.ID(identity.IssuerKubernetes, userAlice)
 	if p == nil || p.Kind != bus.PrincipalKindKubernetes || p.ID != want || p.Issuer != identity.IssuerKubernetes {
 		t.Fatalf("principal %+v, want id %s", p, want)
@@ -181,7 +181,7 @@ func TestAnonymousCallersAreAcceptedOnlyWhenAllowedAndStayAnonymous(t *testing.T
 	if resp := do(t, http.MethodPost, srv.URL+postPath, "", `{"message":"hi"}`); resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
-	if p := queued(t, js, 1).Principal; p == nil || p.Kind != bus.PrincipalKindAnonymous || p.ID != "" {
+	if p := queued(t, js).Principal; p == nil || p.Kind != bus.PrincipalKindAnonymous || p.ID != "" {
 		t.Fatalf("principal %+v", p)
 	}
 	// A bad token is still refused: it is never downgraded to anonymous.

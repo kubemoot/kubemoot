@@ -616,6 +616,12 @@ public class DiscussionSubscriber {
         return threadCallers.get(threadId);
     }
 
+    /** The principal that asked the thread, or null when it named none. */
+    private Principal principalFor(String threadId) {
+        Caller caller = callerFor(threadId);
+        return caller == null ? null : caller.principal();
+    }
+
     /** The requester of the thread, or null when its client sent none. Visible for testing. */
     Requester requesterFor(String threadId) {
         return threadRequesters.get(threadId);
@@ -865,7 +871,7 @@ public class DiscussionSubscriber {
                                           String triageGpuLabel, long triageStartMs) {
         try {
             String triagePrompt = TurnContext.appendTo(buildTriagePrompt(threadId),
-                    chatService.turnContextLine(requesterFor(threadId)));
+                    chatService.turnContextLine(requesterFor(threadId), principalFor(threadId)));
             return chatService.triageChatWithTokens(triagePrompt, conversation);
         } catch (ai.kubemoot.agent.modelserver.NoFitException nfe) {
             // The triage call could not be placed: the same capacity stand-aside as a

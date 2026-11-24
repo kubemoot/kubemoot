@@ -835,6 +835,7 @@ class DiscussionOrchestratorHelpersTest {
             @Override public Optional<String> crew() { return Optional.empty(); }
             @Override public Optional<String> crewVersion() { return Optional.empty(); }
             @Override public Optional<String> defaultTimeZone() { return Optional.empty(); }
+            @Override public boolean exposeCaller() { return false; }
             @Override public ResumeSearch resumeSearch() { return new ResumeSearch() {
                 @Override public Optional<String> endpoint() { return Optional.empty(); }
             }; }

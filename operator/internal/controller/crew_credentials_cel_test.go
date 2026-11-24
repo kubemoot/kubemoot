@@ -49,6 +49,28 @@ var _ = Describe("Per-person access admission validation", func() {
 		Expect(err.Error()).To(ContainSubstring(substring))
 	}
 
+	Describe("Crew spec.discussion.identity", func() {
+		crewWithIdentity := func(name string, access *kubemootv1alpha1.DiscussionAccess, expose bool) error {
+			return createObj(&kubemootv1alpha1.Crew{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: credNamespace},
+				Spec: kubemootv1alpha1.CrewSpec{Discussion: &kubemootv1alpha1.DiscussionConfig{
+					Access: access, Identity: &kubemootv1alpha1.DiscussionIdentity{ExposeToAgents: expose}}},
+			})
+		}
+
+		It("accepts exposeToAgents with access, and leaves it off by default", func() {
+			Expect(crewWithIdentity("cel-id-on", &kubemootv1alpha1.DiscussionAccess{}, true)).To(Succeed())
+			Expect(crewWithIdentity("cel-id-off", nil, false)).To(Succeed())
+			got := &kubemootv1alpha1.Crew{}
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: credNamespace, Name: "cel-id-off"}, got)).To(Succeed())
+			Expect(got.Spec.Discussion.Identity.ExposeToAgents).To(BeFalse())
+		})
+
+		It("refuses exposeToAgents on a crew whose gateway verifies no one", func() {
+			invalid(crewWithIdentity("cel-id-noaccess", nil, true), "identity.exposeToAgents needs access")
+		})
+	})
+
 	Describe("Crew spec.discussion.access.serviceTokens", func() {
 		It("is optional: a crew with no access, or access with no verifier, is accepted as before", func() {
 			Expect(crewWith("cel-st-none", nil)).To(Succeed())

@@ -49,6 +49,15 @@ public interface AgentProperties {
      */
     Optional<String> defaultTimeZone();
 
+    /**
+     * Whether the turn context tells the agent who is asking (the caller's opaque handle and, when
+     * the door stamped one, a label), from KUBEMOOT_EXPOSE_CALLER (the operator sets it from the
+     * Crew's spec.discussion.identity.exposeToAgents). Off by default: no prompt changes, and the
+     * handle reaches tool calls as data only.
+     */
+    @WithDefault("false")
+    boolean exposeCaller();
+
     @WithDefault("chat")
     String agentType();
 

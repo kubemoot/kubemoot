@@ -60,6 +60,36 @@ func gatewayAccessEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar
 	return append(env, gatewayServiceTokenEnv(access)...)
 }
 
+// exposesCaller reports whether the crew lets its agents be told who is asking. It needs
+// access: a gateway that verifies no one has no caller to describe.
+func exposesCaller(crew *kubemootv1alpha1.Crew) bool {
+	if crew == nil {
+		return false
+	}
+	d := crew.Spec.Discussion
+	return d != nil && d.Access != nil && d.Identity != nil && d.Identity.ExposeToAgents
+}
+
+// exposureEnv is the variable that turns on one side of telling agents who is asking: nothing
+// unless the crew exposes the caller, so by default no prompt changes and no person's name is on
+// the bus.
+func exposureEnv(name string, crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
+	if !exposesCaller(crew) {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: name, Value: identity.EnvTrue}}
+}
+
+// gatewayIdentityEnv makes the gateway stamp a label on the principal of the questions it queues.
+func gatewayIdentityEnv(crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
+	return exposureEnv(identity.EnvExposeLabel, crew)
+}
+
+// agentIdentityEnv makes an agent put the caller in its turn context.
+func agentIdentityEnv(crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
+	return exposureEnv(identity.EnvExposeCaller, crew)
+}
+
 // gatewayAccessRules are the rights a gateway needs to verify callers: create TokenReviews
 // and SubjectAccessReviews. A crew that declares no access gets none.
 func gatewayAccessRules(access *kubemootv1alpha1.DiscussionAccess) []rbacv1.PolicyRule {

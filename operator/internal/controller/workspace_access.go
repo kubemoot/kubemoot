@@ -317,13 +317,17 @@ func setWorkspaceStatus(agent *kubemootv1alpha1.Agent, d workspaceDecision) bool
 	return true
 }
 
-// crewWorkspaceChanged passes a Crew's creation, deletion and any change to spec.workspace, the
-// only part of a Crew that changes an Agent's access.
-func crewWorkspaceChanged() predicate.Predicate {
+// crewAgentWiringChanged passes a Crew's creation, deletion and any change to what its Agents
+// are wired from: spec.workspace (their access), spec.defaultTimeZone, and whether the crew
+// tells its agents who is asking. Nothing else of a Crew changes an Agent.
+func crewAgentWiringChanged() predicate.Predicate {
 	return predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {
 		oldCrew, ok1 := e.ObjectOld.(*kubemootv1alpha1.Crew)
 		newCrew, ok2 := e.ObjectNew.(*kubemootv1alpha1.Crew)
-		return !ok1 || !ok2 || !apiequality.Semantic.DeepEqual(oldCrew.Spec.Workspace, newCrew.Spec.Workspace)
+		return !ok1 || !ok2 ||
+			!apiequality.Semantic.DeepEqual(oldCrew.Spec.Workspace, newCrew.Spec.Workspace) ||
+			oldCrew.Spec.DefaultTimeZone != newCrew.Spec.DefaultTimeZone ||
+			exposesCaller(oldCrew) != exposesCaller(newCrew)
 	}}
 }
 

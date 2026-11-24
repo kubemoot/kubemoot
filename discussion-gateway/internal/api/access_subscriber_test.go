@@ -80,7 +80,7 @@ func TestGuardAdmitsASubscriberOnlyWithTheVerifierConfiguredForIt(t *testing.T) 
 	if resp := do(t, http.MethodPost, open.URL+postPath, personToken("acct-42"), `{"message":"hi","conversationId":"c1"}`); resp.StatusCode != http.StatusOK {
 		t.Fatalf("a configured verifier: status %d, want 200", resp.StatusCode)
 	}
-	p := queued(t, js, 1).Principal
+	p := queued(t, js).Principal
 	want := identity.Hasher{Key: []byte(hashKey)}.ID("oreilly", "acct-42")
 	if p == nil || p.Kind != bus.PrincipalKindSubscriber || p.Issuer != "oreilly" || p.ID != want {
 		t.Fatalf("principal %+v, want id %s", p, want)

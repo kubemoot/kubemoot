@@ -26,6 +26,13 @@ const (
 	EnvTokenReview    = "ACCESS_TOKEN_REVIEW"
 	EnvAllowAnonymous = "ACCESS_ALLOW_ANONYMOUS"
 	EnvTokenAudiences = "ACCESS_TOKEN_AUDIENCES"
+	// EnvExposeLabel makes a door stamp a Kubernetes caller's user name on the principal of
+	// the questions it queues, as the label the crew's agents may be told. Off, a person has
+	// no label on the bus. The operator sets it from spec.discussion.identity.exposeToAgents.
+	EnvExposeLabel = "ACCESS_EXPOSE_LABEL"
+	// EnvExposeCaller is the agent-side switch, from the same Crew field: the agent puts the
+	// caller in its turn context. It is the agents' own variable, not a door's.
+	EnvExposeCaller = "KUBEMOOT_EXPOSE_CALLER"
 	// EnvTrue is the value that turns a boolean setting on.
 	EnvTrue = "true"
 )

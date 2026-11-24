@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"regexp"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
@@ -11,6 +12,14 @@ import (
 // Without it every caller is anonymous and nothing is checked, as before identity existed.
 func (h *Handler) WithAccess(auth *identity.Authenticator, authz identity.Authorizer) *Handler {
 	h.auth, h.authz = auth, authz
+	return h
+}
+
+// ExposeLabel makes the gateway stamp a Kubernetes caller's user name on the principal of the
+// questions it queues, so a crew that chose to tell its agents who is asking can. It is never
+// stored: the conversation's owner record holds the id alone.
+func (h *Handler) ExposeLabel(on bool) *Handler {
+	h.exposeLabel = on
 	return h
 }
 
@@ -77,6 +86,30 @@ func (h *Handler) principalOf(r *http.Request) *bus.Principal {
 	if !h.enforcing() {
 		return nil
 	}
-	p := callerOf(r).Principal
+	caller := callerOf(r)
+	p := caller.Principal
+	if h.exposeLabel && p.Kind == bus.PrincipalKindKubernetes && p.DisplayName == "" && caller.Identity != nil {
+		p.DisplayName = labelOf(caller.Identity.Subject)
+	}
 	return &p
+}
+
+// maxLabelChars is the longest label stamped on a principal.
+const maxLabelChars = 64
+
+// labelPattern is what a label may hold: the characters of a Kubernetes user name or an email
+// address. A name with anything else (a space, a quote, a bracket) is not stamped, so a label is
+// always one plain token an agent's prompt can carry as data.
+var labelPattern = regexp.MustCompile(`^[A-Za-z0-9._@:/+=-]+$`)
+
+// labelOf is the label of a Kubernetes user name: the name cut to maxLabelChars, or empty when
+// it holds a character a label may not.
+func labelOf(subject string) string {
+	if len(subject) > maxLabelChars {
+		subject = subject[:maxLabelChars]
+	}
+	if !labelPattern.MatchString(subject) {
+		return ""
+	}
+	return subject
 }

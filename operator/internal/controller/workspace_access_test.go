@@ -349,13 +349,18 @@ func TestWatchPredicatesFireOnlyOnWhatChangesAccess(t *testing.T) {
 	crewB.Spec.Description = "x"
 	crewC := crewA.DeepCopy()
 	crewC.Spec.Workspace = &kubemootv1alpha1.CrewWorkspace{DefaultAccess: kubemootv1alpha1.WorkspaceAccessRead}
-	p := crewWorkspaceChanged()
+	p := crewAgentWiringChanged()
 	if p.Update(event.UpdateEvent{ObjectOld: crewA, ObjectNew: crewB}) {
 		t.Error("a Crew description change fired")
 	}
 	if !p.Update(event.UpdateEvent{ObjectOld: crewA, ObjectNew: crewC}) || !p.Create(event.CreateEvent{Object: crewA}) ||
 		!p.Delete(event.DeleteEvent{Object: crewA}) {
 		t.Error("a workspace change, a create or a delete did not fire")
+	}
+	zone := crewA.DeepCopy()
+	zone.Spec.DefaultTimeZone = "Europe/Paris"
+	if !p.Update(event.UpdateEvent{ObjectOld: crewA, ObjectNew: zone}) {
+		t.Error("a default time zone change did not fire")
 	}
 
 	srvA := &kubemootv1alpha1.MCPServer{}

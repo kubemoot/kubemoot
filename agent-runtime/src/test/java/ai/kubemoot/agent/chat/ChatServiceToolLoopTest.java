@@ -537,6 +537,38 @@ class ChatServiceToolLoopTest {
                 system.text());
     }
 
+    // The caller reaches the prompt only when the crew exposes it to its agents.
+    private String systemMessageFor(boolean exposeCaller) {
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of());
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+        var response = mock(ChatResponse.class);
+        when(response.aiMessage()).thenReturn(new AiMessage("ok"));
+        when(response.tokenUsage()).thenReturn(new TokenUsage(20, 4));
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
+        var props = spy(stubProperties(5, "tooler", false, false));
+        doReturn(exposeCaller).when(props).exposeCaller();
+        var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator, props,
+                heartbeatService, objectMapper, null, null, null, null, null, null, null, null, null);
+        var principal = new ai.kubemoot.agent.requester.Principal("kubernetes", "kubernetes", "handle0123", "alice");
+        var caller = new ai.kubemoot.agent.requester.Caller("conv-id", principal);
+        service.directChat(new ChatService.ChatRequest("conv-who", "say hello", null, "t-1", null, null, caller), true);
+        var captured = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
+        verify(chatModel).chat(captured.capture());
+        return ((dev.langchain4j.data.message.SystemMessage) captured.getValue().messages().get(0)).text();
+    }
+
+    @Test
+    void directChat_tellsTheAgentWhoIsAskingWhenTheCrewExposesTheCaller() {
+        String system = systemMessageFor(true);
+        org.junit.jupiter.api.Assertions.assertTrue(system.contains("The caller's handle is handle0123 and their label is \"alice\""), system);
+    }
+
+    @Test
+    void directChat_leavesTheCallerOutOfThePromptByDefault() {
+        String system = systemMessageFor(false);
+        org.junit.jupiter.api.Assertions.assertFalse(system.contains("handle0123") || system.contains("alice"), system);
+    }
+
     // The turn's caller is bound for the tool loop and only for it, also when the loop fails.
     private ToolExecutor callerRecordingExecutor(java.util.concurrent.atomic.AtomicReference<
             java.util.Optional<ai.kubemoot.agent.requester.Caller>> seen, boolean fail) {
@@ -2186,6 +2218,7 @@ class ChatServiceToolLoopTest {
             @Override public Optional<String> crew() { return Optional.empty(); }
             @Override public Optional<String> crewVersion() { return Optional.empty(); }
             @Override public Optional<String> defaultTimeZone() { return Optional.empty(); }
+            @Override public boolean exposeCaller() { return false; }
             @Override public ResumeSearch resumeSearch() { return new ResumeSearch() {
                 @Override public Optional<String> endpoint() { return Optional.empty(); }
             }; }
