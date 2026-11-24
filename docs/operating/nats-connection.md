@@ -68,6 +68,8 @@ A Moot Mesh sidecar whose agent has its own Secret `<agent>-nats` uses that cred
 
 The dashboard's NATS page also reads the server's HTTP monitoring port (8222) with a plain HTTP request. If your server protects or encrypts that port, the page shows the monitoring fields as unavailable and the rest of the page still works; set `NATS_MONITOR_URL` to another address for it.
 
+If you narrow the credential the gateways use, the discussion gateway needs, beyond publishing to the crew's request and discussion subjects and reading its discussion stream: the JetStream calls `CONSUMER.INFO` on the request stream (to tell a queued question from one a coordinator took), `STREAM.MSG.GET` and `STREAM.MSG.DELETE` on it (to read and cancel a queued question when a conversation is stopped), and reads of the coordinator log stream (to tell paused from running). Kubemoot sets no permissions of its own for the gateway: every component shares the credential you provide.
+
 ## Tested behavior
 
 The Go clients are tested against an in-process NATS server with TLS and authentication (a generated CA, a server certificate, a client certificate, and each credential kind including a `.creds` file under an operator and account). The Java and TypeScript clients are tested against a real `nats-server` process started with TLS, client-certificate verification and a user. In each, a client with the options connects, and a client missing the CA, the client certificate or the credential is refused with an error that names the server. The Java and TypeScript server tests run when `NATS_SERVER_BIN` points at a `nats-server` binary and `openssl` is installed; otherwise they are skipped.

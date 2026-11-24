@@ -95,7 +95,7 @@ func (c controlSetup) seed(t *testing.T, token, conv, thread, object, fact strin
 	if _, err := c.workspace.PutBytes(ctx, object, []byte("tool result")); err != nil {
 		t.Fatal(err)
 	}
-	rec, _ := json.Marshal(bus.ScheduledRecord{ScheduleID: "sch-" + thread, Namespace: "ns", Crew: "pilot",
+	rec, _ := json.Marshal(bus.ScheduledRecord{ScheduleID: "sch-" + thread, Namespace: "ns", Crew: pilotCrew,
 		TriggerAt: "2030-01-01T00:00:00Z", SourceThreadID: thread, Message: "later"})
 	if _, err := c.scheduled.Put(ctx, "sch-"+thread, rec); err != nil {
 		t.Fatal(err)

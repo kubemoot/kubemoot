@@ -354,7 +354,7 @@ func TestWhenOwnersCannotBeCheckedEveryOperationRefuses(t *testing.T) {
 func TestExactlyOneCallerClaimsANewId(t *testing.T) {
 	o := newOwnedSetup(t, false)
 	store := ownerStore{kv: o.kv}
-	scope := crewscope.Scope{Namespace: "ns", Crew: "pilot"}
+	scope := crewscope.Scope{Namespace: "ns", Crew: pilotCrew}
 	const callers = 12
 	results := make(chan bool, callers)
 	for i := range callers {

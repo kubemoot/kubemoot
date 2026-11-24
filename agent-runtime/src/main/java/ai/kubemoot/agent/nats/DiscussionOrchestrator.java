@@ -1155,7 +1155,14 @@ public class DiscussionOrchestrator {
         log.info("Thread {} stop requested by {} - abandoning the turn from phase {}",
                 threadId, agentName, state.phase);
         state.advisoryPending.set(false);
-        closeThread(state, resolveChannel(state), STOPPED_ANSWER, OUTCOME_STOPPED);
+        try {
+            closeThread(state, resolveChannel(state), STOPPED_ANSWER, OUTCOME_STOPPED);
+        } catch (RuntimeException e) {
+            // The close did not happen: the thread is open, so a repeated stop, the watchdog and a
+            // synthesis still in flight may close it; none may be refused for a close that never was.
+            state.stopped = false;
+            log.warn("Thread {} could not be closed for the stop: {}", threadId, LogContent.reason(e));
+        }
     }
 
     /** Dashboard "Pause": save the current phase; the phase-check skips PAUSED threads. */

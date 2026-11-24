@@ -49,8 +49,9 @@ func (h *Handler) conversationState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stateOf(id, threads, waiting))
 }
 
-// readTurns reads the conversation's threads from the discussion stream and its questions that
-// have not begun from the request queue.
+// readTurns reads the conversation's threads from the discussion stream, their pauses and the
+// requests they answer from the coordinator's log, and its questions that have not begun from the
+// request queue.
 func readTurns(
 	ctx context.Context, js jetstream.JetStream, scope crewscope.Scope, id string,
 ) (*threadReducer, []pendingQuestion, error) {
@@ -62,7 +63,17 @@ func readTurns(
 	if err != nil {
 		return nil, nil, err
 	}
-	return read, unstarted(queue, id, read.threads()), nil
+	threads := read.threads()
+	ids := make([]string, 0, len(threads))
+	for _, t := range threads {
+		ids = append(ids, t.id)
+	}
+	logs, err := readThreadLogs(ctx, js, scope, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	read.applyLogs(logs)
+	return read, unstarted(queue, id, threads, logs), nil
 }
 
 // stateOf is the conversation's state and its turns: the threads, oldest first, then the
