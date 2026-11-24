@@ -67,45 +67,49 @@ class StartupBeanConstructorTest {
     }
 
     static final class TwoPlain {
+        final String arg;
+
         TwoPlain() {
-            // no-arg shape under test: a plain constructor beside another
+            this(null);
         }
 
-        @SuppressWarnings("java:S1172") // the parameter is the constructor shape under test
-        TwoPlain(String s) {
-            // body is irrelevant: the test inspects constructors by signature
+        TwoPlain(String arg) {
+            this.arg = arg;
         }
     }
 
     static final class TwoInject {
+        final String arg;
+
         @Inject
         TwoInject() {
-            // body is irrelevant: the test inspects constructors by annotation
+            this(null);
         }
 
         @Inject
-        @SuppressWarnings("java:S1172") // the parameter is the constructor shape under test
-        TwoInject(String s) {
-            // body is irrelevant: the test inspects constructors by annotation
+        TwoInject(String arg) {
+            this.arg = arg;
         }
     }
 
     static final class OneInject {
+        final String arg;
+
         OneInject() {
-            // body is irrelevant: the test inspects constructors by annotation
+            this(null);
         }
 
         @Inject
-        @SuppressWarnings("java:S1172") // the parameter is the constructor shape under test
-        OneInject(String s) {
-            // body is irrelevant: the test inspects constructors by annotation
+        OneInject(String arg) {
+            this.arg = arg;
         }
     }
 
     static final class Single {
-        @SuppressWarnings("java:S1172") // the parameter is the constructor shape under test
-        Single(String s) {
-            // body is irrelevant: the test inspects constructors by signature
+        final String arg;
+
+        Single(String arg) {
+            this.arg = arg;
         }
     }
 }

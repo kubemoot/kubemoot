@@ -44,8 +44,6 @@ public class SchedulerMetrics {
             Duration.ofSeconds(300), Duration.ofSeconds(600)};
 
     private static final String POLICY = "policy";
-    private static final String SERVER = "server";
-    private static final String MODEL = "model";
 
     private final MeterRegistry registry;
     private final String placementPolicy;
@@ -84,7 +82,7 @@ public class SchedulerMetrics {
         Counter.builder(CALLS)
                 .description("Model calls this agent made, by placement policy, server, model, call kind "
                         + "(tool-turn, simple, triage), whether the model had to load, and outcome")
-                .tag(POLICY, placementPolicy).tag(SERVER, o.server()).tag(MODEL, o.model()).tag("kind", kind)
+                .tag(POLICY, placementPolicy).tag(WireKeys.SERVER, o.server()).tag(WireKeys.MODEL, o.model()).tag("kind", kind)
                 .tag("start", o.coldStart() ? "cold" : "warm").tag("outcome", o.ok() ? "ok" : "failed")
                 .register(registry).increment();
     }
@@ -93,7 +91,7 @@ public class SchedulerMetrics {
         Timer.builder(CALL_SECONDS)
                 .description("Duration of model calls, from sending the request to the reply or failure, "
                         + "by server, model, and call kind")
-                .tag(SERVER, o.server()).tag(MODEL, o.model()).tag("kind", kind)
+                .tag(WireKeys.SERVER, o.server()).tag(WireKeys.MODEL, o.model()).tag("kind", kind)
                 .serviceLevelObjectives(BUCKETS)
                 .register(registry).record(Duration.ofMillis(o.durationMs()));
     }
@@ -101,12 +99,12 @@ public class SchedulerMetrics {
     private void countGeneration(CallObservation o) {
         Counter.builder(GENERATED_TOKENS)
                 .description("Tokens the engine generated for this agent's successful calls, by server and model")
-                .tag(SERVER, o.server()).tag(MODEL, o.model())
+                .tag(WireKeys.SERVER, o.server()).tag(WireKeys.MODEL, o.model())
                 .register(registry).increment(o.outputTokens());
         Counter.builder(GENERATE_SECONDS)
                 .description("Generation time the engine reported for those tokens, by server and model; "
                         + "generated tokens over it is the generation speed")
-                .tag(SERVER, o.server()).tag(MODEL, o.model())
+                .tag(WireKeys.SERVER, o.server()).tag(WireKeys.MODEL, o.model())
                 .register(registry).increment(o.evalMs() / 1000.0);
     }
 
@@ -133,13 +131,13 @@ public class SchedulerMetrics {
                         + "call it placed, by the policy that placed the call, server, model, and part "
                         + "(total: the whole request; first_token: the time to the first streamed token)")
                 .baseUnit("seconds")
-                .tag(POLICY, s.policy()).tag(SERVER, s.server()).tag(MODEL, s.model()).tag("part", part)
+                .tag(POLICY, s.policy()).tag(WireKeys.SERVER, s.server()).tag(WireKeys.MODEL, s.model()).tag("part", part)
                 .serviceLevelObjectives(ERROR_SECONDS_BUCKETS)
                 .register(registry).record(absMs / 1000.0);
         DistributionSummary.builder(PREDICTION_RELATIVE_ERROR)
                 .description("Relative error of the predicted completion time: the absolute error over the "
                         + "measured time, by the policy that placed the call, server, model, and part")
-                .tag(POLICY, s.policy()).tag(SERVER, s.server()).tag(MODEL, s.model()).tag("part", part)
+                .tag(POLICY, s.policy()).tag(WireKeys.SERVER, s.server()).tag(WireKeys.MODEL, s.model()).tag("part", part)
                 .serviceLevelObjectives(RELATIVE_ERROR_BUCKETS)
                 .register(registry).record(relative);
     }
@@ -162,7 +160,7 @@ public class SchedulerMetrics {
         Timer.builder(WAIT_SECONDS)
                 .description("Time a call waited for an accelerator with room, by outcome: placed (with the "
                         + "server and model it was placed on) or not_placed (the thread ended or nothing could take it)")
-                .tag(SERVER, server).tag(MODEL, model).tag("outcome", outcome)
+                .tag(WireKeys.SERVER, server).tag(WireKeys.MODEL, model).tag("outcome", outcome)
                 .serviceLevelObjectives(BUCKETS)
                 .register(registry).record(Duration.ofMillis(waitMs));
     }

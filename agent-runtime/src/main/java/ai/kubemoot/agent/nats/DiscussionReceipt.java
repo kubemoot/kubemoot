@@ -170,8 +170,8 @@ final class DiscussionReceipt {
             return null;
         }
         String reason = meta.hasNonNull(REASON) ? meta.get(REASON).asText() : null;
-        if (reason == null && SIGNAL_FAILURE.equals(signal) && meta.hasNonNull("lastError")) {
-            reason = meta.get("lastError").asText();
+        if (reason == null && SIGNAL_FAILURE.equals(signal) && meta.hasNonNull(MetaKeys.LAST_ERROR)) {
+            reason = meta.get(MetaKeys.LAST_ERROR).asText();
         }
         return reason == null || reason.length() <= REASON_MAX_CHARS ? reason
                 : reason.substring(0, REASON_MAX_CHARS);
