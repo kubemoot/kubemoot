@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'indexer/**'
+      - 'placement-core/**'
       - 'config/checkstyle/**'
       - '.github/scripts/java-toolchain-version.sh'
       - '.github/workflows/build-boot-jar-image.yaml'

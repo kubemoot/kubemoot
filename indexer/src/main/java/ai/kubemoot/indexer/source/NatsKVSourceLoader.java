@@ -1,5 +1,6 @@
 package ai.kubemoot.indexer.source;
 
+import ai.kubemoot.agent.nats.NatsConnectionSettings;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;

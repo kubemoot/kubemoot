@@ -6,6 +6,8 @@ on:
     paths:
       - 'indexer/**'
       - '!indexer/**.md'
+      - 'placement-core/**'
+      - '!placement-core/**.md'
       - '.github/scripts/retag-image.sh'
       - '.github/scripts/java-toolchain-version.sh'
       - '.github/workflows/build-boot-jar-image.yaml'

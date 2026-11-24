@@ -9,7 +9,6 @@ import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 class VectorsTest {
 
@@ -61,8 +60,8 @@ class VectorsTest {
     }
 
     @Test
-    void nullAndEmptyAreLeftAlone() {
-        assertNull(Vectors.l2Normalize(null));
+    void nullBecomesEmptyAndEmptyIsLeftAlone() {
+        assertEquals(0, Vectors.l2Normalize(null).length);
         assertEquals(0, Vectors.l2Normalize(new float[0]).length);
     }
 }
