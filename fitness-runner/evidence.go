@@ -336,18 +336,7 @@ func readEvidence(stores []evidenceStore, namespace, threadID string, expected m
 		}
 		key := missingCall(seen, expected)
 		if key == "" {
-			if len(seen)+inline.calls == 0 {
-				fmt.Println("[fitness-runner] no usable tool results for the thread; invented-name check skipped")
-				return nil, 0, readSkipped
-			}
-			for _, text := range inline.texts {
-				set.Add(text)
-			}
-			if set.Truncated() {
-				fmt.Println("[fitness-runner] the evidence outgrew its bound; invented-name check skipped")
-				return nil, 0, readSkipped
-			}
-			return set, len(seen) + inline.calls, readComplete
+			return finishEvidence(set, len(seen), inline)
 		}
 		if !time.Now().Before(deadline) {
 			fmt.Fprintf(os.Stderr, "[fitness-runner] call %s named in the findings is not stored after waiting %s; "+
@@ -356,6 +345,22 @@ func readEvidence(stores []evidenceStore, namespace, threadID string, expected m
 		}
 		time.Sleep(wait.interval)
 	}
+}
+
+// finishEvidence joins the inline results to a fully read set and says whether the set may be used.
+func finishEvidence(set *evidencenames.Evidence, stored int, inline inlineEvidence) (*evidencenames.Evidence, int, readOutcome) {
+	if stored+inline.calls == 0 {
+		fmt.Println("[fitness-runner] no usable tool results for the thread; invented-name check skipped")
+		return nil, 0, readSkipped
+	}
+	for _, text := range inline.texts {
+		set.Add(text)
+	}
+	if set.Truncated() {
+		fmt.Println("[fitness-runner] the evidence outgrew its bound; invented-name check skipped")
+		return nil, 0, readSkipped
+	}
+	return set, stored + inline.calls, readComplete
 }
 
 // allowedNames are the tokens the answer may repeat without having read them
