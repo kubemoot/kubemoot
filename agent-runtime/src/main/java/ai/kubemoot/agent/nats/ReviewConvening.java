@@ -79,7 +79,7 @@ final class ReviewConvening {
     static Policy policy(Optional<String> convene, Optional<String> fallback, Optional<String> generalists) {
         var conveneMode = "domain".equalsIgnoreCase(convene.orElse("").strip()) ? Convene.DOMAIN : Convene.ALL;
         var fallbackMode = "all".equalsIgnoreCase(fallback.orElse("").strip()) ? Fallback.ALL : Fallback.PRIMARY;
-        var generalistMode = "selected".equalsIgnoreCase(generalists.orElse("").strip())
+        var generalistMode = BASIS_SELECTED.equalsIgnoreCase(generalists.orElse("").strip())
                 ? Generalists.SELECTED : Generalists.ALWAYS;
         return new Policy(conveneMode, fallbackMode, generalistMode);
     }

@@ -69,6 +69,14 @@ final class FailedSourceWording {
     }
 
     private static String stripTrailing(String text) {
-        return text.replaceAll("[\\s.,;:]+$", "");
+        int end = text.length();
+        while (end > 0 && isTrailing(text.charAt(end - 1))) {
+            end--;
+        }
+        return text.substring(0, end);
+    }
+
+    private static boolean isTrailing(char c) {
+        return " \t\n\u000B\f\r.,;:".indexOf(c) >= 0;
     }
 }

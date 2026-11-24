@@ -59,6 +59,11 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
+const (
+	tlsCertFile = "tls.crt"
+	tlsKeyFile  = "tls.key"
+)
+
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
@@ -316,18 +321,20 @@ func parseFlags() managerFlags {
 	flag.BoolVar(&f.secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.StringVar(&f.webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
-	flag.StringVar(&f.webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
-	flag.StringVar(&f.webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
+	flag.StringVar(&f.webhookCertName, "webhook-cert-name", tlsCertFile, "The name of the webhook certificate file.")
+	flag.StringVar(&f.webhookCertKey, "webhook-cert-key", tlsKeyFile, "The name of the webhook key file.")
 	flag.StringVar(&f.metricsCertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.")
-	flag.StringVar(&f.metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
-	flag.StringVar(&f.metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
+	flag.StringVar(&f.metricsCertName, "metrics-cert-name", tlsCertFile,
+		"The name of the metrics server certificate file.")
+	flag.StringVar(&f.metricsCertKey, "metrics-cert-key", tlsKeyFile, "The name of the metrics server key file.")
 	flag.StringVar(&f.reports.addr, "reports-api-bind-address", "",
 		"The address the aggregated report API (reports.kubemoot.ai) binds to, such as :8444. Empty disables it.")
 	flag.StringVar(&f.reports.certPath, "reports-api-cert-path", "",
 		"The directory that contains the aggregated report API's serving certificate.")
-	flag.StringVar(&f.reports.certName, "reports-api-cert-name", "tls.crt", "The name of the report API certificate file.")
-	flag.StringVar(&f.reports.certKey, "reports-api-cert-key", "tls.key", "The name of the report API key file.")
+	flag.StringVar(&f.reports.certName, "reports-api-cert-name", tlsCertFile,
+		"The name of the report API certificate file.")
+	flag.StringVar(&f.reports.certKey, "reports-api-cert-key", tlsKeyFile, "The name of the report API key file.")
 	flag.BoolVar(&f.enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	opts := zap.Options{Development: true}

@@ -147,25 +147,49 @@ func cancelQueued(
 				return cancelled, notBegun, err
 			}
 		}
-		if err = stream.DeleteMsg(ctx, q.seq); err != nil {
-			if errors.Is(err, jetstream.ErrMsgNotFound) {
-				continue
-			}
-			return cancelled, notBegun, err
-		}
-		// The coordinator may have pulled the question between the read and the delete: then the
-		// crew has it, and it is not cancelled.
-		delivered, derr := deliveredThrough(ctx, stream, requestConsumer(scope))
+		fate, derr := cancelOne(ctx, stream, scope, q.seq)
 		if derr != nil {
 			return cancelled, notBegun, derr
 		}
-		if delivered >= q.seq {
-			notBegun++
-		} else {
+		switch fate {
+		case fateCancelled:
 			cancelled++
+		case fateTaken:
+			notBegun++
 		}
 	}
 	return cancelled, notBegun, nil
+}
+
+// What became of one queued question a stop tried to remove.
+type queuedFate int
+
+const (
+	// fateGone: acknowledged meanwhile, so already gone and not counted.
+	fateGone queuedFate = iota
+	// fateCancelled: removed before any coordinator pulled it.
+	fateCancelled
+	// fateTaken: the coordinator pulled it between the read and the delete, so the crew has it.
+	fateTaken
+)
+
+// cancelOne deletes the queued question at seq and says whether that cancelled it; the fate is
+// meaningful only when the error is nil.
+func cancelOne(ctx context.Context, stream jetstream.Stream, scope crewscope.Scope, seq uint64) (queuedFate, error) {
+	if err := stream.DeleteMsg(ctx, seq); err != nil {
+		if errors.Is(err, jetstream.ErrMsgNotFound) {
+			return fateGone, nil
+		}
+		return fateGone, err
+	}
+	delivered, err := deliveredThrough(ctx, stream, requestConsumer(scope))
+	if err != nil {
+		return fateGone, err
+	}
+	if delivered >= seq {
+		return fateTaken, nil
+	}
+	return fateCancelled, nil
 }
 
 // awaitClosed follows the discussion stream after what read holds until every thread of sent is

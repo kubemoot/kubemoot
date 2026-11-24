@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 public final class AnswerGrounding {
 
     /** Lowercase words joined by hyphens, standing alone (not part of a path, host or longer word). */
-    private static final Pattern HYPHENATED = Pattern.compile("(?<![\\w./:-])[a-z][a-z0-9]*(?:-[a-z0-9]+)+(?![\\w-])");
+    private static final Pattern HYPHENATED = Pattern.compile("(?<![\\w./:-])[a-z][a-z0-9-]*(?![\\w-])");
 
     /** A segment that is only digits. */
     private static final Pattern NUMBER_SEGMENT = Pattern.compile("(?:^|-)\\d+(?:-|$)");
@@ -41,11 +41,16 @@ public final class AnswerGrounding {
         Set<String> names = new LinkedHashSet<>();
         Matcher m = HYPHENATED.matcher(text);
         while (m.find()) {
-            if (NUMBER_SEGMENT.matcher(m.group()).find()) {
+            if (isHyphenated(m.group()) && NUMBER_SEGMENT.matcher(m.group()).find()) {
                 names.add(m.group());
             }
         }
         return new ArrayList<>(names);
+    }
+
+    /** True for words joined by single hyphens: at least one hyphen, none doubled, none last. */
+    private static boolean isHyphenated(String word) {
+        return word.indexOf('-') > 0 && !word.contains("--") && word.charAt(word.length() - 1) != '-';
     }
 
     /** The names of {@code draft} that occur in none of {@code sources}. */

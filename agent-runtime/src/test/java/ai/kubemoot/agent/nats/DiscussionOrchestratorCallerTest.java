@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -45,9 +46,8 @@ class DiscussionOrchestratorCallerTest {
     void theSystemPromptLineIsBuiltFromTheThreadsRequesterAndPrincipal() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         var asker = new Principal("kubernetes", "kubernetes", "handle0123", "alice");
-        state.principal = asker;
         var requester = new Requester("UTC", null, "2026-11-20");
-        state.requester = requester;
+        state.asker.set(new DiscussionOrchestrator.Asker(requester, asker));
         when(chat.turnContextLine(requester, asker)).thenReturn("THE LINE");
 
         assertTrue(orchestrator.systemPromptFor(state).endsWith("THE LINE"));
@@ -61,5 +61,31 @@ class DiscussionOrchestratorCallerTest {
 
         assertEquals("PLAIN", orchestrator.systemPromptFor(state).strip());
         verify(chat).turnContextLine(any(), isNull());
+    }
+
+    @Test
+    void startCloseWaitStartsOnceAndDoesNotCallTheSupplierAgain() {
+        var state = new DiscussionOrchestrator.ThreadState("t2");
+        var first = OutageBackoff.brief().start();
+        assertTrue(state.startCloseWait(() -> first));
+        assertTrue(state.closeWait == first);
+        assertFalse(state.startCloseWait(() -> {
+            throw new AssertionError("a close already has its wait");
+        }));
+    }
+
+    @Test
+    void markStoppedStopsOnceAndNotAClosedOrClosingThread() {
+        var state = new DiscussionOrchestrator.ThreadState("t3");
+        assertTrue(state.markStopped());
+        assertFalse(state.markStopped());
+
+        var closing = new DiscussionOrchestrator.ThreadState("t4");
+        closing.closeWait = OutageBackoff.brief().start();
+        assertFalse(closing.markStopped());
+
+        var closed = new DiscussionOrchestrator.ThreadState("t5");
+        closed.phase = DiscussionOrchestrator.Phase.CLOSED;
+        assertFalse(closed.markStopped());
     }
 }

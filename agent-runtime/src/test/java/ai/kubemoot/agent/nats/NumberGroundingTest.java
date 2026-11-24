@@ -64,4 +64,13 @@ class NumberGroundingTest {
     void aListMarkerIsNotAFigure() {
         assertEquals(List.of("40"), NumberGrounding.figuresIn("10. first\n12) second 40 items"));
     }
+
+    @Test
+    void figuresIn_readsALongTextOfNumbersWithoutOverflowingTheStack() {
+        String text = "1,234,567.5 ".repeat(100_000);
+        assertEquals(List.of("1,234,567.5"), NumberGrounding.figuresIn(text));
+        assertEquals(List.of("12", "34"), NumberGrounding.figuresIn("12,34"));
+        String run = "1" + ",234".repeat(200_000) + ".5";
+        assertEquals(List.of(run), NumberGrounding.figuresIn(run));
+    }
 }
