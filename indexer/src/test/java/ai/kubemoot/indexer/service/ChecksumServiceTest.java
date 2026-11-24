@@ -22,9 +22,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Tests for ChecksumService pure logic and the document-checksum branch that
- * does not require network access. Branches that issue real HTTP/Git requests
- * are not exercised here (they need live endpoints).
+ * Tests for ChecksumService: its pure logic, and each source type's checksum against
+ * a local HTTP stub or a local git repository. The S3 source has no checksum yet and
+ * the nats-kv source reads the environment, so neither is exercised against a remote.
  */
 class ChecksumServiceTest {
 
