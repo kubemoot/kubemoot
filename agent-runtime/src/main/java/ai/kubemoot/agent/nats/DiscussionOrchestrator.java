@@ -2777,6 +2777,13 @@ public class DiscussionOrchestrator {
         if (maxRetries <= 0) {
             return result;
         }
+        return groundedAnswer(systemPrompt, conversation, completeList(systemPrompt, conversation, result, threadId, maxRetries),
+                threadId, maxRetries);
+    }
+
+    /** The enumeration completeness contract: re-prompt with the omitted names of the one table the draft lists. */
+    private ChatService.SimpleLlmResult completeList(String systemPrompt, String conversation,
+            ChatService.SimpleLlmResult result, String threadId, int maxRetries) {
         var expected = enumeratedTable(expectedItemTables(conversation), result.text());
         if (expected.size() < 5) {
             return result;
@@ -2799,6 +2806,71 @@ public class DiscussionOrchestrator {
             }
         }
         return best;
+    }
+
+    /**
+     * The grounding contract: every instance name the answer states occurs in the discussion the
+     * synthesizer read or in a stored tool result ({@link AnswerGrounding}). A draft naming what no
+     * tool returned is re-prompted with those names, up to {@code maxRetries} times; names that
+     * stay are flagged in the answer as unverified rather than released as fact.
+     */
+    private ChatService.SimpleLlmResult groundedAnswer(String systemPrompt, String conversation,
+            ChatService.SimpleLlmResult result, String threadId, int maxRetries) {
+        if (AnswerGrounding.namesIn(result.text()).isEmpty()) {
+            return result;
+        }
+        var stored = new java.util.ArrayList<String>();
+        var sources = new java.util.ArrayList<String>(List.of(conversation));
+        var best = result;
+        var bestUngrounded = ungroundedNames(best.text(), sources, stored, threadId);
+        for (int i = 0; i < maxRetries && !bestUngrounded.isEmpty(); i++) {
+            log.info("Thread {} - synthesis names data nothing returned, re-prompting: {}", threadId, bestUngrounded);
+            var retry = groundingRetry(systemPrompt, conversation, best.text(), bestUngrounded, threadId);
+            if (retry == null) {
+                break;
+            }
+            recordPlacedCall(threads.get(threadId), PHASE_SYNTHESIS, retry);
+            var retryUngrounded = ungroundedNames(retry.text(), sources, stored, threadId);
+            if (retryUngrounded.size() < bestUngrounded.size()) {
+                best = retry;
+                bestUngrounded = retryUngrounded;
+            }
+        }
+        if (bestUngrounded.isEmpty()) {
+            return best;
+        }
+        log.warn("Thread {} - the answer keeps names no gathered data holds, flagging them: {}", threadId, bestUngrounded);
+        return new ChatService.SimpleLlmResult(best.text() + AnswerGrounding.caveat(bestUngrounded),
+                best.inputTokens(), best.outputTokens(), best.modelUse());
+    }
+
+    /**
+     * The names of {@code draft} the discussion does not hold; only when some are missing there are the
+     * stored results read (once, kept in {@code stored}) and checked as well.
+     */
+    private List<String> ungroundedNames(String draft, List<String> sources, List<String> stored, String threadId) {
+        var missing = AnswerGrounding.ungrounded(draft, sources);
+        if (missing.isEmpty()) {
+            return missing;
+        }
+        if (stored.isEmpty()) {
+            stored.addAll(new StoredResults(natsProvider, chatService).texts(threadId));
+        }
+        return AnswerGrounding.stillMissing(missing, stored);
+    }
+
+    /** One grounding re-prompt, or null when it does not fit any context window: the draft in hand is kept. */
+    private ChatService.SimpleLlmResult groundingRetry(String systemPrompt, String conversation,
+            String draft, List<String> names, String threadId) {
+        try {
+            return chatService.simpleLlmCallWithTokens(systemPrompt, AnswerGrounding.reprompt(conversation, draft, names));
+        } catch (ai.kubemoot.agent.modelserver.NoFitException nfe) {
+            if (!ai.kubemoot.agent.modelserver.NoFitException.REASON_PROMPT_TOO_LARGE.equals(nfe.reason())) {
+                throw nfe;
+            }
+            log.info("Thread {} - grounding re-prompt does not fit any context window, keeping the draft", threadId);
+            return null;
+        }
     }
 
     /**

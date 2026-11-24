@@ -266,4 +266,21 @@ class StoredResultsTest {
 
         assertEquals(Status.NOTHING_STORED, result.status());
     }
+
+    @Test
+    void textsReturnsEveryReadableResultWhole_andSkipsTheUnreadable() {
+        String nodes = "NAME STATUS\nhomelab-k8s-1-cp Ready\n" + "x".repeat(50_000);
+        var gone = entry("k8s-workloads", "resources_list", 2, "text/plain");
+
+        var texts = StoredResults.texts(List.of(MEMORY, gone, PODS),
+                readerOf(Map.of(MEMORY.key(), nodes, PODS.key(), "NAME\npod-a"), List.of()), () -> false);
+
+        assertEquals(List.of(nodes, "NAME\npod-a"), texts);
+    }
+
+    @Test
+    void textsStopsAtTheDeadlineAndWithNoCallsIsEmpty() {
+        assertTrue(StoredResults.texts(List.of(), readerOf(Map.of(), List.of()), () -> false).isEmpty());
+        assertTrue(StoredResults.texts(List.of(MEMORY), readerOf(Map.of(MEMORY.key(), "NAME"), List.of()), () -> true).isEmpty());
+    }
 }
