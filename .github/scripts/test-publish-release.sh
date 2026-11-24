@@ -144,6 +144,13 @@ printf 'apiVersion: v2\nname: kubemoot-dashboard\nversion: 0.0.0\nappVersion: 0.
 mkdir -p "$chart/dashboards"
 echo '{"title": "Kubemoot Test"}' > "$chart/dashboards/kubemoot-test.json"
 printf 'verify:\n  image: ghcr.io/kubemoot/test-runner:0.0.0\n' > "$dash/values.yaml"
+# The release workflows the chart's pairing check reads (the fixture's commits are empty,
+# so no image is ever behind its code here; test-chart-image-pairing.sh covers the check).
+mkdir -p .github/workflows
+for name in kubemoot-operator dashboard test-runner crew-liaison agent-runtime mcp-gateway; do
+  printf 'name: Release %s\n\non:\n  push:\n    paths:\n      - %s/**\n' "$name" "$name" \
+    > ".github/workflows/$([ "$name" = kubemoot-operator ] && echo release.yaml || echo "release-${name}.yaml")"
+done
 git add -A; git commit -q -m "chore: init"
 for t in v0.343.40 agent-runtime-v0.342.31 mcp-gateway-v0.326.22-rc.5 mcp-gateway-v0.326.22 \
   test-runner-v0.46.2-rc.1 test-runner-v0.46.2 crew-liaison-v0.346.31 dashboard-v0.50.0 \
