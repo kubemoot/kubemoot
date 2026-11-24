@@ -166,26 +166,34 @@ func publishAfterRestart(t *testing.T, nc *natsclient.Client, thread string) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		js, err := nc.JetStream()
+		err := publishAnswer(nc, thread)
 		if err == nil {
-			if _, err = js.Publish(context.Background(), "kubemoot.discuss.ns.pilot.broadcast."+thread,
-				[]byte(`{"messageId":"a2","messageType":"evaluating","threadId":"`+thread+`","agentName":"agent-b"}`)); err == nil {
-				for _, m := range []string{
-					`{"messageId":"s1","messageType":"synthesis","threadId":"` + thread + `","content":"the answer"}`,
-					`{"messageId":"c1","messageType":"thread_close","threadId":"` + thread + `"}`,
-				} {
-					if _, err = js.Publish(context.Background(), "kubemoot.discuss.ns.pilot.broadcast."+thread, []byte(m)); err != nil {
-						t.Fatal(err)
-					}
-				}
-				return
-			}
+			return
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("NATS did not accept a publish after the restart: %v", err)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// publishAnswer publishes the evaluating, synthesis and close messages of thread, in order.
+func publishAnswer(nc *natsclient.Client, thread string) error {
+	js, err := nc.JetStream()
+	if err != nil {
+		return err
+	}
+	subject := "kubemoot.discuss.ns.pilot.broadcast." + thread
+	for _, m := range []string{
+		`{"messageId":"a2","messageType":"evaluating","threadId":"` + thread + `","agentName":"agent-b"}`,
+		`{"messageId":"s1","messageType":"synthesis","threadId":"` + thread + `","content":"the answer"}`,
+		`{"messageId":"c1","messageType":"thread_close","threadId":"` + thread + `"}`,
+	} {
+		if _, err = js.Publish(context.Background(), subject, []byte(m)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func waitForLine(t *testing.T, lines <-chan string, want string) []string {
