@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
 	keys: [] as string[],
 	saFails: false,
 	busFails: false,
+	incomplete: false,
 	discovery: false,
 	review: async (_ns: string): Promise<unknown> => ({ status: { allowed: true } }),
 	inFlight: 0,
@@ -21,7 +22,7 @@ vi.mock('../nats-client.js', () => ({
 vi.mock('../kv-snapshot.js', () => ({
 	readKvSnapshot: async (_kv: unknown, pick: (e: { key: string; operation: string }) => unknown) => ({
 		values: Object.fromEntries(mocks.keys.map((key, i) => [`k${i}`, pick({ key, operation: key.startsWith('!') ? 'DEL' : 'PUT' })])),
-		complete: true
+		complete: !mocks.incomplete
 	})
 }));
 vi.mock('./client.js', () => ({
@@ -53,6 +54,7 @@ beforeEach(() => {
 	mocks.keys = [];
 	mocks.saFails = false;
 	mocks.busFails = false;
+	mocks.incomplete = false;
 	mocks.discovery = false;
 	mocks.review = async () => ({ status: { allowed: true } });
 	mocks.inFlight = 0;
@@ -63,6 +65,17 @@ describe('natsNamespaces', () => {
 	it('is the namespace of each live heartbeat key, once', async () => {
 		mocks.keys = ['a.agent-1', 'a.agent-2', 'b.agent-3', '!c.gone', '.odd'];
 		expect((await natsNamespaces()).sort(byName)).toEqual(['a', 'b']);
+	});
+});
+
+describe('an incomplete read of the bus', () => {
+	it('is said in the log, and what was read still counts', async () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		mocks.incomplete = true;
+		mocks.keys = ['a.agent'];
+		expect(await natsNamespaces()).toEqual(['a']);
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('not fully read'));
+		warn.mockRestore();
 	});
 });
 

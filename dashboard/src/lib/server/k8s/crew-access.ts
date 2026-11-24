@@ -15,12 +15,28 @@ import { GROUP, VERSION } from './kubemoot-crds.js';
 /** The bucket of agent heartbeats, keyed `<namespace>.<agent>`. */
 const HEARTBEAT_BUCKET = 'kubemoot_agent_state';
 
+/** The namespace a key of the form `<namespace>.<name>...` belongs to, or '' when it names none. */
+export function keyNamespace(key: string): string {
+	return key.split('.')[0];
+}
+
+const WARN_EVERY_MS = 60_000;
+const lastWarned = new Map<string, number>();
+
+/** Warns at most once a minute per message, so a failing review does not flood the log. */
+export function warnLimited(message: string): void {
+	const now = Date.now();
+	if (now - (lastWarned.get(message) ?? -WARN_EVERY_MS) < WARN_EVERY_MS) return;
+	lastWarned.set(message, now);
+	console.warn(message);
+}
+
 /** How many namespaces are reviewed at once. */
 export const REVIEW_CONCURRENCY = 8;
 
 type CrewList = { items?: { metadata?: { namespace?: string } }[] };
 
-const listCrews = { group: GROUP, version: VERSION, plural: 'crews' };
+const CREWS_REF = { group: GROUP, version: VERSION, plural: 'crews' };
 
 function namespacesOf(list: CrewList): string[] {
 	const names = new Set<string>();
@@ -36,14 +52,15 @@ function namespacesOf(list: CrewList): string[] {
  */
 export async function natsNamespaces(): Promise<string[]> {
 	const kv = await (await getNatsConnection()).jetstream().views.kv(HEARTBEAT_BUCKET, { bindOnly: true });
-	const { values } = await readKvSnapshot(kv, (entry) => (entry.operation === 'PUT' ? entry.key.split('.')[0] : undefined));
+	const { values, complete } = await readKvSnapshot(kv, (entry) => (entry.operation === 'PUT' ? keyNamespace(entry.key) : undefined));
+	if (!complete) warnLimited('The agent heartbeat bucket was not fully read; some namespaces may be missing');
 	return [...new Set(Object.values(values).filter((ns): ns is string => typeof ns === 'string' && ns !== ''))];
 }
 
 /** The namespaces that hold a Crew, listed with the dashboard's ServiceAccount; only when the chart granted it. */
 async function listedNamespaces(): Promise<string[]> {
 	if (!crewNamespaceDiscovery()) return [];
-	return namespacesOf((await getServiceAccountCustomObjectsApi().listClusterCustomObject(listCrews)) as CrewList);
+	return namespacesOf((await getServiceAccountCustomObjectsApi().listClusterCustomObject(CREWS_REF)) as CrewList);
 }
 
 /**
@@ -57,7 +74,7 @@ export async function crewNamespaces(): Promise<string[]> {
 	const names = new Set<string>();
 	for (const source of found) {
 		if (source.status === 'fulfilled') source.value.forEach((ns) => names.add(ns));
-		else console.warn(`A source of crew namespaces failed: ${errorClass(source.reason)}`);
+		else warnLimited(`A source of crew namespaces failed: ${errorClass(source.reason)}`);
 	}
 	return [...names];
 }
@@ -86,7 +103,8 @@ export async function mayGetCrews(namespace: string): Promise<boolean> {
 			}
 		});
 		return review.status?.allowed === true;
-	} catch {
+	} catch (err) {
+		warnLimited(`A review of access to Crews could not be made: ${errorClass(err)}`);
 		return false;
 	}
 }

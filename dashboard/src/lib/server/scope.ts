@@ -10,7 +10,8 @@
 // helpers throw (routes answer 503) instead of showing everything.
 
 import { getServiceAccountCoreApi } from './k8s/client.js';
-import { crewNamespaces, errorClass, readableNamespaces } from './k8s/crew-access.js';
+import { crewNamespaces, errorClass, keyNamespace, readableNamespaces, warnLimited } from './k8s/crew-access.js';
+import { cachedRead } from './ttl-cache.js';
 import { callerToken } from './auth/identity.js';
 import type { BearerToken } from './auth/bearer-token.js';
 import { infraNamespace, isScoped, namespaceSelector } from './mode.js';
@@ -126,12 +127,8 @@ export function namespaceAllowedNow(namespace: string, kind: ScopeKind = 'namesp
 /** How long a person's namespace set is trusted before the next request refreshes it. */
 export const CALLER_SET_TTL_MS = 10_000;
 
-interface CallerSet {
-	names: Set<string>;
-	at: number;
-}
-
-const callerSets = new WeakMap<BearerToken, CallerSet>();
+/** The last set resolved for each person, for the synchronous per-message check. */
+const callerSets = new WeakMap<BearerToken, Set<string>>();
 
 /** The namespaces to review for a person: those holding crews, limited to what this instance serves. */
 async function candidateNamespaces(): Promise<string[]> {
@@ -140,34 +137,37 @@ async function candidateNamespaces(): Promise<string[]> {
 }
 
 async function readCallerSet(): Promise<Set<string>> {
+	let names: Set<string>;
 	try {
-		return await readableNamespaces(await candidateNamespaces());
+		names = await readableNamespaces(await candidateNamespaces());
 	} catch (err) {
-		console.warn(`No namespace is readable to the signed-in person: ${errorClass(err)}`);
-		return new Set();
+		warnLimited(`No namespace is readable to the signed-in person: ${errorClass(err)}`);
+		names = new Set();
 	}
+	const token = callerToken();
+	if (token) callerSets.set(token, names);
+	return names;
 }
+
+/**
+ * One read per person per interval, shared by concurrent requests, kept apart for each person
+ * (ttl-cache), so many open pages cost one listing and at most REVIEW_CONCURRENCY reviews at a time.
+ */
+const sharedCallerSet = cachedRead(CALLER_SET_TTL_MS, readCallerSet);
 
 /**
  * The namespaces whose Crews the signed-in person may read (get, in that namespace), or null when nobody is signed in.
  * Call it once when a NATS read opens so the synchronous per-message check has a set.
  */
 export async function callerNamespaces(): Promise<Set<string> | null> {
-	const token = callerToken();
-	if (!token) return null;
-	const held = callerSets.get(token);
-	if (held && Date.now() - held.at < CALLER_SET_TTL_MS) return held.names;
-	const names = await readCallerSet();
-	callerSets.set(token, { names, at: Date.now() });
-	return names;
+	return callerToken() ? sharedCallerSet() : null;
 }
 
 /** Whether the signed-in person may read this namespace's crews; always true with nobody signed in. */
 export function callerAllowsNow(namespace: string): boolean {
 	const token = callerToken();
 	if (!token) return true;
-	const held = callerSets.get(token);
-	return held !== undefined && held.names.has(namespace);
+	return callerSets.get(token)?.has(namespace) ?? false;
 }
 
 /** namespaceAllowedNow for a NATS-backed read: the instance's scope and the caller's own rights. */
@@ -339,7 +339,7 @@ export function messageSubjectAllowed(subject: string): boolean {
 /** Whether a KV key of the form `<namespace>.<name>...` belongs to an allowed namespace. */
 export function keyNamespaceAllowed(key: string): boolean {
 	if (!isScoped() && !callerToken()) return true;
-	const ns = key.split('.')[0];
+	const ns = keyNamespace(key);
 	return ns !== '' && natsNamespaceAllowedNow(ns);
 }
 
