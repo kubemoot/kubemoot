@@ -19,24 +19,42 @@ func TestHelperRunExec(t *testing.T) {
 	if !ok {
 		t.Skip("runs only as a child of the exec tests")
 	}
-	runExec(strings.Fields(args))
+	runExec(strings.Split(args, "\x1f"))
 }
 
-func helper(t *testing.T, args string) *exec.Cmd {
+// helper builds the child process; the arguments reach runExec as given, so one
+// may contain spaces.
+func helper(t *testing.T, args ...string) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperRunExec$")
-	cmd.Env = append(os.Environ(), "HELPER_EXEC_ARGS="+args)
+	cmd.Env = append(os.Environ(), "HELPER_EXEC_ARGS="+strings.Join(args, "\x1f"))
 	return cmd
 }
 
+// openPipe opens a FIFO end, which blocks until the other end is opened; the
+// deadline stops a child that never opens its end from hanging the test.
 func openPipe(t *testing.T, path string, flag int) *os.File {
 	t.Helper()
-	f, err := os.OpenFile(path, flag, 0)
-	if err != nil {
-		t.Fatal(err)
+	type result struct {
+		f   *os.File
+		err error
 	}
-	t.Cleanup(func() { _ = f.Close() })
-	return f
+	opened := make(chan result, 1)
+	go func() {
+		f, err := os.OpenFile(path, flag, 0)
+		opened <- result{f, err}
+	}()
+	select {
+	case r := <-opened:
+		if r.err != nil {
+			t.Fatal(r.err)
+		}
+		t.Cleanup(func() { _ = r.f.Close() })
+		return r.f
+	case <-time.After(15 * time.Second):
+		t.Fatalf("the command never opened its end of %s", path)
+		return nil
+	}
 }
 
 func makePipes(t *testing.T) string {
@@ -75,7 +93,7 @@ func TestRunExec_ConnectsTheCommandToThePipes(t *testing.T) {
 		t.Skip("no cat on this machine")
 	}
 	dir := makePipes(t)
-	cmd := helper(t, "-pipe-dir "+dir+" -- "+cat)
+	cmd := helper(t, "-pipe-dir", dir, "--", cat)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -106,14 +124,14 @@ func exitCode(t *testing.T, cmd *exec.Cmd) (int, string) {
 }
 
 func TestRunExec_WithoutACommandExitsWithAMessage(t *testing.T) {
-	code, out := exitCode(t, helper(t, "-pipe-dir "+t.TempDir()))
+	code, out := exitCode(t, helper(t, "-pipe-dir", t.TempDir()))
 	if code != 1 || !strings.Contains(out, "no command specified") {
 		t.Fatalf("exit %d, output %q", code, out)
 	}
 }
 
 func TestRunExec_WithMissingPipesExitsWithAMessage(t *testing.T) {
-	code, out := exitCode(t, helper(t, "-pipe-dir "+filepath.Join(t.TempDir(), "absent")+" -- cat"))
+	code, out := exitCode(t, helper(t, "-pipe-dir", filepath.Join(t.TempDir(), "absent"), "--", "cat"))
 	if code != 1 || !strings.Contains(out, "open stdin pipe") {
 		t.Fatalf("exit %d, output %q", code, out)
 	}
