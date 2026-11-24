@@ -50,7 +50,7 @@ jobs:
 
       - name: Calculate the release candidate version
         id: version
-        uses: kubemoot/release-actions/release-candidate-version@46be10555367466d5add34c0f37dc2ae86c40af6 # v0.12.0
+        uses: kubemoot/release-actions/release-candidate-version@899dec57c20fafcccae4120d20bfd88e454f0a0f # v0.12.2
         with:
           tag_prefix: "code-sandbox-v"
           force: ${{ inputs.force_release }}
