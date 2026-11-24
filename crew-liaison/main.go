@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -52,8 +53,10 @@ func main() {
 
 	tickets := liaison.NewStore(ttl)
 	svc := liaison.NewService(liaison.NewLister(k8s), liaison.NewGateway(), tickets, maxInflight)
-	if reportURL := os.Getenv("LIAISON_OPERATOR_REPORT_URL"); reportURL != "" {
-		svc.WithExporter(liaison.NewExporter(reportURL))
+	if exporter, err := reportExporter(os.Getenv); err != nil {
+		log.Error(err, "conversation export is off")
+	} else if exporter != nil {
+		svc.WithExporter(exporter)
 	}
 
 	front, err := signInFront(log)
@@ -87,6 +90,36 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+// The environment of the conversation exporter: the report service's URL, the install CA's
+// public certificates that verify it (LIAISON_CA_FILE), and the opt-in to a URL that is not https.
+const (
+	envCAFile        = "LIAISON_CA_FILE"
+	envReportURL     = "LIAISON_OPERATOR_REPORT_URL"
+	envAllowInsecure = "LIAISON_ALLOW_INSECURE_REPORT"
+)
+
+// reportExporter builds the conversation exporter from the environment, or nil when none is
+// configured. The call carries a bearer token, so an https URL is verified against the CA bundle
+// in LIAISON_CA_FILE when it is set, and a URL that is not https is refused unless
+// LIAISON_ALLOW_INSECURE_REPORT=true accepts it.
+func reportExporter(getenv func(string) string) (*liaison.Exporter, error) {
+	reportURL := getenv(envReportURL)
+	if reportURL == "" {
+		return nil, nil
+	}
+	if !strings.HasPrefix(strings.ToLower(reportURL), "https://") {
+		if getenv(envAllowInsecure) != "true" {
+			return nil, errors.New(envReportURL + " is not https and would carry a bearer token in the clear; " +
+				"serve the report service over TLS, or set " + envAllowInsecure + "=true to accept it")
+		}
+		return liaison.NewExporter(reportURL), nil
+	}
+	if file := getenv(envCAFile); file != "" {
+		return liaison.NewExporterWithCA(reportURL, file)
+	}
+	return liaison.NewExporter(reportURL), nil
 }
 
 // sweep expires old tickets once a minute.

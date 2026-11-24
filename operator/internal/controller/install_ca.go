@@ -16,12 +16,14 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -300,6 +302,101 @@ func sameNames(a, b []string) bool {
 	return true
 }
 
+// serviceDNSNames are the names clients reach a Service by.
+func serviceDNSNames(service, namespace string) []string {
+	return []string{
+		service,
+		fmt.Sprintf("%s.%s", service, namespace),
+		fmt.Sprintf("%s.%s.svc", service, namespace),
+		fmt.Sprintf("%s.%s.svc.cluster.local", service, namespace),
+	}
+}
+
+// ServingCertificate returns the certificate source of a TLS listener for dnsNames: it issues
+// one from the install CA on the first handshake, keeps it in memory (no Secret, no key on
+// disk), and issues another when it is no longer fresh, which includes a new CA. When the CA
+// cannot be read or signs nothing, the certificate it has is served while it is valid, so a short
+// API server outage does not stop the service.
+func (c *InstallCA) ServingCertificate(dnsNames []string) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	s := &servingCert{ca: c, names: dnsNames}
+	return func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return s.get() }
+}
+
+// servingCert is the certificate a listener serves and the data it was made from.
+type servingCert struct {
+	ca    *InstallCA
+	names []string
+
+	mu      sync.Mutex
+	current *tls.Certificate
+	data    map[string][]byte
+	// checked is when current was last compared with the CA; within servingRecheck it is served
+	// without reading the CA again, so a handshake does not wait on the API server.
+	checked time.Time
+}
+
+const (
+	// servingRecheck is how long a certificate is served before the CA is read again to see
+	// whether it is still fresh (a new CA, a renewal due).
+	servingRecheck = 30 * time.Second
+	// servingCAReadTimeout bounds reading the CA for a handshake.
+	servingCAReadTimeout = 5 * time.Second
+)
+
+func (s *servingCert) get() (*tls.Certificate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.ca.Now()
+	if s.current != nil && now.Sub(s.checked) < servingRecheck && now.Before(s.current.Leaf.NotAfter) {
+		return s.current, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), servingCAReadTimeout)
+	defer cancel()
+	ca, err := s.ca.Authority(ctx)
+	if ca == nil || (err != nil && !errors.Is(err, errCAExpiring)) {
+		return s.fallback(err)
+	}
+	if s.current != nil && ca.fresh(s.data, s.names, now) {
+		s.checked = now
+		return s.current, nil
+	}
+	cert, err := s.issue(ca, now)
+	if err != nil {
+		return s.fallback(err)
+	}
+	return cert, nil
+}
+
+// issue makes a new certificate from ca and holds it.
+func (s *servingCert) issue(ca *authority, now time.Time) (*tls.Certificate, error) {
+	crt, key, err := ca.issue(s.names, now)
+	if err != nil {
+		return nil, err
+	}
+	pair, err := tls.X509KeyPair(crt, key)
+	if err != nil {
+		return nil, err
+	}
+	if pair.Leaf, err = x509.ParseCertificate(pair.Certificate[0]); err != nil {
+		return nil, err
+	}
+	s.current, s.data, s.checked = &pair, map[string][]byte{corev1.TLSCertKey: crt, corev1.TLSPrivateKeyKey: key}, now
+	return s.current, nil
+}
+
+// fallback serves the certificate already held while it is valid, else returns err.
+func (s *servingCert) fallback(err error) (*tls.Certificate, error) {
+	if s.current != nil && s.ca.Now().Before(s.current.Leaf.NotAfter) {
+		// Not read again for servingRecheck, so an outage does not make every handshake wait.
+		s.checked = s.ca.Now()
+		return s.current, nil
+	}
+	if err == nil {
+		err = errors.New("no serving certificate is available")
+	}
+	return nil, err
+}
+
 // Authority reads the CA from its Secret, and makes the Secret first when there is none. It
 // never replaces a Secret that exists, so a CA is never rotated by accident. A CA that has
 // expired or is about to is refused (errCAExpiring).
@@ -507,4 +604,21 @@ func (c *InstallCA) Start(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+// envReportService is the name of the operator's report Service, which the chart sets.
+const envReportService = "REPORT_SERVICE_NAME"
+
+// EnvReportAllowInsecure lets the report service run without TLS (a development run).
+const EnvReportAllowInsecure = "REPORT_ALLOW_INSECURE"
+
+// ReportCertificate is the serving certificate source of the report service, issued from the
+// install CA for the Service's names, or nil when there is no CA or no Service name (a run
+// outside the chart), in which case the service refuses to start unless it is told to accept plain http.
+func ReportCertificate(ca *InstallCA, getenv func(string) string) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	service := getenv(envReportService)
+	if ca == nil || service == "" {
+		return nil
+	}
+	return ca.ServingCertificate(serviceDNSNames(service, ca.Namespace))
 }

@@ -16,7 +16,9 @@ package controller
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -393,6 +395,13 @@ type ReportServer struct {
 	// routes that admit them; nil means only Kubernetes callers.
 	Subscribers *subscriberDirectory
 	Addr        string
+	// Certificate is the serving certificate source. The service carries callers' bearer tokens,
+	// so it serves TLS, and Start refuses to run without one unless AllowInsecure says otherwise.
+	Certificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
+	// AllowInsecure lets the service serve plain http when there is no Certificate, with the
+	// bearer tokens it receives crossing the network in the clear. Only a run outside the chart
+	// (a development run) sets it, through REPORT_ALLOW_INSECURE=true.
+	AllowInsecure bool
 }
 
 // ComponentStatus is one control-plane component's health, in the spirit of
@@ -511,17 +520,35 @@ func (s *ReportServer) serveSuiteReport(w http.ResponseWriter, r *http.Request) 
 	_, _ = w.Write(data)
 }
 
+// errReportNeedsTLS is returned by Start with no serving certificate and no explicit opt-in.
+var errReportNeedsTLS = errors.New("the report service carries bearer tokens and has no serving certificate " +
+	"(the install CA or REPORT_SERVICE_NAME is not set): it will not serve plain http unless REPORT_ALLOW_INSECURE=true")
+
+// listen serves on srv over TLS when there is a certificate source, else plain.
+func (s *ReportServer) listen(srv *http.Server) error {
+	if s.Certificate != nil {
+		return srv.ListenAndServeTLS("", "")
+	}
+	return srv.ListenAndServe()
+}
+
 // Start implements manager.Runnable.
 func (s *ReportServer) Start(ctx context.Context) error {
+	if s.Certificate == nil && !s.AllowInsecure {
+		return errReportNeedsTLS
+	}
 	srv := &http.Server{Addr: s.Addr, Handler: s.routes(), ReadHeaderTimeout: 10 * time.Second}
+	if s.Certificate != nil {
+		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: s.Certificate}
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
-	reportLog.Info("Fitness report server listening", "addr", s.Addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	reportLog.Info("Fitness report server listening", "addr", s.Addr, "tls", s.Certificate != nil)
+	if err := s.listen(srv); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 	return nil

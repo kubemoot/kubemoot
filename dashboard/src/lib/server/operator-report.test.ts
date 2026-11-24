@@ -12,7 +12,7 @@ describe('operatorReportBase', () => {
 
 	it('uses the in-cluster report Service by default', () => {
 		expect(operatorReportBase()).toBe(IN_CLUSTER_REPORT_URL);
-		expect(IN_CLUSTER_REPORT_URL).toMatch(/^http:\/\/kubemoot-operator-report\.kubemoot:8082$/);
+		expect(IN_CLUSTER_REPORT_URL).toMatch(/^https:\/\/kubemoot-operator-report\.kubemoot:8082$/);
 	});
 
 	it('uses OPERATOR_REPORT_URL when set, and ignores an empty value', () => {
@@ -32,5 +32,18 @@ describe('operatorAuthHeaders', () => {
 	it('sends no header when there is no token, so the operator answers 401', () => {
 		mocks.token.mockReturnValue('');
 		expect(operatorAuthHeaders()).toEqual({});
+	});
+});
+
+describe('operatorReportBase with a plain http override', () => {
+	it('says once that the token would cross the network in the clear', () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		setPrivateEnv({ OPERATOR_REPORT_URL: 'HTTP://report.example.test' });
+		operatorReportBase();
+		operatorReportBase();
+		expect(warn).toHaveBeenCalledTimes(1);
+		expect(warn.mock.calls[0][0]).toContain('plain http');
+		warn.mockRestore();
+		resetPrivateEnv();
 	});
 });

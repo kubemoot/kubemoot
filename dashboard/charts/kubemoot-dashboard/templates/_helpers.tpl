@@ -299,3 +299,13 @@ app.kubernetes.io/component: oidc-proxy
 {{- define "kubemoot-dashboard.trustedProxy" -}}
 {{- if or .Values.auth.oidc.enabled .Values.auth.trustedProxy.enabled -}}true{{- end -}}
 {{- end }}
+
+{{/*
+The ConfigMap holding the install CA's public certificates: the umbrella chart's
+global.installCA.configMap when it sets one, else this chart's own value.
+*/}}
+{{- define "kubemoot-dashboard.installCAConfigMap" -}}
+{{- $global := (.Values.global | default dict) -}}
+{{- $fromGlobal := dig "installCA" "configMap" "" $global -}}
+{{- $fromGlobal | default .Values.installCA.configMap -}}
+{{- end }}

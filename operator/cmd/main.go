@@ -118,7 +118,9 @@ func mustAddInstallCA(mgr ctrl.Manager) *controller.InstallCA {
 
 // mustAddRunnables registers the operator's non-controller runnables, logging
 // and exiting on any failure.
-func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher, reports reportsAPIFlags) {
+func mustAddRunnables(
+	mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher, reports reportsAPIFlags, installCA *controller.InstallCA,
+) {
 	kube, err := kubernetes.NewForConfig(mgr.GetConfig())
 	if err != nil {
 		setupLog.Error(err, "unable to create the Kubernetes client for access reviews")
@@ -136,6 +138,9 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher, r
 		// A crew's subscriber exports their own conversation with their own token.
 		Subscribers: controller.NewSubscriberDirectory(mgr.GetClient()),
 		Addr:        ":8082",
+		// The service carries callers' bearer tokens, so it serves TLS from the install CA.
+		Certificate:   controller.ReportCertificate(installCA, os.Getenv),
+		AllowInsecure: os.Getenv(controller.EnvReportAllowInsecure) == "true",
 	}
 	runnables := []runnableSetup{
 		// Agent self-scheduling poller. Reads the kubemoot_scheduled KV bucket
@@ -477,7 +482,7 @@ func main() {
 	netPol := newNetPolicySync(mgr)
 
 	// The install CA that signs the serving certificates of the services that carry tokens.
-	mustAddInstallCA(mgr)
+	installCA := mustAddInstallCA(mgr)
 
 	// KubemootConfig controller is listed first to populate the cache before others start.
 	// Registration order is preserved from the original setup sequence.
@@ -556,7 +561,7 @@ func main() {
 	// +kubebuilder:scaffold:builder
 
 	f.reports.http2 = f.enableHTTP2
-	mustAddRunnables(mgr, natsPublisher, f.reports)
+	mustAddRunnables(mgr, natsPublisher, f.reports, installCA)
 	mustAddModelLifecycleServer(mgr, natsPublisher, modelServers)
 
 	// Register validating webhooks

@@ -13,12 +13,13 @@ global:
   # subchart. Merged with the chart-level imagePullSecrets below.
   imagePullSecrets: []
   # The install CA (under global so the dashboard subchart reads the same names). A call inside
-  # the cluster that carries a bearer token uses TLS, because Kubemoot does not assume the cluster encrypts pod traffic. The operator makes one CA, a Secret
-  # in this namespace, when it is absent and never replaces it (so no chart render ever rotates
-  # it: delete the Secret to rotate, and the previous CA stays trusted until every certificate it
-  # signed is replaced). It signs the serving certificates of the report service and of each crew's
-  # discussion gateway, and publishes the CA's public certificates in the ConfigMap below, which the
-  # dashboard and the crew liaison mount to verify them. The Secret holds the CA key; no pod mounts it.
+  # the cluster that carries a bearer token uses TLS, because Kubemoot does not assume the
+  # cluster encrypts pod traffic. The operator makes one CA, a Secret in this namespace, when it
+  # is absent and never replaces it (so no chart render ever rotates it: delete the Secret to
+  # rotate, and the previous CA stays trusted until every certificate it signed is replaced).
+  # It signs the serving certificates of the report service and of each crew's discussion gateway,
+  # and publishes the CA's public certificates in the ConfigMap below, which the dashboard and the
+  # crew liaison mount to verify them. The Secret holds the CA key; no pod mounts it.
   installCA:
     secret: kubemoot-ca
     configMap: kubemoot-ca

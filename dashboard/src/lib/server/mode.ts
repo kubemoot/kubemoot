@@ -19,6 +19,11 @@
 //   KUBEMOOT_DASHBOARD_GATEWAY_URL=<url template>               (default: in-cluster Service)
 //       Where a crew's discussion gateway is; {crew} and {namespace} are replaced. Empty uses
 //       http://<crew>-discussion.<namespace>.svc.cluster.local.
+//   KUBEMOOT_DASHBOARD_CA_FILE=<path>                           (default: empty)
+//       The install CA's public certificates (the chart mounts them from the ConfigMap the
+//       operator publishes). An https call that carries a person's token, to the operator's report
+//       service, is verified against them and against nothing else; a certificate they did not
+//       sign is refused. Only those calls use them: the rest of the process trusts what it did.
 //   KUBEMOOT_DASHBOARD_CREW_NAMESPACE_DISCOVERY=true          (default: false)
 //       The ServiceAccount may list Crews, so namespaces holding crews are also found that way.
 //   KUBEMOOT_DASHBOARD_PROMETHEUS_URL=<url>                    (default: empty)
@@ -41,6 +46,7 @@ export const ANONYMOUS_READ_ONLY_ENV = 'KUBEMOOT_DASHBOARD_ANONYMOUS_READ_ONLY';
 export const CREW_NAMESPACE_DISCOVERY_ENV = 'KUBEMOOT_DASHBOARD_CREW_NAMESPACE_DISCOVERY';
 export const SESSION_MAX_MINUTES_ENV = 'KUBEMOOT_DASHBOARD_SESSION_MAX_MINUTES';
 export const GATEWAY_URL_ENV = 'KUBEMOOT_DASHBOARD_GATEWAY_URL';
+export const CA_FILE_ENV = 'KUBEMOOT_DASHBOARD_CA_FILE';
 export const PROMETHEUS_URL_ENV = 'KUBEMOOT_DASHBOARD_PROMETHEUS_URL';
 
 export const TRUSTED_PROXY_ENV = 'KUBEMOOT_DASHBOARD_TRUSTED_PROXY';
@@ -95,6 +101,11 @@ export function sessionMaxMs(): number {
 /** The gateway URL template from the environment, or '' for the in-cluster Service. */
 export function gatewayUrlTemplate(): string {
 	return (process.env[GATEWAY_URL_ENV] ?? '').trim();
+}
+
+/** The file holding the install CA's public certificates, or '' when none is set. */
+export function caFile(): string {
+	return (process.env[CA_FILE_ENV] ?? '').trim();
 }
 
 /** The Prometheus address accelerator use is read from, or '' when none is set. */

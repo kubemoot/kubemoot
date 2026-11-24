@@ -114,6 +114,9 @@ spec:
             - name: KEDA_NATS_MONITORING_ENDPOINT
               value: {{ .Values.scaleToZero.natsMonitoringEndpoint | default "nats-headless.nats.svc.cluster.local:8222" | quote }}
             {{- end }}
+            # The report Service's name, which its serving certificate names.
+            - name: REPORT_SERVICE_NAME
+              value: {{ printf "%s-report" (include "kubemoot-operator.fullname" .) | quote }}
             # The install CA: a Secret the operator makes when it is absent and never replaces, and the
             # ConfigMap its public certificates are published in for the pods that verify with it.
             - name: INSTALL_CA_SECRET

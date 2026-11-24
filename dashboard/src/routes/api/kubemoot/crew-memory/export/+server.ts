@@ -1,5 +1,6 @@
 import type { RequestHandler } from './$types';
 import { tryCrewScope } from '#lib/crewScope.js';
+import { internalFetch } from '#lib/server/internal-tls.js';
 import { operatorAuthHeaders, operatorReportBase } from '#lib/server/operator-report.js';
 import { guardNamespace } from '#lib/server/scope.js';
 
@@ -54,7 +55,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	const denied = await guardNamespace(scope.namespace);
 	if (denied) return denied;
 	try {
-		return await relay(await fetch(upstreamUrl(scope, url), { headers: operatorAuthHeaders() }));
+		return await relay(await internalFetch(upstreamUrl(scope, url), { headers: operatorAuthHeaders() }));
 	} catch (e) {
 		return fail(`memory export service unreachable: ${e instanceof Error ? e.message : 'fetch failed'}`, 502);
 	}

@@ -101,9 +101,12 @@ spec:
               value: "8080"
             {{- include "kubemoot-operator.goMemLimitEnv" (dict "root" . "resources" .Values.liaison.resources "indent" 12) }}
             # The operator's report service, which builds conversation exports and checks the
-            # liaison's service account token and its get access to the Crew.
+            # token the liaison presents. It serves TLS from the install CA, which the liaison
+            # verifies with the CA file below.
             - name: LIAISON_OPERATOR_REPORT_URL
-              value: {{ printf "http://%s-report.%s.svc:8082" (include "kubemoot-operator.fullname" .) .Release.Namespace | quote }}
+              value: {{ printf "https://%s-report.%s.svc:8082" (include "kubemoot-operator.fullname" .) .Release.Namespace | quote }}
+            - name: LIAISON_CA_FILE
+              value: /etc/kubemoot/ca/ca.crt
             - name: LIAISON_MAX_INFLIGHT
               value: {{ .Values.liaison.maxInflight | quote }}
             - name: LIAISON_TICKET_TTL_MINUTES
@@ -175,21 +178,29 @@ spec:
               drop: ["ALL"]
           resources:
             {{- toYaml .Values.liaison.resources | nindent 12 }}
-          {{- if .Values.liaison.signIn.enabled }}
           volumeMounts:
+            - name: install-ca
+              mountPath: /etc/kubemoot/ca
+              readOnly: true
+            {{- if .Values.liaison.signIn.enabled }}
             - name: signin-seal-keys
               mountPath: /etc/kubemoot/signin
               readOnly: true
-          {{- end }}
-      {{- if .Values.liaison.signIn.enabled }}
+            {{- end }}
       volumes:
+        # The install CA's public certificates, which the operator publishes. The pod waits for
+        # the ConfigMap to exist.
+        - name: install-ca
+          configMap:
+            name: {{ .Values.global.installCA.configMap }}
+        {{- if .Values.liaison.signIn.enabled }}
         - name: signin-seal-keys
           secret:
             secretName: {{ required "liaison.signIn.sealKeySecret.name is required when liaison.signIn.enabled" .Values.liaison.signIn.sealKeySecret.name }}
             items:
               - key: {{ .Values.liaison.signIn.sealKeySecret.key | default "seal-keys" }}
                 path: seal-keys
-      {{- end }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

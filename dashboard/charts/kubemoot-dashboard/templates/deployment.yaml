@@ -72,6 +72,12 @@ spec:
             - name: KUBEMOOT_DASHBOARD_GATEWAY_URL
               value: {{ . | quote }}
             {{- end }}
+            {{- if include "kubemoot-dashboard.installCAConfigMap" . }}
+            # The install CA's public certificates. The dashboard calls the operator's report service
+            # over https and refuses a certificate this CA did not sign.
+            - name: KUBEMOOT_DASHBOARD_CA_FILE
+              value: /etc/kubemoot/ca/ca.crt
+            {{- end }}
             {{- if .Values.verify.image }}
             - name: VERIFY_IMAGE
               value: {{ .Values.verify.image | quote }}
@@ -87,13 +93,32 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- with (include "kubemoot-dashboard.natsMounts" . | trim) }}
+          {{- $mounts := include "kubemoot-dashboard.natsMounts" . | trim }}
+          {{- if or $mounts (include "kubemoot-dashboard.installCAConfigMap" .) }}
           volumeMounts:
+            {{- with $mounts }}
             {{- . | nindent 12 }}
+            {{- end }}
+            {{- if (include "kubemoot-dashboard.installCAConfigMap" .) }}
+            - name: install-ca
+              mountPath: /etc/kubemoot/ca
+              readOnly: true
+            {{- end }}
           {{- end }}
-      {{- with (include "kubemoot-dashboard.natsVolumes" . | trim) }}
+      {{- $volumes := include "kubemoot-dashboard.natsVolumes" . | trim }}
+      {{- if or $volumes (include "kubemoot-dashboard.installCAConfigMap" .) }}
       volumes:
+        {{- with $volumes }}
         {{- . | nindent 8 }}
+        {{- end }}
+        {{- if (include "kubemoot-dashboard.installCAConfigMap" .) }}
+        # Published by the operator. Optional so a dashboard still starts before the operator has
+        # published it; a call over https with no CA yet fails instead of going unverified.
+        - name: install-ca
+          configMap:
+            name: {{ include "kubemoot-dashboard.installCAConfigMap" . }}
+            optional: true
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
