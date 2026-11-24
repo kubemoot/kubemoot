@@ -20,6 +20,7 @@ Both doors of a crew, the discussion gateway and the [crew liaison](../../integr
 | Anonymous | none | The default. A crew with no `spec.discussion.access` accepts every caller this way and verifies nothing |
 | Kubernetes token | `Authorization: Bearer <token>` checked with a TokenReview | Built; turned on by `spec.discussion.access` |
 | Service token | `Authorization: Bearer <token>`, a person's own token for a service the crew trusts, accepted when that service accepts it | Built; off unless `ACCESS_SERVICE_TOKENS` is set |
+| OIDC sign-in through oauth2-proxy | The dashboard only: the person's ID token as `Authorization: Bearer` from the sign-in proxy, checked with a TokenReview | Built; off unless `auth.oidc.enabled`; see [people with an identity provider](#people-with-an-identity-provider) |
 | Trusted hop from an adopted gateway, JWT | the gateway's signed identity | Planned: each is one more verifier behind the same seam |
 
 Identity is never read from a request body, a header a client can set, or the text of a question. A `principal` a client puts in a request body is ignored; the gateway sets it.
@@ -51,6 +52,12 @@ An agent binds the thread's principal for exactly the model turn it runs, the wa
 | `principalId` | the principal's `id`; left out for an anonymous caller, who has none |
 
 The runtime sets both keys from the thread. The model supplies only a call's arguments, and an argument it names `conversationId` or `principalId` stays an argument: it never reaches `_meta` and never replaces the runtime's value. These two ids are handles. No token is ever on the bus or in an agent, so an agent cannot hand a person's credential to a tool; a tool server that needs one asks the gateway for the credential of that conversation and person. A tool server that is itself called with the gateway's own credential, but calls a per-person server through the gateway, is registered with `relayContext: true`: the gateway then keeps the two ids in the `_meta` it forwards to that server, in mode `Off` as in mode `Required`, so the inner call names the person. Without it the ids are removed.
+
+## People with an identity provider
+
+A person who has no Kubernetes token can still sign in to the dashboard with the identity provider their organization uses. This is the Kubernetes path with a different front door, not a new kind of principal: oauth2-proxy signs the person in and passes their OIDC ID token to the dashboard, the dashboard accepts it only from the proxy's addresses and checks it with the same TokenReview as a pasted token, and the person is then a Kubernetes caller with the user name and groups the API server derives from the token. Kubemoot parses no token of its own.
+
+The API server must trust the same issuer: it needs the `--oidc-issuer-url`, `--oidc-client-id` and claim flags, and a live sign-in cannot work without them, because the TokenReview is how the token is checked. Every Kubernetes right of that person (reading crews, asking, owning conversations) is then decided by RBAC for their OIDC user and groups. Setup is in [the dashboard guide](../../operating/dashboard/#signing-in-with-your-identity-provider). The crews' own doors take the same bearer token, so a person signed in this way is identified in conversations like any other Kubernetes caller.
 
 ## Subscribers
 

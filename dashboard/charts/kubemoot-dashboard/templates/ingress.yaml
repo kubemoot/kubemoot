@@ -34,7 +34,7 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
-                name: {{ include "kubemoot-dashboard.fullname" $ }}
+                name: {{ include "kubemoot-dashboard.frontServiceName" $ }}
                 port:
                   number: {{ $.Values.service.port }}
           {{- end }}

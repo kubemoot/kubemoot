@@ -24,6 +24,12 @@
 //   KUBEMOOT_DASHBOARD_PROMETHEUS_URL=<url>                    (default: empty)
 //       A Prometheus the dashboard reads node accelerator busy and memory from (chart value
 //       metrics.prometheusUrl). Empty shows no busy or memory bars.
+//   KUBEMOOT_DASHBOARD_TRUSTED_PROXY=true                      (default: false)
+//       Accept "Authorization: Bearer <ID token>" from the sign-in proxy (oauth2-proxy) and only
+//       from it: the sources are the addresses behind KUBEMOOT_DASHBOARD_TRUSTED_PROXY_HOST (a
+//       DNS name, usually a headless Service) and the comma-separated
+//       KUBEMOOT_DASHBOARD_TRUSTED_PROXY_ADDRESSES. Off, the header is ignored. On with no
+//       address to trust, nothing is trusted.
 //   KUBEMOOT_DASHBOARD_INFRA_NAMESPACE=<namespace>            (default: kubemoot)
 //       The operator namespace. Infrastructure kinds (model servers, models,
 //       embedding models, MCP catalogs and quality policies) stay readable there
@@ -36,6 +42,10 @@ export const CREW_NAMESPACE_DISCOVERY_ENV = 'KUBEMOOT_DASHBOARD_CREW_NAMESPACE_D
 export const SESSION_MAX_MINUTES_ENV = 'KUBEMOOT_DASHBOARD_SESSION_MAX_MINUTES';
 export const GATEWAY_URL_ENV = 'KUBEMOOT_DASHBOARD_GATEWAY_URL';
 export const PROMETHEUS_URL_ENV = 'KUBEMOOT_DASHBOARD_PROMETHEUS_URL';
+
+export const TRUSTED_PROXY_ENV = 'KUBEMOOT_DASHBOARD_TRUSTED_PROXY';
+export const TRUSTED_PROXY_HOST_ENV = 'KUBEMOOT_DASHBOARD_TRUSTED_PROXY_HOST';
+export const TRUSTED_PROXY_ADDRESSES_ENV = 'KUBEMOOT_DASHBOARD_TRUSTED_PROXY_ADDRESSES';
 
 const DEFAULT_SESSION_MINUTES = 480;
 
@@ -90,4 +100,22 @@ export function gatewayUrlTemplate(): string {
 /** The Prometheus address accelerator use is read from, or '' when none is set. */
 export function prometheusUrl(): string {
 	return (process.env[PROMETHEUS_URL_ENV] ?? '').trim();
+}
+
+/** True when a bearer token from the sign-in proxy may open a session (chart value auth.trustedProxy.enabled). */
+export function trustedProxyEnabled(): boolean {
+	return (process.env[TRUSTED_PROXY_ENV] ?? '').trim().toLowerCase() === 'true';
+}
+
+/** The DNS name whose addresses are the sign-in proxy's, or '' when none is set. */
+export function trustedProxyHost(): string {
+	return (process.env[TRUSTED_PROXY_HOST_ENV] ?? '').trim();
+}
+
+/** The proxy addresses named directly in the environment. */
+export function trustedProxyAddresses(): string[] {
+	return (process.env[TRUSTED_PROXY_ADDRESSES_ENV] ?? '')
+		.split(',')
+		.map((a) => a.trim())
+		.filter((a) => a !== '');
 }
