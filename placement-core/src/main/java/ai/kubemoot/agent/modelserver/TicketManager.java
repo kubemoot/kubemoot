@@ -60,6 +60,8 @@ import java.util.UUID;
  */
 @ApplicationScoped
 public class TicketManager {
+    private static final String F_SERVER = "server";
+
 
     private static final Logger log = LoggerFactory.getLogger(TicketManager.class);
 
@@ -575,7 +577,7 @@ public class TicketManager {
         if (model == null || model.isEmpty()) return;
         if (footprintMiB <= 0) return;
         ObjectNode node = objectMapper.createObjectNode();
-        node.put("server", server);
+        node.put(F_SERVER, server);
         node.put(FIELD_MODEL_NAME, model);
         node.put(FIELD_MODEL_FOOTPRINT, footprintMiB);
         store.put(residencyKey(server, model), node);
@@ -602,7 +604,7 @@ public class TicketManager {
      * non-blank model, positive footprint.
      */
     private static void collectResidency(JsonNode n, String server, java.util.Map<String, Long> out) {
-        if (!server.equals(n.path("server").asText(null))) return;
+        if (!server.equals(n.path(F_SERVER).asText(null))) return;
         String model = n.path(FIELD_MODEL_NAME).asText(null);
         long fp = n.path(FIELD_MODEL_FOOTPRINT).asLong(0L);
         if (model != null && !model.isEmpty() && fp > 0) {
@@ -638,7 +640,7 @@ public class TicketManager {
     private ObjectNode encode(Ticket ticket, java.util.Map<String, Long> evictions) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("ticketId", ticket.ticketId());
-        node.put("server", ticket.server());
+        node.put(F_SERVER, ticket.server());
         node.put(FIELD_MODEL_FOOTPRINT, ticket.modelFootprintMiB());
         node.put("kvCacheFootprintMiB", ticket.kvCacheFootprintMiB());
         node.put("holderId", ticket.holderId());

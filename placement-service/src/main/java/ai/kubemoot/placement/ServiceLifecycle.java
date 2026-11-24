@@ -13,7 +13,9 @@ import org.eclipse.microprofile.health.Readiness;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.time.Duration;
+import java.util.concurrent.TimeoutException;
 
 /**
  * What the service does when its replica gains or loses the lease, and its readiness: a replica is
@@ -63,7 +65,7 @@ public class ServiceLifecycle implements Leadership.Callbacks {
     }
 
     @Override
-    public void elected() throws Exception {
+    public void elected() throws IOException, InterruptedException, TimeoutException {
         table.deactivate();
         mirror.start(CATCH_UP);
         stateWatch.start();

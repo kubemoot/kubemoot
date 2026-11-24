@@ -112,7 +112,7 @@ class ServerSelectorTest {
 
     @Test
     void emptyWhenNoServersReady() {
-        // Pathological: no server is ready. Selector returns empty;
+        // Pathological case: no server is ready, so the selector answers empty and
         // ChatService falls back to the static Quarkus-injected ChatModel.
         var rig0 = state("ollama-gpu", "http://rig0:11434", 1, 0, false, List.of("qwen3:32b"));
         var rig1 = state("ollama-rig1", "http://rig1:11434", 1, 0, false, List.of("qwen3:8b"));

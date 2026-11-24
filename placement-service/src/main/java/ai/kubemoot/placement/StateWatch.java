@@ -1,6 +1,7 @@
 package ai.kubemoot.placement;
 
 import ai.kubemoot.agent.modelserver.ServerSelector;
+import io.nats.client.JetStreamApiException;
 import io.nats.client.api.KeyValueEntry;
 import io.nats.client.api.KeyValueWatchOption;
 import io.nats.client.api.KeyValueWatcher;
@@ -9,6 +10,7 @@ import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.UUID;
 
 /**
@@ -32,10 +34,17 @@ public class StateWatch {
     }
 
     /** Starts watching; a failure is logged and the next election retries. */
-    synchronized void start() throws Exception {
+    synchronized void start() throws IOException {
         stop();
-        subscription = nats.require().keyValue(ServerSelector.STATE_BUCKET)
-                .watchAll(new Bump(), KeyValueWatchOption.UPDATES_ONLY, KeyValueWatchOption.META_ONLY);
+        try {
+            subscription = nats.require().keyValue(ServerSelector.STATE_BUCKET)
+                    .watchAll(new Bump(), KeyValueWatchOption.UPDATES_ONLY, KeyValueWatchOption.META_ONLY);
+        } catch (JetStreamApiException e) {
+            throw new IOException(e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("interrupted while opening the server state watch", e);
+        }
     }
 
     /** Stops watching. */

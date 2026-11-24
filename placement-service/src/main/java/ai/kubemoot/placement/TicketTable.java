@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
@@ -64,7 +63,7 @@ public class TicketTable implements TicketStore {
     private final long ticketTtlMs;
     private long sequence;
     private volatile boolean active;
-    private final AtomicReference<BooleanSupplier> lease = new AtomicReference<>(() -> true);
+    private final LeaseFence lease = new LeaseFence();
 
     @Inject
     public TicketTable(ServiceSettings settings) {
@@ -83,7 +82,7 @@ public class TicketTable implements TicketStore {
 
     /** The table answers only while {@code held} says this replica still holds the lease. */
     void fenceWith(BooleanSupplier held) {
-        this.lease.set(held);
+        lease.set(held);
     }
 
     /** Opens the table to claims: the leader has recovered what the previous leader left. */
@@ -105,7 +104,7 @@ public class TicketTable implements TicketStore {
 
     @Override
     public boolean available() {
-        return active && lease.get().getAsBoolean();
+        return active && lease.held();
     }
 
     @Override

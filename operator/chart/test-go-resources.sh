@@ -48,6 +48,12 @@ lia_pod="$(yq -N 'select(.kind == "Deployment" and .metadata.name == "kubemoot-o
 [ "$(yq '.runAsGroup' <<<"$lia_pod")" = 65532 ] || fail "liaison does not run as GID 65532"
 [ "$(yq '.seccompProfile.type' <<<"$lia_pod")" = RuntimeDefault ] || fail "liaison has no RuntimeDefault seccomp profile"
 
+# The placement service pod (rendered only when enabled) runs the same way.
+ps_pod="$(render --set placementService.enabled=true | yq -N 'select(.kind == "Deployment" and .metadata.name == "kubemoot-operator-placement-service") | .spec.template.spec.securityContext')"
+[ "$(yq '.runAsUser' <<<"$ps_pod")" = 65532 ] || fail "placement service does not run as UID 65532"
+[ "$(yq '.runAsGroup' <<<"$ps_pod")" = 65532 ] || fail "placement service does not run as GID 65532"
+[ "$(yq '.seccompProfile.type' <<<"$ps_pod")" = RuntimeDefault ] || fail "placement service has no RuntimeDefault seccomp profile"
+
 # GOMEMLIMIT is 90 percent of the memory limit (384Mi -> 345MiB, 128Mi -> 115MiB).
 [ "$(gomemlimit "$op")" = 345MiB ] || fail "operator GOMEMLIMIT is $(gomemlimit "$op")"
 [ "$(gomemlimit "$lia")" = 115MiB ] || fail "liaison GOMEMLIMIT is $(gomemlimit "$lia")"

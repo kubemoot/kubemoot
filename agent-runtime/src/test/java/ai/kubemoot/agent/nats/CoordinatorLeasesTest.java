@@ -190,19 +190,24 @@ class CoordinatorLeasesTest {
         var inner = bucket.storeFor();
         var slow = new ai.kubemoot.agent.lease.LeaseStore() {
             @Override
-            public long acquire(String key, String holder) throws Exception {
+            public long acquire(String key, String holder) throws java.io.IOException, io.nats.client.JetStreamApiException {
                 return inner.acquire(key, holder);
             }
 
             @Override
-            public long renew(String key, String holder, long revision) throws Exception {
+            public long renew(String key, String holder, long revision) throws java.io.IOException, io.nats.client.JetStreamApiException {
                 entered.countDown();
-                gate.await();
+                try {
+                    gate.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.io.IOException("interrupted", e);
+                }
                 return inner.renew(key, holder, revision);
             }
 
             @Override
-            public void release(String key, long revision) throws Exception {
+            public void release(String key, long revision) throws java.io.IOException, io.nats.client.JetStreamApiException {
                 inner.release(key, revision);
             }
         };

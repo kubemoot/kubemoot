@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -63,7 +64,7 @@ class TicketMirrorTest {
     private static void eventually(BooleanSupplier condition) throws InterruptedException {
         long until = System.currentTimeMillis() + 5_000;
         while (!condition.getAsBoolean() && System.currentTimeMillis() < until) {
-            Thread.sleep(10);
+            LockSupport.parkNanos(10_000_000L);
         }
         assertTrue(condition.getAsBoolean(), "condition not met within 5s");
     }
@@ -259,8 +260,9 @@ class TicketMirrorTest {
         start();
         var tickets = new TicketManager(table, M);
         held[0] = false;
-        var t = tickets.claim("rig0", 5_000, 0, 16_000, "m");
-        Thread.sleep(700);
+        tickets.claim("rig0", 5_000, 0, 16_000, "m");
+        // The writer takes the queued write and, with the lease gone, drops it unwritten.
+        eventually(() -> mirror.queued() == 0);
         assertTrue(bucket.entries.isEmpty(), "a replica that lost the lease must not write behind the new leader");
         assertEquals(0, mirror.written());
     }
