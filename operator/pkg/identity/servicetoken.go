@@ -57,8 +57,9 @@ var ErrServiceUnavailable = errors.New("the service that verifies the token coul
 // own token is the proof: a modified payload fails at the service, so the subject read from
 // the payload is trusted only after the service said yes to that exact token. It makes one
 // call per token at a time (concurrent requests with one token share it), at a bounded rate,
-// remembers the answer, and never logs, traces or returns the token in an
-// error. It holds no state beyond the cache and keeps nothing at rest.
+// remembers the answer, limits the calls one source address can cause, and never logs,
+// traces or returns the token in an error. It holds no state beyond the cache and keeps
+// nothing at rest.
 type ServiceTokenVerifier struct {
 	cfg    ServiceTokenConfig
 	key    []byte
@@ -70,6 +71,8 @@ type ServiceTokenVerifier struct {
 	flights singleflight.Group
 	// limiter bounds the calls to the service; a call it refuses is not made.
 	limiter *rate.Limiter
+	// sources bounds the calls one source address can cause.
+	sources *sourceLimits
 }
 
 type cacheEntry struct {
@@ -99,7 +102,7 @@ func NewServiceTokenVerifier(cfg ServiceTokenConfig, key []byte, client *http.Cl
 	c.Timeout = verifyTimeout
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &ServiceTokenVerifier{cfg: cfg, key: key, client: &c, now: time.Now, cache: map[string]cacheEntry{},
-		limiter: rate.NewLimiter(VerifyRate, VerifyBurst)}, nil
+		limiter: rate.NewLimiter(VerifyRate, VerifyBurst), sources: newSourceLimits()}, nil
 }
 
 // Verify checks the request's bearer token. No bearer is ErrNoCredential. A bearer that is
@@ -122,7 +125,7 @@ func (v *ServiceTokenVerifier) Verify(r *http.Request) (*Identity, error) {
 	key := v.cacheKey(token)
 	id, err := v.cached(key)
 	if err == nil && id == nil {
-		id, err = v.verifyOnce(r.Context(), key, token, subject, exp)
+		id, err = v.verifyOnce(r.Context(), key, token, sourceOf(r), subject, exp)
 	}
 	if err != nil {
 		return nil, err
@@ -137,13 +140,13 @@ func (v *ServiceTokenVerifier) Verify(r *http.Request) (*Identity, error) {
 // negative TTL, an acceptance until the token's own expiry or the bound. A call that was
 // rate limited or failed is never cached, so the next request asks again.
 func (v *ServiceTokenVerifier) verifyOnce(
-	ctx context.Context, key, token, subject string, exp time.Time,
+	ctx context.Context, key, token, source, subject string, exp time.Time,
 ) (*Identity, error) {
 	res, err, _ := v.flights.Do(key, func() (any, error) {
 		if id, err := v.cached(key); id != nil || err != nil {
 			return id, err
 		}
-		if !v.limiter.AllowN(v.now(), 1) {
+		if !v.admit(source) {
 			return nil, ErrServiceUnavailable
 		}
 		// The call is shared, so one request leaving must not cancel it for the others.
@@ -163,6 +166,23 @@ func (v *ServiceTokenVerifier) verifyOnce(
 		return nil, err
 	}
 	return res.(*Identity), nil
+}
+
+// admit spends one call of the source's allowance and of the shared one, or neither: a call
+// the shared limit refuses is not charged to the source.
+func (v *ServiceTokenVerifier) admit(source string) bool {
+	now := v.now()
+	res, ok := v.sources.reserve(source, now)
+	if !ok {
+		return false
+	}
+	if !v.limiter.AllowN(now, 1) {
+		if res != nil {
+			res.CancelAt(now)
+		}
+		return false
+	}
+	return true
 }
 
 // cached is the cached answer for key: the identity, ErrInvalid for a remembered refusal,
