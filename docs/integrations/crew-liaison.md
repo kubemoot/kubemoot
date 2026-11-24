@@ -144,8 +144,8 @@ the cap gets a tool error telling it to try again in a minute.
 ## Connecting a client
 
 - [Claude Code](../claude-code/): one command.
-- [Claude Desktop](../claude-desktop/): through a small local bridge.
-- [LibreChat](../librechat/), [Open WebUI](../open-webui/) and [goose](../goose/).
+- [Claude Desktop](../claude-desktop/): a custom connector with sign-in.
+- [Open WebUI](../open-webui/) and [goose](../goose/).
 - [Signing in](../signing-in/): what the liaison accepts today.
 - Anything else that speaks MCP over Streamable HTTP: point it at `/mcp`. The
   endpoint is stateless and answers with plain JSON, so a curl call works too:

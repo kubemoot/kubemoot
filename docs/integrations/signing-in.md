@@ -155,6 +155,6 @@ configured, whoever asks.
 A crew that supports per-person sign-in (the chart's `perPerson` value, as in O'guide)
 does the opposite: with the front above, each person signs in to the service once, and the
 crew's tools use that person's own access for their question. The chat app starts the
-sign-in when the person clicks Authenticate on the server; see [LibreChat](../librechat/).
+sign-in when the person connects the server; see [Claude Desktop](../claude-desktop/#connect-with-sign-in).
 Treat a crew without per-person sign-in as acting with the installer's credentials, and
 restrict who can reach the liaison to people the installer is willing to have use them.

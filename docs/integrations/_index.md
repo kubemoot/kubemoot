@@ -30,10 +30,22 @@ Any chat app that is an MCP client can reach a crew. The app needs three things:
 | App | How it connects | Page |
 |---|---|---|
 | Claude Code | `claude mcp add --transport http` | [Claude Code](claude-code/) |
-| Claude Desktop | a local bridge, `mcp-remote` | [Claude Desktop](claude-desktop/) |
+| Claude Desktop | a custom connector with sign-in, or a local bridge, `mcp-remote` | [Claude Desktop](claude-desktop/) |
 | Open WebUI | an MCP (Streamable HTTP) connection in Settings | [Open WebUI](open-webui/) |
 | goose | a remote extension | [goose](goose/) |
-| LibreChat | install, `ENDPOINTS: custom,agents`, `mcpServers` in `librechat.yaml` (per-person sign-in or bearer token), then an agent | [LibreChat](librechat/) |
+
+Any chat app that speaks MCP with OAuth sign-in to remote servers can reach a crew
+through the crew liaison. Claude Desktop is the one these pages describe: see
+[Claude Desktop](claude-desktop/).
+
+### Chat apps with their own agent model
+
+We tried LibreChat as a front door to Kubemoot crews. Its design gives every conversation
+an agent backed by a model that LibreChat calls directly, so the chat app does its own
+reasoning before a crew is ever asked, and that model's work happens outside Kubemoot's
+scheduling. Kubemoot is built for the moot to be the agent: the crew decides, and Kubemoot
+places every model call on the accelerators. The two designs do not fit together, so these
+docs do not describe LibreChat as a way to reach a crew.
 
 ## What a person sees
 
