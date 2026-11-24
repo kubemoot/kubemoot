@@ -67,7 +67,7 @@ func main() {
 	}
 	handler := api.NewHandler(nc, namespace).AllowOrigins(origins).EndStreamsOn(ctx).
 		WithAccess(settings.Authenticator, settings.Authorizer).
-		ExposeLabel(os.Getenv(identity.EnvExposeLabel) == identity.EnvTrue)
+		ExposeLabel(exposesLabel(os.Getenv))
 	leaseSrv := startCredentials(ctx, handler, log)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -156,4 +156,10 @@ func shutdownLease(ctx context.Context, srv *http.Server, log logr.Logger) {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Error(err, "Lease listener shutdown error")
 	}
+}
+
+// exposesLabel reports whether the crew tells its agents who is asking, so the gateway stamps a
+// caller's label on the questions it queues. Only the exact value "true" turns it on.
+func exposesLabel(getenv func(string) string) bool {
+	return getenv(identity.EnvExposeLabel) == identity.EnvTrue
 }

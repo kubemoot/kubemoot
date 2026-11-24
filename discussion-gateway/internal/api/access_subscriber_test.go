@@ -49,6 +49,12 @@ func personToken(subject string) string {
 // subscriber authorizer out, as a crew with no verifier configured for it would have.
 func subscriberServer(t *testing.T, nc *natsclient.Client, svc *personService, authorize string, withPolicy bool) *httptest.Server {
 	t.Helper()
+	return subscriberServerLabelling(t, nc, svc, authorize, withPolicy, false)
+}
+
+// subscriberServerLabelling is subscriberServer on a crew that does or does not tell its agents who is asking.
+func subscriberServerLabelling(t *testing.T, nc *natsclient.Client, svc *personService, authorize string, withPolicy, exposeLabel bool) *httptest.Server {
+	t.Helper()
 	raw := `[{"name":"oreilly","verifyURL":"` + svc.srv.URL + `","subjectClaim":"upstream_claims.sub"` + authorize + `}]`
 	cfgs, err := identity.ParseServiceTokens(raw)
 	if err != nil {
@@ -65,7 +71,7 @@ func subscriberServer(t *testing.T, nc *natsclient.Client, svc *personService, a
 	}
 	auth := identity.NewAuthenticator(identity.Hasher{Key: []byte(hashKey)}, false, identity.TokenReviewVerifier{Reviewer: rv}, v)
 	mux := http.NewServeMux()
-	NewHandler(nc, "ns").WithAccess(auth, routed).RegisterRoutes(mux)
+	NewHandler(nc, "ns").WithAccess(auth, routed).ExposeLabel(exposeLabel).RegisterRoutes(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv

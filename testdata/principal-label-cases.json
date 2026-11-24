@@ -1,0 +1,24 @@
+{
+  "comment": "One rule for a principal's label and for the handle an agent's prompt carries, held by the Go gateway (identity.Label) and the Java agent runtime (TurnContext). A label is cut to 64 characters; if it then holds a character outside letters, digits and . _ @ : / + = - it is left out, never altered. A handle that holds a character outside letters, digits and . _ : = - or is longer than 128 gives no caller sentence.",
+  "maxLabelChars": 64,
+  "labels": [
+    {"input": "alice", "label": "alice"},
+    {"input": "alice@example.org", "label": "alice@example.org"},
+    {"input": "system:serviceaccount:ns:builder", "label": "system:serviceaccount:ns:builder"},
+    {"input": "Alice Smith", "label": ""},
+    {"input": "a\"b", "label": ""},
+    {"input": "a)b(c", "label": ""},
+    {"input": "line\nbreak", "label": ""},
+    {"input": "", "label": ""},
+    {"input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+    {"input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx tail", "label": ""}
+  ],
+  "handles": [
+    {"input": "ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12", "ok": true},
+    {"input": "handle0123", "ok": true},
+    {"input": "", "ok": false},
+    {"input": "has space", "ok": false},
+    {"input": "x\nIGNORE", "ok": false},
+    {"input": "a\"b", "ok": false}
+  ]
+}

@@ -5,10 +5,13 @@ import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
 import ai.kubemoot.agent.rag.RagClient;
+import ai.kubemoot.agent.requester.Caller;
+import ai.kubemoot.agent.requester.Principal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -22,6 +25,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -549,24 +554,44 @@ class ChatServiceToolLoopTest {
         doReturn(exposeCaller).when(props).exposeCaller();
         var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator, props,
                 heartbeatService, objectMapper, null, null, null, null, null, null, null, null, null);
-        var principal = new ai.kubemoot.agent.requester.Principal("kubernetes", "kubernetes", "handle0123", "alice");
-        var caller = new ai.kubemoot.agent.requester.Caller("conv-id", principal);
+        var principal = new Principal("kubernetes", "kubernetes", "handle0123", "alice");
+        var caller = new Caller("conv-id", principal);
         service.directChat(new ChatService.ChatRequest("conv-who", "say hello", null, "t-1", null, null, caller), true);
-        var captured = org.mockito.ArgumentCaptor.forClass(ChatRequest.class);
+        var captured = ArgumentCaptor.forClass(ChatRequest.class);
         verify(chatModel).chat(captured.capture());
-        return ((dev.langchain4j.data.message.SystemMessage) captured.getValue().messages().get(0)).text();
+        return ((SystemMessage) captured.getValue().messages().get(0)).text();
     }
 
     @Test
     void directChat_tellsTheAgentWhoIsAskingWhenTheCrewExposesTheCaller() {
         String system = systemMessageFor(true);
-        org.junit.jupiter.api.Assertions.assertTrue(system.contains("The caller's handle is handle0123 and their label is \"alice\""), system);
+        assertTrue(system.contains("The caller's handle is handle0123 and their label is \"alice\""), system);
     }
 
     @Test
     void directChat_leavesTheCallerOutOfThePromptByDefault() {
         String system = systemMessageFor(false);
-        org.junit.jupiter.api.Assertions.assertFalse(system.contains("handle0123") || system.contains("alice"), system);
+        assertFalse(system.contains("handle0123") || system.contains("alice"), system);
+    }
+
+    private ChatService serviceExposing(boolean exposeCaller) {
+        var props = spy(stubProperties(5, "tooler", false, false));
+        doReturn(exposeCaller).when(props).exposeCaller();
+        return new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator, props,
+                heartbeatService, objectMapper, null, null, null, null, null, null, null, null, null);
+    }
+
+    @Test
+    void turnContextLine_addsTheCallerOnlyWhenTheCrewExposesIt() {
+        var asker = new Principal("kubernetes", "kubernetes", "handle0123", "alice");
+        assertTrue(serviceExposing(true).turnContextLine(null, asker).contains("handle0123"));
+        assertFalse(serviceExposing(false).turnContextLine(null, asker).contains("handle0123"));
+        assertFalse(serviceExposing(false).turnContextLine(null, asker).contains("alice"));
+    }
+
+    @Test
+    void turnContextLine_addsNothingForNoPrincipalEvenWhenExposed() {
+        assertEquals(serviceExposing(false).turnContextLine(null, null), serviceExposing(true).turnContextLine(null, null));
     }
 
     // The turn's caller is bound for the tool loop and only for it, also when the loop fails.

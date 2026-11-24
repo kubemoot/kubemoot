@@ -68,22 +68,15 @@ func TestAnAnonymousCallerHasNoLabelEvenWhenTheCrewExposesTheCaller(t *testing.T
 	}
 }
 
-func TestOnlyAPlainTokenIsStampedAsTheLabel(t *testing.T) {
-	cases := map[string]string{
-		"alice":                            "alice",
-		"alice@example.org":                "alice@example.org",
-		"system:serviceaccount:ns:builder": "system:serviceaccount:ns:builder",
-		"Alice Smith":                      "",
-		`a"b`:                              "",
-		"a)b(c":                            "",
-		"line\nbreak":                      "",
-		"":                                 "",
-		strings.Repeat("x", 200):           strings.Repeat("x", maxLabelChars),
-		strings.Repeat("x", 63) + " tail":  "",
+func TestASubscriberHasNoLabelEvenWhenTheCrewExposesTheCaller(t *testing.T) {
+	nc, js := jetStreamServer(t)
+	createConversationsBucket(t, js)
+	srv := subscriberServerLabelling(t, nc, newPersonService(t, 200), "", true, true)
+	if resp := do(t, http.MethodPost, srv.URL+postPath, personToken("acct-42"), `{"message":"hi"}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
 	}
-	for subject, want := range cases {
-		if got := labelOf(subject); got != want {
-			t.Errorf("labelOf(%q) = %q, want %q", subject, got, want)
-		}
+	p := queued(t, js).Principal
+	if p == nil || p.Kind != bus.PrincipalKindSubscriber || p.DisplayName != "" || p.ID == "" {
+		t.Fatalf("principal %+v: want a subscriber with an id and no label", p)
 	}
 }
