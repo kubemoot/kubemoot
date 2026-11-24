@@ -74,7 +74,11 @@ func (SQLite) Query(ctx context.Context, rels []Relation, query string, lim Limi
 	}
 	res, err := runSelect(ctx, conn, query, lim.MaxRows)
 	if err != nil {
-		return Result{}, withColumns(sqliteError(ctx, err), schema)
+		err = withColumns(sqliteError(ctx, err), schema)
+		if lim.NestedHints {
+			err = withNestedHint(ctx, conn, err, schema)
+		}
+		return Result{}, err
 	}
 	return res, nil
 }

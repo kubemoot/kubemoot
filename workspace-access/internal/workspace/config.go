@@ -20,6 +20,10 @@ const (
 	EnvMaxRows          = "WORKSPACE_QUERY_MAX_ROWS"
 	EnvMemory           = "WORKSPACE_QUERY_MEMORY"
 	EnvMaxArtifactBytes = "WORKSPACE_QUERY_MAX_ARTIFACT_BYTES"
+	// EnvNestedHints turns on the nested-column hint of the SQLite no such column error. It is
+	// not a WORKSPACE_ name: the shared list of those (test/fixtures/workspace-env.json) is for
+	// settings with an old ARTIFACT_ twin.
+	EnvNestedHints = "KUBEMOOT_QUERY_NESTED_HINTS"
 
 	// EngineNone is the default: the query tool is not offered.
 	EngineNone = "none"
@@ -90,7 +94,10 @@ func limitsFromEnv(getenv func(string) string) (Limits, error) {
 	if err != nil {
 		return Limits{}, err
 	}
-	return Limits{Timeout: timeout, MaxRows: rows, MemoryLimit: orDefault(getenv(EnvMemory), defaultMemory)}, nil
+	return Limits{
+		Timeout: timeout, MaxRows: rows, MemoryLimit: orDefault(getenv(EnvMemory), defaultMemory),
+		NestedHints: strings.EqualFold(strings.TrimSpace(getenv(EnvNestedHints)), "true"),
+	}, nil
 }
 
 func positiveInt(getenv func(string) string, key string, def int) (int, error) {

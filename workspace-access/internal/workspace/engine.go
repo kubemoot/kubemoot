@@ -51,6 +51,9 @@ type Limits struct {
 	// MemoryLimit is the engine's memory ceiling, in the engine's own notation
 	// (for DuckDB, "256MB").
 	MemoryLimit string
+	// NestedHints makes the error of a query that guesses a path inside a column holding a
+	// nested object name that column and the SQLite form that reads the field.
+	NestedHints bool
 }
 
 // Result is the rows a query produced, as text.
