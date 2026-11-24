@@ -11,7 +11,8 @@
 # A chart is never built pinned to an image older than the code it is packaged from: when
 # a commit after a pinned image's tagged commit touches that component's release path
 # filter, the run builds nothing (chart-image-pairing.sh) and the component's own release,
-# when it succeeds, runs this workflow again.
+# when it succeeds, runs this workflow again. The plan step and the push step each run the
+# check on the same checkout, so both reach the same decision.
 #
 # Chart builds run one at a time. A pending run that a newer one replaces loses
 # nothing: the newer run reads the tags later, so it includes every image the replaced

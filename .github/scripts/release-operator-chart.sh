@@ -73,8 +73,8 @@ trap rl_remove_worktrees EXIT
 # of what it resolved ("NAME VERSION", dashboard values prefixed "dashboard/").
 stamp() {
   local wt="$1" commit="$2" operator dashboard pins
-  operator=$(rl_latest_version v "$commit" rc) || die "no operator candidate tag vX.Y.Z-rc.N"
-  dashboard=$(rl_latest_version dashboard-v "$commit" rc) || die "no dashboard candidate tag"
+  operator=$(rl_latest_version "$(component_tag_prefix kubemoot-operator)" "$commit" rc) || die "no operator candidate tag vX.Y.Z-rc.N"
+  dashboard=$(rl_latest_version "$(component_tag_prefix dashboard)" "$commit" rc) || die "no dashboard candidate tag"
   rl_stamp_chart "${wt}/${DASH_DIR}" "$dashboard" || die "cannot stamp ${DASH_DIR}"
   echo "kubemoot-operator ${operator}"
   echo "dashboard ${dashboard}"
@@ -110,11 +110,12 @@ main() {
   pins=$(stamp "$wt" "$commit")
   body=$(manifest "$commit" "$pins")
   # Never pin an image built from older code than the chart's templates (chart-image-pairing.sh).
-  local pairing=0
-  pins_are_current "$commit" "$pins" || pairing=$?
+  local pairing=0 lines
+  lines=$(pins_are_current "$commit" "$pins" 2>&1) || pairing=$?
+  [ -z "$lines" ] || printf '%s\n' "$lines" >&2
   [ "$pairing" -ne 2 ] || die "cannot tell whether every pinned image is current (above)"
   if [ "$pairing" -ne 0 ]; then
-    echo "::warning::No chart candidate: a pinned image (above) is older than the code at ${commit}. The release of that component builds it and runs this workflow again."
+    echo "::warning::No chart candidate at ${commit}: ${lines//$'\n'/%0A}"
     output will_release false
     output released false
     return 0
