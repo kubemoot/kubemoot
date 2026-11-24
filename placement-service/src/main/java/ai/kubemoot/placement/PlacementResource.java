@@ -2,6 +2,7 @@ package ai.kubemoot.placement;
 
 import ai.kubemoot.agent.modelserver.AgentIdentity;
 import ai.kubemoot.agent.modelserver.PlacementWire;
+import ai.kubemoot.agent.modelserver.WireFields;
 import ai.kubemoot.agent.modelserver.PlacementWire.PlaceRequest;
 import ai.kubemoot.placement.PlacementEngine.Result;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -57,8 +58,6 @@ import java.util.function.Supplier;
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
 public class PlacementResource {
-    private static final String F_SERVER = "server";
-    private static final String F_MODEL = "model";
 
     private static final Duration MAX_AWAIT = Duration.ofSeconds(30);
 
@@ -140,7 +139,7 @@ public class PlacementResource {
     @Path("/threads/{threadId}/call-started")
     public Response callStarted(@PathParam("threadId") String threadId, JsonNode body) {
         return timed("call-started", () -> {
-            engine.callStarted(PlacementWire.identityFrom(body), threadId, body.path(F_MODEL).asText(""));
+            engine.callStarted(PlacementWire.identityFrom(body), threadId, body.path(WireFields.MODEL).asText(""));
             return Response.noContent().build();
         });
     }
@@ -149,7 +148,7 @@ public class PlacementResource {
     @Path("/waits")
     public Response waits(JsonNode body) {
         return timed("waits", () -> {
-            engine.waiting(PlacementWire.identityFrom(body), body.path(F_MODEL).asText(""),
+            engine.waiting(PlacementWire.identityFrom(body), body.path(WireFields.MODEL).asText(""),
                     body.path("active").asBoolean(false));
             return Response.noContent().build();
         });
@@ -159,8 +158,8 @@ public class PlacementResource {
     @Path("/outcomes")
     public Response outcomes(JsonNode body) {
         return timed("outcomes", () -> {
-            String model = body.hasNonNull(F_MODEL) ? body.path(F_MODEL).asText() : null;
-            engine.outcome(body.path(F_SERVER).asText(""), model, body.path("durationMs").asLong(0L),
+            String model = body.hasNonNull(WireFields.MODEL) ? body.path(WireFields.MODEL).asText() : null;
+            engine.outcome(body.path(WireFields.SERVER).asText(""), model, body.path("durationMs").asLong(0L),
                     body.path("ok").asBoolean(true));
             return Response.noContent().build();
         });
@@ -170,7 +169,7 @@ public class PlacementResource {
     @Path("/failures")
     public Response failures(JsonNode body) {
         return timed("failures", () -> {
-            engine.failure(body.path(F_SERVER).asText(""));
+            engine.failure(body.path(WireFields.SERVER).asText(""));
             return Response.noContent().build();
         });
     }
@@ -179,7 +178,7 @@ public class PlacementResource {
     @Path("/residency")
     public Response residency(JsonNode body) {
         return timed("residency", () -> {
-            engine.residency(body.path(F_SERVER).asText(""), body.path(F_MODEL).asText(""),
+            engine.residency(body.path(WireFields.SERVER).asText(""), body.path(WireFields.MODEL).asText(""),
                     body.path("footprintMiB").asLong(0L));
             return Response.noContent().build();
         });
