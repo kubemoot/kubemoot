@@ -65,3 +65,8 @@ func closestColumns(guess string, schema []tableColumns) []string {
 	}
 	return out
 }
+
+// quoteIdent quotes a table or column name for SQLite.
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}

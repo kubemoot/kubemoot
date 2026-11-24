@@ -628,6 +628,11 @@ community extension that downloads at run time, which a server with no network c
   container memory limit as the last bound.
 - **Errors say what to fix.** A missing artifact, an unknown column or a refused
   statement comes back as a tool error naming the cause.
+  With `KUBEMOOT_QUERY_NESTED_HINTS=true` (off by default) the error for a column the table
+  lacks also reads a guess such as `status.conditions` or `involved_object_name` as a path
+  inside a column that holds a nested object (`status`, `InvolvedObject`), and names that
+  column with the SQLite form that reads the field (`"status"->>'$.conditions'`, or
+  `json_each` for a list), so the next query does not guess again.
 
 The service reads these variables; the chart value sets only the engine. Each one is also read under its old `ARTIFACT_` name (`ARTIFACT_QUERY_ENGINE`, `ARTIFACT_DIR`, `ARTIFACT_MODE`, `ARTIFACT_SUBJECT`, `ARTIFACT_BUCKET`), and the `WORKSPACE_` name wins. The `ARTIFACT_` names keep working for one release and each logs a warning the first time it supplies a value; set the new names in new manifests. The operator sets `WORKSPACE_QUERY_ENGINE` on every server that selects the workspace image; a server that sets either name itself keeps its own value.
 
