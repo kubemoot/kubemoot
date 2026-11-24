@@ -56,6 +56,37 @@ async function send(fetchFn: typeof fetch, url: string, init: RequestInit): Prom
 	}
 }
 
+/** What a stop did, as the gateway reports it; pause and resume carry neither field. */
+export interface ControlResult {
+	outcome?: 'stopped' | 'cancelled' | 'unconfirmed' | 'nothing_to_stop';
+	message?: string;
+}
+
+/** The words the person reads for a control's result, and whether they are good news. */
+export function describeControl(control: Control, result: ControlResult): { kind: 'info' | 'error'; text: string } {
+	if (control !== 'stop') return { kind: 'info', text: control === 'pause' ? 'Paused.' : 'Resumed.' };
+	switch (result.outcome) {
+		case 'stopped':
+			return { kind: 'info', text: 'Stopped. The crew abandoned the turn.' };
+		case 'cancelled':
+			return { kind: 'info', text: 'Cancelled. The question was still queued; the crew never saw it.' };
+		case 'nothing_to_stop':
+			return { kind: 'info', text: 'Nothing to stop: every turn had finished.' };
+		case 'unconfirmed':
+			return { kind: 'error', text: 'The crew did not confirm the stop in time. The work may still be running.' };
+		default:
+			return { kind: 'info', text: result.message || 'Stop sent. This crew does not say whether it stopped; check the conversation.' };
+	}
+}
+
+/** The words for a refused control: a stop of a question the crew has just taken is told to try again. */
+export function controlRefusal(control: Control, err: AskRefused): string {
+	if (control === 'stop' && err.status === 409) {
+		return 'The crew has just taken the question, so there is nothing to stop yet. Try again in a moment.';
+	}
+	return err.message;
+}
+
 /** Stops, pauses or resumes the running discussion of a conversation. Throws AskRefused with the reason shown. */
 export async function controlConversation(
 	fetchFn: typeof fetch,
@@ -63,12 +94,14 @@ export async function controlConversation(
 	conversationId: string,
 	control: Control,
 	reason?: string
-): Promise<void> {
+): Promise<ControlResult> {
 	const res = await send(fetchFn, `${conversationPath(scope, conversationId)}/${control}`, {
 		method: 'POST',
 		headers: headersFor(reason)
 	});
 	if (!res.ok) throw await refusalOf(res);
+	const body: unknown = await res.json().catch(() => null);
+	return body && typeof body === 'object' ? (body) : {};
 }
 
 function isReport(body: unknown): body is ErasureReport {

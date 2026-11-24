@@ -817,6 +817,7 @@ kmctl conversation list <crew> [-n <namespace>] [-o yaml|json|kyaml] [--all --re
 kmctl conversation replay <crew> <conversation-id> [-n <namespace>] [-o full|plain|json|quiet] [-q]
 kmctl conversation placements <crew> <conversation-id> [-n <namespace>] [-o table|yaml|json|kyaml] [--timeout <duration>]
 kmctl conversation workspace <crew> <key> [-n <namespace>] [-f <file>]
+kmctl conversation get <crew> <conversation-id> [-n <namespace>] [-o table|yaml|json|kyaml]
 kmctl conversation stop|pause|resume <crew> <conversation-id> [-n <namespace>] [--reason <text>]
 kmctl conversation delete <crew> <conversation-id> [-n <namespace>] [--force] [-y] [--reason <text>]
 kmctl conversation export <crew> <conversation-id>... [-n <namespace>] [--output-file <file>] [--report [--json]]
@@ -1084,20 +1085,53 @@ kmctl conversation pause <crew> <conversation-id> [-n <namespace>] [--reason <te
 kmctl conversation resume <crew> <conversation-id> [-n <namespace>] [--reason <text>]
 ```
 
-Control the discussion that is running in a conversation. `stop` ends the crew's work on
-the question, `pause` holds it, and `resume` continues a paused one. The request goes to
-the crew's discussion gateway ([the endpoints](../../concepts/conversations-turns-and-threads/#stopping-pausing-resuming-and-deleting-a-conversation))
-and prints one line:
+Control the discussion that is running in a conversation. `stop` abandons the turn, or
+removes a question that still waits in the crew's queue; `pause` holds a turn, and `resume`
+continues a paused one. The request goes to the crew's discussion gateway ([the endpoints](../../concepts/conversations-turns-and-threads/#stopping-pausing-resuming-and-deleting-a-conversation)).
+`stop` prints what happened, in the gateway's words, and its exit code follows:
+
+| Outcome | Output starts with | Exit |
+|---|---|---|
+| `stopped` | `stopped conversation ...` | 0 |
+| `cancelled` (a queued question, removed before the crew saw it) | `cancelled the queued question of conversation ...` | 0 |
+| `nothing_to_stop` (every turn had already finished) | `nothing to stop in conversation ...` | 0 |
+| `unconfirmed` (the crew did not confirm in time; the work may still run) | `asked conversation ... to stop; not confirmed` | 1 |
+| the crew has just taken the question (HTTP 409) | an error: no turn to stop yet, stop again in a moment | 1 |
 
 ```bash
 kmctl conversation stop homelab-pilot 6733c361 -n crew-homelab-pilot
-# stopped conversation 6733c361-aa0c-4bde-85c6-e143af23b251 of crew homelab-pilot: 1 thread(s) (t-42)
+# stopped conversation 6733c361-aa0c-4bde-85c6-e143af23b251 of crew homelab-pilot (t-42)
+# Stopped. The crew abandoned the turn and its text says it was stopped; what the crew had gathered stays in the trace.
 ```
+
+A question that is still queued has no thread yet, so a prefix cannot find it: give its full
+conversation ID.
 
 The conversation's owner may do this. So may an operator who holds `update` on
 `crews/conversations` (the ClusterRole `kubemoot-conversation-controller`) and gives a
-`--reason`; the gateway audits it. See [Who is asking](../../concepts/who-is-asking/). A
-conversation with nothing running is refused, and the error says so.
+`--reason`; the gateway audits it. See [Who is asking](../../concepts/who-is-asking/).
+
+### kmctl conversation get
+
+```
+kmctl conversation get <crew> <conversation-id> [-n <namespace>] [-o table|yaml|json|kyaml]
+```
+
+Shows where a conversation stands, read from the gateway's `/state` route: the conversation
+is `running`, `paused`, `queued`, `stopped` or `finished`, and so is each turn. A question that
+waits in the crew's queue shows its place (`queued (position 2)`: 1 is the next to be taken);
+a turn with a stop sent and not yet closed shows `(stop requested)`. It answers for a
+conversation another client started and for a question no agent has seen. A gateway older than
+the state read answers with an error that says so.
+
+### A turn the person stopped
+
+A turn whose synthesis and `done` events carry `outcome: stopped` is not an answer.
+`ask`, `watch` and `replay` show it as `stopped by you` and, in the closing text, `STOPPED`;
+`-o quiet` prints nothing; `-o json` ends with a result line that has `"outcome": "stopped"`, an
+empty `answer` and a `message`. The command exits 1, because the crew gave no answer. While a
+question waits in the crew's queue, `ask` and `watch` print its place (`queued, 2 questions
+ahead`) on stderr, and the live view shows it in its header.
 
 ### kmctl conversation delete
 

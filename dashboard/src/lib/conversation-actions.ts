@@ -9,6 +9,10 @@ export interface RunState {
 	/** A discussion of the conversation is working toward an answer (or is paused). */
 	running: boolean;
 	paused: boolean;
+	/** Every turn still waits in the crew's queue: the one action is Cancel, which removes the question. */
+	queuedOnly?: boolean;
+	/** A stop was sent and the coordinator has not closed the turn yet. */
+	stopRequested?: boolean;
 }
 
 /** Whether the conversation can be stopped, paused or resumed, from the messages on its thread. */

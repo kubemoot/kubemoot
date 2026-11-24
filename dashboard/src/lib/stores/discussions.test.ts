@@ -150,3 +150,14 @@ describe('the order of the thread list', () => {
 		expect(threadStartedAt({ startedAt: '', messages: [] })).toBe('');
 	});
 });
+
+describe('a stopped turn', () => {
+	it('closes the thread instead of marking it answered', () => {
+		handleMessage(msg({ threadId: 'tstop1', messageType: 'thread_start' }));
+		handleMessage(msg({ threadId: 'tstop1', messageType: 'synthesis', content: 'Stopped.', metadata: { outcome: 'stopped' } }));
+		expect(thread('tstop1')?.status).toBe('closed');
+		handleMessage(msg({ threadId: 'tstop2', messageType: 'thread_start' }));
+		handleMessage(msg({ threadId: 'tstop2', messageType: 'synthesis', content: 'The answer.' }));
+		expect(thread('tstop2')?.status).toBe('synthesized');
+	});
+});

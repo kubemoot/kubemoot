@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { DiscussionMessage } from '#lib/types/kubemoot.js';
 import type { Thread } from '#lib/stores/discussions.js';
-import { chatAsText, chatMessages, chatTurns, crewThreads, detailsLine, plainPreview } from './chat-view';
+import { chatAsText, chatMessages, chatTurns, crewThreads, detailsLine, isStoppedTurn, plainPreview } from './chat-view';
 
 let n = 0;
 function msg(agentName: string, messageType: string, at: string, extra: Partial<DiscussionMessage> = {}): DiscussionMessage {
@@ -169,5 +169,26 @@ describe('plainPreview', () => {
 	it('leaves plain text and empty input alone', () => {
 		expect(plainPreview('plain text')).toBe('plain text');
 		expect(plainPreview('')).toBe('');
+	});
+});
+
+describe('a turn the person stopped', () => {
+	const stopped = () => [
+		msg('human', 'thread_start', '00:00'),
+		msg('coordinator', 'synthesis', '00:10', { content: 'Stopped by the person who asked.', metadata: { outcome: 'stopped' } })
+	];
+
+	it('is a stopped turn, not an answer', () => {
+		const turns = chatTurns(stopped());
+		expect(turns[1]).toMatchObject({ from: 'crew', stopped: true });
+		expect(chatTurns(conversation()).some((t) => t.stopped)).toBe(false);
+		expect(isStoppedTurn(stopped()[1])).toBe(true);
+		expect(isStoppedTurn(stopped()[0])).toBe(false);
+	});
+
+	it('is copied as a stop, not as the crew speaking', () => {
+		const text = chatAsText(chatTurns(stopped()), false);
+		expect(text).toContain('Stopped by you');
+		expect(text).not.toContain('Crew: Stopped by the person');
 	});
 });

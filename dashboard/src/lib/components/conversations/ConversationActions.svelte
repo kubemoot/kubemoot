@@ -8,7 +8,7 @@
 	import { conversationMenu } from '#lib/conversation-menu.js';
 	import { idWithQuestion, type RunState } from '#lib/conversation-actions.js';
 	import ConversationDeleteDialog from './ConversationDeleteDialog.svelte';
-	import { controlConversation, needsReason, type Control, type ErasureReport } from '#lib/conversation-actions-client.js';
+	import { controlConversation, controlRefusal, describeControl, needsReason, type Control, type ErasureReport } from '#lib/conversation-actions-client.js';
 
 	interface Props {
 		scope: CrewScope | null;
@@ -24,13 +24,15 @@
 		discussionHref: string;
 		/** The conversation is gone from the crew; the page drops it and shows the report. */
 		ondeleted: (report: ErasureReport) => void;
+		/** A stop, pause or resume was sent: the page reads the conversation's state again. */
+		oncontrolled?: () => void;
 		/** Replaceable so a test can answer without a server. */
 		fetchFn?: typeof fetch;
 	}
 
 	let {
 		scope, conversationId, question, running, copyText, showDetails, ontoggledetails,
-		downloadHref, discussionHref, ondeleted, fetchFn
+		downloadHref, discussionHref, ondeleted, oncontrolled, fetchFn
 	}: Props = $props();
 
 	// Stop, pause and resume run here; deleting asks in a dialog of its own, shared with the list rows.
@@ -62,23 +64,19 @@
 		}
 	}
 
-	const DONE: Record<Control, string> = {
-		stop: 'Stop requested. The crew stops at its next step.',
-		pause: 'Pause requested.',
-		resume: 'Resume requested.'
-	};
-
 	function refused(err: unknown, control: Control) {
 		if (needsReason(err)) notice = { kind: 'reason', control };
-		else say('error', err instanceof AskRefused ? err.message : 'The action failed. Try again.');
+		else say('error', err instanceof AskRefused ? controlRefusal(control, err) : 'The action failed. Try again.');
 	}
 
 	async function perform(control: Control, reason?: string) {
 		if (!scope || !conversationId || busy) return;
 		busy = true;
 		try {
-			await controlConversation(call(), scope, conversationId, control, reason);
-			say('info', DONE[control]);
+			const result = await controlConversation(call(), scope, conversationId, control, reason);
+			const said = describeControl(control, result);
+			say(said.kind, said.text);
+			oncontrolled?.();
 		} catch (err) {
 			refused(err, control);
 		} finally {

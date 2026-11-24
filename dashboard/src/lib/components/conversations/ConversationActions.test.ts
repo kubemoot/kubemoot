@@ -68,11 +68,46 @@ describe('stop, pause and resume', () => {
 	});
 
 	it('stops a running conversation and says so', async () => {
-		const fetchFn = mockFetch(async () => json({ action: 'stop' }));
-		render(ConversationActions, props(fetchFn, { running: { running: true, paused: false } }));
+		const fetchFn = mockFetch(async () => json({ action: 'stop', outcome: 'stopped', message: 'Stopped.' }));
+		const oncontrolled = vi.fn();
+		render(ConversationActions, props(fetchFn, { running: { running: true, paused: false }, oncontrolled }));
 		await choose('Stop');
 		await waitFor(() => expect(calls(fetchFn)[0][0]).toBe('/api/gateway/ns/pilot/c-1/stop'));
-		expect(await screen.findByText(/Stop requested/)).toBeTruthy();
+		expect(await screen.findByText('Stopped. The crew abandoned the turn.')).toBeTruthy();
+		expect(screen.queryByText(/stops at its next step/)).toBeNull();
+		expect(oncontrolled).toHaveBeenCalled();
+	});
+
+	it('says a queued question was cancelled, and offers Cancel instead of Stop and Pause', async () => {
+		const fetchFn = mockFetch(async () => json({ action: 'stop', outcome: 'cancelled' }));
+		render(ConversationActions, props(fetchFn, { running: { running: true, paused: false, queuedOnly: true } }));
+		await openMenu();
+		expect(screen.queryByRole('menuitem', { name: 'Stop' })).toBeNull();
+		expect(screen.queryByRole('menuitem', { name: 'Pause' })).toBeNull();
+		await fireEvent.click(screen.getByRole('menuitem', { name: 'Cancel' }));
+		expect(await screen.findByText(/Cancelled. The question was still queued/)).toBeTruthy();
+	});
+
+	it('says there was nothing to stop', async () => {
+		const fetchFn = mockFetch(async () => json({ action: 'stop', outcome: 'nothing_to_stop' }));
+		render(ConversationActions, props(fetchFn, { running: { running: true, paused: false } }));
+		await choose('Stop');
+		expect(await screen.findByText(/Nothing to stop/)).toBeTruthy();
+	});
+
+	it('does not claim a stop the crew did not confirm', async () => {
+		const fetchFn = mockFetch(async () => json({ action: 'stop', outcome: 'unconfirmed', message: 'x' }, 202));
+		render(ConversationActions, props(fetchFn, { running: { running: true, paused: false } }));
+		await choose('Stop');
+		expect((await screen.findByRole('alert')).textContent).toContain('did not confirm the stop');
+		expect(screen.queryByText(/Stopped\./)).toBeNull();
+	});
+
+	it('tells the person to try again when the crew has just taken the question', async () => {
+		const fetchFn = mockFetch(async () => json({ error: 'The crew has just taken the question and its discussion has not begun' }, 409));
+		render(ConversationActions, props(fetchFn, { running: { running: true, paused: false } }));
+		await choose('Stop');
+		expect((await screen.findByRole('alert')).textContent).toContain('Try again in a moment');
 	});
 
 	it('pauses a running conversation and resumes a paused one', async () => {
@@ -89,7 +124,7 @@ describe('stop, pause and resume', () => {
 	it('shows a refusal in words', async () => {
 		const fetchFn = mockFetch(async () => json({ error: 'the conversation has no running discussion' }, 409));
 		render(ConversationActions, props(fetchFn, { running: { running: true, paused: false } }));
-		await choose('Stop');
+		await choose('Pause');
 		expect((await screen.findByRole('alert')).textContent).toContain('no running discussion');
 	});
 });
@@ -152,7 +187,7 @@ describe('acting on someone else\'s conversation', () => {
 		json({ error: "The crew's gateway answered 400. (acting on another caller's conversations needs a reason of 1 to 200 characters in the Kubemoot-Access-Reason header)" }, 400);
 
 	it('asks for a reason, will not continue without one, and sends it with the action', async () => {
-		const fetchFn = mockFetch().mockResolvedValueOnce(needReason()).mockResolvedValueOnce(json({ action: 'stop' }));
+		const fetchFn = mockFetch().mockResolvedValueOnce(needReason()).mockResolvedValueOnce(json({ action: 'stop', outcome: 'stopped' }));
 		render(ConversationActions, props(fetchFn, { running: { running: true, paused: false } }));
 		await choose('Stop');
 		const field = await screen.findByLabelText(/Say why you are acting/);
@@ -165,7 +200,7 @@ describe('acting on someone else\'s conversation', () => {
 		await fireEvent.click(go);
 		await waitFor(() => expect(calls(fetchFn)).toHaveLength(2));
 		expect(calls(fetchFn)[1][1].headers).toEqual({ 'Kubemoot-Access-Reason': 'user reported a stuck run' });
-		expect(await screen.findByText(/Stop requested/)).toBeTruthy();
+		expect(await screen.findByText(/Stopped\./)).toBeTruthy();
 	});
 
 	it('limits the reason to 200 characters', async () => {

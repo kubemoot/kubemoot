@@ -9,6 +9,7 @@ vi.mock('#lib/server/scope.js', () => ({ guardNamespace: async () => null }));
 
 import { POST as control } from './[namespace]/[crew]/[conversationId]/[control]/+server';
 import { DELETE as remove } from './[namespace]/[crew]/[conversationId]/+server';
+import { GET as readState } from './[namespace]/[crew]/[conversationId]/state/+server';
 
 const asCaller = <T>(fn: () => T) =>
 	runWithIdentity({ kind: 'caller', username: 'u', token: new BearerToken('callers-token'), ended: new AbortController().signal }, fn);
@@ -117,5 +118,42 @@ describe('deleting a conversation', () => {
 	it('says 502 when the gateway cannot be reached', async () => {
 		fetchMock.mockRejectedValue(new Error('refused'));
 		expect((await callDelete()).status).toBe(502);
+	});
+});
+
+describe('a stop reports what happened', () => {
+	it('keeps the gateway\'s 202 for a stop the crew did not confirm', async () => {
+		fetchMock.mockResolvedValue(json({ conversationId: 'c-1', action: 'stop_requested', outcome: 'unconfirmed', message: 'not confirmed' }, 202));
+		const res = await callControl('stop');
+		expect(res.status).toBe(202);
+		expect(await res.json()).toMatchObject({ outcome: 'unconfirmed' });
+	});
+
+	it('passes the outcome of a stopped turn through', async () => {
+		fetchMock.mockResolvedValue(json({ conversationId: 'c-1', action: 'stop_requested', outcome: 'stopped' }));
+		expect(await (await callControl('stop')).json()).toMatchObject({ outcome: 'stopped' });
+	});
+});
+
+describe('reading a conversation\'s state', () => {
+	const callState = (headers: Record<string, string> = {}) =>
+		asCaller(() => readState({ params, request: new Request('https://d/', { headers }) } as never)) as Promise<Response>;
+
+	it('asks the gateway as the caller and returns the state', async () => {
+		fetchMock.mockResolvedValue(json({ conversationId: 'c-1', state: 'queued', turns: [{ state: 'queued', queuePosition: 2 }] }));
+		const res = await callState();
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({ state: 'queued' });
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toContain('/api/v1/discussions/pilot/c-1/state');
+		expect(init.headers.Authorization).toBe('Bearer callers-token');
+	});
+
+	it('relays a refusal with its status and refuses a bad reason before calling', async () => {
+		fetchMock.mockResolvedValue(json({ error: 'conversation not found' }, 404));
+		expect((await callState()).status).toBe(404);
+		fetchMock.mockClear();
+		expect((await callState({ 'Kubemoot-Access-Reason': ' ' })).status).toBe(400);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

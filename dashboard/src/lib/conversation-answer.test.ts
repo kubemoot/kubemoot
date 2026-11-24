@@ -41,3 +41,13 @@ describe('answerState', () => {
 		expect(answerState([start, msg('human', 'stop_requested')], 'closed')).toEqual({ kind: 'stopped' });
 	});
 });
+
+describe('answerState for a stopped turn', () => {
+	it('is stopped, not the stopped text as an answer', () => {
+		const s = answerState(
+			[msg('human', 'thread_start', 'q'), msg('coordinator', 'synthesis', 'Stopped by the person who asked.', { outcome: 'stopped' })],
+			'closed'
+		);
+		expect(s).toEqual({ kind: 'stopped' });
+	});
+});

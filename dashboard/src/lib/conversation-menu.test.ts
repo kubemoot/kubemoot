@@ -65,4 +65,11 @@ describe('conversationMenu', () => {
 		expect(entries.find((e) => e.kind === 'item' && e.label === 'Delete conversation')).toMatchObject({ danger: true });
 		expect(entries[0]).toMatchObject({ kind: 'check', checked: true });
 	});
+
+	it('offers only Cancel for a question that still waits in the queue', () => {
+		const l = labels(base({ run: { running: true, paused: false, queuedOnly: true } }));
+		expect(l).toContain('Cancel');
+		expect(l).not.toContain('Stop');
+		expect(l).not.toContain('Pause');
+	});
 });

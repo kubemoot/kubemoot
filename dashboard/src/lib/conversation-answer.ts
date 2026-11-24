@@ -28,6 +28,7 @@ function failureReason(messages: DiscussionMessage[]): string {
 export function answerState(messages: DiscussionMessage[], status: 'open' | 'synthesized' | 'closed'): AnswerState {
 	const lastHuman = messages.findLastIndex((m) => m.agentName === 'human' && m.messageType !== 'thread_start');
 	const lastAnswer = messages.findLastIndex((m) => m.messageType === 'synthesis' && !!m.content);
+	if (lastAnswer >= 0 && lastAnswer > lastHuman && messages[lastAnswer].metadata?.outcome === 'stopped') return { kind: 'stopped' };
 	if (lastAnswer >= 0 && lastAnswer > lastHuman) {
 		const { text, note } = splitSourcesNote(messages[lastAnswer].content ?? '');
 		return { kind: 'answered', text, note, messageId: messages[lastAnswer].messageId };

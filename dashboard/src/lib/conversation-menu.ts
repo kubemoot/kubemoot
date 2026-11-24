@@ -22,6 +22,12 @@ export interface MenuContext {
 
 const CONTROL_LABELS: Record<Control, string> = { stop: 'Stop', pause: 'Pause', resume: 'Resume' };
 
+/** A question that still waits in the queue is cancelled, not stopped, and cannot be paused. */
+function controlsOf(run: RunState): Control[] {
+	if (run.queuedOnly) return ['stop'];
+	return [run.paused ? 'resume' : 'pause', 'stop'];
+}
+
 const separator: MenuEntry = { kind: 'separator' };
 
 function viewEntries(c: MenuContext): MenuEntry[] {
@@ -42,8 +48,8 @@ function shareEntries(c: MenuContext): MenuEntry[] {
 
 function controlEntries(c: MenuContext): MenuEntry[] {
 	if (!c.conversationId || !c.scope || !c.run.running) return [];
-	const toggle: Control = c.run.paused ? 'resume' : 'pause';
-	return [separator, ...[toggle, 'stop' as const].map((control): MenuEntry => ({ kind: 'item', label: CONTROL_LABELS[control], onselect: () => c.control(control) }))];
+	const label = (control: Control) => (control === 'stop' && c.run.queuedOnly ? 'Cancel' : CONTROL_LABELS[control]);
+	return [separator, ...controlsOf(c.run).map((control): MenuEntry => ({ kind: 'item', label: label(control), onselect: () => c.control(control) }))];
 }
 
 function deleteEntries(c: MenuContext): MenuEntry[] {

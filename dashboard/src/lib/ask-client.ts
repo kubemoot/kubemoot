@@ -105,6 +105,8 @@ export async function listMine(fetchFn: typeof fetch, scopes: CrewScope[]): Prom
 export interface AnswerState {
 	phase: 'working' | 'done' | 'error';
 	answer: string;
+	/** The person stopped the turn: it has no answer, and `answer` stays empty. */
+	stopped?: boolean;
 	/** The agents that have spoken so far. */
 	agents: string[];
 	error?: string;
@@ -117,19 +119,26 @@ interface StreamEvent {
 	agent?: string;
 	content?: string;
 	error?: string;
+	outcome?: string;
 }
 
 function withAgent(state: AnswerState, agent: string | undefined): AnswerState {
 	return agent && !state.agents.includes(agent) ? { ...state, agents: [...state.agents, agent] } : state;
 }
 
+/** A synthesis or done event: the person's stop is no answer, and an ordinary synthesis is. */
+function foldClose(state: AnswerState, ev: StreamEvent): AnswerState {
+	const stopped = ev.outcome === 'stopped';
+	if (ev.type === 'synthesis') return stopped ? { ...state, stopped: true } : { ...state, answer: ev.content ?? state.answer };
+	return { ...state, phase: state.phase === 'error' ? 'error' : 'done', ...(stopped ? { stopped: true } : {}) };
+}
+
 /** Folds one gateway stream event into the state of the answer. */
 export function reduceAnswer(state: AnswerState, ev: StreamEvent): AnswerState {
 	switch (ev.type) {
 		case 'synthesis':
-			return { ...state, answer: ev.content ?? state.answer };
 		case 'done':
-			return { ...state, phase: state.phase === 'error' ? 'error' : 'done' };
+			return foldClose(state, ev);
 		case 'error':
 			return { ...state, phase: 'error', error: ev.error || 'The crew reported an error.' };
 		case 'phase':

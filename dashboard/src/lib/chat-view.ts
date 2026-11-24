@@ -26,6 +26,8 @@ export interface ChatTurn {
 	timestamp?: string;
 	/** On a crew turn: how the answer was made. */
 	details?: AnswerDetails;
+	/** The person stopped this turn: its text says so and is not an answer. */
+	stopped?: boolean;
 }
 
 /**
@@ -39,6 +41,11 @@ function isPersonTurn(msg: DiscussionMessage): boolean {
 
 function isAnswer(msg: DiscussionMessage): boolean {
 	return msg.messageType === 'synthesis';
+}
+
+/** Whether a synthesis is the text of a turn the person stopped, which is not an answer. */
+export function isStoppedTurn(msg: Pick<DiscussionMessage, 'messageType' | 'metadata'>): boolean {
+	return msg.messageType === 'synthesis' && msg.metadata?.outcome === 'stopped';
 }
 
 /** The messages the chat shows: the person's own and the crew's syntheses. */
@@ -111,6 +118,7 @@ export function chatTurns(messages: DiscussionMessage[]): ChatTurn[] {
 		round.push(msg);
 		if (!isAnswer(msg)) continue;
 		const turn: ChatTurn = { id: msg.messageId, from: 'crew', text: msg.content ?? '', timestamp: msg.timestamp };
+		if (isStoppedTurn(msg)) turn.stopped = true;
 		turns.push(turn);
 		// The round keeps filling after the answer (the coordinator's thread_close follows
 		// it), so the details are worked out once every message is in.
@@ -145,11 +153,17 @@ export function crewThreads<T extends Thread>(threads: T[], scope: CrewScope | n
 	);
 }
 
+/** One turn as a line of the copied chat; a stopped turn is not the crew speaking. */
+function turnLine(t: ChatTurn): string {
+	if (t.stopped) return 'Stopped by you: the crew did not answer.';
+	return `${t.from === 'you' ? 'You' : 'Crew'}: ${t.text}`;
+}
+
 /** The chat as plain text for the clipboard. */
 export function chatAsText(turns: ChatTurn[], showDetails: boolean): string {
 	return turns
 		.map((t) => {
-			const line = `${t.from === 'you' ? 'You' : 'Crew'}: ${t.text}`;
+			const line = turnLine(t);
 			const details = showDetails && t.from === 'crew' ? detailsLine(t.details) : '';
 			return details ? `${line}\n(${details})` : line;
 		})
