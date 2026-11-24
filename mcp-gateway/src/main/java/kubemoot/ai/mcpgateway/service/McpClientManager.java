@@ -50,6 +50,7 @@ public class McpClientManager {
     private static final String MCP_SESSION_HEADER = "mcp-session-id";
     private static final String ACCEPT_HEADER = "Accept";
     private static final String ACCEPT_JSON_SSE = "application/json, text/event-stream";
+    private static final String OP_DISCOVER = "discover";
     private static final String TRANSPORT_STDIO = "stdio";
     private static final String SESSION_URI_PREFIX = "/message?sessionId=";
     private static final String MCP_NOTIFICATION_INITIALIZED = "notifications/initialized";
@@ -313,7 +314,7 @@ public class McpClientManager {
         setStatus(serverId, ServerStatus.CONNECTED);
         log.info("Re-listed {}: {} tools (was {})", server.name(), tools.size(),
             previous == null ? 0 : previous.size());
-        recordFeedback(FeedbackEntry.success(server.name(), serverId, "discover", tools.size()));
+        recordFeedback(FeedbackEntry.success(server.name(), serverId, OP_DISCOVER, tools.size()));
     }
 
     /**
@@ -462,8 +463,10 @@ public class McpClientManager {
      */
     private List<ToolOverride> setOverrides(String serverId, List<ToolOverride> overrides, String serverName) {
         List<ToolOverride> previous = serverOverrides.put(serverId, overrides);
-        if (previous == null || !previous.equals(overrides) || !serverRules.containsKey(serverId)) {
+        if (previous == null || !previous.equals(overrides)) {
             serverRules.put(serverId, ArgumentRules.compile(overrides, serverName));
+        } else {
+            serverRules.computeIfAbsent(serverId, id -> ArgumentRules.compile(overrides, serverName));
         }
         return previous;
     }
@@ -547,13 +550,13 @@ public class McpClientManager {
         }
         log.info("Connected to MCP server {} with {} tools", server.name(), tools.size());
         recordFeedback(FeedbackEntry.success(server.name(), serverId, "connect"));
-        recordFeedback(FeedbackEntry.success(server.name(), serverId, "discover", tools.size()));
+        recordFeedback(FeedbackEntry.success(server.name(), serverId, OP_DISCOVER, tools.size()));
     }
 
     /** One report for a server that listed no tools: a warning and a failed-discovery feedback entry. */
     private void reportNoTools(String serverId, ServerRegistration server, String what) {
         log.warn("{}; the gateway connects again with the next registration", what);
-        recordFeedback(FeedbackEntry.failure(server.name(), serverId, "discover", "the server lists no tools"));
+        recordFeedback(FeedbackEntry.failure(server.name(), serverId, OP_DISCOVER, "the server lists no tools"));
     }
 
     /**
@@ -1265,7 +1268,7 @@ public class McpClientManager {
             .uri(SESSION_URI_PREFIX + sessionId)
             .bodyValue(request)
             .exchangeToMono(response -> handleSseForwardResponse(
-                response, serverId, client, server, request, responseSink, allowRetry))
+                response, serverId, server, request, responseSink, allowRetry))
             .onErrorResume(e -> recoverForwardError(e, serverId, request, allowRetry, true));
     }
 
@@ -1274,7 +1277,7 @@ public class McpClientManager {
      * error message, or wait for the matching response on the SSE stream.
      */
     private Mono<McpMessage> handleSseForwardResponse(ClientResponse response, String serverId,
-            WebClient client, ServerRegistration server, McpMessage request,
+            ServerRegistration server, McpMessage request,
             Sinks.Many<McpMessage> responseSink, boolean allowRetry) {
         int statusCode = response.statusCode().value();
 

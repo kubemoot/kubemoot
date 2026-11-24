@@ -23,7 +23,7 @@ class CallerCredentialConfigTest {
         RegisterServerRequest request = mapper.readValue("{\"name\":\"k\",\"url\":\"http://x\"}",
             RegisterServerRequest.class);
 
-        assertEquals(Mode.Off, request.callerCredential().mode());
+        assertEquals(Mode.OFF, request.callerCredential().mode());
         assertFalse(request.callerCredential().required());
     }
 
@@ -45,37 +45,37 @@ class CallerCredentialConfigTest {
 
     @Test
     void theAccountNameDefaultsToTheVerifier() {
-        assertEquals("oreilly", new CallerCredentialConfig(Mode.Required, null, "oreilly", null, null, false).account());
+        assertEquals("oreilly", new CallerCredentialConfig(Mode.REQUIRED, null, "oreilly", null, null, false).account());
     }
 
     @Test
     void requiredNeedsAVerifierName() {
         assertThrows(IllegalArgumentException.class,
-            () -> new CallerCredentialConfig(Mode.Required, null, null, null, null, false));
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, null, null, null, false));
         assertThrows(IllegalArgumentException.class,
-            () -> new CallerCredentialConfig(Mode.Required, null, "Not A Label", null, null, false));
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, "Not A Label", null, null, false));
     }
 
     @Test
     void endpointsMustBeHttpOrHttps() {
         assertThrows(IllegalArgumentException.class,
-            () -> new CallerCredentialConfig(Mode.Required, "file:///etc/passwd", "v", null, null, false));
+            () -> new CallerCredentialConfig(Mode.REQUIRED, "file:///etc/passwd", "v", null, null, false));
         assertThrows(IllegalArgumentException.class,
-            () -> new CallerCredentialConfig(Mode.Required, null, "v", null, List.of("ftp://x/mcp"), false));
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, "v", null, List.of("ftp://x/mcp"), false));
         assertThrows(IllegalArgumentException.class,
-            () -> new CallerCredentialConfig(Mode.Required, null, "v", null, List.of("not a url"), false));
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, "v", null, List.of("not a url"), false));
     }
 
     @Test
     void aFallbackEndpointMustBeHttpsUnlessItIsLoopback() {
         IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
-            () -> new CallerCredentialConfig(Mode.Required, null, "v", null, List.of("http://api.example.com/mcp"), false));
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, "v", null, List.of("http://api.example.com/mcp"), false));
         assertTrue(refused.getMessage().contains("https"), refused.getMessage());
         assertThrows(IllegalArgumentException.class,
-            () -> new CallerCredentialConfig(Mode.Required, null, "v", null, List.of("http://10.0.0.5/mcp"), false));
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, "v", null, List.of("http://10.0.0.5/mcp"), false));
         assertThrows(IllegalArgumentException.class,
-            () -> new CallerCredentialConfig(Mode.Required, null, "v", null, List.of("http://127.0.0.1.evil.com/mcp"), false));
-        assertEquals(1, new CallerCredentialConfig(Mode.Required, null, "v", null,
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, "v", null, List.of("http://127.0.0.1.evil.com/mcp"), false));
+        assertEquals(1, new CallerCredentialConfig(Mode.REQUIRED, null, "v", null,
             List.of("https://api.example.com/mcp"), false).onForbidden().size());
     }
 
@@ -83,13 +83,13 @@ class CallerCredentialConfigTest {
     void plainHttpIsAllowedToLoopbackHosts() {
         List<String> loopback = List.of("http://localhost:8080/mcp", "http://127.0.0.1:9/mcp",
             "http://127.9.8.7/mcp", "http://[::1]:8080/mcp");
-        assertEquals(4, new CallerCredentialConfig(Mode.Required, null, "v", null, loopback, false)
+        assertEquals(4, new CallerCredentialConfig(Mode.REQUIRED, null, "v", null, loopback, false)
             .onForbidden().size());
     }
 
     @Test
     void offIgnoresTheOtherFields() {
-        CallerCredentialConfig config = new CallerCredentialConfig(Mode.Off, "garbage", null, null, null, false);
+        CallerCredentialConfig config = new CallerCredentialConfig(Mode.OFF, "garbage", null, null, null, false);
         assertFalse(config.required());
     }
 

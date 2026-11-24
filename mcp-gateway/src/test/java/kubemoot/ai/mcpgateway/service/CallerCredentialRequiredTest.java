@@ -271,7 +271,7 @@ class CallerCredentialRequiredTest {
 
     @Test
     void aRegisteredLeaseAddressOnAnotherHostNeverGetsTheGatewaysOwnToken() {
-        register(new CallerCredentialConfig(Mode.Required, "http://127.0.0.1:1/internal/v1/lease", "oreilly",
+        register(new CallerCredentialConfig(Mode.REQUIRED, "http://127.0.0.1:1/internal/v1/lease", "oreilly",
             "O'Reilly", List.of(), false));
 
         ToolCallResponse reply = call("conv-1", "principal-a", Map.of());
@@ -316,7 +316,7 @@ class CallerCredentialRequiredTest {
 
     @Test
     void relayContextKeepsTheTwoIdsInMetaForAToolServerThatCallsBack() {
-        register(new CallerCredentialConfig(Mode.Required, base(broker) + "/internal/v1/lease", "oreilly", "O'Reilly",
+        register(new CallerCredentialConfig(Mode.REQUIRED, base(broker) + "/internal/v1/lease", "oreilly", "O'Reilly",
             List.of(), true));
 
         call("conv-1", "principal-a", Map.of());
@@ -328,7 +328,7 @@ class CallerCredentialRequiredTest {
 
     @Test
     void modeOffWithRelayContextForwardsTheTwoIdsAndKeepsTheServersOwnCredential() {
-        register(new CallerCredentialConfig(Mode.Off, null, null, null, List.of(), true));
+        register(new CallerCredentialConfig(Mode.OFF, null, null, null, List.of(), true));
 
         ToolCallResponse reply = call("conv-1", "principal-a", Map.of());
 
@@ -345,7 +345,7 @@ class CallerCredentialRequiredTest {
 
     @Test
     void modeOffWithoutRelayContextForwardsNoIds() {
-        register(new CallerCredentialConfig(Mode.Off, null, null, null, List.of(), false));
+        register(new CallerCredentialConfig(Mode.OFF, null, null, null, List.of(), false));
 
         call("conv-1", "principal-a", Map.of());
 
@@ -357,7 +357,7 @@ class CallerCredentialRequiredTest {
 
     @Test
     void modeOffWithRelayContextAndNoIdsForwardsNoIds() {
-        register(new CallerCredentialConfig(Mode.Off, null, null, null, List.of(), true));
+        register(new CallerCredentialConfig(Mode.OFF, null, null, null, List.of(), true));
 
         controller.callTool("ping", new ToolCallRequest(Map.of(), Map.of("timeZone", "America/New_York")))
             .block(Duration.ofSeconds(30));
@@ -543,7 +543,7 @@ class CallerCredentialRequiredTest {
     private volatile boolean echoTokenInRefusal;
 
     private CallerCredentialConfig required(List<String> fallbacks) {
-        return new CallerCredentialConfig(Mode.Required, null, "oreilly", "O'Reilly", fallbacks, false);
+        return new CallerCredentialConfig(Mode.REQUIRED, null, "oreilly", "O'Reilly", fallbacks, false);
     }
 
     private ServerRegistration register(CallerCredentialConfig config) {

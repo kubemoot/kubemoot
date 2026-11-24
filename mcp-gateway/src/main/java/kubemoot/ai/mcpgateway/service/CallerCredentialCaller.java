@@ -36,6 +36,8 @@ import java.util.Map;
  */
 public class CallerCredentialCaller {
 
+    private static final String MESSAGE_FIELD = "message";
+
     private static final Logger log = LoggerFactory.getLogger(CallerCredentialCaller.class);
     private static final String SESSION_HEADER = "Mcp-Session-Id";
     private static final String REDACTED = "<redacted>";
@@ -248,13 +250,13 @@ public class CallerCredentialCaller {
         }
         try {
             JsonNode node = objectMapper.readTree(body);
-            for (String field : List.of("message", "error_description", "detail", "error")) {
+            for (String field : List.of(MESSAGE_FIELD, "error_description", "detail", "error")) {
                 JsonNode value = node.path(field);
                 if (value.isTextual() && !value.asText().isBlank()) {
                     return value.asText();
                 }
-                if (value.path("message").isTextual()) {
-                    return value.path("message").asText();
+                if (value.path(MESSAGE_FIELD).isTextual()) {
+                    return value.path(MESSAGE_FIELD).asText();
                 }
             }
         } catch (IOException e) {
