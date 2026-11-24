@@ -20,6 +20,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -300,8 +301,10 @@ func TestScanSSEEventsKeepsTheDoneReceiptCalls(t *testing.T) {
 	if done.Receipt == nil || len(done.Receipt.Calls) != 1 {
 		t.Fatalf("done event receipt = %+v", done.Receipt)
 	}
-	if c := done.Receipt.Calls[0]; c.Agent != "a" || c.Phase != "triage" || c.Kind != "triage" || c.Model != "m" || c.Server != "s" {
-		t.Errorf("call = %+v", c)
+	c := done.Receipt.Calls[0]
+	got := []string{c.Agent, c.Phase, c.Kind, c.Model, c.Server}
+	if want := []string{"a", "triage", "triage", "m", "s"}; !slices.Equal(got, want) {
+		t.Errorf("call fields = %v, want %v", got, want)
 	}
 	if events[0].Receipt != nil {
 		t.Error("only the done event carries a receipt")
