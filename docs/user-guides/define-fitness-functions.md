@@ -83,6 +83,29 @@ kmctl fitness pause my-baseline -n crew-my-crew
 kubectl patch crewfitnesssuite my-baseline -n crew-my-crew --type merge -p '{"spec":{"suspend":true}}'
 ```
 
+**Run part of a suite.** Most changes do not need every scenario. A scenario can name the
+tiers it belongs to, `smoke` and `standard`, so the same scenarios serve three sizes of run:
+
+```text
+DEFINE CONST TIERS AS "smoke standard"
+```
+
+Smoke is a few scenarios chosen so that together they take every call path (triage, the tool
+loop, simple calls, thinking on and off, each model and provider the crew uses): it checks
+plumbing in minutes after a change to a client library, an engine adapter, the operator or a
+chart. Standard is what a change to crew behavior is gated on. Full is every scenario, for
+decisions about prompts, models and scheduling. Start one by naming the tier; the operator
+reads the crew's scenarios and fixes the list when the suite starts:
+
+```bash
+kmctl fitness run --tier smoke --crew my-crew --name my-crew-smoke -n crew-my-crew
+```
+
+A smoke run reports which call paths it exercised and which it missed in
+`status.pathCoverage`, so a gap shows instead of being assumed. Compare results only within
+one tier. See [Tiers](../../reference/crewfitnesssuite/#tiers) and
+[Path coverage](../../reference/crewfitnesssuite/#path-coverage).
+
 When you change a scenario's reference, earlier scores were taken against the old text.
 A suite with `spec.rejudge` scores an earlier run's saved answers against the current
 scenarios without asking the crew again, so old and new runs compare on the same footing.

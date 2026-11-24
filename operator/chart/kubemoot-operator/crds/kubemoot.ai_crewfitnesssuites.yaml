@@ -23,6 +23,9 @@ spec:
     - jsonPath: .spec.crewRef
       name: Crew
       type: string
+    - jsonPath: .spec.tier
+      name: Tier
+      type: string
     - jsonPath: .status.iterationsCompleted
       name: Progress
       type: string
@@ -194,6 +197,10 @@ spec:
                   Scripts is the ordered list of fitness scripts to execute.
                   Each entry mirrors the CrewFitness spec's testRef/testContent/
                   configMapRef triad — exactly one source must be set per entry.
+                  Required unless spec.tier is set; with spec.tier the operator
+                  writes the scripts it resolves here when the suite starts, so the
+                  suite keeps the text it ran even if the crew's scenarios change
+                  later.
                 items:
                   description: |-
                     SuiteScript is one entry in a suite — mirrors the CrewFitness spec's
@@ -222,7 +229,6 @@ spec:
                   required:
                   - testRef
                   type: object
-                minItems: 1
                 type: array
               skipToolSmoke:
                 default: false
@@ -242,6 +248,21 @@ spec:
                   back to false resumes the suite at the next unscheduled iteration.
                   Ignored once the suite is terminal. Default false.
                 type: boolean
+              tier:
+                description: |-
+                  Tier selects the scripts from the crew's own scenarios instead of
+                  listing them: smoke, standard, or full. When the suite starts, the
+                  operator reads the ConfigMap <crewRef>-fitness in the suite's
+                  namespace (the scenarios the crew chart ships), keeps the scenarios
+                  that name the tier in their TIERS constant (every scenario for full),
+                  and records the tier and the scenario names in status.tier. Do not
+                  set spec.scripts together with spec.tier. Immutable. Optional; absent
+                  means the suite runs exactly the scripts it lists.
+                enum:
+                - smoke
+                - standard
+                - full
+                type: string
               trialIsolation:
                 default: PerTrial
                 description: |-
@@ -258,12 +279,20 @@ spec:
             required:
             - crewRef
             - iterations
-            - scripts
             type: object
             x-kubernetes-validations:
             - message: 'spec.rejudge is immutable: set it when the suite is created'
               rule: has(self.rejudge) == has(oldSelf.rejudge) && (!has(self.rejudge)
                 || self.rejudge == oldSelf.rejudge)
+            - message: 'spec.tier is immutable: set it when the suite is created'
+              rule: has(self.tier) == has(oldSelf.tier) && (!has(self.tier) || self.tier
+                == oldSelf.tier)
+            - message: spec.scripts must list at least one script, or spec.tier must
+                name a tier to resolve them from the crew's scenarios
+              rule: (has(self.scripts) && size(self.scripts) > 0) || has(self.tier)
+            - message: 'spec.tier and spec.rejudge are mutually exclusive: a re-judge
+                scores the scripts it names'
+              rule: '!(has(self.tier) && has(self.rejudge))'
           status:
             description: CrewFitnessSuiteStatus reflects the observed state of a suite
               run.
@@ -513,6 +542,153 @@ spec:
                   outcome.
                 format: int32
                 type: integer
+              pathCoverage:
+                description: |-
+                  PathCoverage says which call paths the run exercised, read from the
+                  placement records of its own transcripts, so a path the run never took
+                  shows as a gap instead of being assumed. Set once the run is terminal.
+                properties:
+                  calls:
+                    description: |-
+                      Calls is the number of placed model calls read from the run's transcripts.
+                      Zero means the transcripts held none (a run from before the records were
+                      kept), and every row below is then empty.
+                    format: int32
+                    type: integer
+                  gaps:
+                    description: |-
+                      Gaps lists the paths the crew has that the run never took: a call kind or
+                      phase with no call, a provider among the crew's model servers with no
+                      call, a thinking setting some agent declares with no call. Empty means
+                      every path the crew declares was exercised.
+                    items:
+                      type: string
+                    maxItems: 30
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  kinds:
+                    description: 'Kinds counts calls by the path that sent them: triage,
+                      tool-turn, simple.'
+                    items:
+                      description: PathCount is one row of a path-coverage table.
+                      properties:
+                        calls:
+                          description: Calls is how many calls took this path.
+                          format: int32
+                          type: integer
+                        name:
+                          description: Name is the kind, phase, model, provider or
+                            thinking setting.
+                          maxLength: 253
+                          type: string
+                      required:
+                      - calls
+                      - name
+                      type: object
+                    maxItems: 30
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  models:
+                    description: Models counts calls by the model they ran on.
+                    items:
+                      description: PathCount is one row of a path-coverage table.
+                      properties:
+                        calls:
+                          description: Calls is how many calls took this path.
+                          format: int32
+                          type: integer
+                        name:
+                          description: Name is the kind, phase, model, provider or
+                            thinking setting.
+                          maxLength: 253
+                          type: string
+                      required:
+                      - calls
+                      - name
+                      type: object
+                    maxItems: 30
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  phases:
+                    description: |-
+                      Phases counts calls by where in the thread they happened: advisory,
+                      selection, triage, evaluation, synthesis.
+                    items:
+                      description: PathCount is one row of a path-coverage table.
+                      properties:
+                        calls:
+                          description: Calls is how many calls took this path.
+                          format: int32
+                          type: integer
+                        name:
+                          description: Name is the kind, phase, model, provider or
+                            thinking setting.
+                          maxLength: 253
+                          type: string
+                      required:
+                      - calls
+                      - name
+                      type: object
+                    maxItems: 30
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  providers:
+                    description: |-
+                      Providers counts calls by the engine type of the model server they ran
+                      on (ollama, vllm, openai-compatible).
+                    items:
+                      description: PathCount is one row of a path-coverage table.
+                      properties:
+                        calls:
+                          description: Calls is how many calls took this path.
+                          format: int32
+                          type: integer
+                        name:
+                          description: Name is the kind, phase, model, provider or
+                            thinking setting.
+                          maxLength: 253
+                          type: string
+                      required:
+                      - calls
+                      - name
+                      type: object
+                    maxItems: 30
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  thinking:
+                    description: |-
+                      Thinking counts calls by the thinking setting of the agent that made
+                      them: on or off when the Agent sets spec.think, default when it leaves
+                      the model's own default, unknown when the agent was not found.
+                    items:
+                      description: PathCount is one row of a path-coverage table.
+                      properties:
+                        calls:
+                          description: Calls is how many calls took this path.
+                          format: int32
+                          type: integer
+                        name:
+                          description: Name is the kind, phase, model, provider or
+                            thinking setting.
+                          maxLength: 253
+                          type: string
+                      required:
+                      - calls
+                      - name
+                      type: object
+                    maxItems: 30
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  transcripts:
+                    description: |-
+                      Transcripts is the number of iterations whose transcript held at least one
+                      placed call, out of status.iterationsCompleted.
+                    format: int32
+                    type: integer
+                required:
+                - calls
+                - transcripts
+                type: object
               phase:
                 description: Phase is the lifecycle phase.
                 type: string
@@ -1096,6 +1272,47 @@ spec:
                   scheduling.
                 format: date-time
                 type: string
+              tier:
+                description: |-
+                  Tier records the tier the suite resolved its scripts from and the
+                  scenarios it chose. Absent when spec.tier is not set.
+                properties:
+                  available:
+                    description: |-
+                      Available is how many scenarios the ConfigMap held. Scenarios is a
+                      subset of them unless the tier is full.
+                    format: int32
+                    type: integer
+                  name:
+                    description: Name is the tier, as spec.tier named it.
+                    enum:
+                    - smoke
+                    - standard
+                    - full
+                    type: string
+                  resolvedAt:
+                    description: ResolvedAt is when the operator resolved the tier.
+                    format: date-time
+                    type: string
+                  scenarios:
+                    description: |-
+                      Scenarios lists the chosen scenarios (testRef) in the order they run,
+                      capped at 300 entries.
+                    items:
+                      type: string
+                    maxItems: 300
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  source:
+                    description: Source is the ConfigMap the scenarios were read from.
+                    type: string
+                required:
+                - available
+                - name
+                - resolvedAt
+                - scenarios
+                - source
+                type: object
               toolSmoke:
                 description: |-
                   ToolSmoke is the result of the MCP tool smoke that runs before any

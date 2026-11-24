@@ -285,3 +285,25 @@ func TestNewHTTPClientVerifiesCertificates(t *testing.T) {
 		t.Errorf("plain HTTP gateway status = %d, want 200", resp.StatusCode)
 	}
 }
+
+// The done event's receipt reaches the stored transcript with the calls the scheduler
+// placed, so the operator can say which call paths a run exercised.
+func TestScanSSEEventsKeepsTheDoneReceiptCalls(t *testing.T) {
+	stream := "data: {\"type\":\"synthesis\",\"content\":\"x\"}\n\n" +
+		"data: {\"type\":\"done\",\"receipt\":{\"tokens\":{\"total\":9},\"calls\":[" +
+		"{\"agent\":\"a\",\"phase\":\"triage\",\"kind\":\"triage\",\"model\":\"m\",\"server\":\"s\",\"alternatives\":[{\"server\":\"t\"}]}]}}\n\n"
+	events, err := scanSSEEvents(strings.NewReader(stream))
+	if err != nil || len(events) != 2 {
+		t.Fatalf("events = %d, err = %v", len(events), err)
+	}
+	done := events[1]
+	if done.Receipt == nil || len(done.Receipt.Calls) != 1 {
+		t.Fatalf("done event receipt = %+v", done.Receipt)
+	}
+	if c := done.Receipt.Calls[0]; c.Agent != "a" || c.Phase != "triage" || c.Kind != "triage" || c.Model != "m" || c.Server != "s" {
+		t.Errorf("call = %+v", c)
+	}
+	if events[0].Receipt != nil {
+		t.Error("only the done event carries a receipt")
+	}
+}

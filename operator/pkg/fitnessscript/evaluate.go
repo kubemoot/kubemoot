@@ -35,6 +35,25 @@ type SignalEvent struct {
 	ThreadID    string `json:"threadId,omitempty"`
 	StoodAside  bool   `json:"stood_aside,omitempty"`
 	Error       string `json:"error,omitempty"`
+
+	// Receipt is what the "done" event carries of the thread's receipt: where each
+	// model call ran. Only the fields path coverage reads are kept, so a stored
+	// transcript stays small.
+	Receipt *EventReceipt `json:"receipt,omitempty"`
+}
+
+// EventReceipt is the part of a thread receipt a transcript keeps.
+type EventReceipt struct {
+	Calls []PlacedCall `json:"calls,omitempty"`
+}
+
+// PlacedCall is one model call the scheduler placed, as the receipt lists it.
+type PlacedCall struct {
+	Agent  string `json:"agent,omitempty"`
+	Phase  string `json:"phase,omitempty"`
+	Kind   string `json:"kind,omitempty"`
+	Model  string `json:"model,omitempty"`
+	Server string `json:"server,omitempty"`
 }
 
 // AssertionResult is the per-assertion pass/fail outcome of one run.

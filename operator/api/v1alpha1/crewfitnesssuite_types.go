@@ -20,6 +20,9 @@ import (
 // parallel), harvests their results, and aggregates into an XLSX artifact
 // written to the NATS Object Store bucket {@code kubemoot_fitness_artifacts}.
 // +kubebuilder:validation:XValidation:rule="has(self.rejudge) == has(oldSelf.rejudge) && (!has(self.rejudge) || self.rejudge == oldSelf.rejudge)",message="spec.rejudge is immutable: set it when the suite is created"
+// +kubebuilder:validation:XValidation:rule="has(self.tier) == has(oldSelf.tier) && (!has(self.tier) || self.tier == oldSelf.tier)",message="spec.tier is immutable: set it when the suite is created"
+// +kubebuilder:validation:XValidation:rule="(has(self.scripts) && size(self.scripts) > 0) || has(self.tier)",message="spec.scripts must list at least one script, or spec.tier must name a tier to resolve them from the crew's scenarios"
+// +kubebuilder:validation:XValidation:rule="!(has(self.tier) && has(self.rejudge))",message="spec.tier and spec.rejudge are mutually exclusive: a re-judge scores the scripts it names"
 type CrewFitnessSuiteSpec struct {
 	// CrewRef references the Crew CR in the same namespace that the
 	// suite runs against. Required.
@@ -42,9 +45,23 @@ type CrewFitnessSuiteSpec struct {
 	// Scripts is the ordered list of fitness scripts to execute.
 	// Each entry mirrors the CrewFitness spec's testRef/testContent/
 	// configMapRef triad — exactly one source must be set per entry.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:MinItems=1
-	Scripts []SuiteScript `json:"scripts"`
+	// Required unless spec.tier is set; with spec.tier the operator
+	// writes the scripts it resolves here when the suite starts, so the
+	// suite keeps the text it ran even if the crew's scenarios change
+	// later.
+	// +optional
+	Scripts []SuiteScript `json:"scripts,omitempty"`
+
+	// Tier selects the scripts from the crew's own scenarios instead of
+	// listing them: smoke, standard, or full. When the suite starts, the
+	// operator reads the ConfigMap <crewRef>-fitness in the suite's
+	// namespace (the scenarios the crew chart ships), keeps the scenarios
+	// that name the tier in their TIERS constant (every scenario for full),
+	// and records the tier and the scenario names in status.tier. Do not
+	// set spec.scripts together with spec.tier. Immutable. Optional; absent
+	// means the suite runs exactly the scripts it lists.
+	// +optional
+	Tier FitnessTier `json:"tier,omitempty"`
 
 	// Concurrency is the max number of CrewFitness CRs the reconciler
 	// runs in parallel. Default 1 (strictly serial). Keep at 1 for
@@ -143,6 +160,25 @@ type CrewFitnessSuiteSpec struct {
 	// +optional
 	Rejudge *RejudgeSource `json:"rejudge,omitempty"`
 }
+
+// FitnessTier names how much of a crew's fitness suite a run covers.
+// +kubebuilder:validation:Enum=smoke;standard;full
+type FitnessTier string
+
+const (
+	// FitnessTierSmoke is the few scenarios that together exercise every call
+	// path (triage, tool loop, simple calls, thinking on and off, each model and
+	// provider in use). It checks call plumbing, not answer quality.
+	FitnessTierSmoke FitnessTier = "smoke"
+	// FitnessTierStandard is the scenarios a change to crew behavior is gated on.
+	FitnessTierStandard FitnessTier = "standard"
+	// FitnessTierFull is every scenario the crew ships, tagged or not.
+	FitnessTierFull FitnessTier = "full"
+)
+
+// TierScenariosConstant is the ADL constant a scenario uses to name the tiers
+// it belongs to: DEFINE CONST TIERS AS "smoke standard". Full needs no label.
+const TierScenariosConstant = "TIERS"
 
 // FitnessTrialIsolation is how far apart a suite keeps its trials.
 // +kubebuilder:validation:Enum=PerTrial;PerSuite
@@ -612,9 +648,112 @@ type CrewFitnessSuiteStatus struct {
 	// +optional
 	Judge *FitnessJudgeStatus `json:"judge,omitempty"`
 
+	// Tier records the tier the suite resolved its scripts from and the
+	// scenarios it chose. Absent when spec.tier is not set.
+	// +optional
+	Tier *SuiteTierStatus `json:"tier,omitempty"`
+
+	// PathCoverage says which call paths the run exercised, read from the
+	// placement records of its own transcripts, so a path the run never took
+	// shows as a gap instead of being assumed. Set once the run is terminal.
+	// +optional
+	PathCoverage *PathCoverage `json:"pathCoverage,omitempty"`
+
 	// Conditions represent the latest available observations.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// SuiteTierStatus is what spec.tier resolved to.
+type SuiteTierStatus struct {
+	// Name is the tier, as spec.tier named it.
+	Name FitnessTier `json:"name"`
+
+	// Source is the ConfigMap the scenarios were read from.
+	Source string `json:"source"`
+
+	// Scenarios lists the chosen scenarios (testRef) in the order they run,
+	// capped at 300 entries.
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=300
+	Scenarios []string `json:"scenarios"`
+
+	// Available is how many scenarios the ConfigMap held. Scenarios is a
+	// subset of them unless the tier is full.
+	Available int32 `json:"available"`
+
+	// ResolvedAt is when the operator resolved the tier.
+	ResolvedAt metav1.Time `json:"resolvedAt"`
+}
+
+// MaxPathCoverageRows caps each list of status.pathCoverage.
+const MaxPathCoverageRows = 30
+
+// PathCoverage counts a run's model calls along the paths a call can take. The
+// counts come from the placement records the scheduler wrote into the run's
+// answers, so they are what the run did, not what the suite was meant to do.
+type PathCoverage struct {
+	// Calls is the number of placed model calls read from the run's transcripts.
+	// Zero means the transcripts held none (a run from before the records were
+	// kept), and every row below is then empty.
+	Calls int32 `json:"calls"`
+
+	// Transcripts is the number of iterations whose transcript held at least one
+	// placed call, out of status.iterationsCompleted.
+	Transcripts int32 `json:"transcripts"`
+
+	// Kinds counts calls by the path that sent them: triage, tool-turn, simple.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=30
+	Kinds []PathCount `json:"kinds,omitempty"`
+
+	// Phases counts calls by where in the thread they happened: advisory,
+	// selection, triage, evaluation, synthesis.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=30
+	Phases []PathCount `json:"phases,omitempty"`
+
+	// Models counts calls by the model they ran on.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=30
+	Models []PathCount `json:"models,omitempty"`
+
+	// Providers counts calls by the engine type of the model server they ran
+	// on (ollama, vllm, openai-compatible).
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=30
+	Providers []PathCount `json:"providers,omitempty"`
+
+	// Thinking counts calls by the thinking setting of the agent that made
+	// them: on or off when the Agent sets spec.think, default when it leaves
+	// the model's own default, unknown when the agent was not found.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=30
+	Thinking []PathCount `json:"thinking,omitempty"`
+
+	// Gaps lists the paths the crew has that the run never took: a call kind or
+	// phase with no call, a provider among the crew's model servers with no
+	// call, a thinking setting some agent declares with no call. Empty means
+	// every path the crew declares was exercised.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=30
+	Gaps []string `json:"gaps,omitempty"`
+}
+
+// PathCount is one row of a path-coverage table.
+type PathCount struct {
+	// Name is the kind, phase, model, provider or thinking setting.
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+
+	// Calls is how many calls took this path.
+	Calls int32 `json:"calls"`
 }
 
 // +kubebuilder:object:root=true
@@ -622,6 +761,7 @@ type CrewFitnessSuiteStatus struct {
 // +kubebuilder:resource:shortName=cfs
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Crew",type=string,JSONPath=`.spec.crewRef`
+// +kubebuilder:printcolumn:name="Tier",type=string,JSONPath=`.spec.tier`
 // +kubebuilder:printcolumn:name="Progress",type=string,JSONPath=`.status.iterationsCompleted`
 // +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.iterationsTotal`
 // +kubebuilder:printcolumn:name="Passed",type=integer,JSONPath=`.status.passed`

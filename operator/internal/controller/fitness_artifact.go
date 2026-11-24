@@ -52,6 +52,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/fitnessscript"
 )
 
 // columnScenario heads the scenario column of the report sheets.
@@ -103,6 +104,8 @@ type IterationResult struct {
 	// the synthesis against.
 	Synthesis string
 	Question  string
+	// Calls are the model calls the run's receipt lists (transcript path only).
+	Calls []fitnessscript.PlacedCall
 	// Correctness / Adherence / Efficiency are the per-run sub-scores (0-100).
 	Correctness float64
 	Adherence   float64
