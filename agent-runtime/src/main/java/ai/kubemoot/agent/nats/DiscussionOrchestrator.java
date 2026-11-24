@@ -750,7 +750,7 @@ public class DiscussionOrchestrator {
      * Waits for the thread's answer. A thread another replica owns ends the wait with
      * {@link ThreadLostException}, so the caller follows it.
      */
-    private String awaitAnswer(ThreadState state, RequestMatch match, String threadId) throws ExecutionException, InterruptedException, java.util.concurrent.TimeoutException {
+    private String awaitAnswer(ThreadState state, RequestMatch match, String threadId) throws ExecutionException, InterruptedException, TimeoutException {
         var future = pendingResults.computeIfAbsent(threadId, k -> new CompletableFuture<>());
         if (leases.get().enabled() && state.trace.fenced()) {
             future.completeExceptionally(new ThreadLostException(threadId));

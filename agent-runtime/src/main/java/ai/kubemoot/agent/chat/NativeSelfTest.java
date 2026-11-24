@@ -55,12 +55,14 @@ public class NativeSelfTest {
         return runAll(checks());
     }
 
+    // A check that dies with any Error (a missing native class, an out-of-memory) is a failure line, not a dead startup.
+    @SuppressWarnings("java:S1181")
     static List<String> runAll(Map<String, Runnable> checks) {
         List<String> failures = new ArrayList<>();
         checks.forEach((name, body) -> {
             try {
                 body.run();
-            } catch (Exception | AssertionError | LinkageError t) {
+            } catch (Throwable t) {
                 failures.add(name + ": " + t);
             }
         });
