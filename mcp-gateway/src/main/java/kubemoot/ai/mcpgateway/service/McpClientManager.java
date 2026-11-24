@@ -466,6 +466,7 @@ public class McpClientManager {
         if (previous == null || !previous.equals(overrides)) {
             serverRules.put(serverId, ArgumentRules.compile(overrides, serverName));
         } else {
+            // Unchanged overrides keep their compiled rules; compile only if none are held yet.
             serverRules.computeIfAbsent(serverId, id -> ArgumentRules.compile(overrides, serverName));
         }
         return previous;
