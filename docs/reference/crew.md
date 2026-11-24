@@ -56,7 +56,7 @@ Because the domain is the crew's, a crew must be **portable** across clusters - 
 | Field | Type | Description |
 |-------|------|-------------|
 | `description` | string | Human-readable purpose |
-| `discussion` | object | Discussion gateway config (`enabled`, `resources`, `access`) - the HTTP entry point for external clients. See [Access](#access) |
+| `discussion` | object | Discussion gateway config (`enabled`, `resources`, `access`) - the HTTP entry point for external clients. Left out, `resources` asks for 5m CPU and 48Mi, may use 128Mi, and has no CPU limit; the operator sets `GOMEMLIMIT` to 90 percent of whatever memory limit applies. See [Access](#access) |
 | `memory` | object | Crew working-memory policy - see below |
 | `workspace.defaultAccess` | enum | The workspace access of every agent in the crew that declares none of its own: `none`, `read`, `write` or `readWrite`. An Agent's `spec.workspace.access` overrides it; left out, the KubemootConfig's `workspace.defaultAccess` applies, and with none declared agents behave as they always have. See [Agent](../../reference/agent/#specworkspaceaccess) |
 | `defaultTimeZone` | string | The IANA time zone (such as `America/New_York`) in which the crew states today's date when the asker's client sent no zone. Left out, or a name that is not an IANA zone, the crew uses UTC. See [the turn context line](../../concepts/agent-context/#the-turn-context-line) |
