@@ -123,6 +123,7 @@ public class RequestQueueConsumer {
             try {
                 subscription = pollOnce(subscription);
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 interrupted = true;
             } catch (Exception e) {
                 log.warn("Request queue error: {} - retrying in 10s", LogContent.reason(e));
@@ -190,6 +191,7 @@ public class RequestQueueConsumer {
             Thread.sleep(ERROR_RETRY_BACKOFF_MS);
             return true;
         } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
             return false;
         }
     }

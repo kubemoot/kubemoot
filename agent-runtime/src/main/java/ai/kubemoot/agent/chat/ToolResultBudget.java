@@ -101,12 +101,12 @@ final class ToolResultBudget {
         String preview = TablePreview.of(result);
         if (preview != null) {
             String withPreview = fullError(toolName, tokens, available, preview);
-            if (tokens(length(toolName) + withPreview.length()) <= available) {
+            if (tokens((long) length(toolName) + withPreview.length()) <= available) {
                 return withPreview;
             }
         }
         String error = fullError(toolName, tokens, available);
-        return tokens(length(toolName) + error.length()) > available ? shortError(toolName) : error;
+        return tokens((long) length(toolName) + error.length()) > available ? shortError(toolName) : error;
     }
 
     private long tokens(long chars) {

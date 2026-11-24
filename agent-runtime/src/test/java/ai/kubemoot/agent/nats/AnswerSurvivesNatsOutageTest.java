@@ -161,6 +161,6 @@ class AnswerSurvivesNatsOutageTest {
 
         assertTrue(Duration.ofNanos(System.nanoTime() - started).toMillis() < 1000,
                 "the synthesis and the close shared one outage deadline");
-        org.junit.jupiter.api.Assertions.assertNull(state.closeWait, "the wait is cleared when the close ends");
+        org.junit.jupiter.api.Assertions.assertNull(state.closeWait.get(), "the wait is cleared when the close ends");
     }
 }

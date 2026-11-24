@@ -82,17 +82,23 @@ final class OutageBackoff {
          * Pauses before the next try. Returns false, without pausing, when the deadline would pass
          * first or the thread is interrupted; the caller then gives up.
          */
-        synchronized boolean next() {
-            if (!Instant.now().plus(pause).isBefore(deadline)) {
-                return false;
+        boolean next() {
+            Duration current;
+            synchronized (this) {
+                if (!Instant.now().plus(pause).isBefore(deadline)) {
+                    return false;
+                }
+                current = pause;
             }
             try {
-                Thread.sleep(pause.toMillis());
+                Thread.sleep(current.toMillis());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return false;
             }
-            pause = pause.multipliedBy(2).compareTo(maxPause) > 0 ? maxPause : pause.multipliedBy(2);
+            synchronized (this) {
+                pause = pause.multipliedBy(2).compareTo(maxPause) > 0 ? maxPause : pause.multipliedBy(2);
+            }
             return true;
         }
     }

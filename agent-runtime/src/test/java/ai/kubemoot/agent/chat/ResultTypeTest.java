@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.chat;
 
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -102,5 +103,24 @@ class ResultTypeTest {
     @Test
     void aSentenceWithCommasOverSeveralLinesIsText() {
         assertEquals(ResultType.TEXT, ResultType.of("Pods, services and nodes\nwere all healthy, ready, and fine.\n"));
+    }
+
+    @Test
+    void kubectlTitlesSplitOnTwoSpacesOrATabAndAllowLowerCaseOnlyInParentheses() {
+        assertEquals(List.of("NAME", "CPU(cores)", "MEMORY(bytes)"), ResultType.kubectlTitles("NAME  CPU(cores)\tMEMORY(bytes)"));
+        assertEquals(List.of("NAME", "READY"), ResultType.kubectlTitles("NAME   READY  "));
+        assertTrue(ResultType.kubectlTitles("NAME  CPU(co(res))").isEmpty(), "a nested parenthesis is not a title");
+        assertTrue(ResultType.kubectlTitles("NAME  CPU(cores").isEmpty(), "an unclosed parenthesis is not a title");
+        assertTrue(ResultType.kubectlTitles("NAME  1ST").isEmpty(), "a title starts with a capital letter");
+        assertTrue(ResultType.kubectlTitles("   ").isEmpty());
+    }
+
+    @Test
+    void aMarkdownTableNeedsADashSeparatorRowOfAtLeastTwoDashesPerColumn() {
+        assertEquals(ResultType.MARKDOWN_TABLE, ResultType.of("| a | b |\n| --- | :--: |\n| 1 | 2 |\n"));
+        assertEquals(ResultType.MARKDOWN_TABLE, ResultType.of("| a | b |\n|:--|--:|\n| 1 | 2 |\n"));
+        assertNotEquals(ResultType.MARKDOWN_TABLE, ResultType.of("| a | b |\n| - | --- |\n| 1 | 2 |\n"));
+        assertNotEquals(ResultType.MARKDOWN_TABLE, ResultType.of("| a | b |\n| --- || --- |\n| 1 | 2 |\n"));
+        assertNotEquals(ResultType.MARKDOWN_TABLE, ResultType.of("| a | b |\n| -x- | --- |\n| 1 | 2 |\n"));
     }
 }

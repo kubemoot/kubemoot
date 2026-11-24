@@ -153,7 +153,7 @@ public class ChatService {
         public static final LastSimpleCall NONE = new LastSimpleCall(0L, false);
     }
 
-    private volatile LastSimpleCall lastSimpleCall = LastSimpleCall.NONE;
+    private final AtomicReference<LastSimpleCall> lastSimpleCall = new AtomicReference<>(LastSimpleCall.NONE);
 
     /** How long a simple (advisory or synthesis) call may take. */
     private static final Duration SIMPLE_CALL_TIMEOUT = Duration.ofMinutes(5);
@@ -1689,7 +1689,7 @@ public class ChatService {
         void recordGatherResult(String toolName, String result) {
             if (isGatherErrorResult(result)) {
                 failedTools.add(toolName);
-                failedCalls.add(toolName + ": " + truncate(result == null ? "" : result.strip(),
+                failedCalls.add(toolName + ": " + truncate(result.strip(),
                         MAX_GATHER_ERROR_CHARS));
                 lastFailedResult = result;
             }
@@ -2538,9 +2538,9 @@ public class ChatService {
                 SIMPLE_CALL_TIMEOUT, properties.model().think().orElse(null));
         var context = callContext(pick.serverName(), pick.modelName(),
                 CallObservation.KIND_SIMPLE, pick.coldLoad(), pick.call());
-        lastSimpleCall = LastSimpleCall.NONE;
+        lastSimpleCall.set(LastSimpleCall.NONE);
         var timed = sendTimed(model, messages, SIMPLE_CALL_TIMEOUT, context);
-        lastSimpleCall = new LastSimpleCall(timed.firstTokenMs(), pick.coldLoad());
+        lastSimpleCall.set(new LastSimpleCall(timed.firstTokenMs(), pick.coldLoad()));
         var usage = timed.response().tokenUsage();
         return new SimpleLlmResult(timed.response().aiMessage().text(), inputTokens(usage), outputTokens(usage),
                 new ModelUse(pick.modelName(), pick.serverName(), pick.call()));
@@ -2654,7 +2654,7 @@ public class ChatService {
 
     /** The most recent simple call's first-token wait; {@link LastSimpleCall#NONE} when there is none. */
     public LastSimpleCall lastSimpleCall() {
-        return lastSimpleCall;
+        return lastSimpleCall.get();
     }
 
     /**

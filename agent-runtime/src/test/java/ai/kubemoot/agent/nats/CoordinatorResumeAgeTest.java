@@ -182,4 +182,13 @@ class CoordinatorResumeAgeTest extends ResumeRestartHarness {
         }
         assertEquals(Optional.empty(), ResumeAge.parse("m30"));
     }
+
+    @Test
+    void aDurationWithJunkBetweenOrAfterItsPartsIsNotADuration() {
+        assertEquals(Optional.of(Duration.ofMinutes(90)), ResumeAge.parse("1h30m"));
+        assertEquals(Optional.empty(), ResumeAge.parse("1h30"));
+        assertEquals(Optional.empty(), ResumeAge.parse("1h x 30m"));
+        assertEquals(Optional.empty(), ResumeAge.parse("1.5.5s"));
+        assertEquals(Optional.empty(), ResumeAge.parse("5m!"));
+    }
 }

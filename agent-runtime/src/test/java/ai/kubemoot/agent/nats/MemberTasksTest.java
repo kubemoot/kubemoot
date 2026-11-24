@@ -148,10 +148,10 @@ class MemberTasksTest {
         s.userQuery = "q";
         s.primaryChannel = "general";
         s.innerCircle = new java.util.HashSet<>(MEMBERS);
-        s.memberTasks = MemberTasks.parse(json("{\"memberTasks\": {\"compute\": \"Sort.\"}}"), MEMBERS, "shared");
+        s.memberTasks.set(MemberTasks.parse(json("{\"memberTasks\": {\"compute\": \"Sort.\"}}"), MEMBERS, "shared"));
         var reasoning = new DiscussionOrchestrator.ReasoningResult(List.of("compute", "k8s-workloads"), "shared",
-                List.of(), 1, 1, 1, s.memberTasks);
-        var outcome = new DiscussionOrchestrator.AdvisoryOutcome(List.of(), List.of(), s.memberTasks.combined(), 1);
+                List.of(), 1, 1, 1, s.memberTasks.get());
+        var outcome = new DiscussionOrchestrator.AdvisoryOutcome(List.of(), List.of(), s.memberTasks.get().combined(), 1);
 
         recorder.opened(s, "request");
         recorder.subcommitteeConvened(s, reasoning, outcome);
@@ -163,8 +163,8 @@ class MemberTasksTest {
         assertEquals("k8s-workloads", convened.data().path("taskFallbacks").get(0).asText());
 
         var state = CoordinatorStateReducer.reduce(log.events());
-        assertEquals(s.memberTasks, state.memberTasks);
-        assertEquals(s.memberTasks, ThreadRebuilder.build(state).memberTasks);
+        assertEquals(s.memberTasks.get(), state.memberTasks);
+        assertEquals(s.memberTasks.get(), ThreadRebuilder.build(state).memberTasks.get());
     }
 
     // --- delivery ---
@@ -241,7 +241,7 @@ class MemberTasksTest {
         DiscussionOrchestrator.putMemberTasks(meta, null);
         assertTrue(meta.isEmpty());
 
-        state.memberTasks = MemberTasks.parse(json("{\"memberTasks\": {\"compute\": \"Sort.\"}}"), MEMBERS, "shared");
+        state.memberTasks.set(MemberTasks.parse(json("{\"memberTasks\": {\"compute\": \"Sort.\"}}"), MEMBERS, "shared"));
         DiscussionOrchestrator.putMemberTasks(meta, state);
         assertEquals(Map.of("compute", "Sort."), meta.get("memberTasks"));
         assertEquals("shared", meta.get("sharedBrief"));

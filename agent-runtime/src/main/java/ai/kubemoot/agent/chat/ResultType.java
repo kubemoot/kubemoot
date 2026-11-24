@@ -56,12 +56,6 @@ final class ResultType {
 
     private static final ObjectMapper JSON_MAPPER = jsonMapper();
 
-    /** One column title: words joined by single spaces; titles are separated by two or more spaces. */
-    private static final Pattern HEADER_CELL = Pattern.compile("\\S+(?: \\S+)*");
-    /** Capital letters, with lower case only inside parentheses (the unit of CPU(cores), MEMORY(bytes)). */
-    private static final Pattern HEADER_TITLE = Pattern.compile("^[A-Z](?:[A-Z0-9 _/.-]|\\([^()]*\\))*$");
-    private static final Pattern MARKDOWN_SEPARATOR =
-            Pattern.compile("^\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?$");
     private static final Pattern YAML_FIRST_LINE = Pattern.compile("^(---|- |[A-Za-z_][\\w.-]*:(\\s|$))");
     private static final Pattern TRAILING_BLANKS = Pattern.compile("[ \t\r]+$");
 
@@ -154,15 +148,118 @@ final class ResultType {
      * more spaces, at least two of them), as printed; empty when the line is not one.
      */
     static List<String> kubectlTitles(String firstLine) {
-        List<String> titles = new ArrayList<>();
-        var m = HEADER_CELL.matcher(firstLine);
-        while (m.find()) {
-            if (!HEADER_TITLE.matcher(m.group()).matches()) {
+        List<String> cells = headerCells(firstLine);
+        for (String cell : cells) {
+            if (!isKubectlTitle(cell)) {
                 return List.of();
             }
-            titles.add(m.group());
         }
-        return titles.size() < 2 ? List.of() : titles;
+        return cells.size() < 2 ? List.of() : cells;
+    }
+
+    private static boolean isRegexSpace(char c) {
+        return " \t\n\u000B\f\r".indexOf(c) >= 0;
+    }
+
+    /** One column title: words joined by single spaces; titles are separated by any other white space. */
+    private static List<String> headerCells(String line) {
+        List<String> cells = new ArrayList<>();
+        StringBuilder cell = new StringBuilder();
+        int n = line.length();
+        for (int i = 0; i < n; i++) {
+            char c = line.charAt(i);
+            boolean joins = c == ' ' && cell.length() > 0 && i + 1 < n && !isRegexSpace(line.charAt(i + 1));
+            if (!isRegexSpace(c) || joins) {
+                cell.append(c);
+            } else if (cell.length() > 0) {
+                cells.add(cell.toString());
+                cell.setLength(0);
+            }
+        }
+        if (cell.length() > 0) {
+            cells.add(cell.toString());
+        }
+        return cells;
+    }
+
+    /** Capital letters, with lower case only inside parentheses (the unit of CPU(cores), MEMORY(bytes)). */
+    private static boolean isKubectlTitle(String cell) {
+        if (cell.isEmpty() || cell.charAt(0) < 'A' || cell.charAt(0) > 'Z') {
+            return false;
+        }
+        for (int i = 1; i < cell.length(); i++) {
+            char c = cell.charAt(i);
+            if (c == '(') {
+                i = closeParen(cell, i);
+                if (i < 0) {
+                    return false;
+                }
+            } else if (!isTitleChar(c)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isTitleChar(char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || " _/.-".indexOf(c) >= 0;
+    }
+
+    /** The index of the ')' that closes the '(' at {@code open}, or -1 when another '(' comes first or none closes it. */
+    private static int closeParen(String text, int open) {
+        for (int j = open + 1; j < text.length(); j++) {
+            char c = text.charAt(j);
+            if (c == ')') {
+                return j;
+            }
+            if (c == '(') {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    /** A Markdown table's separator row: dash runs of two or more, each with optional colons, between optional pipes. */
+    private static boolean isMarkdownSeparator(String line) {
+        String t = line;
+        if (t.startsWith("|")) {
+            t = t.substring(1);
+        }
+        if (t.endsWith("|")) {
+            t = t.substring(0, t.length() - 1);
+        }
+        for (String part : t.split("\\|", -1)) {
+            if (!isSeparatorCell(stripRegexSpace(part))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String stripRegexSpace(String text) {
+        int start = 0;
+        int end = text.length();
+        while (start < end && isRegexSpace(text.charAt(start))) {
+            start++;
+        }
+        while (end > start && isRegexSpace(text.charAt(end - 1))) {
+            end--;
+        }
+        return text.substring(start, end);
+    }
+
+    private static boolean isSeparatorCell(String cell) {
+        int from = cell.startsWith(":") ? 1 : 0;
+        int to = cell.endsWith(":") && cell.length() > from ? cell.length() - 1 : cell.length();
+        if (to - from < 2) {
+            return false;
+        }
+        for (int i = from; i < to; i++) {
+            if (cell.charAt(i) != '-') {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Up to five non-blank lines from the start of the text, without trailing blanks. */
@@ -183,7 +280,7 @@ final class ResultType {
     /** A pipe row followed by its separator row, anywhere among the leading lines. */
     private static boolean isMarkdownTable(List<String> lines) {
         for (int i = 0; i + 1 < lines.size(); i++) {
-            if (trim(lines.get(i)).startsWith("|") && MARKDOWN_SEPARATOR.matcher(trim(lines.get(i + 1))).matches()) {
+            if (trim(lines.get(i)).startsWith("|") && isMarkdownSeparator(trim(lines.get(i + 1)))) {
                 return true;
             }
         }

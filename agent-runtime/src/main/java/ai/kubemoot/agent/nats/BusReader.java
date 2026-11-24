@@ -2,7 +2,9 @@ package ai.kubemoot.agent.nats;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Reads what a JetStream stream holds, so a restarted coordinator can see what was
@@ -12,6 +14,23 @@ interface BusReader {
 
     /** One message of a stream: where it sits, the subject it was published to, and its body. */
     record BusMessage(long sequence, String subject, byte[] data) {
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof BusMessage that
+                    && sequence == that.sequence
+                    && Objects.equals(subject, that.subject)
+                    && Arrays.equals(data, that.data);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hash(sequence, subject) + Arrays.hashCode(data);
+        }
+
+        @Override
+        public String toString() {
+            return "BusMessage[sequence=" + sequence + ", subject=" + subject + ", data=" + Arrays.toString(data) + "]";
+        }
     }
 
     /**

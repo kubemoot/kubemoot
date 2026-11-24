@@ -115,7 +115,7 @@ class DiscussionOrchestratorStopTest {
     @Test
     void aStopThatArrivesWhileTheRealCloseIsUnderWayDoesNotMislabelTheAnswer() {
         var state = threadIn(Phase.SYNTHESIZING);
-        state.closeWait = new OutageBackoff(java.time.Duration.ofSeconds(1), java.time.Duration.ofMillis(1)).start();
+        state.closeWait.set(new OutageBackoff(java.time.Duration.ofSeconds(1), java.time.Duration.ofMillis(1)).start());
 
         orchestrator.handleStopRequest(state, THREAD, "discussion-gateway");
 
