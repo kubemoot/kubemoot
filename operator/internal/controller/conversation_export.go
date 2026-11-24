@@ -158,4 +158,4 @@ type nopWriter struct{}
 
 func (nopWriter) Header() http.Header         { return http.Header{} }
 func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
-func (nopWriter) WriteHeader(int)             {}
+func (nopWriter) WriteHeader(int)             { /* the response is already under way */ }

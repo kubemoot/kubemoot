@@ -46,6 +46,12 @@ var log = logf.Log.WithName("nats-publisher")
 // bucket name. Shared by the GetObject/ListObjects/DeleteObject handlers.
 const errFmtObjectStore = "object store %s: %w"
 
+// errNotConfigured is returned by operations that need a connection when no NATS URL is set.
+var errNotConfigured = errors.New("NATS is not configured")
+
+// connectFmt wraps a connection failure.
+const connectFmt = "connect NATS: %w"
+
 // Publisher provides lazy NATS connection and publish capabilities.
 // When NATS is not configured, all operations are graceful no-ops.
 type Publisher struct {
@@ -108,12 +114,12 @@ func (p *Publisher) connect() error {
 // missing), so an export never mistakes an unreachable store for "no facts".
 func (p *Publisher) OpenCrewMemory() (crewmemory.EntryReader, error) {
 	if p.url == "" {
-		return nil, errors.New("NATS is not configured")
+		return nil, errNotConfigured
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if err := p.connect(); err != nil {
-		return nil, fmt.Errorf("connect NATS: %w", err)
+		return nil, fmt.Errorf(connectFmt, err)
 	}
 	return natskv.Open(p.conn)
 }
@@ -124,12 +130,12 @@ func (p *Publisher) OpenCrewMemory() (crewmemory.EntryReader, error) {
 // every failure, like OpenCrewMemory.
 func (p *Publisher) OpenConversationExport() (*conversationexport.Builder, error) {
 	if p.url == "" {
-		return nil, errors.New("NATS is not configured")
+		return nil, errNotConfigured
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if err := p.connect(); err != nil {
-		return nil, fmt.Errorf("connect NATS: %w", err)
+		return nil, fmt.Errorf(connectFmt, err)
 	}
 	source, err := natssource.Open(p.conn)
 	if err != nil {
@@ -145,12 +151,12 @@ func (p *Publisher) OpenConversationExport() (*conversationexport.Builder, error
 // timeouts apply.
 func (p *Publisher) ConversationOwner(_ context.Context, scope crewscope.Scope, id string) (bus.Principal, bool, error) {
 	if p.url == "" {
-		return bus.Principal{}, false, errors.New("NATS is not configured")
+		return bus.Principal{}, false, errNotConfigured
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if err := p.connect(); err != nil {
-		return bus.Principal{}, false, fmt.Errorf("connect NATS: %w", err)
+		return bus.Principal{}, false, fmt.Errorf(connectFmt, err)
 	}
 	js, err := p.conn.JetStream()
 	if err != nil {

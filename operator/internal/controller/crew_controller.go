@@ -531,6 +531,9 @@ func (r *CrewReconciler) reconcileDeployment(ctx context.Context, crew *kubemoot
 // gatewayAllowedOriginsEnv holds the browser origins whose pages may read a discussion
 // gateway's streams. The chart sets it from discussionGateway.allowedOrigins and the
 // operator passes it to every gateway as ALLOWED_ORIGINS; empty sets nothing.
+// gatewayComponent names the discussion gateway container, workload and component label.
+const gatewayComponent = "discussion-gateway"
+
 const gatewayAllowedOriginsEnv = "DISCUSSION_GATEWAY_ALLOWED_ORIGINS"
 
 // gatewayEnv is the environment of a crew's discussion gateway.
@@ -606,7 +609,7 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 					},
 					Containers: []corev1.Container{
 						{
-							Name:            "discussion-gateway",
+							Name:            gatewayComponent,
 							Image:           image,
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Ports: []corev1.ContainerPort{
@@ -649,7 +652,7 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 			},
 		},
 	}
-	applyNATSOptions(&d.Spec.Template.Spec, "discussion-gateway")
+	applyNATSOptions(&d.Spec.Template.Spec, gatewayComponent)
 	return d
 }
 
@@ -767,7 +770,7 @@ func (r *CrewReconciler) buildLabels(crew *kubemootv1alpha1.Crew) map[string]str
 		labelName:      r.gatewayName(crew),
 		labelInstance:  crew.Name,
 		labelManagedBy: managedByValue,
-		labelComponent: "discussion-gateway",
+		labelComponent: gatewayComponent,
 		labelCrew:      crew.Name,
 	}
 }

@@ -72,7 +72,8 @@ func (b *Builder) bundle(
 			continue
 		}
 		seen[id] = struct{}{}
-		if err := b.addConversation(ctx, zw, now, scope, id, opts, bundleRun{mem: mem, dry: dry}, &bm); err != nil {
+		run := bundleRun{mem: mem, dry: dry, zw: zw, now: now, bm: &bm}
+		if err := b.addConversation(ctx, scope, id, opts, run); err != nil {
 			return bm, err
 		}
 	}
@@ -87,18 +88,21 @@ func (b *Builder) bundle(
 }
 
 // bundleRun is what the conversations of one bundle share: the memory read once, and whether
-// the run only builds the manifest.
+// the run only builds the manifest; it also carries the zip being written and its manifest.
 type bundleRun struct {
 	mem *memoryRead
 	dry bool
+	zw  *zip.Writer
+	now time.Time
+	bm  *BundleManifest
 }
 
 // addConversation prepares one conversation and either writes its zip into the bundle or
 // lists why it is not there. Only a failed write into the bundle is an error.
 func (b *Builder) addConversation(
-	ctx context.Context, zw *zip.Writer, now time.Time, scope crewscope.Scope, id string, opts Options,
-	run bundleRun, bm *BundleManifest,
+	ctx context.Context, scope crewscope.Scope, id string, opts Options, run bundleRun,
 ) error {
+	zw, now, bm := run.zw, run.now, run.bm
 	p, err := b.prepare(ctx, scope, id, opts, run.mem)
 	if err != nil {
 		bm.list(id, err)

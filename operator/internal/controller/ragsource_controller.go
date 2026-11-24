@@ -1105,17 +1105,22 @@ func (r *RAGSourceReconciler) checkJobStatus(ctx context.Context, ragSource *kub
 		case batchv1.JobFailed:
 			if condition.Status == corev1.ConditionTrue {
 				log.Info("Indexing job failed", "job", job.Name, "reason", condition.Reason)
-				if rebuilding(ragSource) {
-					return r.failBuild(ctx, ragSource, condition.Message)
-				}
-				return r.updateStatus(ctx, ragSource, "Error", false,
-					fmt.Sprintf("Indexing job failed: %s", condition.Message))
+				return r.handleJobFailure(ctx, ragSource, condition.Message)
 			}
 		}
 	}
 
 	// Job still running
 	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+}
+
+// handleJobFailure records a failed indexing job: a failed rebuild is rolled back, any other
+// failure becomes the source's Error status.
+func (r *RAGSourceReconciler) handleJobFailure(ctx context.Context, ragSource *kubemootv1alpha1.RAGSource, message string) (ctrl.Result, error) {
+	if rebuilding(ragSource) {
+		return r.failBuild(ctx, ragSource, message)
+	}
+	return r.updateStatus(ctx, ragSource, "Error", false, fmt.Sprintf("Indexing job failed: %s", message))
 }
 
 // handleJobSuccess handles successful job completion

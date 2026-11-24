@@ -41,14 +41,15 @@ import (
 )
 
 const (
-	pathHealth      = "/health"
-	pathModels      = "/v1/models"
-	pathIsSleeping  = "/is_sleeping"
-	pathMetrics     = "/metrics"
-	pathSleep       = "/sleep"
-	pathWakeUp      = "/wake_up"
-	pathCollective  = "/collective_rpc"
-	contentTypeJSON = "application/json"
+	sleepStateReadFmt = "reading the sleep state of %q: %w"
+	pathHealth        = "/health"
+	pathModels        = "/v1/models"
+	pathIsSleeping    = "/is_sleeping"
+	pathMetrics       = "/metrics"
+	pathSleep         = "/sleep"
+	pathWakeUp        = "/wake_up"
+	pathCollective    = "/collective_rpc"
+	contentTypeJSON   = "application/json"
 
 	// maxBody caps what is read from any answer; a /metrics page is the largest.
 	maxBody = 8 << 20
@@ -135,7 +136,7 @@ func (a *Adapter) Ready(ctx context.Context, spec aiv1alpha1.ModelServerSpec, mo
 		return nil // no sleep endpoints: the server is always awake
 	}
 	if err != nil {
-		return fmt.Errorf("reading the sleep state of %q: %w", model, err)
+		return fmt.Errorf(sleepStateReadFmt, model, err)
 	}
 	if !sleeping {
 		return nil
@@ -152,7 +153,7 @@ func (a *Adapter) Release(ctx context.Context, spec aiv1alpha1.ModelServerSpec, 
 	}
 	sleeping, err := a.isSleeping(ctx, target.Endpoint)
 	if err != nil {
-		return fmt.Errorf("reading the sleep state of %q: %w", model, err)
+		return fmt.Errorf(sleepStateReadFmt, model, err)
 	}
 	if sleeping {
 		return nil
@@ -173,7 +174,7 @@ func (a *Adapter) sleepIfAwake(ctx context.Context, srv endpointModels, level in
 		if _, healthErr := a.get(ctx, srv.endpoint, pathHealth); healthErr != nil {
 			return nil
 		}
-		return fmt.Errorf("reading the sleep state of %q: %w", srv.models[0], err)
+		return fmt.Errorf(sleepStateReadFmt, srv.models[0], err)
 	case sleeping:
 		return nil
 	}

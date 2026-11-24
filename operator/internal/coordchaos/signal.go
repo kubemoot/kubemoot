@@ -42,6 +42,9 @@ type NodeSignaler struct {
 
 const debugLabel = "app.kubernetes.io/managed-by=coordinator-chaos"
 
+// flagIgnoreNotFound makes kubectl get/delete succeed when the object is already gone.
+const flagIgnoreNotFound = "--ignore-not-found"
+
 // Signal sends sig (STOP or CONT) to every process of the pod's agent container.
 func (s *NodeSignaler) Signal(ctx context.Context, pod Pod, sig string) error {
 	if sig != sigStop && sig != sigCont {
@@ -151,7 +154,7 @@ const ownerLabel = "coordinator-chaos"
 // namespaceOwner reports whether the signaling namespace exists and whether the chaos
 // test made it (it carries the managed-by label the manifest sets).
 func (s *NodeSignaler) namespaceOwner(ctx context.Context) (exists, ours bool, err error) {
-	out, err := s.K.Run(ctx, nil, "get", "namespace", s.Namespace, "--ignore-not-found", "-o", "name")
+	out, err := s.K.Run(ctx, nil, "get", "namespace", s.Namespace, flagIgnoreNotFound, "-o", "name")
 	if err != nil || strings.TrimSpace(string(out)) == "" {
 		return false, false, err
 	}
@@ -186,7 +189,7 @@ func (s *NodeSignaler) Cleanup(ctx context.Context) error {
 	if !used {
 		return nil
 	}
-	if _, err := s.K.Run(ctx, nil, "delete", "pod", "-n", s.Namespace, "-l", debugLabel, "--ignore-not-found",
+	if _, err := s.K.Run(ctx, nil, "delete", "pod", "-n", s.Namespace, "-l", debugLabel, flagIgnoreNotFound,
 		"--grace-period=0", "--force"); err != nil {
 		return err
 	}
@@ -194,6 +197,6 @@ func (s *NodeSignaler) Cleanup(ctx context.Context) error {
 	if err != nil || !exists || !ours {
 		return err
 	}
-	_, err = s.K.Run(ctx, nil, "delete", "namespace", s.Namespace, "--ignore-not-found", "--wait=false")
+	_, err = s.K.Run(ctx, nil, "delete", "namespace", s.Namespace, flagIgnoreNotFound, "--wait=false")
 	return err
 }

@@ -13,6 +13,8 @@ package v1alpha1
 import (
 	"regexp"
 	"testing"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
 // crdBasesDir is where controller-gen writes the generated CRDs.
@@ -29,29 +31,34 @@ func publishedCRDDirs() [][]string {
 func TestAgentTemperatureSchema(t *testing.T) {
 	for _, dir := range publishedCRDDirs() {
 		crd := loadCRD(t, append(dir, "kubemoot.ai_agents.yaml")...)
-		spec := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"]
-		temp, ok := spec.Properties["temperature"]
-		if !ok {
-			t.Fatalf("%v: spec.temperature is missing", dir)
+		checkTemperatureSchema(t, dir, crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"])
+	}
+}
+
+// checkTemperatureSchema holds one published Agent spec schema to the temperature contract.
+func checkTemperatureSchema(t *testing.T, dir []string, spec apiextensionsv1.JSONSchemaProps) {
+	t.Helper()
+	temp, ok := spec.Properties["temperature"]
+	if !ok {
+		t.Fatalf("%v: spec.temperature is missing", dir)
+	}
+	if temp.Default != nil {
+		t.Errorf("%v: spec.temperature must have no default, got %s", dir, temp.Default.Raw)
+	}
+	for _, r := range spec.Required {
+		if r == "temperature" {
+			t.Errorf("%v: spec.temperature must stay optional", dir)
 		}
-		if temp.Default != nil {
-			t.Errorf("%v: spec.temperature must have no default, got %s", dir, temp.Default.Raw)
+	}
+	re := regexp.MustCompile(temp.Pattern)
+	for _, good := range []string{"", "0", "0.1", "0.65", "1", "1.5", "2", "2.0"} {
+		if !re.MatchString(good) {
+			t.Errorf("%v: %q should be accepted", dir, good)
 		}
-		for _, r := range spec.Required {
-			if r == "temperature" {
-				t.Errorf("%v: spec.temperature must stay optional", dir)
-			}
-		}
-		re := regexp.MustCompile(temp.Pattern)
-		for _, good := range []string{"", "0", "0.1", "0.65", "1", "1.5", "2", "2.0"} {
-			if !re.MatchString(good) {
-				t.Errorf("%v: %q should be accepted", dir, good)
-			}
-		}
-		for _, bad := range []string{"-0.1", "2.1", "3", "hot", "0,5", "1e-1", ".5", "0.", " 0.3", "10"} {
-			if re.MatchString(bad) {
-				t.Errorf("%v: %q should be refused", dir, bad)
-			}
+	}
+	for _, bad := range []string{"-0.1", "2.1", "3", "hot", "0,5", "1e-1", ".5", "0.", " 0.3", "10"} {
+		if re.MatchString(bad) {
+			t.Errorf("%v: %q should be refused", dir, bad)
 		}
 	}
 }

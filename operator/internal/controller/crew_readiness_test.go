@@ -21,6 +21,21 @@ func agentIn(name, phase, message string) kubemootv1alpha1.Agent {
 	}
 }
 
+// requireCapacity fails unless the capacity answer has the wanted status; an empty want
+// means the answer must be absent.
+func requireCapacity(t *testing.T, got *crewCapacity, want metav1.ConditionStatus) {
+	t.Helper()
+	if want == "" {
+		if got != nil {
+			t.Fatalf("capacity %+v, want none", got)
+		}
+		return
+	}
+	if got == nil || got.status != want {
+		t.Fatalf("capacity %+v, want %s", got, want)
+	}
+}
+
 func TestAssessCrew(t *testing.T) {
 	running := agentIn(testRoleCoordinator, agentPhaseRunning, "")
 	stuckCoord := agentIn(testRoleCoordinator, agentPhaseUnschedulable, "no feasible Model for mulling phase")
@@ -55,15 +70,7 @@ func TestAssessCrew(t *testing.T) {
 			if got.phase != tc.phase || got.ready != tc.ready || !strings.Contains(got.message, tc.contains) {
 				t.Fatalf("got %+v", got)
 			}
-			if tc.capacity == "" {
-				if got.capacity != nil {
-					t.Fatalf("capacity %+v, want none", got.capacity)
-				}
-				return
-			}
-			if got.capacity == nil || got.capacity.status != tc.capacity {
-				t.Fatalf("capacity %+v, want %s", got.capacity, tc.capacity)
-			}
+			requireCapacity(t, got.capacity, tc.capacity)
 		})
 	}
 }
