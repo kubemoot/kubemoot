@@ -17,6 +17,9 @@ import (
 // truncatedMarker. The artifact is that text, so a query reads it section by section.
 const truncatedMarker = " ...[truncated]"
 
+// blankChars is the whitespace trimmed from section bodies.
+const blankChars = " \t\r\n"
+
 // sectionHeader is a line that is only a tool name in brackets.
 var sectionHeader = regexp.MustCompile(`^\[([A-Za-z][A-Za-z0-9_.-]{0,63})\]$`)
 
@@ -62,13 +65,13 @@ func closeSection(secs []section, body []string) []section {
 		return secs
 	}
 	last := &secs[len(secs)-1]
-	text := strings.TrimRight(strings.Join(body, "\n"), " \t\r\n")
+	text := strings.TrimRight(strings.Join(body, "\n"), blankChars)
 	if rest, ok := strings.CutSuffix(text, truncatedMarker); ok {
 		last.cut = true
 		last.partial = !strings.HasSuffix(rest, "\n")
 		text = rest
 	}
-	last.body = strings.TrimRight(text, " \t\r\n")
+	last.body = strings.TrimRight(text, blankChars)
 	return secs
 }
 
@@ -96,7 +99,7 @@ func dropPartialLine(body string) string {
 	if i < 0 {
 		return ""
 	}
-	return strings.TrimRight(body[:i], " \t\r\n")
+	return strings.TrimRight(body[:i], blankChars)
 }
 
 // salvageJSON returns the complete elements of a cut JSON list, or of the "items"

@@ -12,6 +12,9 @@ import (
 )
 
 // errEnough stops a row walk once the first row has been seen.
+// errTableFmt wraps a failure reading one table.
+const errTableFmt = "table %s: %w"
+
 var errEnough = errors.New("enough")
 
 // shapeOf says what columns a relation has, so sections that read the same way can
@@ -74,7 +77,7 @@ func mergeRows(table string, g []prepared, workDir string) (Relation, error) {
 			return nil
 		})
 		if err != nil {
-			return Relation{}, fmt.Errorf("table %s: %w", table, err)
+			return Relation{}, fmt.Errorf(errTableFmt, table, err)
 		}
 	}
 	if g[0].format == FormatText {
@@ -104,12 +107,12 @@ func mergeJSON(table string, g []prepared, workDir string) (Relation, error) {
 			return nil
 		})
 		if err != nil {
-			return Relation{}, fmt.Errorf("table %s: %w", table, err)
+			return Relation{}, fmt.Errorf(errTableFmt, table, err)
 		}
 	}
 	out, err := json.Marshal(rows)
 	if err != nil {
-		return Relation{}, fmt.Errorf("table %s: %w", table, err)
+		return Relation{}, fmt.Errorf(errTableFmt, table, err)
 	}
 	path := filepath.Join(workDir, table+".json")
 	if err := os.WriteFile(path, out, 0o600); err != nil {
