@@ -24,11 +24,12 @@ import (
 )
 
 // callerCredentialPayload is the part of a server's registration that makes the gateway use
-// the asking person's token. Nil for a server in mode Off, so the registration of every
-// existing server is what it was.
+// the asking person's token. A server in mode Off sends nothing, so its registration is what
+// it was, unless it sets relayContext: then only the mode and relayContext go, so the gateway
+// forwards the two ids and no credential.
 func callerCredentialPayload(mcp *kubemootv1alpha1.MCPServer) map[string]interface{} {
 	if !requiredCallerCredential(mcp) {
-		return nil
+		return relayOnlyPayload(mcp)
 	}
 	cc := mcp.Spec.Registry.CallerCredential
 	payload := map[string]interface{}{
@@ -46,6 +47,15 @@ func callerCredentialPayload(mcp *kubemootv1alpha1.MCPServer) map[string]interfa
 		payload["onForbidden"] = cc.OnForbidden
 	}
 	return payload
+}
+
+// relayOnlyPayload is the registration of a mode Off server that relays the two ids, else nil.
+func relayOnlyPayload(mcp *kubemootv1alpha1.MCPServer) map[string]interface{} {
+	if mcp.Spec.Registry == nil || mcp.Spec.Registry.CallerCredential == nil ||
+		!mcp.Spec.Registry.CallerCredential.RelayContext {
+		return nil
+	}
+	return map[string]interface{}{"mode": string(kubemootv1alpha1.CallerCredentialOff), "relayContext": true}
 }
 
 // anyCallerCredentialRequired reports whether any of the servers takes the person's own token.

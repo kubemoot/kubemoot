@@ -156,6 +156,26 @@ var _ = Describe("Each person's own access: operator wiring", func() {
 		})
 	})
 
+	Context("a server in mode Off", func() {
+		offServer := func(relay bool) *kubemootv1alpha1.MCPServer {
+			return &kubemootv1alpha1.MCPServer{Spec: kubemootv1alpha1.MCPServerSpec{
+				Registry: &kubemootv1alpha1.RegistryConfig{CallerCredential: &kubemootv1alpha1.CallerCredential{
+					Mode: kubemootv1alpha1.CallerCredentialOff, RelayContext: relay, Verifier: "ignored",
+				}}}}
+		}
+
+		It("registers only the mode and relayContext when relayContext is set", func() {
+			got := callerCredentialPayload(offServer(true))
+			Expect(got).To(HaveLen(2))
+			Expect(got).To(HaveKeyWithValue("mode", "Off"))
+			Expect(got).To(HaveKeyWithValue("relayContext", true))
+		})
+
+		It("registers nothing when relayContext is not set", func() {
+			Expect(callerCredentialPayload(offServer(false))).To(BeNil())
+		})
+	})
+
 	Context("a crew with a service token verifier", func() {
 		It("renders the verifier list and the hash key from the Secret into the gateway", func() {
 			crew := crewOf("tok", tokenAccess(false))
@@ -398,7 +418,7 @@ var _ = Describe("Each person's own access: operator wiring", func() {
 			Expect(errors.IsNotFound(brokerAccount("tools-credential-broker"))).To(BeTrue())
 		})
 
-		It("passes callerCredential through the registration, and only for a server in mode Required", func() {
+		It("passes callerCredential through the registration, and for a server in mode Off only when it relays the ids", func() {
 			server := requiredServer(ns)
 			payload := gatewayReconciler().buildRegistrationPayload(kubemootv1alpha1.ImplementationKubemoot, server)
 			Expect(payload["callerCredential"]).To(Equal(map[string]interface{}{
@@ -406,6 +426,9 @@ var _ = Describe("Each person's own access: operator wiring", func() {
 				"accountName": "Example", "onForbidden": []string{"https://fallback.example.com/mcp"},
 			}))
 			server.Spec.Registry.CallerCredential.Mode = kubemootv1alpha1.CallerCredentialOff
+			payload = gatewayReconciler().buildRegistrationPayload(kubemootv1alpha1.ImplementationKubemoot, server)
+			Expect(payload["callerCredential"]).To(Equal(map[string]interface{}{"mode": "Off", "relayContext": true}))
+			server.Spec.Registry.CallerCredential.RelayContext = false
 			payload = gatewayReconciler().buildRegistrationPayload(kubemootv1alpha1.ImplementationKubemoot, server)
 			Expect(payload).NotTo(HaveKey("callerCredential"))
 		})
