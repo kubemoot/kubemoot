@@ -60,3 +60,53 @@ never sets it.
   dashboard and liaison mount; a dashboard installed from its own chart uses its `installCA.configMap`,
   which has the same default. A dashboard that is not given the CA cannot verify the report service
   and its report calls fail.
+
+## The dashboard and the liaison asking a crew's discussion gateway
+
+Every call to a crew's discussion gateway carries the asking person's own bearer token, so each
+gateway serves TLS (`discussionGateway.tls.enabled`, on by default).
+
+- **Certificates.** The operator signs a serving certificate for each crew's gateway Service
+  (`<crew>-discussion`, `.<namespace>`, `.svc`, `.svc.cluster.local`) with the install CA into a Secret
+  in the crew's namespace, owned by the Crew and labelled so the CA bundle keeps the previous
+  CA until every such certificate is replaced. It makes a new one when the names, the CA or the key
+  no longer match, and when a third of its year is left, and the gateway reads it again as it changes
+  (no restart). A crew with a gateway is reconciled every 12 hours to check this, and every crew at once
+  when the CA Secret changes.
+- **Crew condition.** `GatewayTLSReady` says when the certificate ends. If the CA is expired or
+  within 30 days of its end, or cannot be read, the condition is false, the crew's status is `Error` with the
+  reason, and a `GatewayTLSFailed` event is recorded on the crew; no gateway Deployment is made or changed
+  until it is fixed.
+- **The gateway.** It serves https on 8443 (Service port 443). Its probes use https.
+- **Callers.** The dashboard calls `https://<crew>-discussion.<namespace>.svc.cluster.local`, and the
+  liaison `https://<crew>-discussion.<namespace>.svc`. Each verifies against the install CA bundle and
+  refuses any other certificate before the token is sent. The liaison pod waits for the CA ConfigMap
+  to exist; the dashboard's mount is optional, and a call over https before the operator has published
+  it fails rather than going unverified. The liaison refuses plain http to a gateway unless
+  `LIAISON_ALLOW_INSECURE_GATEWAY=true`, which the chart sets only when gateway TLS is off.
+
+### What still uses the plain port
+
+`discussionGateway.tls.plainListener` (default `true`) keeps the gateway's plain listener on port 80 of
+its Service. These callers use it and cannot use the TLS port yet:
+
+| Caller | Why | Carries a token |
+|---|---|---|
+| The Gateway API route to a crew (Cloudflare, the Cilium Gateway) | The route's backend is port 80; encrypting that hop needs a Gateway API `BackendTLSPolicy` | yes |
+| The API server's service proxy: `kmctl conversation ask`, the quickstart, the coordinator chaos test | The proxy reaches port 80, and the API server does not verify a backend certificate | yes |
+| The fitness runner | Runs without a caller token | no |
+
+On a cluster that does not encrypt pod traffic these hops are still in the clear. Turn the plain
+listener off (`plainListener: false`) once nothing you run depends on it: the gateway then answers only
+https, and the callers above stop working until they move. The credential lease port (8081), which the
+tool gateway uses, is a separate plain listener and stays plain even then.
+
+### Upgrading
+
+An upgrade signs a certificate per crew, adds the TLS port and mounts to each gateway (the Deployment
+rolls once) and keeps the plain port, so nothing that works now stops. There is a short window, while the
+gateways roll, in which the dashboard and the liaison already call https and a gateway has not yet got its
+TLS port: those calls fail and succeed again once the gateway is ready. The chart pins the gateway image
+with the operator, so a gateway never runs with TLS settings its image does not read. A dashboard installed
+from its own chart, not the operator chart, sets `installCA.configMap`, or `auth.gatewayUrl` to an address
+it can verify. With `discussionGateway.tls.enabled: false` set `dashboard.auth.gatewayUrl` to an http address.

@@ -77,6 +77,8 @@ type CrewReconciler struct {
 	// RegisteredAccounts are the connected-account names this install has registered a client
 	// for; a crew declaring any other name reports UnregisteredAccount. Nil registers none.
 	RegisteredAccounts RegisteredAccounts
+	// GatewayTLS issues the gateways' serving certificates. Nil serves the gateways plain.
+	GatewayTLS *GatewayTLS
 	// bus replaces NATSPublisher for discussion-state cleanup in tests.
 	bus crewDiscussionBus
 }
@@ -147,7 +149,8 @@ func (r *CrewReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	r.reconcileRetention(crew)
 	r.reconcileAccessConditions(ctx, crew)
-	return r.updateAssessedStatus(ctx, crew, assessCrew(agents.Items, coordinatorName))
+	result, err := r.updateAssessedStatus(ctx, crew, assessCrew(agents.Items, coordinatorName))
+	return r.withCertCheck(result, crew), err
 }
 
 // reconcileNetworkPolicies applies the policy that admits callers from outside the
@@ -261,6 +264,10 @@ func (r *CrewReconciler) reconcileDiscussion(ctx context.Context, crew *kubemoot
 	}
 	if err := r.reconcileRBAC(ctx, crew); err != nil {
 		res, err := r.updateStatus(ctx, crew, "Error", false, fmt.Sprintf("Failed to reconcile RBAC: %v", err))
+		return res, err, true
+	}
+	if err := r.reconcileGatewayCert(ctx, crew); err != nil {
+		res, err := r.updateStatus(ctx, crew, "Error", false, fmt.Sprintf("Failed to issue the gateway's TLS certificate: %v", err))
 		return res, err, true
 	}
 	deployment, err := r.reconcileDeployment(ctx, crew)
@@ -505,6 +512,7 @@ func (r *CrewReconciler) reconcileDeployment(ctx context.Context, crew *kubemoot
 	}
 
 	desired := r.buildDeployment(crew)
+	r.GatewayTLS.apply(&desired.Spec.Template.Spec, name)
 	if err := r.applyCredentialLease(ctx, crew, desired); err != nil {
 		return nil, err
 	}
@@ -677,6 +685,12 @@ func (r *CrewReconciler) reconcileService(ctx context.Context, crew *kubemootv1a
 				Protocol:   corev1.ProtocolTCP,
 			},
 		}
+		if r.GatewayTLS != nil {
+			ports = append(ports, corev1.ServicePort{
+				Name: portNameHTTPS, Port: gatewayTLSServicePort,
+				TargetPort: intstr.FromInt32(gatewayTLSPort), Protocol: corev1.ProtocolTCP,
+			})
+		}
 		if crewKeepsTokens(crew) {
 			// The lease port, which the network policy keeps to the crew's tool gateway.
 			ports = append(ports, corev1.ServicePort{
@@ -837,6 +851,8 @@ func (r *CrewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
+		// A gateway's serving certificate is made again when it is deleted or edited.
+		Owns(&corev1.Secret{}, builder.WithPredicates(labelledInstallCALeaf())).
 		Owns(&networkingv1.NetworkPolicy{}).
 		// A crew's readiness is derived from its agents' phases.
 		Watches(&kubemootv1alpha1.Agent{}, enqueueCrewForAgent()).
@@ -860,5 +876,7 @@ func (r *CrewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// A rotated image pull secret reaches the crew namespace copies at once.
 		Watches(&corev1.Secret{}, enqueueCrewsForSecret(mgr.GetClient(), r.ConfigCache),
 			builder.WithPredicates(sourceSecretPredicate())).
+		// A new gateway CA means every crew's certificate is made again.
+		Watches(&corev1.Secret{}, enqueueCrewsOnCA(mgr.GetClient()), builder.WithPredicates(caSecretPredicate(r.installCA()))).
 		Complete(r)
 }

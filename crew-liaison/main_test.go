@@ -85,3 +85,22 @@ func testCAPEM(t *testing.T) []byte {
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
+
+func TestCrewGatewayIsHTTPSUnlessPlainHTTPIsAccepted(t *testing.T) {
+	ca := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(ca, testCAPEM(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if g, err := crewGateway(envMap(map[string]string{envCAFile: ca})); err != nil || g == nil {
+		t.Fatalf("with a CA file: %v", err)
+	}
+	if _, err := crewGateway(envMap(nil)); err == nil || !strings.Contains(err.Error(), envCAFile) {
+		t.Fatalf("with neither a CA file nor the opt-in: %v", err)
+	}
+	if _, err := crewGateway(envMap(map[string]string{envCAFile: "/nonexistent/ca.crt"})); err == nil {
+		t.Fatal("an unreadable CA file was accepted")
+	}
+	if g, err := crewGateway(envMap(map[string]string{envAllowInsecureGateway: "true"})); err != nil || g == nil {
+		t.Fatalf("with the opt-in: %v", err)
+	}
+}

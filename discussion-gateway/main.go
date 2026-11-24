@@ -72,32 +72,14 @@ func main() {
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
-	// HTTP server
-
-	srv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 0, // SSE requires no write timeout
-		IdleTimeout:  120 * time.Second,
-	}
-
-	go func() {
-		log.Info("Starting discussion-gateway", "port", port, "nats", natsURL, "namespace", namespace)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error(err, "Server failed")
-			os.Exit(1)
-		}
-	}()
+	servers := startServers(ctx, log, port, mux)
 
 	<-ctx.Done()
 	log.Info("Shutting down")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Error(err, "Shutdown error")
-	}
+	shutdownServers(shutdownCtx, log, servers)
 	shutdownLease(shutdownCtx, leaseSrv, log)
 
 	fmt.Println("Stopped")

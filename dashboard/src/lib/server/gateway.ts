@@ -5,6 +5,7 @@
 
 import { callerEnded, callerToken } from './auth/identity.js';
 import { jsonError } from './json-error.js';
+import { internalFetch } from './internal-tls.js';
 import { gatewayUrlTemplate } from './mode.js';
 import { getCrew } from './k8s/kubemoot-crds.js';
 import { guardNamespace } from './scope.js';
@@ -30,10 +31,10 @@ export function validConversationId(value: string): boolean {
 	return isConversationId(value);
 }
 
-/** The gateway's address for a crew: the template from the environment, else the in-cluster Service. */
+/** The gateway's address for a crew: the template from the environment, else the in-cluster Service over https. */
 export function gatewayUrl(namespace: string, crew: string, path: string, template = gatewayUrlTemplate()): string {
 	if (!validLabel(namespace) || !validLabel(crew)) throw new Error('invalid namespace or crew name');
-	const fallback = 'http://{crew}-discussion.{namespace}.svc.cluster.local';
+	const fallback = 'https://{crew}-discussion.{namespace}.svc.cluster.local';
 	const base = trimSlashes((template || fallback).replaceAll('{crew}', crew).replaceAll('{namespace}', namespace));
 	return `${base}${path}`;
 }
@@ -83,7 +84,7 @@ export async function callGateway(
 	// The call also ends with the person's session, so a stream cannot outlive their sign-out.
 	const ended = callerEnded();
 	const signal = init.signal && ended ? AbortSignal.any([init.signal, ended]) : (init.signal ?? ended);
-	return fetch(gatewayUrl(namespace, crew, path), {
+	return internalFetch(gatewayUrl(namespace, crew, path), {
 		method: init.method ?? 'GET',
 		headers,
 		body: init.body === undefined ? undefined : JSON.stringify(init.body),

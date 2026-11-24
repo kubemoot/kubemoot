@@ -114,6 +114,12 @@ spec:
             - name: KEDA_NATS_MONITORING_ENDPOINT
               value: {{ .Values.scaleToZero.natsMonitoringEndpoint | default "nats-headless.nats.svc.cluster.local:8222" | quote }}
             {{- end }}
+            # Gateway TLS: whether each crew's discussion gateway serves TLS with a certificate from the
+            # install CA, and whether its plain listener stays beside it.
+            - name: GATEWAY_TLS_ENABLED
+              value: {{ .Values.discussionGateway.tls.enabled | quote }}
+            - name: GATEWAY_TLS_PLAIN_LISTENER
+              value: {{ .Values.discussionGateway.tls.plainListener | quote }}
             # The report Service's name, which its serving certificate names.
             - name: REPORT_SERVICE_NAME
               value: {{ printf "%s-report" (include "kubemoot-operator.fullname" .) | quote }}

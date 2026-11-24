@@ -52,7 +52,12 @@ func main() {
 	}
 
 	tickets := liaison.NewStore(ttl)
-	svc := liaison.NewService(liaison.NewLister(k8s), liaison.NewGateway(), tickets, maxInflight)
+	gateway, err := crewGateway(os.Getenv)
+	if err != nil {
+		log.Error(err, "gateway TLS")
+		os.Exit(1)
+	}
+	svc := liaison.NewService(liaison.NewLister(k8s), gateway, tickets, maxInflight)
 	svc.WithDisplayName(os.Getenv("LIAISON_DISPLAY_NAME"))
 	if exporter, err := reportExporter(os.Getenv); err != nil {
 		log.Error(err, "conversation export is off")
@@ -121,6 +126,24 @@ func reportExporter(getenv func(string) string) (*liaison.Exporter, error) {
 		return liaison.NewExporterWithCA(reportURL, file)
 	}
 	return liaison.NewExporter(reportURL), nil
+}
+
+// envAllowInsecureGateway lets the liaison call the crews' discussion gateways over plain http. The
+// calls carry the asking person's bearer token, so without it the liaison uses https and
+// verifies each gateway against LIAISON_CA_FILE; the chart sets it only when gateway TLS is off.
+const envAllowInsecureGateway = "LIAISON_ALLOW_INSECURE_GATEWAY"
+
+// crewGateway builds the client of the crews' discussion gateways.
+func crewGateway(getenv func(string) string) (*liaison.Gateway, error) {
+	if getenv(envAllowInsecureGateway) == "true" {
+		return liaison.NewGateway(), nil
+	}
+	file := getenv(envCAFile)
+	if file == "" {
+		return nil, errors.New(envCAFile + " is required to call the crews' gateways over https; " +
+			"set " + envAllowInsecureGateway + "=true to call them over plain http")
+	}
+	return liaison.NewGatewayWithCA(file)
 }
 
 // sweep expires old tickets once a minute.

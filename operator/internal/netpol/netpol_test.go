@@ -172,6 +172,7 @@ func TestBaseline(t *testing.T) {
 
 func TestDiscussionGatewayLeaseIngressAdmitsOnlyTheToolGatewayToTheLeasePort(t *testing.T) {
 	cfg := testConfig()
+	cfg.GatewayTLS = true
 	cfg.Metrics = PodRef{Namespace: testScraperNS, Labels: map[string]string{"app": "prom"}}
 	objs := DiscussionGatewayLeaseIngress(cfg, testPilot, testNS)
 	eq(t, "one policy", len(objs), 1)
@@ -192,6 +193,18 @@ func TestDiscussionGatewayLeaseIngressAdmitsOnlyTheToolGatewayToTheLeasePort(t *
 	}
 	eq(t, "serving port peers: namespace, operator namespace, scraper", len(p.Spec.Ingress[1].From), 3)
 	eq(t, "serving port", p.Spec.Ingress[1].Ports[0].Port.IntVal, int32(DiscussionGatewayPort))
+	eq(t, "TLS port", p.Spec.Ingress[1].Ports[1].Port.IntVal, int32(DiscussionGatewayTLSPort))
+}
+
+func TestTheTLSPortIsAdmittedOnlyWhenTheGatewaysServeTLS(t *testing.T) {
+	cfg := testConfig()
+	eq(t, "plain only", gatewayPorts(cfg), []int32{DiscussionGatewayPort})
+	cfg.GatewayTLS = true
+	eq(t, "plain and TLS", gatewayPorts(cfg), []int32{DiscussionGatewayPort, DiscussionGatewayTLSPort})
+	cfg.UseCilium = true
+	entities := ciliumGatewayEntities(cfg, GatewayProxy{Namespace: testNS, Crew: testPilot})
+	ports := entities.Object["spec"].(map[string]any)["ingress"].([]any)[0].(map[string]any)[keyToPorts].([]any)[0].(map[string]any)["ports"].([]any)
+	eq(t, "cilium ports", len(ports), 2)
 }
 
 func TestDiscussionGatewayLeaseDestIsTheCrewsTokenKeepingGatewayOnTheLeasePort(t *testing.T) {
