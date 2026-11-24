@@ -19,6 +19,11 @@
 #                     a full reference to the public registry, which holds finals only
 # All of them are tags reachable from HEAD.
 #
+# A chart is never built while a pinned image is older than the code at HEAD: the
+# commits after the image's tagged commit must not touch the component's release path
+# filter (chart-image-pairing.sh). The component's own release triggers this workflow
+# again when it finishes, so the chart follows the image, FORCE or not.
+#
 # The resolved versions and the chart source trees are the build's manifest, recorded
 # in the candidate tag's message. When the latest candidate has the same manifest, the
 # chart is current and nothing is built; FORCE=true builds anyway.
@@ -48,6 +53,8 @@ shopt -s inherit_errexit
 source "${RELEASE_LIB:?RELEASE_LIB must point to release-lib.sh from kubemoot/release-actions}"
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/release-chart-lib.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/chart-image-pairing.sh"
 
 FORCE="${FORCE:-false}"
 OUT_DIR="$(mkdir -p "${OUT_DIR:-chart-release}" && cd "${OUT_DIR:-chart-release}" && pwd)"
@@ -102,6 +109,16 @@ main() {
   wt="$RL_CHECKOUT"
   pins=$(stamp "$wt" "$commit")
   body=$(manifest "$commit" "$pins")
+  # Never pin an image built from older code than the chart's templates (chart-image-pairing.sh).
+  local pairing=0
+  pins_are_current "$commit" "$pins" || pairing=$?
+  [ "$pairing" -ne 2 ] || die "cannot tell whether every pinned image is current (above)"
+  if [ "$pairing" -ne 0 ]; then
+    echo "::warning::No chart candidate: a pinned image (above) is older than the code at ${commit}. The release of that component builds it and runs this workflow again."
+    output will_release false
+    output released false
+    return 0
+  fi
   if chart_is_current "$commit" "$body"; then
     echo "The latest chart candidate already has these versions and chart sources; nothing to build"
     output will_release false

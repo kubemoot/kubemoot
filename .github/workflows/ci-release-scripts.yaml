@@ -113,6 +113,7 @@ jobs:
           bash .github/scripts/test-quickstart-images.sh
           bash .github/scripts/test-install-crane.sh
           bash .github/scripts/test-check-chart-triggers.sh
+          bash .github/scripts/test-chart-image-pairing.sh
           bash .github/scripts/test-check-native-libs.sh
           bash .github/scripts/test-check-native-target.sh
           bash .github/scripts/test-check-go-builder-version.sh
