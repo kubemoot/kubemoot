@@ -37,6 +37,7 @@ class DiscussionOrchestratorReviewConveningTest extends CoordinatorThreadTestBas
     protected void configureDiscuss(AgentProperties.Discuss discuss) {
         when(discuss.reviewConvene()).thenReturn(Optional.of(convene));
         when(discuss.reviewFallback()).thenReturn(Optional.of("primary"));
+        when(discuss.reviewGeneralists()).thenReturn(Optional.empty());
     }
 
     private ReviewConvening.Plan plan(DiscussionOrchestrator.ThreadState state) {

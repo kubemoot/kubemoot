@@ -95,7 +95,7 @@ Analyst that shares the most words with the question and the gathering Toolers' 
 Analysts therefore never reviews with none, and a crew that wants every Analyst to review sets
 `convene: all`.
 
-An Analyst that declares no `domains` is a generalist and reviews every discussion; a Tooler that
+An Analyst that declares no `domains` is a generalist and reviews every discussion, unless the archetype sets `generalists: selected`, which has it review only the discussions where the coordinator selected it; a Tooler that
 declares none gathers data without domain context, so it adds nothing to the match. A crew gets
 the narrowing by declaring domains. The coordinator reports why it convened the reviewers in the `reviewBasis` of the `review_ready` message
 (`domain`, `selected`, `primary`, `fallback-all` or `all`) and in its log.

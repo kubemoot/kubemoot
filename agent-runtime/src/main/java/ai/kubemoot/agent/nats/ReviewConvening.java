@@ -24,7 +24,8 @@ import java.util.TreeSet;
  *
  * <p>An agent's domains are the {@code domains} of its resume. An analyst that declares none is a
  * generalist (a cross-cutting reviewer such as arithmetic over any data) and reviews every
- * discussion in domain mode. Terms are compared as lower-case alphanumeric tokens.
+ * discussion in domain mode, unless the archetype sets {@link Generalists#SELECTED}: it then reviews
+ * only when the coordinator selected it for the question. Terms are compared as lower-case alphanumeric tokens.
  * Parsed with readTree only, never records or readValue (GraalVM native).
  */
 final class ReviewConvening {
@@ -35,9 +36,19 @@ final class ReviewConvening {
     /** Who reviews when {@link Convene#DOMAIN} matches no analyst. */
     enum Fallback { PRIMARY, ALL }
 
+    /**
+     * Whether an analyst that declares no domain reviews every discussion ({@code ALWAYS}) or only the
+     * discussions where the coordinator selected it ({@code SELECTED}).
+     */
+    enum Generalists { ALWAYS, SELECTED }
+
     /** The archetype's review declaration. */
-    record Policy(Convene convene, Fallback fallback) {
+    record Policy(Convene convene, Fallback fallback, Generalists generalists) {
         static final Policy LEGACY = new Policy(Convene.ALL, Fallback.PRIMARY);
+
+        Policy(Convene convene, Fallback fallback) {
+            this(convene, fallback, Generalists.ALWAYS);
+        }
     }
 
     /**
@@ -61,9 +72,16 @@ final class ReviewConvening {
 
     /** The policy from the two environment values; a missing or unknown value keeps today's behavior. */
     static Policy policy(Optional<String> convene, Optional<String> fallback) {
+        return policy(convene, fallback, Optional.empty());
+    }
+
+    /** The policy from the three environment values; a missing or unknown value keeps today's behavior. */
+    static Policy policy(Optional<String> convene, Optional<String> fallback, Optional<String> generalists) {
         var conveneMode = "domain".equalsIgnoreCase(convene.orElse("").strip()) ? Convene.DOMAIN : Convene.ALL;
         var fallbackMode = "all".equalsIgnoreCase(fallback.orElse("").strip()) ? Fallback.ALL : Fallback.PRIMARY;
-        return new Policy(conveneMode, fallbackMode);
+        var generalistMode = "selected".equalsIgnoreCase(generalists.orElse("").strip())
+                ? Generalists.SELECTED : Generalists.ALWAYS;
+        return new Policy(conveneMode, fallbackMode, generalistMode);
     }
 
     /**
@@ -94,7 +112,7 @@ final class ReviewConvening {
             base.addAll(fallback.circle());
             basis = fallback.basis();
         }
-        base.addAll(generalists(analysts, terms));
+        if (policy.generalists() == Generalists.ALWAYS) base.addAll(generalists(analysts, terms));
         return new Plan(List.copyOf(base), basis);
     }
 
