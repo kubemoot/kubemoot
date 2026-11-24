@@ -5,6 +5,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 /**
  * Carries any text in a NATS header value, which allows printable ASCII only. A value of printable
@@ -49,13 +50,13 @@ public final class HeaderValue {
         if (value == null || !value.startsWith(MARKER)) {
             return value;
         }
-        byte[] bytes = unescape(value, MARKER.length());
-        if (bytes == null) {
+        Optional<byte[]> bytes = unescape(value, MARKER.length());
+        if (bytes.isEmpty()) {
             return value;
         }
         try {
             return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes.get())).toString();
         } catch (CharacterCodingException e) {
             return value;
         }
@@ -81,27 +82,29 @@ public final class HeaderValue {
         return isPrintableAscii(c) && c != '%';
     }
 
-    /** The bytes the text from {@code from} stands for; null when it is not printable ASCII with well-formed escapes. */
-    private static byte[] unescape(String text, int from) {
+    /** The bytes the text from {@code from} stands for; empty when it is not printable ASCII with well-formed escapes. */
+    private static Optional<byte[]> unescape(String text, int from) {
         var out = new ByteArrayOutputStream();
-        for (int i = from; i < text.length(); i++) {
+        int i = from;
+        while (i < text.length()) {
             char c = text.charAt(i);
             if (!isPrintableAscii(c)) {
-                return null;
+                return Optional.empty();
             }
             if (c != '%') {
                 out.write(c);
+                i++;
                 continue;
             }
             int hi = i + 2 < text.length() ? hex(text.charAt(i + 1)) : -1;
             int lo = i + 2 < text.length() ? hex(text.charAt(i + 2)) : -1;
             if (hi < 0 || lo < 0) {
-                return null;
+                return Optional.empty();
             }
             out.write(hi << 4 | lo);
-            i += 2;
+            i += 3;
         }
-        return out.toByteArray();
+        return Optional.of(out.toByteArray());
     }
 
     /** The value of an ASCII hex digit, or -1. */

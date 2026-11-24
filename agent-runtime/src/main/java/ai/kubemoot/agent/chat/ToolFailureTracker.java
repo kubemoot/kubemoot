@@ -30,7 +30,7 @@ final class ToolFailureTracker {
      * Record one failed call. {@code knownRepeat} marks a call the runtime refused as an identical
      * repeat, which counts as a repeat whatever the tracker has seen.
      */
-    Verdict record(String arguments, String errorText, boolean knownRepeat) {
+    Verdict recordFailure(String arguments, String errorText, boolean knownRepeat) {
         failures++;
         boolean newCall = failedCalls.add(ToolCallRepeatGuard.canonical(arguments));
         boolean newError = errorTexts.add(normalize(errorText));

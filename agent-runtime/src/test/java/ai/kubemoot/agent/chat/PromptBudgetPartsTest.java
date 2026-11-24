@@ -128,7 +128,7 @@ class PromptBudgetPartsTest {
         var registry = new SimpleMeterRegistry();
         Metrics.addRegistry(registry);
         try {
-            new PromptReport(10, 20, 30, 40, 50).record(160);
+            new PromptReport(10, 20, 30, 40, 50).recordTotals(160);
             for (String component : PromptReport.COMPONENTS) {
                 assertNotNull(registry.find(PromptReport.METRIC).tag("component", component).summary(), component);
             }

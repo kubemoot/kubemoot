@@ -169,12 +169,12 @@ abstract class CoordinatorThreadTestBase {
     private Connection fakeBus() {
         var conn = mock(Connection.class);
         doAnswer(call -> {
-            record(call.getArgument(0), null, call.getArgument(1));
+            recordSent(call.getArgument(0), null, call.getArgument(1));
             return null;
         }).when(conn).publish(anyString(), any(byte[].class));
         doAnswer(call -> {
             Headers headers = call.getArgument(1);
-            record(call.getArgument(0), headers.getFirst("Nats-Msg-Id"), call.getArgument(2));
+            recordSent(call.getArgument(0), headers.getFirst("Nats-Msg-Id"), call.getArgument(2));
             return null;
         }).when(conn).publish(anyString(), any(Headers.class), any(byte[].class));
         // The answer and the close go through JetStream and its acknowledgement.
@@ -182,7 +182,7 @@ abstract class CoordinatorThreadTestBase {
         try {
             doAnswer(call -> {
                 io.nats.client.PublishOptions options = call.getArgument(2);
-                record(call.getArgument(0), options.getMessageId(), call.getArgument(1));
+                recordSent(call.getArgument(0), options.getMessageId(), call.getArgument(1));
                 return null;
             }).when(js).publish(anyString(), any(byte[].class), any(io.nats.client.PublishOptions.class));
             when(conn.jetStream(any(io.nats.client.JetStreamOptions.class))).thenReturn(js);
@@ -192,7 +192,7 @@ abstract class CoordinatorThreadTestBase {
         return conn;
     }
 
-    private void record(String subject, String streamId, byte[] payload) {
+    private void recordSent(String subject, String streamId, byte[] payload) {
         try {
             var message = new Published(subject, streamId, MAPPER.readTree(payload));
             published.add(message);

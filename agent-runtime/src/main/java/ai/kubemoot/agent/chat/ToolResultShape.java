@@ -68,7 +68,10 @@ record ToolResultShape(String type, int rows, List<String> columns) {
 
     /** The keys of the first object of a JSON list, or of the object itself. */
     private static List<String> fieldNames(JsonNode root, JsonNode list) {
-        JsonNode row = list.isArray() ? (list.isEmpty() ? null : list.get(0)) : root;
+        JsonNode row = root;
+        if (list.isArray()) {
+            row = list.isEmpty() ? null : list.get(0);
+        }
         List<String> names = new ArrayList<>();
         if (row != null && row.isObject()) {
             Iterator<String> it = row.fieldNames();

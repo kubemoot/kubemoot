@@ -7,6 +7,7 @@ import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.chat.DiscussionRoom;
 import ai.kubemoot.agent.chat.TextCut;
 import io.nats.client.Connection;
+import io.nats.client.JetStreamApiException;
 import io.nats.client.ObjectStore;
 import io.nats.client.api.ObjectInfo;
 import java.io.ByteArrayOutputStream;
@@ -162,20 +163,25 @@ final class StoredResults {
             boolean markedCut = info != null && info.getHeaders() != null
                     && Boolean.parseBoolean(info.getHeaders().getFirst(CallHeaders.TRUNCATED));
             var out = new CappedOutput(maxBytes, timeUp);
-            try {
-                store.get(call.key(), out);
-            } catch (IOException e) {
-                if (out.stopped() == Stop.NONE) {
-                    throw e;
-                }
-                // the room is full or time is up: the output aborted the read on purpose
-            }
+            readInto(store, call.key(), out);
             return out.stopped() == Stop.TIME ? null : new Fetched(out.text(), markedCut || out.stopped() == Stop.CAP);
         } catch (InterruptedException e) {
             throw e;
         } catch (Exception e) {
             log.warn("Could not read stored result {} ({}): {}", call.key(), e.getClass().getSimpleName(), LogContent.reason(e));
             return null;
+        }
+    }
+
+    /** Reads {@code key} into {@code out}; a read the output aborted on purpose (room full or time up) is not an error. */
+    private static void readInto(ObjectStore store, String key, CappedOutput out)
+            throws IOException, JetStreamApiException, InterruptedException, java.security.NoSuchAlgorithmException {
+        try {
+            store.get(key, out);
+        } catch (IOException e) {
+            if (out.stopped() == Stop.NONE) {
+                throw e;
+            }
         }
     }
 
@@ -336,6 +342,14 @@ final class StoredResults {
             return new String(bytes, 0, end, StandardCharsets.UTF_8);
         }
 
+        /** The length of the UTF-8 sequence a lead byte starts: 2, 3 or 4. */
+        private static int utf8SequenceLength(byte lead) {
+            if ((lead & 0xE0) == 0xC0) {
+                return 2;
+            }
+            return (lead & 0xF0) == 0xE0 ? 3 : 4;
+        }
+
         private static int completeEnd(byte[] b) {
             int i = b.length - 1;
             while (i >= 0 && (b[i] & 0xC0) == 0x80 && b.length - i < 4) {
@@ -344,7 +358,7 @@ final class StoredResults {
             if (i < 0 || (b[i] & 0x80) == 0) {
                 return b.length;
             }
-            int need = (b[i] & 0xE0) == 0xC0 ? 2 : (b[i] & 0xF0) == 0xE0 ? 3 : 4;
+            int need = utf8SequenceLength(b[i]);
             return b.length - i < need ? i : b.length;
         }
     }

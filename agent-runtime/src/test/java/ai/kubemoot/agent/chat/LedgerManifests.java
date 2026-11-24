@@ -16,7 +16,7 @@ public final class LedgerManifests {
     public static String unstored(java.util.OptionalLong window, String... results) {
         var ledger = ToolCallLedger.unstoredForLoop("th", "obs", window);
         for (String result : results) {
-            ledger.record(new ToolCallLedger.Call("artifact_select", "id", "{}", Instant.EPOCH, 1), result, false, 1_000_000);
+            ledger.recordCall(new ToolCallLedger.Call("artifact_select", "id", "{}", Instant.EPOCH, 1), result, false, 1_000_000);
         }
         return ledger.manifest();
     }
@@ -25,7 +25,7 @@ public final class LedgerManifests {
     public static String of(String... results) {
         var ledger = new ToolCallLedger(new ChatServiceCallFilesTest.FakeStore(), "th", "k8s");
         for (String result : results) {
-            ledger.record(new ToolCallLedger.Call("workspace_grep", "id", "{}", Instant.EPOCH, 1), result, false, 1_000_000);
+            ledger.recordCall(new ToolCallLedger.Call("workspace_grep", "id", "{}", Instant.EPOCH, 1), result, false, 1_000_000);
         }
         return ledger.manifest();
     }

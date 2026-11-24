@@ -66,7 +66,7 @@ record PromptReport(long system, long tools, long thread, long assistant, long t
     }
 
     /** Record each component, and the engine's total, on the global registry (a no-op without one). */
-    void record(long reported) {
+    void recordTotals(long reported) {
         long[] values = {system, tools, thread, assistant, toolResults, reported};
         for (int i = 0; i < values.length; i++) {
             if (values[i] > 0) {

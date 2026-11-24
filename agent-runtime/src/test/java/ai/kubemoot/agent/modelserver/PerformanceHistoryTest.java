@@ -41,8 +41,8 @@ class PerformanceHistoryTest {
         var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         var h = history(new InMemoryKv().server(PerformanceHistory.BUCKET), "a", new SchedulerMetrics(registry, "learned"));
 
-        h.record(call(true, false, 100));
-        h.record(new CallObservation("", "", CallObservation.KIND_SIMPLE, true, false, 0, 0, 1, -1, -1, -1, 0, 0L));
+        h.observe(call(true, false, 100));
+        h.observe(new CallObservation("", "", CallObservation.KIND_SIMPLE, true, false, 0, 0, 1, -1, -1, -1, 0, 0L));
         h.recordWait(SERVER, MODEL, 2_000);
         h.recordWait(SERVER, MODEL, -1);
         h.recordUnplacedWait(MODEL, 9_000);
@@ -66,7 +66,7 @@ class PerformanceHistoryTest {
     @Test
     void record_writesTheRequestUnderThisAgentsKey() throws Exception {
         var bucket = new InMemoryKv();
-        history(bucket.server(PerformanceHistory.BUCKET), "a").record(call(true, true, 4_000));
+        history(bucket.server(PerformanceHistory.BUCKET), "a").observe(call(true, true, 4_000));
 
         JsonNode e = stored(bucket, "a");
         assertEquals(SERVER, e.path("server").asText());
@@ -86,7 +86,7 @@ class PerformanceHistoryTest {
         var bucket = new InMemoryKv();
         var h = history(bucket.server(PerformanceHistory.BUCKET), "a");
         for (int i = 0; i < PerformanceHistory.MAX_SAMPLES + 5; i++) {
-            h.record(call(i % 2 == 0, false, i));
+            h.observe(call(i % 2 == 0, false, i));
         }
 
         JsonNode e = stored(bucket, "a");
@@ -115,8 +115,8 @@ class PerformanceHistoryTest {
     void unattributableObservationsAndNegativeWaits_areIgnored() {
         var bucket = new InMemoryKv();
         var h = history(bucket.server(PerformanceHistory.BUCKET), "a");
-        h.record(null);
-        h.record(new CallObservation("", MODEL, CallObservation.KIND_SIMPLE, true, false, 0, 0, 1,
+        h.observe(null);
+        h.observe(new CallObservation("", MODEL, CallObservation.KIND_SIMPLE, true, false, 0, 0, 1,
                 -1, -1, -1, 0, 0));
         h.recordWait(SERVER, null, 10);
         h.recordWait(SERVER, MODEL, -1);
@@ -127,9 +127,9 @@ class PerformanceHistoryTest {
     void entriesFor_readsEveryAgentsEntry_forThatServerAndModelOnly() {
         var bucket = new InMemoryKv();
         var nats = bucket.server(PerformanceHistory.BUCKET);
-        history(nats, "a").record(call(true, false, 100));
-        history(nats, "b").record(call(true, false, 200));
-        history(nats, "b").record(new CallObservation(SERVER, "qwen3:8b", CallObservation.KIND_TRIAGE, true,
+        history(nats, "a").observe(call(true, false, 100));
+        history(nats, "b").observe(call(true, false, 200));
+        history(nats, "b").observe(new CallObservation(SERVER, "qwen3:8b", CallObservation.KIND_TRIAGE, true,
                 false, 10, 10, 50, -1, -1, -1, 0, 0));
 
         assertEquals(2, history(nats, "c").entriesFor(SERVER, MODEL).size());
@@ -141,8 +141,8 @@ class PerformanceHistoryTest {
     void afterARestart_theAgentContinuesItsStoredEntry() throws Exception {
         var bucket = new InMemoryKv();
         var nats = bucket.server(PerformanceHistory.BUCKET);
-        history(nats, "a").record(call(true, false, 100));
-        history(nats, "a").record(call(false, false, 200));
+        history(nats, "a").observe(call(true, false, 100));
+        history(nats, "a").observe(call(false, false, 200));
 
         JsonNode e = stored(bucket, "a");
         assertEquals(2, e.path("requests").asLong());
@@ -154,7 +154,7 @@ class PerformanceHistoryTest {
     void withoutNats_recordingAndReadingDoNothing() {
         var nats = mock(NatsLink.class);
         var h = history(nats, "a");
-        assertDoesNotThrow(() -> h.record(call(true, false, 1)));
+        assertDoesNotThrow(() -> h.observe(call(true, false, 1)));
         assertTrue(h.entriesFor(SERVER, MODEL).isEmpty());
     }
 
@@ -164,12 +164,12 @@ class PerformanceHistoryTest {
     void aFailedRead_skipsTheWrite_andNeverReplacesTheStoredHistory() throws Exception {
         var bucket = new InMemoryKv();
         var nats = bucket.server(PerformanceHistory.BUCKET);
-        history(nats, "a").record(call(true, false, 100));
+        history(nats, "a").observe(call(true, false, 100));
         String key = PerformanceHistory.key(SERVER, MODEL, "crew-ns/a");
         when(bucket.kv.get(key)).thenThrow(new java.io.IOException("timeout"));
 
         var restarted = history(nats, "a");
-        restarted.record(call(true, false, 200));
+        restarted.observe(call(true, false, 200));
 
         assertEquals(1, stored(bucket, "a").path("requests").asLong(), "the stored history is kept");
         assertEquals(1, restarted.droppedWrites());
@@ -181,7 +181,7 @@ class PerformanceHistoryTest {
         String key = PerformanceHistory.key(SERVER, MODEL, "crew-ns/a");
         bucket.data.put(key, "{\"samples\": 3, \"waits\": \"x\"}".getBytes());
 
-        history(bucket.server(PerformanceHistory.BUCKET), "a").record(call(true, false, 100));
+        history(bucket.server(PerformanceHistory.BUCKET), "a").observe(call(true, false, 100));
 
         JsonNode e = stored(bucket, "a");
         assertEquals(1, e.path(PerformanceHistory.F_SAMPLES).size());
@@ -194,7 +194,7 @@ class PerformanceHistoryTest {
         when(bucket.kv.put(any(String.class), any(byte[].class))).thenThrow(new java.io.IOException("full"));
         var h = history(bucket.server(PerformanceHistory.BUCKET), "a");
 
-        assertDoesNotThrow(() -> h.record(call(true, false, 100)));
+        assertDoesNotThrow(() -> h.observe(call(true, false, 100)));
         assertEquals(1, h.droppedWrites());
     }
 
@@ -206,7 +206,7 @@ class PerformanceHistoryTest {
         when(props.namespace()).thenReturn(Optional.of("crew-ns"));
         var h = new PerformanceHistory(bucket.server(PerformanceHistory.BUCKET), MAPPER, props, SchedulerMetrics.none());
 
-        h.record(call(true, false, 100));
+        h.observe(call(true, false, 100));
 
         long deadline = System.currentTimeMillis() + 5_000;
         while (bucket.data.isEmpty() && System.currentTimeMillis() < deadline) {
@@ -285,7 +285,7 @@ class PerformanceHistoryTest {
     @Test
     void observedModel_aRecordingFailure_neverReachesTheCaller() {
         var h = mock(PerformanceHistory.class);
-        doThrow(new IllegalStateException("broken")).when(h).record(any(), any());
+        doThrow(new IllegalStateException("broken")).when(h).observe(any(), any());
         var delegate = mock(ChatModel.class);
         var response = ChatResponse.builder().aiMessage(AiMessage.from("ok")).build();
         when(delegate.chat(any(ChatRequest.class))).thenReturn(response);
@@ -321,7 +321,7 @@ class PerformanceHistoryTest {
         var bucket = new InMemoryKv();
         var h = history(bucket.server(PerformanceHistory.BUCKET), "a", new SchedulerMetrics(registry, "learned"));
 
-        h.record(call(true, true, 8_000), placed(SIX_AND_A_HALF));
+        h.observe(call(true, true, 8_000), placed(SIX_AND_A_HALF));
 
         JsonNode e = stored(bucket, "a");
         assertEquals(1, e.path(PerformanceHistory.F_SAMPLES).size());
@@ -341,7 +341,7 @@ class PerformanceHistoryTest {
         var bucket = new InMemoryKv();
         var h = history(bucket.server(PerformanceHistory.BUCKET), "a");
         for (int i = 0; i < PerformanceHistory.MAX_PREDICTIONS + 3; i++) {
-            h.record(call(true, false, 1_000 + i), placed(SIX_AND_A_HALF));
+            h.observe(call(true, false, 1_000 + i), placed(SIX_AND_A_HALF));
         }
 
         JsonNode list = stored(bucket, "a").path(PerformanceHistory.F_PREDICTIONS);
@@ -354,9 +354,9 @@ class PerformanceHistoryTest {
         var bucket = new InMemoryKv();
         var h = history(bucket.server(PerformanceHistory.BUCKET), "a");
 
-        h.record(call(true, false, 100), null);
-        h.record(call(true, false, 100), placed(null));
-        h.record(call(false, false, 100), placed(SIX_AND_A_HALF));
+        h.observe(call(true, false, 100), null);
+        h.observe(call(true, false, 100), placed(null));
+        h.observe(call(false, false, 100), placed(SIX_AND_A_HALF));
 
         JsonNode e = stored(bucket, "a");
         assertEquals(3, e.path(PerformanceHistory.F_SAMPLES).size());
@@ -370,7 +370,7 @@ class PerformanceHistoryTest {
                 + "\",\"model\":\"" + MODEL + "\",\"agent\":\"crew-ns/a\",\"samples\":[],\"waits\":[],"
                 + "\"requests\":4,\"failures\":1}").getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
-        history(bucket.server(PerformanceHistory.BUCKET), "a").record(call(true, false, 900), placed(SIX_AND_A_HALF));
+        history(bucket.server(PerformanceHistory.BUCKET), "a").observe(call(true, false, 900), placed(SIX_AND_A_HALF));
 
         JsonNode e = stored(bucket, "a");
         assertEquals(5, e.path("requests").asLong());
@@ -424,10 +424,10 @@ class PerformanceHistoryTest {
     void expectedOutputTokens_followsWhatThisAgentsCallsGenerated() {
         var h = history(new InMemoryKv().server(PerformanceHistory.BUCKET), "a");
         for (long t : new long[] {500, 700, 600}) {
-            h.record(callOf(CallObservation.KIND_SIMPLE, t, true));
+            h.observe(callOf(CallObservation.KIND_SIMPLE, t, true));
         }
-        h.record(callOf(CallObservation.KIND_SIMPLE, 9_000, false));
-        h.record(callOf(CallObservation.KIND_TRIAGE, 250, true));
+        h.observe(callOf(CallObservation.KIND_SIMPLE, 9_000, false));
+        h.observe(callOf(CallObservation.KIND_TRIAGE, 250, true));
 
         assertEquals(600, h.expectedOutputTokens(MODEL, CallObservation.KIND_SIMPLE), "a failed call is not a length");
         assertEquals(0, h.expectedOutputTokens(MODEL, CallObservation.KIND_TRIAGE), "one call is too few");
@@ -439,11 +439,11 @@ class PerformanceHistoryTest {
         var bucket = new InMemoryKv();
         var before = history(bucket.server(PerformanceHistory.BUCKET), "a");
         for (long t : new long[] {800, 900, 1_000}) {
-            before.record(callOf(CallObservation.KIND_TOOL_TURN, t, true));
+            before.observe(callOf(CallObservation.KIND_TOOL_TURN, t, true));
         }
         var other = history(bucket.server(PerformanceHistory.BUCKET), "b");
         for (long t : new long[] {10, 10, 10}) {
-            other.record(callOf(CallObservation.KIND_TOOL_TURN, t, true));
+            other.observe(callOf(CallObservation.KIND_TOOL_TURN, t, true));
         }
 
         var restarted = history(bucket.server(PerformanceHistory.BUCKET), "a");
@@ -467,7 +467,7 @@ class PerformanceHistoryTest {
         var bucket = new InMemoryKv();
         var before = history(bucket.server(PerformanceHistory.BUCKET), "a");
         for (int i = 0; i < 20; i++) {
-            before.record(new CallObservation(SERVER, MODEL, CallObservation.KIND_SIMPLE, true, false, 10, 100, 1_000,
+            before.observe(new CallObservation(SERVER, MODEL, CallObservation.KIND_SIMPLE, true, false, 10, 100, 1_000,
                     -1, -1, -1, 1, 1_000L + i));
         }
         // The restarted agent's writer is held back, as a busy background thread would be.
@@ -479,7 +479,7 @@ class PerformanceHistoryTest {
                 SchedulerMetrics.none());
         assertEquals(0, restarted.expectedOutputTokens(MODEL, CallObservation.KIND_SIMPLE));
         for (int i = 0; i < 16; i++) {
-            restarted.record(new CallObservation(SERVER, MODEL, CallObservation.KIND_SIMPLE, true, false, 10, 900,
+            restarted.observe(new CallObservation(SERVER, MODEL, CallObservation.KIND_SIMPLE, true, false, 10, 900,
                     1_000, -1, -1, -1, 1, 5_000L + i));
         }
 

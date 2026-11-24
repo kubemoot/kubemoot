@@ -162,11 +162,11 @@ class BusContractTest {
         var history = ai.kubemoot.agent.modelserver.PerformanceHistoryFixtures.direct(
                 bucket.server(ai.kubemoot.agent.modelserver.PerformanceHistory.BUCKET), MAPPER, props);
         long unknown = ai.kubemoot.agent.modelserver.CallObservation.UNKNOWN;
-        history.record(new ai.kubemoot.agent.modelserver.CallObservation("ollama-gpu", MODEL,
+        history.observe(new ai.kubemoot.agent.modelserver.CallObservation("ollama-gpu", MODEL,
                 ai.kubemoot.agent.modelserver.CallObservation.KIND_TOOL_TURN, true, true, 4_000, 200, 9_000,
                 unknown, unknown, unknown, 2, 1_791_000_000_000L));
         history.recordWait("ollama-gpu", MODEL, 12_000);
-        history.record(new ai.kubemoot.agent.modelserver.CallObservation("ollama-gpu", MODEL,
+        history.observe(new ai.kubemoot.agent.modelserver.CallObservation("ollama-gpu", MODEL,
                 ai.kubemoot.agent.modelserver.CallObservation.KIND_SIMPLE, true, false, 4_000, 200, 9_000,
                 unknown, unknown, unknown, 2, 1_791_000_010_000L, 2_500), placedCall());
 

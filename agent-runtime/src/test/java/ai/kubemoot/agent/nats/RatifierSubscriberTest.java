@@ -32,7 +32,7 @@ class RatifierSubscriberTest {
                 + ",\"innerCircle\":" + circle + "}}";
     }
 
-    private static DiscussionSubscriber subscriber(Connection conn, ChatService chat, String role) {
+    private static DiscussionSubscriber subscriber(Connection conn, ChatService chat) {
         var natsProvider = mock(NatsConnectionProvider.class);
         when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", null));
         when(natsProvider.getConnection()).thenReturn(conn);
@@ -63,7 +63,7 @@ class RatifierSubscriberTest {
 
     @Test
     void aDraftWakesOnlyTheRosterAndCarriesItsRound() throws Exception {
-        var sub = subscriber(mock(Connection.class), mock(ChatService.class), "tooler");
+        var sub = subscriber(mock(Connection.class), mock(ChatService.class));
 
         var evaluation = sub.admitForEvaluation(draft("coordinator", "d1", "2", "[\"k8s-nodes\",\"compute\"]"));
 
@@ -78,7 +78,7 @@ class RatifierSubscriberTest {
 
     @Test
     void theDraftIsNotACountedContributionSoTheRateLimitCannotRefuseIt() throws Exception {
-        var sub = subscriber(mock(Connection.class), mock(ChatService.class), "tooler");
+        var sub = subscriber(mock(Connection.class), mock(ChatService.class));
         for (int i = 0; i < 6; i++) {
             assertNotNull(sub.admitForEvaluation(draft("coordinator", "d" + i, "1", "[]")), "draft " + i);
         }
@@ -87,7 +87,7 @@ class RatifierSubscriberTest {
 
     @Test
     void aReplyToADraftIsNotAFindingInTheThreadTheAgentsReadAfterwards() throws Exception {
-        var sub = subscriber(mock(Connection.class), mock(ChatService.class), "tooler");
+        var sub = subscriber(mock(Connection.class), mock(ChatService.class));
         sub.admitForEvaluation("{\"messageType\":\"concern\",\"threadId\":\"t1\",\"agentName\":\"compute\","
                 + "\"messageId\":\"r1\",\"content\":\"the objection\",\"metadata\":{\"ratifies\":1}}");
 
@@ -99,7 +99,7 @@ class RatifierSubscriberTest {
     @Test
     void aVerdictInTheReplyIsPublishedForTheRound() throws Exception {
         var conn = mock(Connection.class);
-        var sub = subscriber(conn, chatReplying("CONCERN: my results hold 14 nodes, the draft says 15"), "tooler");
+        var sub = subscriber(conn, chatReplying("CONCERN: my results hold 14 nodes, the draft says 15"));
 
         sub.ratifyAndRespond(SUBJECT, "t1", "conversation", 2, "draft-2");
 
@@ -114,7 +114,7 @@ class RatifierSubscriberTest {
     void theAgentIsAskedToCheckTheDraftAndTheInstructionNamesNoTool() throws Exception {
         var conn = mock(Connection.class);
         var chat = chatReplying("AGREE");
-        var sub = subscriber(conn, chat, "tooler");
+        var sub = subscriber(conn, chat);
 
         sub.ratifyAndRespond(SUBJECT, "t1", "the thread", 1, "draft-1");
 
@@ -131,7 +131,7 @@ class RatifierSubscriberTest {
         var conn = mock(Connection.class);
         var chat = chatReplying("AGREE");
         when(chat.systemPromptMentions("DEFINE COMPONENT ratify-prompt")).thenReturn(true);
-        var sub = subscriber(conn, chat, "tooler");
+        var sub = subscriber(conn, chat);
 
         sub.ratifyAndRespond(SUBJECT, "t1", "the thread", 1, "draft-1");
 
@@ -143,7 +143,7 @@ class RatifierSubscriberTest {
     @Test
     void aReplyWithNoVerdictIsAFailureNotAnAgreement() throws Exception {
         var conn = mock(Connection.class);
-        var sub = subscriber(conn, chatReplying("Looks fine to me."), "tooler");
+        var sub = subscriber(conn, chatReplying("Looks fine to me."));
 
         sub.ratifyAndRespond(SUBJECT, "t1", "conversation", 1, "draft-1");
 
@@ -158,7 +158,7 @@ class RatifierSubscriberTest {
         var conn = mock(Connection.class);
         var chat = mock(ChatService.class);
         when(chat.directChat(any(), anyBoolean(), any())).thenThrow(new IllegalStateException("model server down"));
-        var sub = subscriber(conn, chat, "tooler");
+        var sub = subscriber(conn, chat);
 
         sub.ratifyAndRespond(SUBJECT, "t1", "conversation", 2, "draft-2");
 
