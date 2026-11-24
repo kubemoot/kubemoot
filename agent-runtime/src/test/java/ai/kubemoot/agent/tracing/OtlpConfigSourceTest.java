@@ -36,6 +36,7 @@ class OtlpConfigSourceTest {
         assertEquals("https://c.example/otlp", OtlpConfigSource.baseUrl("https://c.example/otlp/"));
         assertEquals("http://c:4318", OtlpConfigSource.baseUrl("http://c:4318/"));
         assertEquals("http://c:4318", OtlpConfigSource.baseUrl("http://c:4318"));
+        assertEquals("http://c:4318", OtlpConfigSource.baseUrl("http://c:4318///"));
     }
 
     @Test

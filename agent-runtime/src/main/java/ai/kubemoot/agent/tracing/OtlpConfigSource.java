@@ -83,6 +83,10 @@ public final class OtlpConfigSource implements ConfigSource {
      * that names a path ({@code https://c.example/otlp}) gets the signal path after it.
      */
     static String baseUrl(String endpoint) {
-        return endpoint.replaceAll("/+$", "");
+        int end = endpoint.length();
+        while (end > 0 && endpoint.charAt(end - 1) == '/') {
+            end--;
+        }
+        return endpoint.substring(0, end);
     }
 }
