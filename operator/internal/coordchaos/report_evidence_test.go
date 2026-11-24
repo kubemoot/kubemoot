@@ -22,14 +22,22 @@ func TestEvidenceListsControlNotesAndTrialErrorsOnly(t *testing.T) {
 	r := Report{Cases: []CaseResult{
 		{Case: controlCase, Trials: []Trial{{Number: 1, Notes: []string{"the fault landed late"}}}},
 		{Case: protectedCase, Trials: []Trial{{Number: 2, Notes: []string{"ignored outside a control"}, Error: "pod gone"}}},
+		{Case: protectedCase, Trials: []Trial{{Number: 3, Violations: []Violation{
+			{Check: vAnswer, Detail: "2 synthesis messages", Evidence: []string{"m1", "m2"}},
+			{Check: vAnswer, Detail: "no evidence kept"},
+		}}}},
 	}}
 	got := r.evidence()
 	for _, want := range []string{
 		"## Evidence", "- kill@x (control) trial 1: the fault landed late", "- kill@x trial 2: error: pod gone",
+		"- kill@x trial 3: one_answer_on_bus: 2 synthesis messages\n  evidence: m1, m2\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("evidence lacks %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "no evidence kept\n  evidence") {
+		t.Errorf("a violation without evidence printed an evidence line:\n%s", got)
 	}
 	if strings.Contains(got, "ignored outside a control") {
 		t.Errorf("notes of a protected case were listed:\n%s", got)
