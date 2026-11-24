@@ -23,7 +23,11 @@ import (
 	"github.com/kubemoot/kubemoot/agent-sidecar/internal/turn"
 )
 
-const maxBody = 32 << 20
+const (
+	maxBody           = 32 << 20
+	headerContentType = "Content-Type"
+	mimeJSON          = "application/json"
+)
 
 // Config is what the door needs from the sidecar's contract file.
 type Config struct {
@@ -79,7 +83,7 @@ func (d *Door) models(w http.ResponseWriter) {
 	for _, alias := range aliases {
 		list = append(list, model{ID: alias, Object: "model"})
 	}
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, mimeJSON)
 	_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": list})
 }
 
@@ -227,7 +231,7 @@ func (d *Door) send(w http.ResponseWriter, r *http.Request, c *call, placed plac
 		writeError(w, http.StatusBadGateway, "bad_endpoint", err.Error())
 		return http.StatusBadGateway, usage{}, err
 	}
-	up.Header.Set("Content-Type", "application/json")
+	up.Header.Set(headerContentType, mimeJSON)
 	resp, err := d.upstream.Do(up)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "kubemoot_model_unreachable", err.Error())
@@ -257,7 +261,7 @@ func copyThrough(w http.ResponseWriter, resp *http.Response) usage {
 			w.Header()[k] = v
 		}
 	}
-	w.Header().Set("Content-Type", replyContentType(resp))
+	w.Header().Set(headerContentType, replyContentType(resp))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(resp.StatusCode)
 	rc := http.NewResponseController(w)
@@ -280,10 +284,10 @@ func copyThrough(w http.ResponseWriter, resp *http.Response) usage {
 // replyContentType is the only two types the model door relays: a stream or JSON. A reply of any other
 // type is labelled JSON, so the door never serves an upstream body as a browser-renderable page.
 func replyContentType(resp *http.Response) string {
-	if strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+	if strings.HasPrefix(strings.ToLower(resp.Header.Get(headerContentType)), "text/event-stream") {
 		return "text/event-stream"
 	}
-	return "application/json"
+	return mimeJSON
 }
 
 // hopByHop reports a header that describes one connection and must not be passed on, with Content-Length,
@@ -332,7 +336,7 @@ func bearer(r *http.Request) string {
 }
 
 func writeError(w http.ResponseWriter, status int, code, msg string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, mimeJSON)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{
 		"message": msg, "type": "kubemoot_error", "code": code,
