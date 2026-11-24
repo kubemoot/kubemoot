@@ -579,7 +579,7 @@ final class CoordinatorResume {
      * way as an incomplete one, with the reason {@code expired}.
      */
     private void expire(Candidate candidate) {
-        closeUnresumed(candidate, CLOSE_EXPIRED, "expired");
+        closeUnresumed(candidate, CLOSE_EXPIRED, CLOSE_EXPIRED);
         log.warn("Thread {} last logged an event at {}, more than {} ago; it is closed, not resumed",
                 candidate.state().threadId, candidate.state().lastEventAt, maxAge);
     }

@@ -48,7 +48,7 @@ public class SchedulerMetrics {
     private static final String MODEL = "model";
 
     private final MeterRegistry registry;
-    private final String policy;
+    private final String placementPolicy;
 
     @Inject
     public SchedulerMetrics(MeterRegistry registry, AgentProperties properties) {
@@ -57,7 +57,7 @@ public class SchedulerMetrics {
 
     SchedulerMetrics(MeterRegistry registry, String policy) {
         this.registry = registry;
-        this.policy = policy == null || policy.isBlank() ? "algorithm" : policy;
+        this.placementPolicy = policy == null || policy.isBlank() ? "algorithm" : policy;
     }
 
     /** Metrics that go nowhere, for a history built without a registry. */
@@ -84,7 +84,7 @@ public class SchedulerMetrics {
         Counter.builder(CALLS)
                 .description("Model calls this agent made, by placement policy, server, model, call kind "
                         + "(tool-turn, simple, triage), whether the model had to load, and outcome")
-                .tag(POLICY, policy).tag(SERVER, o.server()).tag(MODEL, o.model()).tag("kind", kind)
+                .tag(POLICY, placementPolicy).tag(SERVER, o.server()).tag(MODEL, o.model()).tag("kind", kind)
                 .tag("start", o.coldStart() ? "cold" : "warm").tag("outcome", o.ok() ? "ok" : "failed")
                 .register(registry).increment();
     }

@@ -50,6 +50,8 @@ import java.util.concurrent.*;
 public class DiscussionSubscriber {
 
     private static final Logger log = LoggerFactory.getLogger(DiscussionSubscriber.class);
+    private static final String META_LAST_ERROR = "lastError";
+    private static final String META_FAILURE_TYPE = "failureType";
     private static final ObjectMapper mapper = new ObjectMapper();
 
     private static final String NOTHING_TO_ADD = "NOTHING_TO_ADD";
@@ -782,7 +784,7 @@ public class DiscussionSubscriber {
         meta.put(RatifyText.FIELD_DRAFT_ID, draftId);
         String gpuLabel = jitGpuLabelOr(result, NOT_PLACED);
         if (reply == null) {
-            meta.put("failureType", "no_verdict");
+            meta.put(META_FAILURE_TYPE, "no_verdict");
             publishSignal(subject, threadId, SIGNAL_FAILURE,
                     "The reply to the draft opened with no verdict (AGREE, CONCERN or BLOCK).", timing, gpuLabel, meta);
             return;
@@ -796,8 +798,8 @@ public class DiscussionSubscriber {
         var meta = new HashMap<String, Object>();
         meta.put(RatifyText.FIELD_RATIFIES, round);
         meta.put(RatifyText.FIELD_DRAFT_ID, draftId);
-        meta.put("failureType", classifyException(e.getClass().getName(), message));
-        meta.put("lastError", truncate(message, ERROR_DETAIL_CHARS));
+        meta.put(META_FAILURE_TYPE, classifyException(e.getClass().getName(), message));
+        meta.put(META_LAST_ERROR, truncate(message, ERROR_DETAIL_CHARS));
         publishSignal(subject, threadId, SIGNAL_FAILURE, "Ratification failed: " + truncate(message, FAILURE_CONTENT_CHARS),
                 SignalTiming.of(System.currentTimeMillis() - startMs, startMs), NOT_PLACED, meta);
     }
@@ -1188,9 +1190,9 @@ public class DiscussionSubscriber {
         String message = e.getMessage() != null ? e.getMessage() : exceptionClass;
         String failureType = classifyException(exceptionClass, message);
         var meta = new HashMap<String, Object>();
-        meta.put("failureType", failureType);
+        meta.put(META_FAILURE_TYPE, failureType);
         meta.put("exceptionClass", exceptionClass);
-        meta.put("lastError", truncate(message, ERROR_DETAIL_CHARS));
+        meta.put(META_LAST_ERROR, truncate(message, ERROR_DETAIL_CHARS));
         log.warn("Agent {} publishing failure signal for thread {}: {} ({})",
                 properties.agentName(), threadId, failureType, LogContent.size(message));
         LogContent.debug(log, "Agent {} failure on thread {}: {}",
@@ -1210,13 +1212,13 @@ public class DiscussionSubscriber {
     private void publishFailure(String subject, String threadId, ToolCallFailure tcf,
                                 long totalMs, long triageStartMs, String gpuLabel) {
         var failureMeta = new HashMap<String, Object>();
-        failureMeta.put("failureType", tcf.failureType().name().toLowerCase());
+        failureMeta.put(META_FAILURE_TYPE, tcf.failureType().name().toLowerCase());
         if (tcf.toolName() != null) {
             failureMeta.put("failedTool", tcf.toolName());
         }
         failureMeta.put("failureCount", tcf.failureCount());
         if (tcf.lastErrorContent() != null) {
-            failureMeta.put("lastError", truncate(tcf.lastErrorContent(), ERROR_DETAIL_CHARS));
+            failureMeta.put(META_LAST_ERROR, truncate(tcf.lastErrorContent(), ERROR_DETAIL_CHARS));
         }
         log.warn("Agent {} publishing failure signal for thread {}: {} (tool={}, count={})",
                 properties.agentName(), threadId, tcf.failureType(),

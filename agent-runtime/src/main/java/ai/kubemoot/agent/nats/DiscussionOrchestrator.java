@@ -65,6 +65,7 @@ import java.util.function.Supplier;
 public class DiscussionOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(DiscussionOrchestrator.class);
+    private static final String PHASE_DIRECT = "direct";
     /** What an operator should check when toolers could not complete; for the log, never for an answer. */
     static final String OPERATOR_GUIDANCE = "Check the failing MCP servers and the model servers;"
             + " the discussion timeline in the dashboard shows each failure's cause.";
@@ -842,7 +843,7 @@ public class DiscussionOrchestrator {
         conn.flush(Duration.ofSeconds(2));
 
         enterAdvisory(state);
-        enterPhase(state, "thread_start");
+        enterPhase(state, MSG_THREAD_START);
         log.info("Thread {} → ADVISORY phase (reasoning select+brief will run in transitionToEvaluating)", threadId);
     }
 
@@ -1766,7 +1767,7 @@ public class DiscussionOrchestrator {
         state.phase = Phase.EVALUATING;
         state.phaseStarted = Instant.now();
         state.advisoryPending.set(true);
-        enterPhase(state, "advisory");
+        enterPhase(state, PHASE_ADVISORY);
 
         log.info("Thread {} → EVALUATING phase (coordinator reasoning select+brief)", state.threadId);
 
@@ -2627,7 +2628,7 @@ public class DiscussionOrchestrator {
         state.advisoryContent = reasoning.brief();
         state.phase = Phase.SYNTHESIZING;
         boolean logged = events.get().answeredDirectly(state, reasoning);
-        enterPhase(state, "direct");
+        enterPhase(state, PHASE_DIRECT);
         metrics.advisoryCompleted(Duration.ofMillis(reasoning.inferenceMs()));
         log.info("Thread {} - coordinator selected no toolers; answering directly from reasoning ({}ms), no tooler wake",
                 state.threadId, reasoning.inferenceMs());
@@ -2641,7 +2642,7 @@ public class DiscussionOrchestrator {
             publishAdvisory(state.threadId, reasoning.technologies(), List.of(),
                     reasoning.brief(), reasoning.inferenceMs(), state.advisoryModelUse.get());
         }
-        completeSynthesisPhase(state, channel, reasoning.brief(), Instant.now(), "direct");
+        completeSynthesisPhase(state, channel, reasoning.brief(), Instant.now(), PHASE_DIRECT);
     }
 
     /**
@@ -2654,10 +2655,10 @@ public class DiscussionOrchestrator {
         if (state.phase != Phase.SYNTHESIZING) {
             state.advisoryPending.set(false);
             state.phase = Phase.SYNTHESIZING;
-            enterPhase(state, "direct");
+            enterPhase(state, PHASE_DIRECT);
         }
         publishAdvisory(state.threadId, technologies, List.of(), brief, 0, state.advisoryModelUse.get());
-        completeSynthesisPhase(state, resolveChannel(state), brief, Instant.now(), "direct");
+        completeSynthesisPhase(state, resolveChannel(state), brief, Instant.now(), PHASE_DIRECT);
     }
 
     /**
@@ -4936,7 +4937,7 @@ public class DiscussionOrchestrator {
             }
             for (JsonNode node : mapper.readTree(raw)) {
                 String role = node.path("role").asText("");
-                if ("tooler".equalsIgnoreCase(role) || "analyst".equalsIgnoreCase(role)) {
+                if (ROLE_TOOLER.equalsIgnoreCase(role) || ROLE_ANALYST.equalsIgnoreCase(role)) {
                     names.add(node.path(FIELD_NAME).asText(""));
                 }
             }

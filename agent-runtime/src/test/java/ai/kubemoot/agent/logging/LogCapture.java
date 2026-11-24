@@ -36,10 +36,12 @@ public final class LogCapture implements AutoCloseable {
 
         @Override
         public void flush() {
+            // nothing is buffered: publish stores each line at once
         }
 
         @Override
         public void close() {
+            // nothing to release: lines live in memory
         }
     };
 

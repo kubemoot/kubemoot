@@ -20,6 +20,7 @@ import static ai.kubemoot.agent.nats.CoordinatorWire.*;
  */
 final class CoordinatorStateReducer {
 
+    private static final String TOKENS = "tokens";
 
     private static final Map<String, BiConsumer<CoordinatorThreadState, CoordinatorEvent>> HANDLERS = Map.ofEntries(
             Map.entry(THREAD_OPENED, CoordinatorStateReducer::opened),
@@ -128,7 +129,7 @@ final class CoordinatorStateReducer {
         replaceAll(s.selectedSkills, d.path("skills"));
         s.technologies.clear();
         d.path("technologies").forEach(n -> s.technologies.add(n.asText()));
-        JsonNode tokens = d.path("tokens");
+        JsonNode tokens = d.path(TOKENS);
         s.advisoryIn = tokens.path("advisoryIn").asLong();
         s.advisoryOut = tokens.path("advisoryOut").asLong();
         s.triageIn = tokens.path("triageIn").asLong();
@@ -241,8 +242,8 @@ final class CoordinatorStateReducer {
         s.synthesisOutcome = text(d, "outcome");
         s.answer = text(d, "response");
         s.synthesisPromptTooLarge = d.path("promptTooLarge").asBoolean(false);
-        s.synthesisIn = d.path("tokens").path("in").asLong();
-        s.synthesisOut = d.path("tokens").path("out").asLong();
+        s.synthesisIn = d.path(TOKENS).path("in").asLong();
+        s.synthesisOut = d.path(TOKENS).path("out").asLong();
     }
 
     private static void threadReopened(CoordinatorThreadState s, CoordinatorEvent e) {
