@@ -14,11 +14,11 @@ public final class Vectors {
      * raw model output. A zero vector has no direction and is returned unchanged.
      *
      * @param vector the vector to scale; may be {@code null}
-     * @return the same array, scaled
+     * @return the same array, scaled; an empty array for {@code null}
      */
     public static float[] l2Normalize(float[] vector) {
         if (vector == null) {
-            return null;
+            return new float[0];
         }
         double sum = 0;
         for (float x : vector) {

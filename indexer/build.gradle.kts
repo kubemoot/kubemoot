@@ -64,6 +64,10 @@ dependencies {
 
     // NATS client for KV source
     implementation("io.nats:jnats:2.27.0")
+    // The shared NATS connection settings; its Quarkus platform stays out of this Spring build.
+    implementation("ai.kubemoot:placement-core") {
+        isTransitive = false
+    }
 
     // JSON processing
     implementation("com.fasterxml.jackson.core:jackson-databind")
