@@ -463,12 +463,10 @@ public class McpClientManager {
      */
     private List<ToolOverride> setOverrides(String serverId, List<ToolOverride> overrides, String serverName) {
         List<ToolOverride> previous = serverOverrides.put(serverId, overrides);
-        if (previous == null || !previous.equals(overrides)) {
-            serverRules.put(serverId, ArgumentRules.compile(overrides, serverName));
-        } else {
-            // Unchanged overrides keep their compiled rules; compile only if none are held yet.
-            serverRules.computeIfAbsent(serverId, id -> ArgumentRules.compile(overrides, serverName));
-        }
+        serverRules.compute(serverId, (id, rules) ->
+            rules == null || previous == null || !previous.equals(overrides)
+                ? ArgumentRules.compile(overrides, serverName)
+                : rules);
         return previous;
     }
 
