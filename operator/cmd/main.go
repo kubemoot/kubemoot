@@ -152,7 +152,9 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher) {
 			// The report service is reachable by any pod; every endpoint checks the
 			// caller's token and RBAC before it answers.
 			Auth: controller.NewReviewAuthorizer(kube),
-			Addr: ":8082",
+			// A crew's subscriber exports their own conversation with their own token.
+			Subscribers: controller.NewSubscriberDirectory(mgr.GetClient()),
+			Addr:        ":8082",
 		}},
 	}
 	for _, r := range runnables {

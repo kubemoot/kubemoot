@@ -178,9 +178,9 @@ func TestRequireAccessPutsTheVerifiedCallerAndReasonInTheContext(t *testing.T) {
 	var got reportCaller
 	var ok bool
 	s := &ReportServer{Auth: fakeAuth{allowed: goodToken}}
-	h := s.requireAccess(func(*http.Request) (authorizationv1.ResourceAttributes, error) {
+	h := s.gate(func(*http.Request) (authorizationv1.ResourceAttributes, error) {
 		return authorizationv1.ResourceAttributes{}, nil
-	}, func(_ http.ResponseWriter, r *http.Request) { got, ok = reportCallerFrom(r.Context()) })
+	}, false, func(_ http.ResponseWriter, r *http.Request) { got, ok = reportCallerFrom(r.Context()) })
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set(headerAuthorization, "Bearer "+goodToken)
 	req.Header.Set(identity.HeaderAccessReason, "  because ")
@@ -195,7 +195,7 @@ func TestRequireAccessPutsTheVerifiedCallerAndReasonInTheContext(t *testing.T) {
 
 func TestReviewAuthorizerAllowedAsksTheAPIServer(t *testing.T) {
 	c, asked := reviewClient(true, true)
-	id := &identity.Identity{Subject: dashboardUser}
+	id := &identity.Identity{Issuer: identity.IssuerKubernetes, Subject: dashboardUser}
 	ok, err := NewReviewAuthorizer(c).Allowed(context.Background(), id, identity.ConversationsAccess("ns", "c", verbGet))
 	if err != nil || !ok {
 		t.Fatalf("%v %v", ok, err)

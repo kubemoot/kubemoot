@@ -62,7 +62,7 @@ func memoryExportReport(scope crewscope.Scope, exp ompi.Export) MemoryExportRepo
 // memory as the same OMPI export ompi-export writes, as a zip, or with
 // report=true the selection report as JSON. The export is always screened: a
 // fact that holds a credential is left out, and a request for allowUnscreened is
-// refused. It is served behind requireAccess: the caller must present a bearer token
+// refused. It is served behind gate: the caller must present a bearer token
 // whose identity may get the Crew.
 func (s *ReportServer) serveMemoryExport(w http.ResponseWriter, r *http.Request) {
 	scope, _ := crewscope.New(r.PathValue("namespace"), r.PathValue("crew")) // validated by memoryExportAccess

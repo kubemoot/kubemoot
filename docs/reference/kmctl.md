@@ -1459,7 +1459,7 @@ server is not an HTTP service the Kubernetes API server can proxy, so kmctl open
 port-forward to a ready pod of the NATS Service with your kubeconfig credentials, lists
 the bucket's keys and gets the values it needs, and closes the forward. It never writes,
 deletes or touches a fact. An unreachable server or a missing bucket is an error; only a
-crew with no facts gives an export with none. Every document is checked against the
+crew with no facts gives an export with none. This command needs no bearer token, so a kubeconfig that signs in with a client certificate works; the operator's report service, which the dashboard calls, checks bearer tokens only (see [who is asking](../../concepts/who-is-asking/#the-operators-report-service)). Every document is checked against the
 schema before anything is written, and the directory is written atomically.
 
 | Flag | Short | Default | Description |

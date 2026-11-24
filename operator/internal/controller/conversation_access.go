@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -36,7 +37,7 @@ type conversationOwners interface {
 // exportAuditLog receives the audit records of operator exports; a test replaces it.
 var exportAuditLog logr.Logger = logf.Log.WithName("audit")
 
-// reportCaller is who called a report endpoint, set once the caller passed requireAccess.
+// reportCaller is who called a report endpoint, set once the caller passed gate.
 type reportCaller struct {
 	identity *identity.Identity
 	// reason is the Kubemoot-Access-Reason header, empty when none was sent.
@@ -102,22 +103,31 @@ func (s *ReportServer) callerHasher(ctx context.Context, crew *kubemootv1alpha1.
 	if id.Issuer == identity.IssuerKubernetes {
 		return identity.Hasher{}, nil
 	}
+	key, err := crewHashKey(ctx, s.Client, crew)
+	if err != nil {
+		return identity.Hasher{}, err
+	}
+	return identity.Hasher{Key: key}, nil
+}
+
+// crewHashKey reads the install hash key the crew names, the one its gateway names
+// subscribers with. A crew that names none, or whose Secret is missing or empty, has no key.
+func crewHashKey(ctx context.Context, c client.Reader, crew *kubemootv1alpha1.Crew) ([]byte, error) {
 	name, key, ok := hashKeySecret(discussionAccess(crew))
 	if !ok {
-		return identity.Hasher{}, fmt.Errorf("%w: the crew has no hash key to name its callers", conversationexport.ErrRefused)
+		return nil, fmt.Errorf("%w: the crew has no hash key to name its callers", conversationexport.ErrRefused)
 	}
 	secret := &corev1.Secret{}
-	err := s.Client.Get(ctx, types.NamespacedName{Namespace: crew.Namespace, Name: name}, secret)
+	err := c.Get(ctx, types.NamespacedName{Namespace: crew.Namespace, Name: name}, secret)
 	switch {
 	case apierrors.IsNotFound(err):
-		return identity.Hasher{}, fmt.Errorf("%w: the crew's hash key Secret does not exist", conversationexport.ErrRefused)
+		return nil, fmt.Errorf("%w: the crew's hash key Secret does not exist", conversationexport.ErrRefused)
 	case err != nil:
-		return identity.Hasher{}, fmt.Errorf("read the crew's hash key: %w", err)
+		return nil, fmt.Errorf("read the crew's hash key: %w", err)
+	case len(secret.Data[key]) == 0:
+		return nil, fmt.Errorf("%w: the crew's hash key is empty", conversationexport.ErrRefused)
 	}
-	if len(secret.Data[key]) == 0 {
-		return identity.Hasher{}, fmt.Errorf("%w: the crew's hash key is empty", conversationexport.ErrRefused)
-	}
-	return identity.Hasher{Key: secret.Data[key]}, nil
+	return secret.Data[key], nil
 }
 
 // operatorMayExport admits a caller who may get the crew's conversations and says why, and

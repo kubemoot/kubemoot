@@ -73,9 +73,12 @@ func (a reviewAuthorizer) Authorize(ctx context.Context, token string, attrs aut
 	return id, nil
 }
 
-// Allowed asks the API server whether id may make the access.
+// Allowed asks the API server whether id may make the access. Only a Kubernetes identity
+// is asked: a subscriber's subject is whatever a service said it is, and handing it to the
+// API server as a user name could match a real user's rights. A subscriber has no rights
+// here beyond the ones the route that admitted them already checked.
 func (a reviewAuthorizer) Allowed(ctx context.Context, id *identity.Identity, attrs authorizationv1.ResourceAttributes) (bool, error) {
-	return identity.Reviewer{Client: a.client}.Allowed(ctx, id, attrs)
+	return identity.RoutedAuthorizer{Kubernetes: identity.Reviewer{Client: a.client}}.Allowed(ctx, id, attrs)
 }
 
 // What each endpoint of the report service returns, as the access it stands for.
@@ -108,12 +111,13 @@ func componentStatusAccess() authorizationv1.ResourceAttributes {
 // that names nothing valid (answered 400, before any token is checked).
 type accessFor func(r *http.Request) (authorizationv1.ResourceAttributes, error)
 
-// requireAccess is the one gate every report service endpoint but /healthz goes through.
+// gate is the one gate every report service endpoint but /healthz goes through.
 // It answers the request itself, and does not call next, unless the caller presents a
 // token whose identity may make the access the endpoint equals: no authorizer configured
 // (fail closed, 503), no valid token (401), an identity without access (403), or a review
-// that failed (503).
-func (s *ReportServer) requireAccess(access accessFor, next http.HandlerFunc) http.HandlerFunc {
+// that failed (503). With subscribers set, a token the API server does not know is also
+// tried against the crew's service token verifiers; see subscriberDirectory.
+func (s *ReportServer) gate(access accessFor, subscribers bool, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		attrs, err := access(r)
 		if err != nil {
@@ -124,20 +128,42 @@ func (s *ReportServer) requireAccess(access accessFor, next http.HandlerFunc) ht
 			http.Error(w, "the report service has no authorizer configured", http.StatusServiceUnavailable)
 			return
 		}
-		id, err := s.Auth.Authorize(r.Context(), identity.BearerToken(r), attrs)
-		switch {
-		case err == nil:
-			next(w, r.WithContext(withReportCaller(r.Context(), reportCaller{
-				identity: id, reason: strings.TrimSpace(r.Header.Get(identity.HeaderAccessReason)),
-			})))
-		case errors.Is(err, errUnauthenticated):
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			http.Error(w, err.Error()+": send the caller's service account token as 'Authorization: Bearer <token>'", http.StatusUnauthorized)
-		case errors.Is(err, errForbidden):
-			http.Error(w, err.Error(), http.StatusForbidden)
-		default:
-			reportLog.Error(err, "report access check failed", "path", r.URL.Path)
-			http.Error(w, "could not check the caller's access", http.StatusServiceUnavailable)
+		id, err := s.authorizeCaller(r, attrs, subscribers)
+		if err != nil {
+			answerGateError(w, r, err, subscribers)
+			return
 		}
+		next(w, r.WithContext(withReportCaller(r.Context(), reportCaller{
+			identity: id, reason: strings.TrimSpace(r.Header.Get(identity.HeaderAccessReason)),
+		})))
+	}
+}
+
+// authorizeCaller identifies the caller and checks the access. A Kubernetes token is tried
+// first, as a crew's gateway does, so it never goes to a service. Who the caller is comes
+// only from a verified token: no request header names an identity.
+func (s *ReportServer) authorizeCaller(r *http.Request, attrs authorizationv1.ResourceAttributes, subscribers bool) (*identity.Identity, error) {
+	id, err := s.Auth.Authorize(r.Context(), identity.BearerToken(r), attrs)
+	if errors.Is(err, errUnauthenticated) && subscribers && s.Subscribers != nil {
+		return s.Subscribers.Authorize(r, attrs)
+	}
+	return id, err
+}
+
+// answerGateError answers the error of a failed gate check.
+func answerGateError(w http.ResponseWriter, r *http.Request, err error, subscribers bool) {
+	switch {
+	case errors.Is(err, errUnauthenticated):
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		hint := "send the caller's service account token as 'Authorization: Bearer <token>'"
+		if subscribers {
+			hint = "send a Kubernetes token, or the token the crew's sign-in service gave you, as 'Authorization: Bearer <token>'"
+		}
+		http.Error(w, err.Error()+": "+hint, http.StatusUnauthorized)
+	case errors.Is(err, errForbidden):
+		http.Error(w, err.Error(), http.StatusForbidden)
+	default:
+		reportLog.Error(err, "report access check failed", "path", r.URL.Path)
+		http.Error(w, "could not check the caller's access", http.StatusServiceUnavailable)
 	}
 }
