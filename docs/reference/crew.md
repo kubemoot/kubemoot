@@ -146,6 +146,14 @@ Setting `access` turns verification on. A caller sends its Kubernetes token as `
 | `Authentication` | `False`, reason `Anonymous`: the gateway accepts anonymous callers and verifies no one. `True`, reason `TokenReview`: the gateway verifies callers. `True`, reason `ServiceToken`: the crew lists `serviceTokens`, so a person's own token from a service is verified too. `False`, reason `Closed`: the gateway checks no token and accepts no anonymous caller, so it refuses every request. Absent when the crew runs no gateway |
 | `CallerCredentials` | Present only when a tool server in the crew's namespace has `registry.callerCredential.mode: Required`. `True`, reason `Ready`: a verifier passes the person's token to tools and the pieces that carry it exist. `False`, with the reason: `NoVerifierPassesTokens` (no `serviceTokens` entry has `passToTools`), `UnknownVerifier` (the server names a verifier the crew does not list, or one without `passToTools`), `NoSingleToolGateway` (the namespace has no MCPGateway, or several), `SeveralCrewsPassTokens` (another crew of the namespace also keeps tokens). It never affects `Ready` |
 
+### What the agents are told about the caller
+
+`spec.discussion.identity.exposeToAgents` (default `false`) puts the caller in each native agent's turn context: the opaque handle (the principal's hashed id) and, for a Kubernetes caller, the user name as a label. Off, no prompt changes and no user name is on the bus. It needs `access`: a Crew with `exposeToAgents: true` and no `access` is refused. See [Telling the agents who is asking](../../concepts/who-is-asking/#telling-the-agents-who-is-asking).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `identity.exposeToAgents` | bool | `false` | Tell the agents the caller's handle and, for a Kubernetes caller, a label. Needs `access` |
+
 ### A person's own token from a service
 
 `access.serviceTokens` lets a person ask the crew with the token they already hold for another service, for example a chat app signed in to a library. The gateway asks the service whether it accepts the token, so the crew never issues or checks the token itself (see [Who is asking](../../concepts/who-is-asking/#subscribers)). It is empty by default and nothing changes for a crew that leaves it out.

@@ -4,6 +4,7 @@ import ai.kubemoot.agent.logging.LogContent;
 import ai.kubemoot.agent.requester.Caller;
 import ai.kubemoot.agent.requester.CallerScope;
 import ai.kubemoot.agent.requester.Requester;
+import ai.kubemoot.agent.requester.Principal;
 import ai.kubemoot.agent.requester.RequesterScope;
 import ai.kubemoot.agent.requester.TurnContext;
 import ai.kubemoot.agent.config.AgentProperties;
@@ -338,7 +339,7 @@ public class ChatService {
         // Build message list
         List<ChatMessage> messages = new ArrayList<>();
         String systemPromptText = buildSystemMessage(ragContext, request.discussionThreadId(), request.retrievalText(),
-                request.requester());
+                request.requester(), request.caller() == null ? null : request.caller().principal());
         if (!systemPromptText.isEmpty()) {
             messages.add(new SystemMessage(systemPromptText));
         }
@@ -2848,7 +2849,16 @@ public class ChatService {
      * Fixed per question, so it is the same on every turn of a discussion.
      */
     public String turnContextLine(Requester requester) {
-        return TurnContext.line(requester, properties.namespace().orElse(null), properties.crew().orElse(null));
+        return turnContextLine(requester, null);
+    }
+
+    /**
+     * The turn context line with the caller after it, only when the crew exposes the caller to its
+     * agents; otherwise exactly {@link #turnContextLine(Requester)}.
+     */
+    public String turnContextLine(Requester requester, Principal principal) {
+        Principal shown = properties.exposeCaller() ? principal : null;
+        return TurnContext.line(requester, properties.namespace().orElse(null), properties.crew().orElse(null), shown);
     }
 
     private static void appendParagraph(StringBuilder sb, String text) {
@@ -2858,7 +2868,7 @@ public class ChatService {
     }
 
     private String buildSystemMessage(String ragContext, String discussionThreadId, String query,
-                                      Requester requester) {
+                                      Requester requester, Principal principal) {
         var sb = new StringBuilder();
         var systemPrompt = loadSystemPrompt();
         if (systemPrompt != null && !systemPrompt.isEmpty()) {
@@ -2866,7 +2876,7 @@ public class ChatService {
         }
         // After the prompt and before anything that changes per question, so the prefix a prompt
         // cache holds is the same for the whole day.
-        appendParagraph(sb, turnContextLine(requester));
+        appendParagraph(sb, turnContextLine(requester, principal));
         if (ragContext != null && !ragContext.isEmpty()) {
             sb.append(ragContext).append("\n\n");
         }

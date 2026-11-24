@@ -53,6 +53,9 @@ type Handler struct {
 	// auth and authz verify callers; nil means every caller is anonymous and nothing is checked.
 	auth  *identity.Authenticator
 	authz identity.Authorizer
+	// exposeLabel stamps a Kubernetes caller's user name on the queued principal, for a crew that
+	// tells its agents who is asking.
+	exposeLabel bool
 	// grants holds the tokens of callers whose verifier passes them to tools; nil keeps none.
 	grants      grants.Store
 	passIssuers map[string]struct{}

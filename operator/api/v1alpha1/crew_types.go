@@ -23,6 +23,7 @@ import (
 
 // DiscussionConfig configures the crew's discussion gateway — the HTTP entry
 // point for external clients to start discussions and stream agent signals.
+// +kubebuilder:validation:XValidation:rule="!has(self.identity) || !has(self.identity.exposeToAgents) || !self.identity.exposeToAgents || has(self.access)",message="identity.exposeToAgents needs access: a gateway that verifies no one has no caller to describe"
 type DiscussionConfig struct {
 	// Enabled controls whether a discussion gateway is deployed for this crew.
 	// Unset means enabled.
@@ -41,6 +42,23 @@ type DiscussionConfig struct {
 	// each caller only their own.
 	// +optional
 	Access *DiscussionAccess `json:"access,omitempty"`
+
+	// Identity says what the crew's agents are told about the caller. Unset, agents are told
+	// nothing: the caller's opaque handle reaches tool calls as data and never a prompt.
+	// +optional
+	Identity *DiscussionIdentity `json:"identity,omitempty"`
+}
+
+// DiscussionIdentity is what a crew lets its agents know of the person asking. It needs
+// spec.discussion.access: a gateway that verifies no one has no caller to describe.
+type DiscussionIdentity struct {
+	// ExposeToAgents puts the caller in each agent's turn context: the opaque handle (the
+	// hashed principal id) and, for a Kubernetes caller, the user name as a label. Off by
+	// default, so no prompt changes and no name reaches an agent or the bus. The label is only
+	// stamped on the question when this is on, and is never stored with the conversation.
+	// +kubebuilder:default=false
+	// +optional
+	ExposeToAgents bool `json:"exposeToAgents,omitempty"`
 }
 
 // DiscussionAccess is how a crew's discussion gateway knows who is asking. Setting it turns

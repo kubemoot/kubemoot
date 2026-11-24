@@ -955,6 +955,7 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 	// applied when the Crew or its memory block is absent. See [[Crew Working Memory]].
 	env = append(env, r.memoryEnvVars(ctx, agent.Namespace)...)
 	env = append(env, r.defaultTimeZoneEnvVars(ctx, agent.Namespace)...)
+	env = append(env, agentIdentityEnv(r.crewOf(ctx, agent.Namespace))...)
 
 	return env
 }
@@ -1412,12 +1413,12 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			enqueueNamespaceAgents[*kubemootv1alpha1.MCPGateway](mgr.GetClient(), "MCPGateway"),
 			builder.WithPredicates(gatewayWiringChanged()),
 		).
-		// Re-reconcile a namespace's Agents when its Crew's workspace default changes, so their
-		// access follows it.
+		// Re-reconcile a namespace's Agents when its Crew's workspace default, default time zone or
+		// exposure of the caller changes, so their access and environment follow it.
 		Watches(
 			&kubemootv1alpha1.Crew{},
 			enqueueNamespaceAgents[*kubemootv1alpha1.Crew](mgr.GetClient(), "Crew"),
-			builder.WithPredicates(crewWorkspaceChanged()),
+			builder.WithPredicates(crewAgentWiringChanged()),
 		).
 		// Re-reconcile a namespace's Agents when an MCPServer appears or changes, so the
 		// WorkspaceAccessResolved condition follows whether a workspace server exists.

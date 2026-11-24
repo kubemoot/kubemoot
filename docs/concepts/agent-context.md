@@ -402,6 +402,10 @@ Today is 2026-11-20 (America/New_York). You are in namespace crew-homelab-pilot,
   time or a zone conversion is a job for a Time tool server in the crew's catalog.
 - **The namespace and crew come from the runtime.** A prompt no longer has to carry them,
   so a crew bundle is portable between namespaces.
+- **The caller only when the crew says so.** With `spec.discussion.identity.exposeToAgents`
+  the line ends with the caller's opaque handle and, for a Kubernetes caller, a label. By
+  default it holds neither. See
+  [Telling the agents who is asking](../who-is-asking/#telling-the-agents-who-is-asking).
 
 Native agents place the line right after the system prompt. A harness agent receives the
 same line as the `context` field of the turn profile and puts it in front of the question

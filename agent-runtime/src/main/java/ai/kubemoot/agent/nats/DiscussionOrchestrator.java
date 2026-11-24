@@ -752,6 +752,7 @@ public class DiscussionOrchestrator {
         state.conversationId = request.conversationId();
         state.crew = request.crew();
         state.requester = request.asker().requester();
+        state.principal = request.asker().principal();
         // Tied to a request only when a restarted coordinator can use it to find the thread again.
         state.requestSeq = resume.enabled() ? requestSeq : 0;
         if (!leases.acquire(threadId)) {
@@ -3878,7 +3879,7 @@ public class DiscussionOrchestrator {
      * zone as the thread fixed them, and the crew's namespace and name.
      */
     String systemPromptFor(ThreadState state) {
-        return TurnContext.appendTo(loadSystemPrompt(), chatService.turnContextLine(state.requester));
+        return TurnContext.appendTo(loadSystemPrompt(), chatService.turnContextLine(state.requester, state.principal));
     }
 
     String loadSystemPrompt() {
@@ -5315,6 +5316,8 @@ public class DiscussionOrchestrator {
         volatile String crew;
         /** Who is asking, with the date fixed when the question arrived; null for an older request. */
         volatile Requester requester;
+        /** The principal that asked, for the turn context when the crew exposes the caller; null when none. */
+        volatile Principal principal;
         /** The stream sequence of the request that started the thread; 0 for a thread no request started. */
         volatile long requestSeq;
         /**

@@ -66,7 +66,8 @@ func main() {
 		os.Exit(1)
 	}
 	handler := api.NewHandler(nc, namespace).AllowOrigins(origins).EndStreamsOn(ctx).
-		WithAccess(settings.Authenticator, settings.Authorizer)
+		WithAccess(settings.Authenticator, settings.Authorizer).
+		ExposeLabel(os.Getenv(identity.EnvExposeLabel) == identity.EnvTrue)
 	leaseSrv := startCredentials(ctx, handler, log)
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
