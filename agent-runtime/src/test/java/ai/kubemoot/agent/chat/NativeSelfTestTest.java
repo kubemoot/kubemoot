@@ -45,4 +45,20 @@ class NativeSelfTestTest {
         assertFalse(NativeSelfTest.OK_MARKER.contains(NativeSelfTest.FAILED_MARKER));
         assertTrue(NativeSelfTest.FAILED_MARKER.startsWith("NATIVE_SELFTEST_"));
     }
+
+    @Test
+    void aCheckThatDiesWithAnyErrorIsReportedAndTheOthersStillRun() {
+        var checks = new java.util.LinkedHashMap<String, Runnable>();
+        checks.put("deep", () -> {
+            throw new StackOverflowError("too deep");
+        });
+        checks.put("big", () -> {
+            throw new OutOfMemoryError("heap");
+        });
+        checks.put("fine", () -> { });
+        var failures = NativeSelfTest.runAll(checks);
+        assertEquals(2, failures.size());
+        assertTrue(failures.get(0).startsWith("deep: ") && failures.get(0).contains("too deep"));
+        assertTrue(failures.get(1).startsWith("big: ") && failures.get(1).contains("heap"));
+    }
 }

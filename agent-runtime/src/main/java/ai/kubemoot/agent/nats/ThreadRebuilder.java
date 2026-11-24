@@ -110,8 +110,8 @@ final class ThreadRebuilder {
 
     private static void putIf(Map<String, String> live, Map<String, String> logged, String agent, String messageId,
                               String content) {
-        if (messageId.equals(logged.get(agent))) {
-            live.computeIfPresent(agent, (key, current) -> content);
+        if (messageId.equals(logged.get(agent)) && live.containsKey(agent)) {
+            live.put(agent, content);
         }
     }
 
