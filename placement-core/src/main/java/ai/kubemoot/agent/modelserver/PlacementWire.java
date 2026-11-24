@@ -17,15 +17,6 @@ import java.util.Map;
  * {@code readValue} on a record: record reflection fails silently in a native image.</p>
  */
 public final class PlacementWire {
-    private static final String F_POLICY = "policy";
-    private static final String F_FOOTPRINT_MIB = "footprintMiB";
-    private static final String F_SERVER = "server";
-    private static final String F_MODEL = "model";
-    private static final String F_TICKET_ID = "ticketId";
-    private static final String F_MODEL_NAME = "modelName";
-    private static final String F_REASON = "reason";
-    private static final String F_PREDICTED = "predicted";
-
 
     /** Reply code: no server has room now; waiting for capacity can still place the call. */
     public static final String NO_FIT = "kubemoot_no_fit";
@@ -117,14 +108,14 @@ public final class PlacementWire {
         ObjectNode n = identityJson(m, r.identity());
         n.put("threadId", r.threadId());
         n.put("phase", r.phase());
-        n.put(F_POLICY, r.policy());
+        n.put(WireFields.POLICY, r.policy());
         n.put("promptTokens", r.promptTokens());
         n.put("mayUnload", r.mayUnload());
         ArrayNode models = n.putArray("models");
         for (ModelNeed need : r.models()) {
             ObjectNode o = models.addObject();
             o.put("name", need.name());
-            o.put(F_FOOTPRINT_MIB, need.footprintMiB());
+            o.put(WireFields.FOOTPRINT_MIB, need.footprintMiB());
             o.put("kvMiB", need.kvMiB());
         }
         return n;
@@ -140,14 +131,14 @@ public final class PlacementWire {
         for (JsonNode o : n.path("models")) {
             String name = o.path("name").asText("");
             if (!name.isBlank()) {
-                needs.add(new ModelNeed(name, o.path(F_FOOTPRINT_MIB).asLong(0L), o.path("kvMiB").asLong(0L)));
+                needs.add(new ModelNeed(name, o.path(WireFields.FOOTPRINT_MIB).asLong(0L), o.path("kvMiB").asLong(0L)));
             }
         }
         if (needs.isEmpty()) {
             throw new IllegalArgumentException("models is empty");
         }
         return new PlaceRequest(identityFrom(n), n.path("threadId").asText(""), n.path("phase").asText(""),
-                n.path(F_POLICY).asText(""), needs, n.path("promptTokens").asLong(0L),
+                n.path(WireFields.POLICY).asText(""), needs, n.path("promptTokens").asLong(0L),
                 n.path("mayUnload").asBoolean(true));
     }
 
@@ -155,10 +146,10 @@ public final class PlacementWire {
 
     public static ObjectNode replyJson(ObjectMapper m, PlaceReply r) {
         ObjectNode n = m.createObjectNode();
-        n.put(F_SERVER, r.server());
+        n.put(WireFields.SERVER, r.server());
         n.put("endpoint", r.endpoint());
-        n.put(F_MODEL, r.model());
-        n.put(F_FOOTPRINT_MIB, r.footprintMiB());
+        n.put(WireFields.MODEL, r.model());
+        n.put(WireFields.FOOTPRINT_MIB, r.footprintMiB());
         n.put("queued", r.queued());
         n.put("coldLoad", r.coldLoad());
         n.put("active", r.active());
@@ -175,8 +166,8 @@ public final class PlacementWire {
         List<String> evicted = new ArrayList<>();
         n.path("evicted").forEach(e -> evicted.add(e.asText()));
         JsonNode decision = n.path("decision");
-        return new PlaceReply(n.path(F_SERVER).asText(""), n.path("endpoint").asText(""), n.path(F_MODEL).asText(""),
-                n.path(F_FOOTPRINT_MIB).asLong(0L), n.path("queued").asBoolean(false),
+        return new PlaceReply(n.path(WireFields.SERVER).asText(""), n.path("endpoint").asText(""), n.path(WireFields.MODEL).asText(""),
+                n.path(WireFields.FOOTPRINT_MIB).asLong(0L), n.path("queued").asBoolean(false),
                 n.path("coldLoad").asBoolean(false), evicted, ticketFrom(n.path("ticket")),
                 decision.isObject() ? decisionFrom(decision) : null, n.path("active").asInt(0));
     }
@@ -188,46 +179,46 @@ public final class PlacementWire {
         if (t == null) {
             return n;
         }
-        n.put(F_TICKET_ID, t.ticketId());
-        n.put(F_SERVER, t.server());
+        n.put(WireFields.TICKET_ID, t.ticketId());
+        n.put(WireFields.SERVER, t.server());
         n.put("modelFootprintMiB", t.modelFootprintMiB());
         n.put("holderId", t.holderId());
         n.put("claimedAt", t.claimedAt());
         n.put("kvCacheFootprintMiB", t.kvCacheFootprintMiB());
         if (t.modelName() != null) {
-            n.put(F_MODEL_NAME, t.modelName());
+            n.put(WireFields.MODEL_NAME, t.modelName());
         }
         return n;
     }
 
     static Ticket ticketFrom(JsonNode n) {
-        if (!n.has(F_TICKET_ID)) {
+        if (!n.has(WireFields.TICKET_ID)) {
             return null;
         }
-        return new Ticket(n.path(F_TICKET_ID).asText(), n.path(F_SERVER).asText(""),
+        return new Ticket(n.path(WireFields.TICKET_ID).asText(), n.path(WireFields.SERVER).asText(""),
                 n.path("modelFootprintMiB").asLong(0L), n.path("holderId").asText(""),
                 n.path("claimedAt").asText(""), n.path("kvCacheFootprintMiB").asLong(0L),
-                n.has(F_MODEL_NAME) ? n.path(F_MODEL_NAME).asText() : null);
+                n.has(WireFields.MODEL_NAME) ? n.path(WireFields.MODEL_NAME).asText() : null);
     }
 
     // ---- decision ----
 
     static ObjectNode decisionJson(ObjectMapper m, PlacementDecision d) {
         ObjectNode n = m.createObjectNode();
-        n.put(F_POLICY, d.policy());
-        n.put(F_REASON, d.reason());
+        n.put(WireFields.POLICY, d.policy());
+        n.put(WireFields.REASON, d.reason());
         if (d.predicted() != null) {
-            n.set(F_PREDICTED, predictionJson(m, d.predicted()));
+            n.set(WireFields.PREDICTED, predictionJson(m, d.predicted()));
         }
         ArrayNode alts = n.putArray("alternatives");
         for (PlacementDecision.Alternative a : d.alternatives()) {
             ObjectNode o = alts.addObject();
-            o.put(F_SERVER, a.server());
-            o.put(F_MODEL, a.model());
+            o.put(WireFields.SERVER, a.server());
+            o.put(WireFields.MODEL, a.model());
             o.put("warm", a.warm());
             o.put("startsNow", a.startsNow());
             if (a.predicted() != null) {
-                o.set(F_PREDICTED, predictionJson(m, a.predicted()));
+                o.set(WireFields.PREDICTED, predictionJson(m, a.predicted()));
             }
         }
         return n;
@@ -236,12 +227,12 @@ public final class PlacementWire {
     static PlacementDecision decisionFrom(JsonNode n) {
         List<PlacementDecision.Alternative> alts = new ArrayList<>();
         for (JsonNode a : n.path("alternatives")) {
-            alts.add(new PlacementDecision.Alternative(a.path(F_SERVER).asText(""), a.path(F_MODEL).asText(""),
+            alts.add(new PlacementDecision.Alternative(a.path(WireFields.SERVER).asText(""), a.path(WireFields.MODEL).asText(""),
                     a.path("warm").asBoolean(false), a.path("startsNow").asBoolean(false),
-                    predictionFrom(a.path(F_PREDICTED))));
+                    predictionFrom(a.path(WireFields.PREDICTED))));
         }
-        return new PlacementDecision(n.path(F_POLICY).asText(PlacementDecision.ALGORITHM),
-                n.path(F_REASON).asText(""), alts, predictionFrom(n.path(F_PREDICTED)));
+        return new PlacementDecision(n.path(WireFields.POLICY).asText(PlacementDecision.ALGORITHM),
+                n.path(WireFields.REASON).asText(""), alts, predictionFrom(n.path(WireFields.PREDICTED)));
     }
 
     static ObjectNode predictionJson(ObjectMapper m, Prediction p) {
@@ -266,11 +257,11 @@ public final class PlacementWire {
     public static ObjectNode refusalJson(ObjectMapper m, Refusal r) {
         ObjectNode n = m.createObjectNode();
         n.put("code", r.code());
-        n.put(F_REASON, r.reason());
+        n.put(WireFields.REASON, r.reason());
         return n;
     }
 
     public static Refusal refusalFrom(JsonNode n) {
-        return new Refusal(n.path("code").asText(NO_FIT), n.path(F_REASON).asText(""));
+        return new Refusal(n.path("code").asText(NO_FIT), n.path(WireFields.REASON).asText(""));
     }
 }

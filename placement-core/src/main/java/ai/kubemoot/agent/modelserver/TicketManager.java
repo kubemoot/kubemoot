@@ -60,8 +60,6 @@ import java.util.UUID;
  */
 @ApplicationScoped
 public class TicketManager {
-    private static final String F_SERVER = "server";
-
 
     private static final Logger log = LoggerFactory.getLogger(TicketManager.class);
 
@@ -69,7 +67,6 @@ public class TicketManager {
     static final String TICKETS_BUCKET = KvTicketStore.BUCKET;
 
     /** JSON field names on the stored ticket/residency document. */
-    private static final String FIELD_MODEL_NAME = "modelName";
     private static final String FIELD_MODEL_FOOTPRINT = "modelFootprintMiB";
     /** Planned evictions on a cold-load ticket: {model: footprintMiB}. */
     private static final String FIELD_EVICTS = "evicts";
@@ -285,7 +282,7 @@ public class TicketManager {
         boolean[] earlier = {false};
         for (String server : servers) {
             forEachTicketEntry(server, (node, revision) -> {
-                if (revision < ownRevision && model.equals(node.path(FIELD_MODEL_NAME).asText(null))) earlier[0] = true;
+                if (revision < ownRevision && model.equals(node.path(WireFields.MODEL_NAME).asText(null))) earlier[0] = true;
             });
         }
         return earlier[0];
@@ -527,7 +524,7 @@ public class TicketManager {
     private java.util.Set<String> collectModelsFor(String server) {
         java.util.Set<String> models = new java.util.HashSet<>();
         forEachTicket(server, node -> {
-            String modelName = node.path(FIELD_MODEL_NAME).asText(null);
+            String modelName = node.path(WireFields.MODEL_NAME).asText(null);
             if (modelName != null && !modelName.isEmpty()) {
                 models.add(modelName);
             }
@@ -577,8 +574,8 @@ public class TicketManager {
         if (model == null || model.isEmpty()) return;
         if (footprintMiB <= 0) return;
         ObjectNode node = objectMapper.createObjectNode();
-        node.put(F_SERVER, server);
-        node.put(FIELD_MODEL_NAME, model);
+        node.put(WireFields.SERVER, server);
+        node.put(WireFields.MODEL_NAME, model);
         node.put(FIELD_MODEL_FOOTPRINT, footprintMiB);
         store.put(residencyKey(server, model), node);
     }
@@ -604,8 +601,8 @@ public class TicketManager {
      * non-blank model, positive footprint.
      */
     private static void collectResidency(JsonNode n, String server, java.util.Map<String, Long> out) {
-        if (!server.equals(n.path(F_SERVER).asText(null))) return;
-        String model = n.path(FIELD_MODEL_NAME).asText(null);
+        if (!server.equals(n.path(WireFields.SERVER).asText(null))) return;
+        String model = n.path(WireFields.MODEL_NAME).asText(null);
         long fp = n.path(FIELD_MODEL_FOOTPRINT).asLong(0L);
         if (model != null && !model.isEmpty() && fp > 0) {
             out.put(model, fp);
@@ -628,7 +625,7 @@ public class TicketManager {
     private List<HeldFootprint> footprintsOn(String server) {
         List<HeldFootprint> held = new ArrayList<>();
         forEachTicket(server, node -> held.add(new HeldFootprint(
-                node.path(FIELD_MODEL_NAME).asText(null), node.path(FIELD_MODEL_FOOTPRINT).asLong(0L))));
+                node.path(WireFields.MODEL_NAME).asText(null), node.path(FIELD_MODEL_FOOTPRINT).asLong(0L))));
         return held;
     }
 
@@ -640,13 +637,13 @@ public class TicketManager {
     private ObjectNode encode(Ticket ticket, java.util.Map<String, Long> evictions) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("ticketId", ticket.ticketId());
-        node.put(F_SERVER, ticket.server());
+        node.put(WireFields.SERVER, ticket.server());
         node.put(FIELD_MODEL_FOOTPRINT, ticket.modelFootprintMiB());
         node.put("kvCacheFootprintMiB", ticket.kvCacheFootprintMiB());
         node.put("holderId", ticket.holderId());
         node.put("claimedAt", ticket.claimedAt());
         if (ticket.modelName() != null) {
-            node.put(FIELD_MODEL_NAME, ticket.modelName());
+            node.put(WireFields.MODEL_NAME, ticket.modelName());
         }
         if (!evictions.isEmpty()) {
             ObjectNode ev = node.putObject(FIELD_EVICTS);
