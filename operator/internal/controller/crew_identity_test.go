@@ -14,6 +14,7 @@ import (
 	"context"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -69,15 +70,54 @@ func TestTheExposureVariablesAreTheSharedNamesSetToTrue(t *testing.T) {
 	}
 }
 
+func gatewayContainerEnv(t *testing.T, crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
+	t.Helper()
+	r := &CrewReconciler{ConfigCache: NewConfigCache()}
+	containers := r.buildDeployment(crew).Spec.Template.Spec.Containers
+	if len(containers) != 1 {
+		t.Fatalf("the gateway deployment has %d containers, want 1", len(containers))
+	}
+	return containers[0].Env
+}
+
+func TestTheGatewayDeploymentStampsLabelsOnlyForACrewThatExposesTheCaller(t *testing.T) {
+	on := crewWithIdentity(true, &kubemootv1alpha1.DiscussionIdentity{ExposeToAgents: true})
+	if v, ok := envValue(gatewayContainerEnv(t, on), identity.EnvExposeLabel); !ok || v != identity.EnvTrue {
+		t.Errorf("exposing crew: %s = %q, %v", identity.EnvExposeLabel, v, ok)
+	}
+	for name, crew := range map[string]*kubemootv1alpha1.Crew{
+		"identity left off": crewWithIdentity(true, &kubemootv1alpha1.DiscussionIdentity{}),
+		"no identity block": crewWithIdentity(true, nil),
+		"no access":         crewWithIdentity(false, nil),
+	} {
+		if _, ok := envValue(gatewayContainerEnv(t, crew), identity.EnvExposeLabel); ok {
+			t.Errorf("%s: the gateway is told to stamp labels", name)
+		}
+	}
+}
+
 func TestAnAgentsEnvironmentCarriesTheExposureOfItsNamespacesCrew(t *testing.T) {
 	scheme := agentReconcileScheme(t)
-	crew := crewWithIdentity(true, &kubemootv1alpha1.DiscussionIdentity{ExposeToAgents: true})
-	r := &AgentReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(crew).Build()}
-	if env := agentIdentityEnv(r.crewOf(context.Background(), "ns")); len(env) != 1 {
-		t.Errorf("crew that exposes the caller: %v", env)
-	}
-	if env := agentIdentityEnv(r.crewOf(context.Background(), "other")); len(env) != 0 {
-		t.Errorf("namespace without a crew: %v", env)
+	agent := &kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns"}}
+	pick := &modelPick{ModelID: "m"}
+	for name, c := range map[string]struct {
+		crew *kubemootv1alpha1.Crew
+		want bool
+	}{
+		"exposing crew": {crewWithIdentity(true, &kubemootv1alpha1.DiscussionIdentity{ExposeToAgents: true}), true},
+		"identity off":  {crewWithIdentity(true, &kubemootv1alpha1.DiscussionIdentity{}), false},
+		"no crew":       {nil, false},
+	} {
+		b := fake.NewClientBuilder().WithScheme(scheme)
+		if c.crew != nil {
+			b = b.WithObjects(c.crew)
+		}
+		r := &AgentReconciler{Client: b.Build(), Scheme: scheme, ConfigCache: NewConfigCache()}
+		env := r.buildEnvVars(context.Background(), agent, pick, pick, 8080)
+		v, ok := envValue(env, identity.EnvExposeCaller)
+		if ok != c.want || (ok && v != identity.EnvTrue) {
+			t.Errorf("%s: %s = %q, %v; want set=%v", name, identity.EnvExposeCaller, v, ok, c.want)
+		}
 	}
 }
 

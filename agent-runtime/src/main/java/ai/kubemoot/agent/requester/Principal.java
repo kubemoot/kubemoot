@@ -8,16 +8,10 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * Who asked, as a door of the crew verified it: the verifier's kind (anonymous, kubernetes,
- * subscriber), its issuer, and a pseudonymous id. The coordinator copies it from the request onto
- * thread_start; this runtime only reads it from there. It is data that scopes a tool call and
- * is part of a prompt only when the crew chose to tell its agents who is asking (see
- * {@link TurnContext#callerSentence}). It carries no token or email address: the id is a keyed
- * hash, and {@code displayName} is set for a workload, or for a person only when the crew
- * exposes the caller to its agents.
- *
- * <p>A value that is not a well-formed principal (a non-object, no kind, an oversized or
- * non-printable kind, issuer or id) reads as absent; a display name that is not plain text is dropped, so a bad value behaves like none.
+ * Who asked, as a door of the crew verified it: kind, issuer, a pseudonymous id and an optional
+ * label. The coordinator copies it from the request onto thread_start; this runtime only reads it
+ * there. It scopes tool calls and enters a prompt only when the crew exposes the caller (see
+ * {@link TurnContext#callerSentence}). A value that is not well formed reads as absent.
  */
 public record Principal(String kind, String issuer, String id, String displayName) {
 

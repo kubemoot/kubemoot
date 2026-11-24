@@ -148,4 +148,30 @@ class DiscussionSubscriberCallerTest {
         assertNotNull(seen.get(1).caller().conversationId());
         assertEquals("conv-b", seen.get(1).caller().conversationId());
     }
+
+    private static ai.kubemoot.agent.requester.Principal principalOfTriage(String thread, String metadata) {
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(java.util.List.of());
+        var subscriber = subscriber(chat);
+        if (metadata != null) {
+            subscriber.handleMessageForTest(SCOPE.broadcastSubject(thread), threadStart(thread, metadata));
+        }
+        subscriber.runTriage("kubemoot.discuss.ns-test.crew-x.general." + thread, thread, "conversation", "4090",
+                System.currentTimeMillis());
+        var asked = ArgumentCaptor.forClass(ai.kubemoot.agent.requester.Principal.class);
+        verify(chat).turnContextLine(any(), asked.capture());
+        return asked.getValue();
+    }
+
+    @Test
+    void theTriageTurnContextIsGivenTheThreadsPrincipal() {
+        var principal = principalOfTriage("t7", subscriberMeta("conv-7", ID_A));
+        assertEquals(ID_A, principal.id());
+    }
+
+    @Test
+    void aThreadWithNoCallerGivesTheTriageTurnContextNoPrincipal() {
+        assertNull(principalOfTriage("t8", null));
+        assertNull(principalOfTriage("t9", "{\"userQuery\":\"q\",\"conversationId\":\"conv-9\"}"));
+    }
 }

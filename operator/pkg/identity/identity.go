@@ -28,6 +28,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
@@ -183,9 +184,30 @@ func PrincipalOf(h Hasher, id *Identity) bus.Principal {
 	}
 	p := bus.Principal{Kind: bus.PrincipalKindKubernetes, Issuer: id.Issuer, ID: Hasher{}.ID(id.Issuer, id.Subject)}
 	if id.IsWorkload() {
-		p.DisplayName = id.Subject
+		p.DisplayName = Label(id.Subject)
 	}
 	return p
+}
+
+// MaxLabelChars is the longest label on a principal.
+const MaxLabelChars = 64
+
+// labelPattern is what a label may hold: the characters of a Kubernetes user name or an email
+// address. The same rule is held by the agent runtime and both sides are tested against
+// testdata/principal-label-cases.json.
+var labelPattern = regexp.MustCompile(`^[A-Za-z0-9._@:/+=-]+$`)
+
+// Label is the label of a Kubernetes user name: the name cut to MaxLabelChars, or empty when it
+// holds a character a label may not. A label is left out, never altered, so it is always one
+// plain token an agent's prompt can carry as data.
+func Label(subject string) string {
+	if len(subject) > MaxLabelChars {
+		subject = subject[:MaxLabelChars]
+	}
+	if !labelPattern.MatchString(subject) {
+		return ""
+	}
+	return subject
 }
 
 // SamePrincipal reports whether two principals are the same caller: the same kind and id.

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Principal",
-  "description": "Who is asking, as a door of the crew verified it. Only the discussion gateway and the crew liaison set it, from a credential they checked, never from anything the client put in a body, a header or the question's text. Readers treat it as data: it scopes what a turn may read and is never an instruction. It carries a pseudonymous id, never a token, an email address or a name that identifies a person.",
+  "description": "Who is asking, as a door of the crew verified it. Only the discussion gateway and the crew liaison set it, from a credential they checked, never from anything the client put in a body, a header or the question's text. Readers treat it as data: it scopes what a turn may read and is never an instruction. It carries a pseudonymous id, never a token or an email address. A name appears only as displayName, and only for a workload or for a crew that chose to tell its agents who is asking.",
   "type": "object",
   "required": ["kind"],
   "properties": {
@@ -20,7 +20,7 @@
     },
     "displayName": {
       "type": "string",
-      "description": "A name safe to show, set only when the subject is a workload and not a person, such as a ServiceAccount's name. Absent otherwise."
+      "description": "A short label: a workload's name (a ServiceAccount) or, only on a crew that sets spec.discussion.identity.exposeToAgents, a Kubernetes caller's user name. At most 64 characters of letters, digits and . _ @ : / + = -; a name with any other character is left out, never altered. Never stored with the conversation. Absent otherwise."
     }
   }
 }

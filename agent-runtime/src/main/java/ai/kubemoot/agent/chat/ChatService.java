@@ -2848,13 +2848,9 @@ public class ChatService {
      * The one line every turn starts with: the asker's date and zone and where the agent runs.
      * Fixed per question, so it is the same on every turn of a discussion.
      */
-    public String turnContextLine(Requester requester) {
-        return turnContextLine(requester, null);
-    }
-
     /**
      * The turn context line with the caller after it, only when the crew exposes the caller to its
-     * agents; otherwise exactly {@link #turnContextLine(Requester)}.
+     * agents; otherwise the line without it.
      */
     public String turnContextLine(Requester requester, Principal principal) {
         Principal shown = properties.exposeCaller() ? principal : null;

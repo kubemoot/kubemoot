@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"regexp"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
@@ -89,27 +88,7 @@ func (h *Handler) principalOf(r *http.Request) *bus.Principal {
 	caller := callerOf(r)
 	p := caller.Principal
 	if h.exposeLabel && p.Kind == bus.PrincipalKindKubernetes && p.DisplayName == "" && caller.Identity != nil {
-		p.DisplayName = labelOf(caller.Identity.Subject)
+		p.DisplayName = identity.Label(caller.Identity.Subject)
 	}
 	return &p
-}
-
-// maxLabelChars is the longest label stamped on a principal.
-const maxLabelChars = 64
-
-// labelPattern is what a label may hold: the characters of a Kubernetes user name or an email
-// address. A name with anything else (a space, a quote, a bracket) is not stamped, so a label is
-// always one plain token an agent's prompt can carry as data.
-var labelPattern = regexp.MustCompile(`^[A-Za-z0-9._@:/+=-]+$`)
-
-// labelOf is the label of a Kubernetes user name: the name cut to maxLabelChars, or empty when
-// it holds a character a label may not.
-func labelOf(subject string) string {
-	if len(subject) > maxLabelChars {
-		subject = subject[:maxLabelChars]
-	}
-	if !labelPattern.MatchString(subject) {
-		return ""
-	}
-	return subject
 }
