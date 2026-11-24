@@ -348,7 +348,8 @@ func readEvidence(stores []evidenceStore, namespace, threadID string, expected m
 }
 
 // finishEvidence joins the inline results to a fully read set and says whether the set may be used.
-func finishEvidence(set *evidencenames.Evidence, stored int, inline inlineEvidence) (*evidencenames.Evidence, int, readOutcome) {
+func finishEvidence(set *evidencenames.Evidence, stored int,
+	inline inlineEvidence) (*evidencenames.Evidence, int, readOutcome) {
 	if stored+inline.calls == 0 {
 		fmt.Println("[fitness-runner] no usable tool results for the thread; invented-name check skipped")
 		return nil, 0, readSkipped
