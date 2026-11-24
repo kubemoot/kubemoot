@@ -40,6 +40,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 /**
  * Signal-driven discussion facilitator with early phase transitions.
@@ -751,8 +752,7 @@ public class DiscussionOrchestrator {
         state.primaryChannel = primaryChannel;
         state.conversationId = request.conversationId();
         state.crew = request.crew();
-        state.requester = request.asker().requester();
-        state.principal = request.asker().principal();
+        state.asker.set(request.asker());
         // Tied to a request only when a restarted coordinator can use it to find the thread again.
         state.requestSeq = resume.enabled() ? requestSeq : 0;
         if (!leases.acquire(threadId)) {
@@ -1147,12 +1147,8 @@ public class DiscussionOrchestrator {
      */
     // Visible for testing
     void handleStopRequest(ThreadState state, String threadId, String agentName) {
-        synchronized (state) {
-            // A close already under way is the answer: a stop that comes after it changes nothing.
-            if (!canStop(state.phase) || state.stopped || state.closeWait != null) {
-                return;
-            }
-            state.stopped = true;
+        if (!state.markStopped()) {
+            return;
         }
         log.info("Thread {} stop requested by {} - abandoning the turn from phase {}",
                 threadId, agentName, state.phase);
@@ -2407,7 +2403,7 @@ public class DiscussionOrchestrator {
         if (wisdom != null && !wisdom.isEmpty()) {
             metadata.put(MSG_ADVISORY, wisdom);
         }
-        putRequester(metadata, state.requester);
+        putRequester(metadata, state.asker.get().requester());
         // Include conversation context so toolers can resolve follow-up references
         var conversationContext = buildConversationContext(state.conversationId);
         if (!conversationContext.isEmpty()) {
@@ -3287,13 +3283,7 @@ public class DiscussionOrchestrator {
 
     /** Starts the close's outage wait unless a close of the thread already has one; true when this caller started it. */
     private boolean beginClose(ThreadState state) {
-        synchronized (state) {
-            if (state.closeWait != null) {
-                return false;
-            }
-            state.closeWait = outage.startWait();
-            return true;
-        }
+        return state.startCloseWait(outage::startWait);
     }
 
     private void endClose(ThreadState state, boolean owner) {
@@ -3879,7 +3869,9 @@ public class DiscussionOrchestrator {
      * zone as the thread fixed them, and the crew's namespace and name.
      */
     String systemPromptFor(ThreadState state) {
-        return TurnContext.appendTo(loadSystemPrompt(), chatService.turnContextLine(state.requester, state.principal));
+        var asker = state.asker.get();
+        return TurnContext.appendTo(loadSystemPrompt(),
+                chatService.turnContextLine(asker.requester(), asker.principal()));
     }
 
     String loadSystemPrompt() {
@@ -5314,10 +5306,12 @@ public class DiscussionOrchestrator {
         volatile String primaryChannel;
         volatile String conversationId;
         volatile String crew;
-        /** Who is asking, with the date fixed when the question arrived; null for an older request. */
-        volatile Requester requester;
-        /** The principal that asked, for the turn context when the crew exposes the caller; null when none. */
-        volatile Principal principal;
+        /**
+         * Who is asking: the requester, with the date fixed when the question arrived (null for an
+         * older request), and the principal that asked, for the turn context when the crew exposes
+         * the caller (null when none). Replaced whole, so the two are always read together.
+         */
+        final AtomicReference<Asker> asker = new AtomicReference<>(new Asker(null, null));
         /** The stream sequence of the request that started the thread; 0 for a thread no request started. */
         volatile long requestSeq;
         /**
@@ -5410,6 +5404,28 @@ public class DiscussionOrchestrator {
         // Map: agentName → deadline epoch ms (P90 + grace). The settle timer must not fire
         // while any non-expired entry exists here.
         final ConcurrentHashMap<String, Long> pendingEvaluations = new ConcurrentHashMap<>();
+
+        /**
+         * Marks the thread stopped unless a stop or a close is already under way or the phase no
+         * longer allows one; true when this caller stopped it.
+         */
+        synchronized boolean markStopped() {
+            // A close already under way is the answer: a stop that comes after it changes nothing.
+            if (!canStop(phase) || stopped || closeWait != null) {
+                return false;
+            }
+            stopped = true;
+            return true;
+        }
+
+        /** Starts the close's outage wait unless the thread already has one; true when this caller started it. */
+        synchronized boolean startCloseWait(Supplier<OutageBackoff.Wait> start) {
+            if (closeWait != null) {
+                return false;
+            }
+            closeWait = start.get();
+            return true;
+        }
 
         ThreadState(String threadId) {
             this.threadId = threadId;

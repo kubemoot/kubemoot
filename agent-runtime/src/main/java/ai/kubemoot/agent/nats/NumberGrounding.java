@@ -23,11 +23,14 @@ import java.util.regex.Pattern;
  */
 public final class NumberGrounding {
 
+    /** Digits with or without thousands separators, then an optional decimal part. */
+    private static final String NUMBER_BODY = "(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?";
+
     /** A number standing alone; thousands separators allowed, a unit may follow (50GiB). */
-    private static final Pattern NUMBER = Pattern.compile("(?<![\\w.:/-])\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|(?<![\\w.:/-])\\d+(?:\\.\\d+)?");
+    private static final Pattern NUMBER = Pattern.compile("(?<![\\w.:/-])" + NUMBER_BODY);
 
     /** Every number of a source, wherever it stands: after a colon in compact JSON, in a range or a ratio. */
-    private static final Pattern ANY_NUMBER = Pattern.compile("\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?");
+    private static final Pattern ANY_NUMBER = Pattern.compile(NUMBER_BODY);
 
     /** A list marker ("12. ", "3) ") at the start of a line, which numbers an item and states no figure. */
     private static final Pattern LIST_MARKER = Pattern.compile("(?m)^[ \\t]*\\d+[.)][ \\t]");

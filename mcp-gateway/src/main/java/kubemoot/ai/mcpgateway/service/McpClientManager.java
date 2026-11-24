@@ -60,6 +60,7 @@ public class McpClientManager {
     /** Safety net for a connect that never answers; the normal path ends long before. */
     private static final Duration CONNECT_DEADLINE = Duration.ofSeconds(60);
     private static final String METHOD_TOOLS_CALL = "tools/call";
+    private static final String HTTP_PREFIX = "HTTP ";
     /** How long a stdio request waits for its reply on the SSE stream; tests shorten it. */
     Duration replyTimeout = Duration.ofSeconds(30);
 
@@ -398,7 +399,7 @@ public class McpClientManager {
         }
         cleanupSseSession(serverId);
         return reconnectForRequest(serverId)
-            .then(Mono.just(McpMessage.error(request.id(), -32603, "HTTP " + statusCode
+            .then(Mono.just(McpMessage.error(request.id(), -32603, HTTP_PREFIX + statusCode
                 + ": the server failed the call; it is not sent again because it may have run")))
             .onErrorResume(e -> unreachable(request, e));
     }
@@ -1294,7 +1295,7 @@ public class McpClientManager {
             return response.bodyToMono(String.class)
                 .defaultIfEmpty("Unknown error")
                 .map(body -> McpMessage.error(request.id(), -32603,
-                    "HTTP " + statusCode + ": " + body));
+                    HTTP_PREFIX + statusCode + ": " + body));
         }
 
         // POST accepted - wait for response on SSE stream
@@ -1338,7 +1339,7 @@ public class McpClientManager {
                     return response.bodyToMono(String.class)
                         .defaultIfEmpty("Unknown error")
                         .map(body -> McpMessage.error(request.id(), -32603,
-                            "HTTP " + statusCode + ": " + body));
+                            HTTP_PREFIX + statusCode + ": " + body));
                 }
 
                 long declared = response.headers().contentLength().orElse(-1);

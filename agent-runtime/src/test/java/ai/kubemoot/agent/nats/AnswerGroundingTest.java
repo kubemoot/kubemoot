@@ -72,4 +72,12 @@ class AnswerGroundingTest {
         assertTrue(text.contains("these names") && text.contains("and 4 more"), text);
         assertTrue(text.contains("node-9") && !text.contains("node-10"), text);
     }
+
+    @Test
+    void namesIn_readsALongHyphenatedRunWithoutOverflowingTheStack() {
+        String run = "a-".repeat(200_000) + "7";
+        assertEquals(List.of(run), AnswerGrounding.namesIn(run));
+        assertTrue(AnswerGrounding.namesIn("a-".repeat(200_000)).isEmpty());
+        assertTrue(AnswerGrounding.namesIn("node--1 node-1- worker-").isEmpty());
+    }
 }

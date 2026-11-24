@@ -27,7 +27,8 @@ import (
 )
 
 const (
-	draft07 = "http://json-schema.org/draft-07/schema#"
+	draft07   = "http://json-schema.org/draft-07/schema#"
+	schemaKey = "$schema"
 	// CombinedName is the file name of the schema that covers every kind.
 	CombinedName = "kubemoot_v1alpha1.json"
 
@@ -107,7 +108,7 @@ func FromCRD(doc []byte) ([]Schema, error) {
 // apiVersion and kind pinned and a typed metadata.
 func rootSchema(kind, apiVersion string, openapi map[string]any) map[string]any {
 	root := convert(openapi)
-	root["$schema"] = draft07
+	root[schemaKey] = draft07
 	root["title"] = kind
 	props, _ := root[kwProperties].(map[string]any)
 	if props == nil {
@@ -264,7 +265,7 @@ func Combined(schemas []Schema) map[string]any {
 	for _, s := range sorted {
 		def := make(map[string]any, len(s.Doc))
 		for k, v := range s.Doc {
-			if k != "$schema" {
+			if k != schemaKey {
 				def[k] = v
 			}
 		}
@@ -279,7 +280,7 @@ func Combined(schemas []Schema) map[string]any {
 		})
 	}
 	return map[string]any{
-		"$schema":     draft07,
+		schemaKey:     draft07,
 		"title":       "Kubemoot kubemoot.ai manifests",
 		"description": "Every Kubemoot kind; a document is checked against the schema of its kind.",
 		"type":        "object",

@@ -123,7 +123,12 @@ func (c controlSetup) coordinatorTakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	taken := 0
 	for range batch.Messages() {
+		taken++
+	}
+	if taken != 1 {
+		t.Fatalf("the coordinator took %d questions, want 1", taken)
 	}
 }
 

@@ -2845,10 +2845,6 @@ public class ChatService {
     }
 
     /**
-     * The one line every turn starts with: the asker's date and zone and where the agent runs.
-     * Fixed per question, so it is the same on every turn of a discussion.
-     */
-    /**
      * The turn context line with the caller after it, only when the crew exposes the caller to its
      * agents; otherwise the line without it.
      */
