@@ -1,5 +1,6 @@
 package ai.kubemoot.placement;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,7 +53,7 @@ class FakeMirrorBucket implements MirrorBucket {
     }
 
     @Override
-    public synchronized void put(String key, byte[] value) throws Exception {
+    public synchronized void put(String key, byte[] value) throws IOException {
         failIfAsked();
         entries.put(key, value);
         long now = System.currentTimeMillis();
@@ -60,7 +61,7 @@ class FakeMirrorBucket implements MirrorBucket {
     }
 
     @Override
-    public synchronized void remove(String key) throws Exception {
+    public synchronized void remove(String key) throws IOException {
         failIfAsked();
         entries.remove(key);
         removedKeys.add(key);
@@ -88,10 +89,10 @@ class FakeMirrorBucket implements MirrorBucket {
         };
     }
 
-    private void failIfAsked() throws Exception {
+    private void failIfAsked() throws IOException {
         if (failingWrites > 0) {
             failingWrites--;
-            throw new java.io.IOException("write failed");
+            throw new IOException("write failed");
         }
     }
 

@@ -5,8 +5,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,7 +50,7 @@ class LeadershipTest {
         LeaseStore storeFor() {
             return new LeaseStore() {
                 @Override
-                public long acquire(String key, String who) throws Exception {
+                public long acquire(String key, String who) throws IOException {
                     synchronized (FakeLeaseBucket.this) {
                         check();
                         expire();
@@ -59,7 +62,7 @@ class LeadershipTest {
                 }
 
                 @Override
-                public long renew(String key, String who, long expected) throws Exception {
+                public long renew(String key, String who, long expected) throws IOException {
                     synchronized (FakeLeaseBucket.this) {
                         check();
                         expire();
@@ -73,7 +76,7 @@ class LeadershipTest {
                 }
 
                 @Override
-                public void release(String key, long expected) throws Exception {
+                public void release(String key, long expected) throws IOException {
                     synchronized (FakeLeaseBucket.this) {
                         check();
                         if (holder != null && revision == expected) {
@@ -85,9 +88,9 @@ class LeadershipTest {
             };
         }
 
-        private void check() throws Exception {
+        private void check() throws IOException {
             if (unreachable) {
-                throw new java.io.IOException("NATS unreachable");
+                throw new IOException("NATS unreachable");
             }
         }
 
@@ -108,7 +111,7 @@ class LeadershipTest {
         AtomicLong clock;
 
         @Override
-        public void elected() throws Exception {
+        public void elected() throws IOException, InterruptedException, TimeoutException {
             if (failElection) {
                 throw new IllegalStateException("recovery failed");
             }
@@ -272,8 +275,9 @@ class LeadershipTest {
     void aCleanShutdownWritesTheQueuedMirrorOps_throughTheRealLeaderFence() throws Exception {
         var mirrorBucket = new FakeMirrorBucket() {
             @Override
-            public synchronized void put(String key, byte[] value) throws Exception {
-                Thread.sleep(5);
+            public synchronized void put(String key, byte[] value) throws IOException {
+                // A bucket that takes a moment to answer, so the queue has a backlog at shutdown.
+                LockSupport.parkNanos(5_000_000L);
                 super.put(key, value);
             }
         };
@@ -283,7 +287,7 @@ class LeadershipTest {
         table.addListener(mirror);
         var a = replica("a", new Leadership.Callbacks() {
             @Override
-            public void elected() throws Exception {
+            public void elected() throws IOException, InterruptedException, TimeoutException {
                 mirror.start(Duration.ofSeconds(2));
                 table.activate();
             }
@@ -338,7 +342,7 @@ class LeadershipTest {
         var holder = new Leadership[1];
         var r = new Recorder() {
             @Override
-            public void elected() throws Exception {
+            public void elected() throws IOException, InterruptedException, TimeoutException {
                 seenLeader[0] = holder[0].isLeader();
                 super.elected();
             }

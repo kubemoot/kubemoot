@@ -1,5 +1,6 @@
 package ai.kubemoot.placement;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -37,14 +38,14 @@ interface MirrorBucket {
     }
 
     /** Writes the entry, replacing any under the key. */
-    void put(String key, byte[] value) throws Exception;
+    void put(String key, byte[] value) throws IOException;
 
     /** Removes the entry. */
-    void remove(String key) throws Exception;
+    void remove(String key) throws IOException;
 
     /** Drops the removal markers, so keys that are gone stop being listed. */
-    void sweepMarkers() throws Exception;
+    void sweepMarkers() throws IOException;
 
     /** Follows the bucket until the returned handle is closed. */
-    AutoCloseable watch(Watcher watcher) throws Exception;
+    AutoCloseable watch(Watcher watcher) throws IOException;
 }

@@ -8,10 +8,12 @@ import jakarta.inject.Singleton;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.LongSupplier;
 
 /**
@@ -48,7 +50,7 @@ public class Leadership {
     /** What the service does when this replica gains or loses the lease. */
     interface Callbacks {
         /** Recovers the previous leader's state; a failure here gives the lease back. */
-        void elected() throws Exception;
+        void elected() throws IOException, InterruptedException, TimeoutException;
 
         /**
          * Stops answering and forgets the state. {@code leaseLost} is true when the lease may already
@@ -60,7 +62,7 @@ public class Leadership {
 
     /** Opens the lease store, or fails when NATS is not reachable. */
     interface StoreSource {
-        LeaseStore open() throws Exception;
+        LeaseStore open() throws IOException;
     }
 
     private final ServiceSettings settings;
@@ -174,7 +176,7 @@ public class Leadership {
         }
     }
 
-    private LeaseStore store() throws Exception {
+    private LeaseStore store() throws IOException {
         if (store == null) {
             store = storeSource.open();
         }

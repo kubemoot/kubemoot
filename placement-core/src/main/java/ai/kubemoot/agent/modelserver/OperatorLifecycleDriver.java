@@ -46,15 +46,15 @@ final class OperatorLifecycleDriver implements EngineDriver {
      * Background requests each block until the operator answers, so they run on their own
      * threads, not on the common pool other work shares.
      */
-    private static final Executor BACKGROUND = Executors.newCachedThreadPool(r -> {
+    private static final Executor WARM_POOL = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "model-lifecycle-warm");
         t.setDaemon(true);
         return t;
     });
 
-    /** A driver whose background requests run on {@link #BACKGROUND}. */
+    /** A driver whose background requests run on {@link #WARM_POOL}. */
     OperatorLifecycleDriver(EngineDriver base, String engine, ModelLifecycle lifecycle) {
-        this(base, engine, lifecycle, BACKGROUND);
+        this(base, engine, lifecycle, WARM_POOL);
     }
 
     /** A driver with no way to reach the operator: every request fails. */

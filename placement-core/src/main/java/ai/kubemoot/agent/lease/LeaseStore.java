@@ -1,5 +1,9 @@
 package ai.kubemoot.agent.lease;
 
+import io.nats.client.JetStreamApiException;
+
+import java.io.IOException;
+
 /**
  * Where leases live: one entry per key that exists while a holder owns the key. Taking a lease is a
  * create that fails while another holder's entry exists; keeping it is a compare-and-set on the
@@ -13,11 +17,11 @@ public interface LeaseStore {
     long NOT_HELD = -1L;
 
     /** Takes the lease on {@code key} if nobody holds it; the new revision, or {@link #NOT_HELD}. */
-    long acquire(String key, String holder) throws Exception;
+    long acquire(String key, String holder) throws IOException, JetStreamApiException;
 
     /** Renews the lease on {@code key} if {@code revision} is still the latest write; the new revision, or {@link #NOT_HELD}. */
-    long renew(String key, String holder, long revision) throws Exception;
+    long renew(String key, String holder, long revision) throws IOException, JetStreamApiException;
 
     /** Gives the lease on {@code key} up if {@code revision} is still the latest write. */
-    void release(String key, long revision) throws Exception;
+    void release(String key, long revision) throws IOException, JetStreamApiException;
 }
