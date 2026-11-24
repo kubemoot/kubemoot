@@ -39,7 +39,7 @@ final class ThreadCatalog {
     static final String ENTRY_PREFIX = "[CATALOG-CALL key=";
 
     /** The type shown for an object stored before the Content-Type header existed. */
-    private static final String UNKNOWN_TYPE = "unknown";
+    private static final String UNKNOWN = "unknown";
 
     /** One stored call; {@code rows} is -1 when unknown. */
     record Entry(String key, String agent, String tool, String args, long rows, long bytes, String type,
@@ -195,15 +195,15 @@ final class ThreadCatalog {
         long rows = g.stream().filter(e -> e.rows() >= 0).mapToLong(Entry::rows).sum();
         return GROUP_PREFIX + "agent=" + first.agent() + " tool=" + first.tool() + " calls=" + g.size()
                 + " errors=" + errors + BYTES_LABEL + g.stream().mapToLong(Entry::bytes).sum()
-                + " rows=" + (rowsKnown ? Long.toString(rows) : UNKNOWN_TYPE) + " pattern=" + first.pattern(prefix) + "]";
+                + " rows=" + (rowsKnown ? Long.toString(rows) : UNKNOWN) + " pattern=" + first.pattern(prefix) + "]";
     }
 
     /** The catalog line of one call: its key, tool, arguments, shape and size. */
     /** Package-private so the shared fixture test (ThreadCatalogTest) can render one line. */
     String callLine(Entry e) {
         return ENTRY_PREFIX + e.relativeKey(prefix) + " tool=" + CallManifest.neutralize(e.tool()) + " " + CallManifest.argsField(e.args())
-                + " type=" + (e.type().isEmpty() ? UNKNOWN_TYPE : e.type())
-                + " rows=" + (e.rows() >= 0 ? Long.toString(e.rows()) : "unknown")
+                + " type=" + (e.type().isEmpty() ? UNKNOWN : e.type())
+                + " rows=" + (e.rows() >= 0 ? Long.toString(e.rows()) : UNKNOWN)
                 + BYTES_LABEL + e.bytes() + " error=" + e.error() + "]";
     }
 

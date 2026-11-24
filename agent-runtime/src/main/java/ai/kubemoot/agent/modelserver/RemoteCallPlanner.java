@@ -37,8 +37,6 @@ import java.util.function.Supplier;
 public class RemoteCallPlanner implements CallPlacement {
 
     private static final Logger log = LoggerFactory.getLogger(RemoteCallPlanner.class);
-    private static final String SERVER = "server";
-    private static final String MODEL = "model";
     private static final String THREADS_PATH = "/threads/";
     private static final String API = "/placement/v1";
     private static final int REPORT_QUEUE = 2_000;
@@ -174,7 +172,7 @@ public class RemoteCallPlanner implements CallPlacement {
     @Override
     public void callStarted(String threadId, String model) {
         ObjectNode body = PlacementWire.identityJson(mapper, identity);
-        body.put(MODEL, model == null ? "" : model);
+        body.put(WireKeys.MODEL, model == null ? "" : model);
         String thread = threadId == null || threadId.isBlank() ? "-" : threadId;
         report("call-started", () -> client.post(API + THREADS_PATH + thread + "/call-started", body));
     }
@@ -191,7 +189,7 @@ public class RemoteCallPlanner implements CallPlacement {
 
     private void waiting(String model, boolean active) {
         ObjectNode body = PlacementWire.identityJson(mapper, identity);
-        body.put(MODEL, model);
+        body.put(WireKeys.MODEL, model);
         body.put("active", active);
         report("waits", () -> client.post(API + "/waits", body));
     }
@@ -213,7 +211,7 @@ public class RemoteCallPlanner implements CallPlacement {
 
     @Override
     public void recordResidency(String server, String model, long footprintMiB) {
-        ObjectNode body = mapper.createObjectNode().put(SERVER, server).put(MODEL, model)
+        ObjectNode body = mapper.createObjectNode().put(WireKeys.SERVER, server).put(WireKeys.MODEL, model)
                 .put("footprintMiB", footprintMiB);
         report("residency", () -> client.post(API + "/residency", body));
     }
@@ -228,17 +226,17 @@ public class RemoteCallPlanner implements CallPlacement {
         if (server == null || server.isEmpty()) {
             return;
         }
-        ObjectNode body = mapper.createObjectNode().put(SERVER, server).put("durationMs", durationMs)
+        ObjectNode body = mapper.createObjectNode().put(WireKeys.SERVER, server).put("durationMs", durationMs)
                 .put("ok", ok);
         if (model != null) {
-            body.put(MODEL, model);
+            body.put(WireKeys.MODEL, model);
         }
         report("outcomes", () -> client.post(API + "/outcomes", body));
     }
 
     @Override
     public void recordFailure(String server) {
-        report("failures", () -> client.post(API + "/failures", mapper.createObjectNode().put(SERVER, server)));
+        report("failures", () -> client.post(API + "/failures", mapper.createObjectNode().put(WireKeys.SERVER, server)));
     }
 
     @Override

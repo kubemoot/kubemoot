@@ -52,6 +52,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -693,7 +694,7 @@ public class ChatService {
      * the loop's result when this iteration ends it.
      */
     @SuppressWarnings("java:S107") // the loop's inputs, passed through unchanged
-    private java.util.Optional<ToolLoopResult> toolLoopIteration(ToolLoopState state, ChatModel modelForThisCall,
+    private Optional<ToolLoopResult> toolLoopIteration(ToolLoopState state, ChatModel modelForThisCall,
                                                                   String serverName, String pickReason,
                                                                   boolean toolerRawOutput, long contextLength,
                                                                   long loopStartMs, long loopDeadlineMs, int i) {
@@ -718,7 +719,7 @@ public class ChatService {
                 return posted;
             }
             if (recoversFromRejection(e, state, contextLength, toolerRawOutput)) {
-                return java.util.Optional.empty();
+                return Optional.empty();
             }
             throw e;
         }
@@ -734,9 +735,9 @@ public class ChatService {
             throwIfEveryToolFailed(state);
             log.info("agent {}: a tool call repeated with the same arguments; contributing the tool output "
                     + "gathered in {} iterations", properties.agentName(), i + 1);
-            return java.util.Optional.of(rawOutputResult(state, serverName, pickReason));
+            return Optional.of(rawOutputResult(state, serverName, pickReason));
         }
-        return java.util.Optional.empty();
+        return Optional.empty();
     }
 
     /** Throw LOOP_TIME_EXCEEDED when the wall-clock deadline has passed. */
