@@ -40,16 +40,18 @@ import (
 	"github.com/kubemoot/kubemoot/operator/internal/engine"
 )
 
+// sleepStateReadFmt wraps a failure to read whether the server sleeps, with the model name.
+const sleepStateReadFmt = "reading the sleep state of %q: %w"
+
 const (
-	sleepStateReadFmt = "reading the sleep state of %q: %w"
-	pathHealth        = "/health"
-	pathModels        = "/v1/models"
-	pathIsSleeping    = "/is_sleeping"
-	pathMetrics       = "/metrics"
-	pathSleep         = "/sleep"
-	pathWakeUp        = "/wake_up"
-	pathCollective    = "/collective_rpc"
-	contentTypeJSON   = "application/json"
+	pathHealth      = "/health"
+	pathModels      = "/v1/models"
+	pathIsSleeping  = "/is_sleeping"
+	pathMetrics     = "/metrics"
+	pathSleep       = "/sleep"
+	pathWakeUp      = "/wake_up"
+	pathCollective  = "/collective_rpc"
+	contentTypeJSON = "application/json"
 
 	// maxBody caps what is read from any answer; a /metrics page is the largest.
 	maxBody = 8 << 20

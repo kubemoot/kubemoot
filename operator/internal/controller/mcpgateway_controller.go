@@ -1048,7 +1048,7 @@ func (r *MCPGatewayReconciler) registerMCPServerWithGateway(ctx context.Context,
 
 	// Add bearer token authentication for Admin API (ContextForge)
 	if bearerToken != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", bearerToken))
+		req.Header.Set("Authorization", bearerPrefix+bearerToken)
 	}
 
 	resp, err := httpClient.Do(req)
@@ -1122,7 +1122,7 @@ func (r *MCPGatewayReconciler) unregisterMCPServer(ctx context.Context, gateway 
 
 	// Add bearer token authentication for Admin API (ContextForge)
 	if bearerToken != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", bearerToken))
+		req.Header.Set("Authorization", bearerPrefix+bearerToken)
 	}
 
 	resp, err := httpClient.Do(req)
@@ -1161,7 +1161,7 @@ func (r *MCPGatewayReconciler) scrapeGatewayFeedback(ctx context.Context, gatewa
 		return
 	}
 	if bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+bearerToken)
+		req.Header.Set("Authorization", bearerPrefix+bearerToken)
 	}
 
 	resp, err := httpClient.Do(req)
