@@ -38,12 +38,16 @@ final class PlacementSurvey {
          */
         Optional<Surveyed> soonest() {
             Surveyed best = null;
+            double bestTotal = 0;
             for (Surveyed s : options) {
-                if (s.prediction().isEmpty()) {
+                Optional<Prediction> prediction = s.prediction();
+                if (prediction.isEmpty()) {
                     return Optional.empty();
                 }
-                if (best == null || s.prediction().get().total() < best.prediction().get().total()) {
+                double total = prediction.get().total();
+                if (best == null || total < bestTotal) {
                     best = s;
+                    bestTotal = total;
                 }
             }
             return Optional.ofNullable(best);

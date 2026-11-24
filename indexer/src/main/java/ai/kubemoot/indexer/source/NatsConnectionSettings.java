@@ -216,7 +216,7 @@ public record NatsConnectionSettings(String url, String caFile, String clientCer
                     + " must be a PKCS#8 PEM key (BEGIN PRIVATE KEY); convert with openssl pkcs8 -topk8 -nocrypt");
         }
         byte[] der = Base64.getMimeDecoder().decode(pem.substring(start + PRIVATE_KEY_BEGIN.length(), end));
-        GeneralSecurityException last = null;
+        GeneralSecurityException last = new GeneralSecurityException("no key algorithm accepted the key");
         for (String algorithm : new String[] {"EC", "RSA", "Ed25519"}) {
             try {
                 return KeyFactory.getInstance(algorithm).generatePrivate(new PKCS8EncodedKeySpec(der));

@@ -63,4 +63,21 @@ class JdbcStaleChunkPrunerTest {
         captor.getValue().createPreparedStatement(connection);
         verify(statement).setArray(1, array);
     }
+
+    @Test
+    void closesTheStatementWhenBindingTheKeepSetFails() throws Exception {
+        JdbcTemplate template = mock(JdbcTemplate.class);
+        new JdbcStaleChunkPruner(template, configFor("helm_reference")).pruneExcept(Set.of("id-1"));
+        var captor = forClass(PreparedStatementCreator.class);
+        verify(template).update(captor.capture());
+        Connection connection = mock(Connection.class);
+        PreparedStatement statement = mock(PreparedStatement.class);
+        when(connection.prepareStatement(org.mockito.ArgumentMatchers.anyString())).thenReturn(statement);
+        when(connection.createArrayOf(org.mockito.ArgumentMatchers.eq("text"), org.mockito.ArgumentMatchers.any()))
+            .thenThrow(new java.sql.SQLException("no arrays"));
+
+        assertThrows(java.sql.SQLException.class, () -> captor.getValue().createPreparedStatement(connection));
+
+        verify(statement).close();
+    }
 }
