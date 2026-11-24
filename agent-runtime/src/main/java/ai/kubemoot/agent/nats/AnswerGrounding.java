@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
  * not checked. The check is code, from the text alone: a name is grounded when it occurs, in any
  * letter case, in the question and discussion the synthesizer read or in a stored tool result.
  */
-final class AnswerGrounding {
+public final class AnswerGrounding {
 
     /** Lowercase words joined by hyphens, standing alone (not part of a path, host or longer word). */
     private static final Pattern HYPHENATED = Pattern.compile("(?<![\\w./:-])[a-z][a-z0-9]*(?:-[a-z0-9]+)+(?![\\w-])");
@@ -81,7 +81,8 @@ final class AnswerGrounding {
                 + (names.size() == 1 ? "it" : "them") + " as unverified: " + list(names) + ".";
     }
 
-    private static String list(List<String> names) {
+    /** The names as one line: at most {@link #MAX_LISTED}, then a count of the rest. */
+    public static String list(List<String> names) {
         List<String> shown = names.size() > MAX_LISTED ? names.subList(0, MAX_LISTED) : names;
         String text = String.join(", ", shown);
         return names.size() > shown.size() ? text + " and " + (names.size() - shown.size()) + " more" : text;

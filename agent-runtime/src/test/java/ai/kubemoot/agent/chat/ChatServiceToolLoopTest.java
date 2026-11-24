@@ -18,6 +18,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1982,6 +1983,70 @@ class ChatServiceToolLoopTest {
         return createService(maxToolIterations, "tooler");
     }
 
+    // --- compute grounding: a figure no tool result holds is sent back, then withheld ---
+
+    private ChatService groundedComputeService(String... answers) {
+        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
+        var exec = mock(ToolExecutor.class);
+        when(exec.execute(any(), any())).thenReturn("{\"total\":40}");
+        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, exec));
+        var call = AiMessage.from(List.of(ToolExecutionRequest.builder()
+                .id("e1").name("execute_code").arguments("{\"code\": \"print(1)\"}").build()));
+        var first = mock(ChatResponse.class);
+        when(first.aiMessage()).thenReturn(call);
+        when(first.tokenUsage()).thenReturn(new TokenUsage(50, 10));
+        var replies = new ArrayList<ChatResponse>();
+        for (String answer : answers) {
+            var r = mock(ChatResponse.class);
+            when(r.aiMessage()).thenReturn(new AiMessage(answer));
+            when(r.tokenUsage()).thenReturn(new TokenUsage(60, 12));
+            replies.add(r);
+        }
+        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first, replies.toArray(new ChatResponse[0]));
+        when(ragClient.queryForContext(anyString())).thenReturn("");
+        return createService(10, "analyst", true, true, true);
+    }
+
+    @Test
+    void computeGrounding_figureTheToolReturned_accepted() {
+        var service = groundedComputeService("The total is 40 GiB.");
+        var result = service.directChat(new ChatService.ChatRequest("c-cg1", "total memory?"), false);
+        assertEquals("The total is 40 GiB.", result.response());
+        verify(chatModel, times(2)).chat(any(ChatRequest.class));
+    }
+
+    @Test
+    void computeGrounding_inventedFigure_sentBackOnce_thenAcceptedWhenFixed() {
+        var service = groundedComputeService("Requested 50 GiB of 100 GiB (illustrative).", "The total is 40 GiB.");
+        var result = service.directChat(new ChatService.ChatRequest("c-cg2", "total memory?"), false);
+        assertEquals("The total is 40 GiB.", result.response());
+        verify(chatModel, times(3)).chat(any(ChatRequest.class));
+    }
+
+    @Test
+    void computeGrounding_inventedFigureKept_isWithheld() {
+        var service = groundedComputeService("Requested 50 GiB of 100 GiB.", "Requested 50 GiB of 100 GiB.");
+        var result = service.directChat(new ChatService.ChatRequest("c-cg3", "total memory?"), false);
+        assertTrue(result.response().startsWith("NO_DATA: could not compute"), result.response());
+        assertTrue(result.response().contains("50, 100"), result.response());
+        verify(chatModel, times(3)).chat(any(ChatRequest.class));
+    }
+
+    @Test
+    void computeGrounding_off_letsTheInventedFigureThrough() {
+        groundedComputeService("Requested 50 GiB of 100 GiB.");
+        var service = createService(10, "analyst", true, true, false);
+        var result = service.directChat(new ChatService.ChatRequest("c-cg4", "total memory?"), false);
+        assertEquals("Requested 50 GiB of 100 GiB.", result.response());
+    }
+
+    @Test
+    void computeGrounding_figureOfTheQuestion_isGrounded() {
+        var service = groundedComputeService("15% of 240 is 36, and 40 GiB were reported.");
+        var result = service.directChat(new ChatService.ChatRequest("c-cg5", "what is 15% of 240, 36 expected?"), false);
+        assertEquals("15% of 240 is 36, and 40 GiB were reported.", result.response());
+    }
+
     private ChatService createService(int maxToolIterations, String discussRole) {
         return createService(maxToolIterations, discussRole, false);
     }
@@ -1992,9 +2057,15 @@ class ChatServiceToolLoopTest {
 
     private ChatService createService(int maxToolIterations, String discussRole,
             boolean computeContract, boolean metricsDrillContract) {
+        return createService(maxToolIterations, discussRole, computeContract, metricsDrillContract, false);
+    }
+
+    private ChatService createService(int maxToolIterations, String discussRole,
+            boolean computeContract, boolean metricsDrillContract, boolean computeGrounding) {
         return new ChatService(
                 chatModel, ragClient, mcpClient, discussionOrchestrator,
-                stubProperties(maxToolIterations, discussRole, computeContract, metricsDrillContract),
+                stubProperties(maxToolIterations, discussRole, computeContract, metricsDrillContract,
+                        computeGrounding),
                 heartbeatService, objectMapper,
                 // JIT server selection is null in unit tests — the mulling
                 // path falls back to the Quarkus-injected static chatModel
@@ -2013,6 +2084,11 @@ class ChatServiceToolLoopTest {
 
     static AgentProperties stubProperties(int maxToolIterations, String discussRole,
             boolean computeContract, boolean metricsDrillContract) {
+        return stubProperties(maxToolIterations, discussRole, computeContract, metricsDrillContract, false);
+    }
+
+    static AgentProperties stubProperties(int maxToolIterations, String discussRole,
+            boolean computeContract, boolean metricsDrillContract, boolean computeGrounding) {
         return new AgentProperties() {
             @Override public ai.kubemoot.agent.config.AgentProperties.Scheduler scheduler() { return ai.kubemoot.agent.TestStubs.scheduler(); }
             @Override public Memory memory() { return ai.kubemoot.agent.TestStubs.memory(); }
@@ -2055,6 +2131,7 @@ class ChatServiceToolLoopTest {
                 @Override public String role() { return discussRole; }
                 @Override public boolean coordinator() { return false; }
                 @Override public boolean computeContract() { return computeContract; }
+                @Override public boolean computeGrounding() { return computeGrounding; }
                 @Override public boolean metricsDrillContract() { return metricsDrillContract; }
                 @Override public Optional<String> alwaysCandidateAgents() { return Optional.empty(); }
                 @Override public int synthesisCompletenessRetries() { return 0; }

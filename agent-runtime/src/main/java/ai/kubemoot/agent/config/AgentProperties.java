@@ -185,6 +185,16 @@ public interface AgentProperties {
         boolean computeContract();
 
         /**
+         * Compute grounding (KUBEMOOT_DISCUSS_COMPUTE_GROUNDING). When true, a compute agent's
+         * answer may state only figures that occur in a result a tool returned to it or in the
+         * input it was given: a figure found in neither is sent back once, and when it stays the
+         * answer becomes a NO_DATA statement that reports no figure. Default off, so a crew
+         * turns it on for the agent that computes (the crews chart value compute.groundNumbers).
+         */
+        @WithDefault("false")
+        boolean computeGrounding();
+
+        /**
          * Metrics drill contract (KUBEMOOT_DISCUSS_METRICS_DRILL_CONTRACT). When true,
          * a tooler whose metric query (execute_query / execute_range_query) came back
          * with no series - the usual symptom of a WRONG metric NAME, not a real gap -
