@@ -135,28 +135,18 @@ func TestAnIdWhoseHistoryOutlivedItsRecordCannotBeClaimed(t *testing.T) {
 	}
 }
 
-func TestOnlyTheOwnerMayStreamAndAnOperatorNeedsAReason(t *testing.T) {
+// The refusals of the stream route are in TestEveryConversationRouteAppliesTheOwnerRule; these
+// are what only a stream has: an operator's reason is bounded, and one with a reason reads.
+func TestAnOperatorReadsAStreamWithABoundedReason(t *testing.T) {
 	o := newOwnedSetup(t, false)
 	o.ask(t, tokenAlice, convA)
 	o.finishThread(t, "T1", convA)
 
-	if got := o.streamStatus(t, tokenAlice, convA); got != http.StatusOK {
-		t.Fatalf("owner: %d", got)
-	}
-	if got := o.streamStatus(t, tokenBob, convA); got != http.StatusNotFound {
-		t.Fatalf("another caller: %d, want 404", got)
-	}
-	if got := o.streamStatus(t, tokenAdmin, convA); got != http.StatusBadRequest {
-		t.Fatalf("operator without a reason: %d", got)
-	}
 	if got := o.streamStatus(t, tokenAdmin, convA, reasonHeader, "support ticket 42"); got != http.StatusOK {
 		t.Fatalf("operator with a reason: %d", got)
 	}
 	if got := o.streamStatus(t, tokenAdmin, convA, reasonHeader, strings.Repeat("x", 201)); got != http.StatusBadRequest {
 		t.Fatalf("a reason past the bound: %d", got)
-	}
-	if got := o.streamStatus(t, tokenNoRole, convA, reasonHeader, "curious"); got != http.StatusForbidden {
-		t.Fatalf("a caller who may not use the crew: %d", got)
 	}
 }
 

@@ -252,28 +252,15 @@ func TestStopReasonIsManualStop(t *testing.T) {
 	}
 }
 
-func TestAControlIsRefusedToEveryoneButTheOwnerAndAnOperatorWithAReasonAndTheRole(t *testing.T) {
+// The refusals of every route are in TestEveryConversationRouteAppliesTheOwnerRule; this is the
+// operator the rule admits.
+func TestAnOperatorWithAReasonAndTheRoleMayUseEveryControl(t *testing.T) {
 	c := newControlSetup(t)
 	c.seed(t, tokenAlice, convCtl, threadCtl, objectName, factKey, true)
 	coordinatorThatStops(t, c.js)
 	for _, ctl := range controls {
-		url := c.conversationPath(convCtl, ctl.path)
-		for _, tc := range []struct {
-			who    string
-			token  string
-			header []string
-			want   int
-		}{
-			{"another caller", tokenBob, nil, http.StatusNotFound},
-			{"an operator with no reason", tokenAdmin, nil, http.StatusBadRequest},
-			{"an operator who may only read", tokenReader, []string{reasonHeader, reasonText}, http.StatusNotFound},
-			{"a caller who may not use the crew", tokenNoRole, nil, http.StatusForbidden},
-			{"no credential", "", nil, http.StatusUnauthorized},
-			{"an operator with a reason", tokenAdmin, []string{reasonHeader, reasonText}, http.StatusOK},
-		} {
-			if got := do(t, http.MethodPost, url, tc.token, "", tc.header...).StatusCode; got != tc.want {
-				t.Errorf("%s by %s: %d, want %d", ctl.name, tc.who, got, tc.want)
-			}
+		if got := do(t, http.MethodPost, c.conversationPath(convCtl, ctl.path), tokenAdmin, "", reasonHeader, reasonText).StatusCode; got != http.StatusOK {
+			t.Errorf("%s by an operator with a reason: %d, want 200", ctl.name, got)
 		}
 	}
 }
@@ -369,27 +356,11 @@ func assertFullReport(t *testing.T, got bus.ConversationErasure) {
 	}
 }
 
-func TestDeleteIsRefusedToEveryoneButTheOwnerAndAnOperatorWithAReasonAndTheRole(t *testing.T) {
+// The refusals of every route are in TestEveryConversationRouteAppliesTheOwnerRule; this is the
+// operator the rule admits.
+func TestAnOperatorWithAReasonAndTheRoleMayDelete(t *testing.T) {
 	c := newControlSetup(t)
 	c.seed(t, tokenAlice, convCtl, threadCtl, objectName, factKey, false)
-	for _, tc := range []struct {
-		who    string
-		token  string
-		header []string
-		want   int
-	}{
-		{"another caller", tokenBob, nil, http.StatusNotFound},
-		{"an operator with no reason", tokenAdmin, nil, http.StatusBadRequest},
-		{"an operator who may only read", tokenReader, []string{reasonHeader, reasonText}, http.StatusNotFound},
-		{"no credential", "", nil, http.StatusUnauthorized},
-	} {
-		if got := do(t, http.MethodDelete, c.conversationPath(convCtl, ""), tc.token, "", tc.header...).StatusCode; got != tc.want {
-			t.Errorf("%s: %d, want %d", tc.who, got, tc.want)
-		}
-		if sum(c.held(t, convCtl, threadCtl, objectName, factKey)) < sum(fullyHeld) {
-			t.Fatalf("%s: a refused delete removed something", tc.who)
-		}
-	}
 	got := do(t, http.MethodDelete, c.conversationPath(convCtl, ""), tokenAdmin, "", reasonHeader, reasonText)
 	if got.StatusCode != http.StatusOK || sum(c.held(t, convCtl, threadCtl, objectName, factKey)) != 0 {
 		t.Fatalf("an operator with a reason: %d", got.StatusCode)
