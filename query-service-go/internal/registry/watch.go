@@ -50,7 +50,7 @@ func (l *Loader) Reload() error {
 		return err
 	}
 	prev := l.Holder.Load()
-	if prev != nil && prev.Fingerprint == next.Fingerprint && prev.Version == next.Version {
+	if prev.Same(next) {
 		return nil
 	}
 	if l.OnSwap != nil {

@@ -88,7 +88,7 @@ func TestBuildResolvesEntriesInFileOrder(t *testing.T) {
 	}
 }
 
-func TestFingerprintChangesWithCredentialsButNotVersion(t *testing.T) {
+func TestARotatedPasswordMakesADifferentSnapshotWithTheSameVersion(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "password"), "one\n")
 	doc := strings.Replace(goodRegistry, `"collection":"resumes"`, `"collection":"resumes","credentialsDir":"`+dir+`"`, 1)
@@ -104,8 +104,15 @@ func TestFingerprintChangesWithCredentialsButNotVersion(t *testing.T) {
 	if a.Version != b.Version {
 		t.Error("the file did not change, its version should not")
 	}
-	if a.Fingerprint == b.Fingerprint {
-		t.Error("a rotated password must change the fingerprint")
+	if a.Same(b) {
+		t.Error("a rotated password must make a different snapshot")
+	}
+	c, err := Build([]byte(doc), Env{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !b.Same(c) {
+		t.Error("an unchanged file and Secret make the same snapshot")
 	}
 }
 

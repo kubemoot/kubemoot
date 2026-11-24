@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 )
 
 // The result counts a query may ask for, and the count it gets when it names none and the
@@ -121,11 +122,21 @@ type Entry struct {
 type Snapshot struct {
 	// Version identifies the registry file's content (a short digest).
 	Version string
-	// Fingerprint covers the resolved entries, credentials included, so a rotated
-	// Secret makes a new snapshot even when the file is unchanged.
-	Fingerprint string
-	Entries     map[string]*Entry
-	order       []string
+	Entries map[string]*Entry
+	order   []string
+	// resolved is the entries as JSON, in file order; with the passwords (kept out of the
+	// JSON) it tells whether two snapshots differ, so a rotated Secret makes a new snapshot
+	// even when the file is unchanged. Neither is hashed or exposed.
+	resolved  []byte
+	passwords []string
+}
+
+// Same reports whether two snapshots resolve to the same sources and credentials.
+func (s *Snapshot) Same(o *Snapshot) bool {
+	if s == nil || o == nil || s.Version != o.Version || !bytes.Equal(s.resolved, o.resolved) {
+		return false
+	}
+	return slices.Equal(s.passwords, o.passwords)
 }
 
 // Names lists the source names in file order.
@@ -152,26 +163,24 @@ func Build(data []byte, env Env) (*Snapshot, error) {
 		snap.Entries[src.Name] = &Entry{Source: src, Conn: conn}
 		snap.order = append(snap.order, src.Name)
 	}
-	snap.Fingerprint, err = fingerprint(snap)
-	return snap, err
+	return snap, snap.resolve()
 }
 
-// fingerprint digests the resolved entries and their passwords (which stay out of the
-// entries' JSON), in file order.
-func fingerprint(s *Snapshot) (string, error) {
-	h := sha256.New()
+// resolve records what Same compares: the entries' JSON and their passwords, in file order.
+func (s *Snapshot) resolve() error {
+	var buf bytes.Buffer
 	for _, name := range s.order {
 		e := s.Entries[name]
 		b, err := json.Marshal(e)
 		if err != nil {
-			return "", errors.New("registry: fingerprint failed")
+			return errors.New("registry: resolving the entries failed")
 		}
-		_, _ = h.Write(b)
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(e.Conn.Password))
-		_, _ = h.Write([]byte{0})
+		buf.Write(b)
+		buf.WriteByte(0)
+		s.passwords = append(s.passwords, e.Conn.Password)
 	}
-	return hex.EncodeToString(h.Sum(nil))[:12], nil
+	s.resolved = buf.Bytes()
+	return nil
 }
 
 func digest(b []byte) string {
