@@ -27,6 +27,35 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "kubemoot-dashboard.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- if .Values.rbac.crewNamespaceDiscovery }}
+---
+# Which namespaces hold crews: the dashboard checks each with the signed-in person's own token.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubemoot-dashboard.clusterRoleName" . }}-crew-namespaces
+  labels:
+    {{- include "kubemoot-dashboard.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["kubemoot.ai"]
+    resources: ["crews"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubemoot-dashboard.fullname" . }}-crew-namespaces
+  labels:
+    {{- include "kubemoot-dashboard.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubemoot-dashboard.clusterRoleName" . }}-crew-namespaces
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubemoot-dashboard.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
 {{- if .Values.auth.anonymousReadOnly }}
 ---
 # Anonymous read-only viewing: a visitor who has not signed in sees the read views with this

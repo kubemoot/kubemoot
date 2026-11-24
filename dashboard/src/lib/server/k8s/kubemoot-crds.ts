@@ -18,8 +18,8 @@ import type {
 	KubemootList
 } from '#lib/types/kubemoot.js';
 
-const GROUP = 'kubemoot.ai';
-const VERSION = 'v1alpha1';
+export const GROUP = 'kubemoot.ai';
+export const VERSION = 'v1alpha1';
 
 // CRD resource definitions
 export const KUBEMOOT_CRDS = {

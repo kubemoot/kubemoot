@@ -10,7 +10,7 @@
 // helpers throw (routes answer 503) instead of showing everything.
 
 import { getServiceAccountCoreApi } from './k8s/client.js';
-import { listCrews } from './k8s/kubemoot-crds.js';
+import { crewNamespaces, errorClass, readableNamespaces } from './k8s/crew-access.js';
 import { callerToken } from './auth/identity.js';
 import type { BearerToken } from './auth/bearer-token.js';
 import { infraNamespace, isScoped, namespaceSelector } from './mode.js';
@@ -117,9 +117,11 @@ export function namespaceAllowedNow(namespace: string, kind: ScopeKind = 'namesp
 //
 // The NATS views read with the dashboard's own connection, which the bus cannot tie to a person.
 // So that a signed-in person's RBAC still decides, a NATS-backed read of a namespace needs the
-// person to be able to read Crews there, asked of the API server with their own token. A person
-// who may list Crews cluster-wide sees the namespaces that hold crews; one who may not sees none
-// (it fails closed). An anonymous read-only viewer has no token and keeps the instance's scope.
+// person to be able to read Crews there, asked of the API server with their own token: a
+// SelfSubjectAccessReview for `get crews` in each namespace that holds crews and that this
+// instance serves. A person with rights in one namespace sees that namespace and no other; one
+// with none, or whose review cannot be made, sees none (it fails closed). No cluster-wide list
+// right is needed. An anonymous read-only viewer has no token and keeps the instance's scope.
 
 /** How long a person's namespace set is trusted before the next request refreshes it. */
 export const CALLER_SET_TTL_MS = 10_000;
@@ -131,17 +133,23 @@ interface CallerSet {
 
 const callerSets = new WeakMap<BearerToken, CallerSet>();
 
+/** The namespaces to review for a person: those holding crews, limited to what this instance serves. */
+async function candidateNamespaces(): Promise<string[]> {
+	const [holding, served] = await Promise.all([crewNamespaces(), scopedNamespaces()]);
+	return served === null ? holding : holding.filter((ns) => served.has(ns));
+}
+
 async function readCallerSet(): Promise<Set<string>> {
 	try {
-		const crews = await listCrews('');
-		return new Set(crews.items.flatMap((c) => (c.metadata.namespace ? [c.metadata.namespace] : [])));
-	} catch {
+		return await readableNamespaces(await candidateNamespaces());
+	} catch (err) {
+		console.warn(`No namespace is readable to the signed-in person: ${errorClass(err)}`);
 		return new Set();
 	}
 }
 
 /**
- * The namespaces whose Crews the signed-in person may read, or null when nobody is signed in.
+ * The namespaces whose Crews the signed-in person may read (get, in that namespace), or null when nobody is signed in.
  * Call it once when a NATS read opens so the synchronous per-message check has a set.
  */
 export async function callerNamespaces(): Promise<Set<string> | null> {

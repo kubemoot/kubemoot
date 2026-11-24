@@ -27,6 +27,14 @@ serviceAccount:
 # RBAC configuration
 rbac:
   create: true
+  # Off by default: the dashboard's ServiceAccount holds only the right to create TokenReviews.
+  # On, it may also `list` Crews cluster-wide, only to learn which namespaces hold any, so each
+  # can be checked with the signed-in person's own token (a SelfSubjectAccessReview for get on
+  # crews there). That lets a person with rights in one namespace see that namespace's
+  # conversations in the NATS views. Nothing it lists reaches a person who may not read it. Off,
+  # the dashboard lists with the person's own token, so the NATS views show only to someone who
+  # may list Crews cluster-wide.
+  crewNamespaceDiscovery: false
   # Sign-in needs only the right to create TokenReviews, which the chart always grants. This
   # ClusterRole, for reading Kubemoot CRDs and K8s resources, is created only when
   # auth.anonymousReadOnly is true: signed-in people read with their own token. Every rule

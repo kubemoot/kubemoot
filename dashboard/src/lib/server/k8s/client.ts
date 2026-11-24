@@ -70,6 +70,16 @@ export function getServiceAccountCoreApi(): k8s.CoreV1Api {
 	return initKubeConfig().makeApiClient(k8s.CoreV1Api);
 }
 
+/** CustomObjects with the dashboard's ServiceAccount, for finding which namespaces hold Crews, not for what a person may see. */
+export function getServiceAccountCustomObjectsApi(): k8s.CustomObjectsApi {
+	return initKubeConfig().makeApiClient(k8s.CustomObjectsApi);
+}
+
+/** Authorization with the request's credential: the signed-in person's token, so a review asks about them. */
+export function getAuthorizationApi(): k8s.AuthorizationV1Api {
+	return getKubeConfig().makeApiClient(k8s.AuthorizationV1Api);
+}
+
 export function getCustomObjectsApi(): k8s.CustomObjectsApi {
 	return getKubeConfig().makeApiClient(k8s.CustomObjectsApi);
 }

@@ -6,7 +6,15 @@ import * as k8s from '@kubernetes/client-node';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { BearerToken } from '../auth/bearer-token';
 import { runWithIdentity } from '../auth/identity';
-import { getBatchApi, getCoreApi, getCustomObjectsApi, getKubeConfig, serviceAccountKubeConfig } from './client';
+import {
+	getAuthorizationApi,
+	getBatchApi,
+	getCoreApi,
+	getCustomObjectsApi,
+	getKubeConfig,
+	getServiceAccountCustomObjectsApi,
+	serviceAccountKubeConfig
+} from './client';
 import { FORBIDDEN_MESSAGE, SIGNED_OUT_MESSAGE, kubeFailure } from './errors';
 
 const SA_TOKEN = 'dashboard-service-account-token';
@@ -64,6 +72,18 @@ describe('Kubernetes calls of a signed-in request', () => {
 			for (const result of made.mock.contexts) expect(await authorizationOf(result as never)).toBe(`Bearer ${CALLER_TOKEN}`);
 		});
 		expect(made).toHaveBeenCalledTimes(3);
+		made.mockRestore();
+	});
+
+	it('review access with the caller token, and list with the service account even then', async () => {
+		const made = vi.spyOn(k8s.KubeConfig.prototype, 'makeApiClient');
+		await asCaller(async () => {
+			getAuthorizationApi();
+			getServiceAccountCustomObjectsApi();
+			expect(await authorizationOf(made.mock.contexts[0] as never)).toBe(`Bearer ${CALLER_TOKEN}`);
+			expect(await authorizationOf(made.mock.contexts[1] as never)).toBe(`Bearer ${SA_TOKEN}`);
+		});
+		expect(made).toHaveBeenCalledTimes(2);
 		made.mockRestore();
 	});
 
