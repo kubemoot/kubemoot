@@ -155,6 +155,15 @@ auth:
         cpu: 200m
         memory: 128Mi
 
+# The install CA that signed the certificates of the services the dashboard sends a token to (the
+# operator's report service): the name of a ConfigMap in this namespace whose ca.crt the operator
+# publishes. The dashboard pod mounts it and refuses a certificate this CA did not sign. The
+# default is the operator chart's default; the operator chart's global.installCA.configMap, when
+# set, wins, so the two cannot drift. Empty trusts only the system roots, and the report calls to
+# the operator then fail verification.
+installCA:
+  configMap: kubemoot-ca
+
 # Service configuration
 service:
   type: ClusterIP

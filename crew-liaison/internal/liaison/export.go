@@ -64,6 +64,18 @@ func NewExporter(baseURL string) *Exporter {
 	}
 }
 
+// NewExporterWithCA returns an exporter of the operator report service at baseURL (https) that
+// verifies the service's certificate against the CA bundle in caFile, read again when it changes.
+func NewExporterWithCA(baseURL, caFile string) (*Exporter, error) {
+	transport, err := newCATransport(caFile)
+	if err != nil {
+		return nil, err
+	}
+	e := NewExporter(baseURL)
+	e.client.Transport = transport
+	return e, nil
+}
+
 // NewExporterWith returns an exporter with its own client and token source; tests use it.
 func NewExporterWith(baseURL string, client *http.Client, token func() (string, error)) *Exporter {
 	return &Exporter{client: client, baseURL: strings.TrimRight(baseURL, "/"), token: token}

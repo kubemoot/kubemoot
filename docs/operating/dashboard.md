@@ -418,7 +418,7 @@ Every grant is read-only apart from the TokenReview right (and `rbac.crewNamespa
 
 ### The operator report service
 
-The dashboard reads the component status, the fitness report download, and the crew memory export from the operator's report service (port 8082). That service is plain HTTP and any pod can reach it, so every endpoint except `/healthz` requires a bearer token. The operator checks it with a TokenReview, then asks the API server with a SubjectAccessReview whether that identity may make the access the endpoint equals:
+The dashboard reads the component status, the fitness report download, and the crew memory export from the operator's report service (port 8082). That service serves TLS with a certificate the install CA signed ([encrypted calls that carry credentials](../encrypted-internal-calls/)), and the dashboard verifies it against that CA (`installCA.configMap`, mounted from the ConfigMap the operator publishes), so the token never crosses the pod network in the clear. Any pod can reach the port, so every endpoint except `/healthz` requires a bearer token. The operator checks it with a TokenReview, then asks the API server with a SubjectAccessReview whether that identity may make the access the endpoint equals:
 
 | Endpoint | Access checked |
 |----------|----------------|

@@ -23,8 +23,9 @@ env="$(liaison_env "$out")"
 for name in ACCESS_ENFORCE ACCESS_SERVICE_TOKENS ACCESS_HASH_KEY LIAISON_SIGNIN_UPSTREAM LIAISON_SIGNIN_SEAL_KEYS_FILE; do
   grep -q "^$name=" <<<"$env" && fail "default render sets $name"
 done
-[ "$(liaison_deploy "$out" | yq '.spec.template.spec.volumes | length')" = "0" ] || fail "default render adds a volume"
-[ "$(liaison_deploy "$out" | yq '.spec.template.spec.containers[0].volumeMounts | length')" = "0" ] || fail "default render adds a mount"
+# The one volume and mount a default render has is the install CA (test-install-ca.sh); sign-in adds none.
+[ "$(liaison_deploy "$out" | yq '.spec.template.spec.volumes | map(.name) | join(",")')" = "install-ca" ] || fail "default render adds a volume"
+[ "$(liaison_deploy "$out" | yq '.spec.template.spec.containers[0].volumeMounts | map(.name) | join(",")')" = "install-ca" ] || fail "default render adds a mount"
 
 # Service tokens: the list is rendered as JSON the gateway parses, the hash key comes from a Secret.
 out="$(render --set-json 'liaison.auth.serviceTokens=[{"name":"oreilly","verifyURL":"https://api.example.com/mcp","subjectClaim":"upstream_claims.sub","passToTools":true}]' \
@@ -69,10 +70,10 @@ for want in LIAISON_SIGNIN_PUBLIC_URL=https://oguide.example.com LIAISON_SIGNIN_
 done
 grep -q '^LIAISON_SIGNIN_SEAL_KEYS=' <<<"$env" && fail "the sealing keys are inlined into the environment"
 d="$(liaison_deploy "$out")"
-[ "$(yq '.spec.template.spec.volumes[0].secret.secretName' <<<"$d")" = "seal" ] || fail "the seal key Secret is not mounted"
-[ "$(yq '.spec.template.spec.volumes[0].secret.items[0].key' <<<"$d")" = "seal-keys" ] || fail "the seal key's default key"
-[ "$(yq '.spec.template.spec.containers[0].volumeMounts[0].mountPath' <<<"$d")" = "/etc/kubemoot/signin" ] || fail "mount path"
-[ "$(yq '.spec.template.spec.containers[0].volumeMounts[0].readOnly' <<<"$d")" = "true" ] || fail "the key mount is writable"
+[ "$(yq '.spec.template.spec.volumes[] | select(.name == "signin-seal-keys").secret.secretName' <<<"$d")" = "seal" ] || fail "the seal key Secret is not mounted"
+[ "$(yq '.spec.template.spec.volumes[] | select(.name == "signin-seal-keys").secret.items[0].key' <<<"$d")" = "seal-keys" ] || fail "the seal key's default key"
+[ "$(yq '.spec.template.spec.containers[0].volumeMounts[] | select(.name == "signin-seal-keys").mountPath' <<<"$d")" = "/etc/kubemoot/signin" ] || fail "mount path"
+[ "$(yq '.spec.template.spec.containers[0].volumeMounts[] | select(.name == "signin-seal-keys").readOnly' <<<"$d")" = "true" ] || fail "the key mount is writable"
 paths="$(yq -N 'select(.kind == "HTTPRoute" and .metadata.name == "kubemoot-operator-liaison") | .spec.rules[].matches[].path.value' <<<"$out" | sort | tr '\n' ' ')"
 [ "$paths" = "/.well-known /mcp /oauth " ] || fail "route paths are '$paths'"
 # The default route stays /mcp only when sign-in is off.
