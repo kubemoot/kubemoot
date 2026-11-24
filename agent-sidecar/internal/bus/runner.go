@@ -219,7 +219,9 @@ func (r *Runner) traceContext(d delivery, msg kbus.DiscussionMessage) context.Co
 // delivered again; it reports state (a live turn), not a timeout.
 func (r *Runner) keepAlive(d delivery) (stop func()) {
 	if d.msg == nil {
-		return func() {}
+		return func() {
+			// no delivery to keep alive: stopping is a no-op
+		}
 	}
 	done := make(chan struct{})
 	every := r.Bus.ProgressAck()

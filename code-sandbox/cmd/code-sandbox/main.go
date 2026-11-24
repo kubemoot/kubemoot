@@ -23,15 +23,20 @@ const (
 	defaultMaxOutputBytes = 64 * 1024
 )
 
+// fatal logs err with the program prefix and exits.
+func fatal(err error) {
+	log.Fatalf("code-sandbox: %v", err)
+}
+
 func main() {
 	log.SetOutput(os.Stderr) // in stdio mode stdout carries the MCP protocol
 	transport, err := parseTransport(os.Getenv("MCP_TRANSPORT"))
 	if err != nil {
-		log.Fatalf("code-sandbox: %v", err)
+		fatal(err)
 	}
 	port, err := listenPort(transport, os.Getenv("PORT"))
 	if err != nil {
-		log.Fatalf("code-sandbox: %v", err)
+		fatal(err)
 	}
 	r := &runner.Runner{
 		Timeout:   time.Duration(envInt("EXECUTION_TIMEOUT", defaultTimeoutSeconds)) * time.Second,
@@ -43,7 +48,7 @@ func main() {
 	log.Printf("code-sandbox up: languages=%v timeout=%s maxOutput=%d transport=%s port=%d",
 		runner.Names(), r.Timeout, r.MaxOutput, transport, port)
 	if err := serve(ctx, transport, &server.Server{Runner: r}, port); err != nil && ctx.Err() == nil {
-		log.Fatalf("code-sandbox: %v", err)
+		fatal(err)
 	}
 }
 
