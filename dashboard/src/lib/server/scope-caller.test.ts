@@ -7,6 +7,11 @@ import { runWithIdentity } from './auth/identity';
 const mocks = vi.hoisted(() => ({
 	/** Cluster-wide Crew lists made with the dashboard's own account. */
 	lists: 0,
+	/** Reads of the heartbeat bucket. */
+	snapshots: 0,
+	/** Reviews under way now, and the most at once. */
+	inFlight: 0,
+	maxInFlight: 0,
 	/** What each self-review asked, in order. */
 	asked: [] as Record<string, string>[],
 	/** Namespaces of the agent heartbeat keys on the bus. */
@@ -35,6 +40,9 @@ vi.mock('./k8s/client.js', () => ({
 		createSelfSubjectAccessReview: async ({ body }: { body: { spec: { resourceAttributes: Record<string, string> } } }) => {
 			const attrs = body.spec.resourceAttributes;
 			mocks.asked.push(attrs);
+			mocks.maxInFlight = Math.max(mocks.maxInFlight, ++mocks.inFlight);
+			await new Promise((r) => setTimeout(r, 1));
+			mocks.inFlight--;
 			if (mocks.reviewFails) throw new Error('unauthorized');
 			return { status: { allowed: mocks.allowed.has(attrs.namespace) } };
 		}
@@ -47,7 +55,7 @@ vi.mock('./nats-client.js', () => ({
 	}
 }));
 vi.mock('./kv-snapshot.js', () => ({
-	readKvSnapshot: async (_kv: unknown, pick: (e: { key: string; operation: string }) => unknown) => ({
+	readKvSnapshot: async (_kv: unknown, pick: (e: { key: string; operation: string }) => unknown) => (mocks.snapshots++, {
 		values: Object.fromEntries(mocks.heartbeatNamespaces.map((ns, i) => [`k${i}`, pick({ key: `${ns}.agent-${i}`, operation: 'PUT' })])),
 		complete: true
 	})
@@ -77,6 +85,9 @@ function cluster(holding: string[], allowed: string[] = holding) {
 
 beforeEach(() => {
 	mocks.lists = 0;
+	mocks.snapshots = 0;
+	mocks.inFlight = 0;
+	mocks.maxInFlight = 0;
 	mocks.asked = [];
 	mocks.listFails = false;
 	mocks.busFails = false;
@@ -194,6 +205,18 @@ describe('NATS reads of a signed-in caller', () => {
 			await callerNamespaces();
 		});
 		expect(reviewed()).toEqual(['team-a']);
+	});
+
+	it('share one read among a person\'s concurrent requests', async () => {
+		const many = Array.from({ length: 20 }, (_, i) => `team-${i}`);
+		cluster(many);
+		await asCaller(async () => {
+			const sets = await Promise.all(Array.from({ length: 10 }, () => callerNamespaces()));
+			sets.forEach((set) => expect(set?.size).toBe(20));
+		});
+		expect(mocks.snapshots).toBe(1);
+		expect(mocks.asked).toHaveLength(20);
+		expect(mocks.maxInFlight).toBeLessThanOrEqual(8);
 	});
 
 	it('are reviewed separately for each caller', async () => {
