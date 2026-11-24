@@ -633,6 +633,35 @@ webhook:
   certManager:
     enabled: true
 
+# The operator's reports (crew memory and conversation export, the fitness report, the
+# component status) as an aggregated API, reports.kubemoot.ai/v1alpha1. The API server
+# authenticates a caller with whatever their kubeconfig holds (a client certificate, OIDC, a
+# token) and forwards the result over mutual TLS, so their own RBAC decides what they read:
+# kmctl and CrewForge use it when it is available, and `kubectl get --raw
+# /apis/reports.kubemoot.ai/v1alpha1/componentstatuses` reaches it.
+#
+# Off by default. An APIService that is unavailable makes API discovery slow and noisy for
+# every client of the cluster, it needs a certificate (cert-manager, or one made here), it
+# adds a Role in kube-system, and some managed control planes do not allow aggregated APIs.
+# An install that cannot take those must not get them by upgrading.
+reportsAPI:
+  enabled: false
+  port: 8444
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  tls:
+    certManager:
+      # cert-manager issues the serving certificate and puts its CA in the APIService. Off:
+      # the chart makes a self-signed certificate and keeps it across upgrades; delete the
+      # Secret to make a new one.
+      enabled: true
+  rbac:
+    # Lets every authenticated user through the API server's own check of the aggregated
+    # path. The operator still asks whether they may get the underlying Crew,
+    # CrewFitnessSuite or ModelServers, so this opens a door and grants no data. Off: bind
+    # the ClusterRole <release>-kubemoot-operator-reports-api to who may use it.
+    bindAuthenticated: true
+
 # ModelServers declare the inference servers Kubemoot schedules models onto. They are
 # infrastructure: agents never name a server, the scheduler places each call. The
 # list is empty because a chart cannot point at a server that does not exist; install

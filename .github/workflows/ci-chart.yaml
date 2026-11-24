@@ -70,6 +70,8 @@ jobs:
         run: operator/chart/test-kubernetes-mcp-read.sh
       - name: Network policy render tests
         run: operator/chart/test-network-policies.sh
+      - name: Aggregated report API render tests
+        run: operator/chart/test-reports-apiservice.sh
       - name: Observability tests (dashboards and scraping)
         run: operator/chart/test-observability.sh
       - name: kubemoot-vllm chart and launcher tests

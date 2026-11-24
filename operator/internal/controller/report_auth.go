@@ -63,7 +63,15 @@ func (a reviewAuthorizer) Authorize(ctx context.Context, token string, attrs aut
 	case err != nil:
 		return nil, err
 	}
-	allowed, err := rv.Allowed(ctx, id, attrs)
+	return allowedIdentity(ctx, rv, id, attrs)
+}
+
+// allowedIdentity returns id when the authorizer lets it make the access, errForbidden when
+// not. Every way a caller is identified ends here, so what a refusal is does not differ.
+func allowedIdentity(
+	ctx context.Context, a identity.Authorizer, id *identity.Identity, attrs authorizationv1.ResourceAttributes,
+) (*identity.Identity, error) {
+	allowed, err := a.Allowed(ctx, id, attrs)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +126,20 @@ type accessFor func(r *http.Request) (authorizationv1.ResourceAttributes, error)
 // that failed (503). With subscribers set, a token the API server does not know is also
 // tried against the crew's service token verifiers; see subscriberDirectory.
 func (s *ReportServer) gate(access accessFor, subscribers bool, next http.HandlerFunc) http.HandlerFunc {
+	return s.gateWith(s.authorizeCaller, access, subscribers, next)
+}
+
+// callerCheck identifies the caller of a request and checks that they may make the access.
+type callerCheck func(
+	r *http.Request, attrs authorizationv1.ResourceAttributes, subscribers bool,
+) (*identity.Identity, error)
+
+// gateWith is gate with the way the caller is identified chosen by the listener: the plain
+// listener identifies a caller by a bearer token, the aggregated one by the API server's
+// verified forwarding. The access checks and what a handler sees are the same.
+func (s *ReportServer) gateWith(
+	check callerCheck, access accessFor, subscribers bool, next http.HandlerFunc,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		attrs, err := access(r)
 		if err != nil {
@@ -128,7 +150,7 @@ func (s *ReportServer) gate(access accessFor, subscribers bool, next http.Handle
 			http.Error(w, "the report service has no authorizer configured", http.StatusServiceUnavailable)
 			return
 		}
-		id, err := s.authorizeCaller(r, attrs, subscribers)
+		id, err := check(r, attrs, subscribers)
 		if err != nil {
 			answerGateError(w, r, err, subscribers)
 			return
@@ -153,6 +175,8 @@ func (s *ReportServer) authorizeCaller(r *http.Request, attrs authorizationv1.Re
 // answerGateError answers the error of a failed gate check.
 func answerGateError(w http.ResponseWriter, r *http.Request, err error, subscribers bool) {
 	switch {
+	case errors.Is(err, errNoForwardedCaller):
+		http.Error(w, err.Error(), http.StatusUnauthorized)
 	case errors.Is(err, errUnauthenticated):
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		hint := "send the caller's service account token as 'Authorization: Bearer <token>'"

@@ -1,0 +1,181 @@
+{{- if .Values.reportsAPI.enabled }}
+{{- /*
+The operator's reports (crew memory and conversation export, the fitness report, the
+component status) as an aggregated API, reports.kubemoot.ai/v1alpha1. The API server
+authenticates a caller with whatever their kubeconfig holds and forwards the result to the
+operator over mutual TLS, so their own RBAC decides what they read. Off by default: see
+reportsAPI in values.yaml.
+*/ -}}
+{{- $fullname := include "kubemoot-operator.fullname" . }}
+{{- $svc := printf "%s-reports-api" $fullname }}
+{{- $secretName := printf "%s-cert" $svc }}
+{{- $ns := .Release.Namespace }}
+{{- $dns := list (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns) }}
+{{- $group := "reports.kubemoot.ai" }}
+{{- $crt := "" }}
+{{- $key := "" }}
+{{- $ca := "" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: reports-api
+      port: 443
+      targetPort: reports-api
+      protocol: TCP
+  selector:
+    {{- include "kubemoot-operator.selectorLabels" . | nindent 4 }}
+    control-plane: controller-manager
+---
+{{- if .Values.reportsAPI.tls.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $svc }}-selfsigned
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $svc }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $secretName }}
+  issuerRef:
+    name: {{ $svc }}-selfsigned
+    kind: Issuer
+  dnsNames:
+    {{- toYaml $dns | nindent 4 }}
+---
+{{- else }}
+{{- /* No cert-manager: a self-signed certificate made here and kept across upgrades. */ -}}
+{{- $existing := lookup "v1" "Secret" $ns $secretName }}
+{{- if and $existing $existing.data (index $existing.data "tls.crt") (index $existing.data "ca.crt") }}
+{{- $crt = index $existing.data "tls.crt" }}
+{{- $key = index $existing.data "tls.key" }}
+{{- $ca = index $existing.data "ca.crt" }}
+{{- else }}
+{{- $authority := genCA (printf "%s-ca" $svc) 3650 }}
+{{- $cert := genSignedCert (first $dns) nil $dns 3650 $authority }}
+{{- $crt = b64enc $cert.Cert }}
+{{- $key = b64enc $cert.Key }}
+{{- $ca = b64enc $authority.Cert }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $crt }}
+  tls.key: {{ $key }}
+  ca.crt: {{ $ca }}
+---
+{{- end }}
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.{{ $group }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+  {{- if .Values.reportsAPI.tls.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ $ns }}/{{ $svc }}
+  {{- end }}
+spec:
+  group: {{ $group }}
+  version: v1alpha1
+  groupPriorityMinimum: {{ .Values.reportsAPI.groupPriorityMinimum }}
+  versionPriority: {{ .Values.reportsAPI.versionPriority }}
+  insecureSkipTLSVerify: false
+  {{- if not .Values.reportsAPI.tls.certManager.enabled }}
+  caBundle: {{ $ca }}
+  {{- end }}
+  service:
+    name: {{ $svc }}
+    namespace: {{ $ns }}
+    port: 443
+---
+# The operator reads the API server's front proxy CA and header names, which the cluster
+# publishes in one ConfigMap in kube-system, and nothing else there.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-reports-api-front-proxy
+  namespace: kube-system
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["extension-apiserver-authentication"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullname }}-reports-api-front-proxy
+  namespace: kube-system
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullname }}-reports-api-front-proxy
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubemoot-operator.serviceAccountName" . }}
+    namespace: {{ $ns }}
+---
+# The API server checks a caller's right to the aggregated path itself, before it forwards
+# the request, so a caller needs a rule on the reports.kubemoot.ai resources too. This is
+# the door only: the operator then asks whether the caller may get the Crew, the
+# CrewFitnessSuite or the ModelServers the report is built from, and that is what decides.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullname }}-reports-api
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [{{ $group | quote }}]
+    resources:
+      - crews/memory-export
+      - crews/conversation-export
+      - crewfitnesssuites/report
+    verbs: ["get"]
+  - apiGroups: [{{ $group | quote }}]
+    resources: ["componentstatuses"]
+    verbs: ["get", "list"]
+{{- if .Values.reportsAPI.rbac.bindAuthenticated }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullname }}-reports-api
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $fullname }}-reports-api
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:authenticated
+{{- end }}
+{{- end }}

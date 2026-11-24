@@ -116,7 +116,20 @@ The operator's report service (the conversation export, the crew memory export, 
 - A subscriber is never handed to the API server as a user name. Their subject is whatever a service said it is, so it could equal a real user's name; the exports of other callers' conversations (`crews/conversations`) therefore stay Kubernetes rights.
 - No request header names the caller. `X-Remote-User`, `Impersonate-User` and the like are not read.
 
-Callers whose kubeconfig signs in with a client certificate or an OIDC login hold no bearer token the report service can check, because the report service is reached directly, not through the API server. Use a ServiceAccount token (kmctl: `--token-service-account`; CrewForge: `crewforge.tokenServiceAccount`). Taking the identity the API server already authenticated needs an aggregated API, which is planned: the API server would pass the user it authenticated in headers the report service trusts only from the API server's front-proxy client certificate.
+### Any kubeconfig, through the API server
+
+A caller whose kubeconfig signs in with a client certificate or an OIDC login holds no bearer token the report service can check. With `reportsAPI.enabled` the operator also serves the same endpoints as an aggregated API, `reports.kubemoot.ai/v1alpha1`, and the API server does the authenticating: it checks whatever the kubeconfig holds, then forwards the user, groups and extra values it found to the operator over mutual TLS. `kubectl get --raw /apis/reports.kubemoot.ai/v1alpha1/componentstatuses` reaches it, and so do kmctl and CrewForge, which use it when it is available and fall back to the report service otherwise.
+
+The operator trusts the forwarded headers (`X-Remote-User`, `X-Remote-Group`, `X-Remote-Extra-*`, or the names the cluster publishes) only when all of these hold:
+
+- The connection is TLS and the client certificate verifies for client use against the cluster's front-proxy CA, read from the `extension-apiserver-authentication` ConfigMap in `kube-system` (`requestheader-client-ca-file`) and read again every minute, so a rotated CA is trusted without a restart. Until the first read succeeds nothing is trusted (503).
+- The certificate's common name is in `requestheader-allowed-names`. When the cluster lists none, any certificate of the front-proxy CA is accepted, as the API server's own rule says.
+
+The listener asks for the certificate in the handshake, and the handler checks it again on each request, so a request that did not come from the API server never has its headers read, whatever it sends. The plain report port never reads them. The caller is then an ordinary Kubernetes identity, and the same SubjectAccessReview as for a token decides, so the caller's own RBAC applies and a subscriber (a person a service vouches for) is not served here: the API server knows only Kubernetes users.
+
+The API server also checks a caller's right to the aggregated path before it forwards the request, so a caller needs `get` on `crews/memory-export`, `crews/conversation-export` and `crewfitnesssuites/report`, and `get` and `list` on `componentstatuses`, in the `reports.kubemoot.ai` group. The chart ships that as the ClusterRole `<release>-kubemoot-operator-reports-api` and binds it to `system:authenticated` unless `reportsAPI.rbac.bindAuthenticated` is `false`. It opens a door and grants no data: the operator then asks whether the caller may `get` the Crew, the CrewFitnessSuite or the ModelServers the report is built from.
+
+Without the aggregated API, use a ServiceAccount token (kmctl: `--token-service-account`; CrewForge: `crewforge.tokenServiceAccount`).
 
 ## Not claimed yet
 

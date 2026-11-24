@@ -48,6 +48,10 @@ spec:
             {{- if .Values.webhook.enabled }}
             - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
             {{- end }}
+            {{- if .Values.reportsAPI.enabled }}
+            - --reports-api-bind-address=:{{ .Values.reportsAPI.port }}
+            - --reports-api-cert-path=/tmp/k8s-reports-api/serving-certs
+            {{- end }}
           ports:
             - name: metrics
               containerPort: {{ .Values.metrics.port }}
@@ -61,6 +65,11 @@ spec:
             {{- if .Values.webhook.enabled }}
             - name: webhook-server
               containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.reportsAPI.enabled }}
+            - name: reports-api
+              containerPort: {{ .Values.reportsAPI.port }}
               protocol: TCP
             {{- end }}
           livenessProbe:
@@ -166,6 +175,11 @@ spec:
               mountPath: /tmp/k8s-webhook-server/serving-certs
               readOnly: true
             {{- end }}
+            {{- if .Values.reportsAPI.enabled }}
+            - name: reports-api-certs
+              mountPath: /tmp/k8s-reports-api/serving-certs
+              readOnly: true
+            {{- end }}
             {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnMounts" "ctx" . "indent" 12) }}
       volumes:
         - name: tmp
@@ -174,6 +188,11 @@ spec:
         - name: webhook-certs
           secret:
             secretName: {{ include "kubemoot-operator.fullname" . }}-webhook-cert
+        {{- end }}
+        {{- if .Values.reportsAPI.enabled }}
+        - name: reports-api-certs
+          secret:
+            secretName: {{ include "kubemoot-operator.fullname" . }}-reports-api-cert
         {{- end }}
         {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnVolumes" "ctx" . "indent" 8) }}
       terminationGracePeriodSeconds: 10

@@ -425,9 +425,22 @@ The dashboard reads the component status, the fitness report download, and the c
 | `/conversation-export/{namespace}/{crew}?id=...` | `get` the Crew in that namespace; see [Taking a conversation away](../data-ownership/#taking-a-conversation-away) |
 | `/componentstatuses` | `list` ModelServers in all namespaces |
 
-The conversation export alone also admits a person a crew's service token verifier vouches for: a token the API server does not know is tried against that crew's `serviceTokens`, and the person may export only the conversations the owner record names them for (see [who is asking](../../concepts/who-is-asking/#the-operators-report-service)). A caller whose kubeconfig has a client certificate and no token has nothing to send to this service; mint a ServiceAccount token for it.
+The conversation export alone also admits a person a crew's service token verifier vouches for: a token the API server does not know is tried against that crew's `serviceTokens`, and the person may export only the conversations the owner record names them for (see [who is asking](../../concepts/who-is-asking/#the-operators-report-service)). A caller whose kubeconfig has a client certificate and no token has nothing to send to this service: mint a ServiceAccount token for it, or use the [aggregated report API](#the-aggregated-report-api).
 
 The component status reports the operator, NATS, and how many ModelServers are ready. The ModelServer count is the only part that comes from cluster objects and it spans namespaces, so listing ModelServers is the narrowest access that fits it. The dashboard sends the signed-in person's own token on every call, so their RBAC decides; for an anonymous read-only visitor it sends its service account token, which the `kubemoot.ai` read grant above covers. A call with no valid token answers 401 with the header to send (`Authorization: Bearer <token>`), one whose identity lacks the access answers 403, and a service started without an authorizer answers 503 rather than serving. Any other client of these endpoints, such as a script in a pod, sends its own service account token and needs the same access; `kmctl` and CrewForge do not call them.
+
+### The aggregated report API
+
+With `reportsAPI.enabled: true` (off by default) the operator serves the same four endpoints as the aggregated API `reports.kubemoot.ai/v1alpha1`, on a second TLS listener (`reportsAPI.port`, default 8444) behind an APIService and a Service. The API server authenticates the caller with whatever their kubeconfig holds and forwards the result over mutual TLS, so a client-certificate or OIDC kubeconfig works and the caller's own RBAC decides. The access checked for each report is the one in the table above. The paths:
+
+| Path under `/apis/reports.kubemoot.ai/v1alpha1` | Same as |
+|---|---|
+| `/namespaces/{namespace}/crews/{crew}/memory-export` | `/memory-export/{namespace}/{crew}` |
+| `/namespaces/{namespace}/crews/{crew}/conversation-export?id=...` | `/conversation-export/{namespace}/{crew}` |
+| `/namespaces/{namespace}/crewfitnesssuites/{suite}/report` | `/report/{namespace}/{suite}` |
+| `/componentstatuses` | `/componentstatuses` |
+
+Install values: `reportsAPI.tls.certManager.enabled` (default true) has cert-manager issue the serving certificate and put its CA in the APIService; when false the chart makes a self-signed certificate and keeps it across upgrades (delete the Secret to make a new one). The chart also adds a Role in `kube-system` that lets the operator read the one ConfigMap `extension-apiserver-authentication`, and the ClusterRole that lets callers through the API server's own check (see [who is asking](../../concepts/who-is-asking/#any-kubeconfig-through-the-api-server)). It is off by default because an APIService that is unavailable makes API discovery slow and noisy for every client of the cluster, it needs a certificate, it adds a Role in `kube-system`, and some managed control planes do not allow aggregated APIs. Every replica serves it, leader or not. The operator reads the API server's front-proxy CA from the `extension-apiserver-authentication` ConfigMap; a cluster whose ConfigMap has no `requestheader-client-ca-file` (some managed control planes) gets 503 from this API and the log says why, and the report service stays the path. The API server's request timeout applies to a large export streamed through it; the report service stays the path when an export outlasts it.
 
 ## HTTP API
 
