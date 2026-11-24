@@ -33,6 +33,8 @@
 	import { browserTimeZone, conversationIds, exportHref, threadConversationId } from '#lib/conversation-export.js';
 	import { conversationTitle, runState } from '#lib/conversation-actions.js';
 	import type { ErasureReport } from '#lib/conversation-actions-client.js';
+	import { fetchConversationState, isActive, queueNote, runFromState } from '#lib/conversation-state.js';
+	import type { ConversationState } from '#lib/types/bus.js';
 	import { page } from '$app/state';
 	import { AskBox, ConversationActions, OutsideFilterNote, ThreadDeleteDialog, ErasureReport as ErasureReportPanel, FilterBar } from '#lib/components/conversations/index.js';
 	import type { Live } from '#lib/components/conversations/AskBox.svelte';
@@ -273,10 +275,41 @@
 			(selectedScope ? 'No conversations with this crew yet.' : 'No conversations yet.')
 	);
 
+	// Where the open conversation stands, read from the crew's gateway: it covers a conversation
+	// running elsewhere and a question still waiting in the queue, which the messages here cannot.
+	// It is read again while anything is in flight, after a stop, pause or resume, and when the
+	// thread gains a message; a gateway that cannot say leaves the page to go by its messages.
+	let read = $state<{ id: string; state: ConversationState | null } | null>(null);
+	let stateTick = $state(0);
+	const convState = $derived(read && read.id === selectedConversationId ? read.state : null);
+	const run = $derived(convState ? runFromState(convState) : runState(selected));
+
+	const stateKey = $derived(`${selectedConversationId ?? ''}|${selected?.messages.length ?? 0}|${stateTick}`);
+
+	$effect(() => {
+		const scope = selectedScopeOfThread;
+		const id = selectedConversationId;
+		if (!signedIn || !scope || !id || !stateKey) return;
+		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const poll = async () => {
+			const state = await fetchConversationState(fetch, scope, id);
+			if (cancelled) return;
+			read = { id, state };
+			if (isActive(state)) timer = setTimeout(() => void poll(), 4000);
+		};
+		void poll();
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
+	});
+
 	const waiting = $derived.by(() => {
-		const state = runState(selected);
-		if (!state.running) return '';
-		return state.paused ? 'Paused. Resume it from the menu to continue.' : 'The crew is working on an answer...';
+		if (!run.running) return '';
+		if (run.stopRequested) return 'Stopping...';
+		if (run.paused) return 'Paused. Resume it from the menu to continue.';
+		return (run.queuedOnly && queueNote(convState)) || 'The crew is working on an answer...';
 	});
 
 	onMount(() => {
@@ -339,7 +372,8 @@
 						scope={selectedScopeOfThread}
 						conversationId={selectedConversationId}
 						question={conversationTitle(selected)}
-						running={runState(selected)}
+						running={run}
+						oncontrolled={() => stateTick++}
 						copyText={() => chatAsText(turns, $showChatDetails)}
 						showDetails={$showChatDetails}
 						ontoggledetails={() => showChatDetails.toggle()}
@@ -358,12 +392,14 @@
 				{:else if selected}
 					{#each turns as turn (turn.id)}
 						<div class="bubble {turn.from} has-hover-actions" id="message-{turn.id}" tabindex="-1">
-							<HoverActions actions={messageActions(turn)} label="Message actions" />
+							{#if !turn.stopped}<HoverActions actions={messageActions(turn)} label="Message actions" />{/if}
 							<div class="bubble-head">
 								<span class="who">{turn.from === 'you' ? 'You' : crewLabel($crewDirectory, selected.namespace, selected.crew ?? '') || 'Crew'}</span>
 								<span class="when">{formatTimestamp(turn.timestamp)}</span>
 							</div>
-							{#if turn.from === 'crew'}
+							{#if turn.stopped}
+								<div class="stopped"><strong>Stopped</strong> <span>You stopped this turn; the crew did not answer.</span></div>
+							{:else if turn.from === 'crew'}
 								<div class="markdown">{@html marked.parse(turn.text)}</div>
 								{#if $showChatDetails && detailsLine(turn.details)}
 									<div class="answer-details">{detailsLine(turn.details)}</div>
@@ -383,6 +419,8 @@
 						<div class="bubble-head"><span class="who">{newScope ? crewLabel($crewDirectory, newScope.namespace, newScope.crew) : 'Crew'}</span></div>
 						{#if live.answer.answer}
 							<div class="markdown">{@html marked.parse(live.answer.answer)}</div>
+						{:else if live.answer.stopped}
+							<div class="stopped"><strong>Stopped</strong> <span>You stopped this turn; the crew did not answer.</span></div>
 						{:else if live.answer.phase === 'error'}
 							<div class="error" role="alert">{live.answer.error}</div>
 						{:else}
@@ -436,6 +474,8 @@
 {/if}
 
 <style>
+	.stopped { color: var(--color-text-muted); font-size: 0.85rem; }
+	.stopped strong { color: var(--color-text); font-weight: 600; margin-right: 0.35rem; }
 	.hint { color: var(--color-text-muted); font-size: 0.85rem; }
 	.new-btn {
 		background: none; border: 1px solid var(--color-border); border-radius: 0.3rem; padding: 0.25rem 0.55rem;

@@ -92,3 +92,19 @@ describe('the answer stream', () => {
 		await expect(followAnswer((async () => json({ error: 'not yours' }, 404)), scope, 'c', undefined, () => undefined)).rejects.toMatchObject({ status: 404 });
 	});
 });
+
+describe('a turn the person stopped', () => {
+	it('is not an answer, whether it arrives on the synthesis or on done', () => {
+		const viaSynthesis = reduceAnswer(WORKING, { type: 'synthesis', content: 'Stopped by the person.', outcome: 'stopped' });
+		expect(viaSynthesis.answer).toBe('');
+		expect(viaSynthesis.stopped).toBe(true);
+		const viaDone = reduceAnswer(WORKING, { type: 'done', outcome: 'stopped' });
+		expect(viaDone).toMatchObject({ phase: 'done', stopped: true, answer: '' });
+	});
+
+	it('leaves an ordinary answer alone', () => {
+		const s = reduceAnswer(reduceAnswer(WORKING, { type: 'synthesis', content: 'All good.' }), { type: 'done' });
+		expect(s).toMatchObject({ answer: 'All good.', phase: 'done' });
+		expect(s.stopped).toBeUndefined();
+	});
+});

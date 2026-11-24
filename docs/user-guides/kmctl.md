@@ -408,6 +408,12 @@ kmctl conversation export homelab-pilot 6733c361 -n crew-homelab-pilot
 kmctl conversation delete homelab-pilot 6733c361 -n crew-homelab-pilot
 ```
 
+`stop` says what happened: `stopped`, `cancelled` (a question still waiting in the queue) and
+`nothing_to_stop` exit 0; a stop the crew did not confirm, or a question the crew has just
+taken, exits 1. `kmctl conversation get homelab-pilot 6733c361` shows where a conversation and
+each of its turns stand, including a waiting question's place in the queue. A turn you stopped
+shows as stopped, not as an answer.
+
 `delete` asks first and prints what it erased from each store. To act on another
 caller's conversation, bind the `kubemoot-conversation-controller` role and add
 `--reason "<why>"`. See the [reference](../../reference/kmctl/#kmctl-conversation-stop-pause-and-resume).

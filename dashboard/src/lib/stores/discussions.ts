@@ -62,7 +62,7 @@ const countStandAside = (t: Thread) => {
 
 // How each message type moves a thread's tallies and status. 'contribution' and
 // 'decline' are legacy aliases for 'agree' and 'stand_aside'.
-const THREAD_COUNT_UPDATES = new Map<string, (t: Thread) => void>(
+const THREAD_COUNT_UPDATES = new Map<string, (t: Thread, msg: DiscussionMessage) => void>(
 	Object.entries({
 		agree: countAgree,
 		contribution: countAgree,
@@ -72,8 +72,9 @@ const THREAD_COUNT_UPDATES = new Map<string, (t: Thread) => void>(
 		decline: countStandAside,
 		advisory: (t) => t.advisoryCount++,
 		proposal: (t) => t.proposalCount++,
-		synthesis: (t) => {
-			t.status = 'synthesized';
+		synthesis: (t, msg) => {
+			// The text of a turn the person stopped is not an answer.
+			t.status = msg.metadata?.outcome === 'stopped' ? 'closed' : 'synthesized';
 		},
 		follow_up: reopen,
 		reply: reopen,
@@ -84,7 +85,7 @@ const THREAD_COUNT_UPDATES = new Map<string, (t: Thread) => void>(
 );
 
 function updateThreadCounts(thread: Thread, msg: DiscussionMessage) {
-	THREAD_COUNT_UPDATES.get(msg.messageType)?.(thread);
+	THREAD_COUNT_UPDATES.get(msg.messageType)?.(thread, msg);
 }
 
 function emptyThreadCounts() {
