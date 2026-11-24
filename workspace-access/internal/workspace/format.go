@@ -22,6 +22,9 @@ import (
 type Format string
 
 // The formats a query can read. Anything else is read as lines of text.
+// errWriteFmt wraps a failure writing one named relation.
+const errWriteFmt = "write %s: %w"
+
 const (
 	FormatJSON          Format = "json"
 	FormatMarkdownTable Format = "markdown-table"
@@ -292,7 +295,7 @@ func prepareYAML(name, _ string, data []byte, workDir string) (Relation, error) 
 	}
 	path := filepath.Join(workDir, name+".json")
 	if err := os.WriteFile(path, doc, 0o600); err != nil {
-		return Relation{}, fmt.Errorf("write %s: %w", name, err)
+		return Relation{}, fmt.Errorf(errWriteFmt, name, err)
 	}
 	kind := KindJSON
 	if hasItemsList(doc) {
@@ -340,14 +343,14 @@ func writeRows(name, workDir string, rows [][]string) (Relation, error) {
 	path := filepath.Join(workDir, name+".csv")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		return Relation{}, fmt.Errorf("write %s: %w", name, err)
+		return Relation{}, fmt.Errorf(errWriteFmt, name, err)
 	}
 	werr := csv.NewWriter(f).WriteAll(rows)
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
 	if werr != nil {
-		return Relation{}, fmt.Errorf("write %s: %w", name, werr)
+		return Relation{}, fmt.Errorf(errWriteFmt, name, werr)
 	}
 	return Relation{Name: name, Path: path, Kind: KindCSV}, nil
 }

@@ -5,6 +5,9 @@ import (
 	"strings"
 )
 
+// errSecondStmtFmt is the refusal for a statement that follows the first.
+const errSecondStmtFmt = "%w: found a second statement"
+
 // checkSelect accepts text that is exactly one SELECT statement (also WITH ... SELECT
 // and VALUES) and refuses everything else. It reads the text as SQLite does: string
 // literals, quoted names and comments hide any semicolon or keyword inside them.
@@ -103,7 +106,7 @@ func (s *sqlScanner) comment() error {
 
 func (s *sqlScanner) paren(c byte) error {
 	if s.ended {
-		return fmt.Errorf("%w: found a second statement", ErrNotReadOnly)
+		return fmt.Errorf(errSecondStmtFmt, ErrNotReadOnly)
 	}
 	if c == '(' {
 		s.depth++
@@ -117,7 +120,7 @@ func (s *sqlScanner) paren(c byte) error {
 // other consumes a byte that is part of no token; after a semicolon only space is allowed.
 func (s *sqlScanner) other() error {
 	if s.ended && !isSpace(s.src[s.pos]) {
-		return fmt.Errorf("%w: found a second statement", ErrNotReadOnly)
+		return fmt.Errorf(errSecondStmtFmt, ErrNotReadOnly)
 	}
 	s.pos++
 	return nil
@@ -125,7 +128,7 @@ func (s *sqlScanner) other() error {
 
 func (s *sqlScanner) word() error {
 	if s.ended {
-		return fmt.Errorf("%w: found a second statement", ErrNotReadOnly)
+		return fmt.Errorf(errSecondStmtFmt, ErrNotReadOnly)
 	}
 	start := s.pos
 	for s.pos < len(s.src) && isWordByte(s.src[s.pos]) {
@@ -141,7 +144,7 @@ func (s *sqlScanner) word() error {
 // a doubled closing quote is an escape.
 func (s *sqlScanner) quoted(open, closeCh byte) error {
 	if s.ended {
-		return fmt.Errorf("%w: found a second statement", ErrNotReadOnly)
+		return fmt.Errorf(errSecondStmtFmt, ErrNotReadOnly)
 	}
 	i := s.pos + 1
 	for i < len(s.src) {

@@ -16,6 +16,9 @@ import (
 	"strings"
 )
 
+// errReadJSONFmt wraps a failure reading a JSON value.
+const errReadJSONFmt = "read JSON: %w"
+
 const (
 	// maxColumns keeps a table well under SQLite's own column limit.
 	maxColumns = 500
@@ -228,7 +231,7 @@ func (j *jsonSource) each(fn func(map[string]any) error) error {
 	dec.UseNumber()
 	tok, err := dec.Token()
 	if err != nil {
-		return fmt.Errorf("read JSON: %w", err)
+		return fmt.Errorf(errReadJSONFmt, err)
 	}
 	switch {
 	case tok == json.Delim('[') && !j.items:
@@ -246,7 +249,7 @@ func eachElement(dec *json.Decoder, fn func(map[string]any) error) error {
 	for dec.More() {
 		var v any
 		if err := dec.Decode(&v); err != nil {
-			return fmt.Errorf("read JSON: %w", err)
+			return fmt.Errorf(errReadJSONFmt, err)
 		}
 		row, ok := v.(map[string]any)
 		if !ok {
@@ -258,7 +261,7 @@ func eachElement(dec *json.Decoder, fn func(map[string]any) error) error {
 	}
 	// The closing bracket proves the list was not cut short.
 	if _, err := dec.Token(); err != nil {
-		return fmt.Errorf("read JSON: %w", err)
+		return fmt.Errorf(errReadJSONFmt, err)
 	}
 	return nil
 }
@@ -268,12 +271,12 @@ func eachItem(dec *json.Decoder, fn func(map[string]any) error) error {
 	for dec.More() {
 		key, err := dec.Token()
 		if err != nil {
-			return fmt.Errorf("read JSON: %w", err)
+			return fmt.Errorf(errReadJSONFmt, err)
 		}
 		if key != itemsKey {
 			var skip json.RawMessage
 			if err := dec.Decode(&skip); err != nil {
-				return fmt.Errorf("read JSON: %w", err)
+				return fmt.Errorf(errReadJSONFmt, err)
 			}
 			continue
 		}
@@ -294,7 +297,7 @@ func eachObject(f *os.File, fn func(map[string]any) error) error {
 	dec.UseNumber()
 	var row map[string]any
 	if err := dec.Decode(&row); err != nil {
-		return fmt.Errorf("read JSON: %w", err)
+		return fmt.Errorf(errReadJSONFmt, err)
 	}
 	return fn(row)
 }
