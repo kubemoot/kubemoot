@@ -644,7 +644,7 @@ kubemootConfig:
 crews: []
 # Example:
 #   - name: homelab-pilot
-#     description: "Homelab infrastructure conversation crew"
+#     description: "Infrastructure conversation crew"
 #     discussion:
 #       enabled: true
 
