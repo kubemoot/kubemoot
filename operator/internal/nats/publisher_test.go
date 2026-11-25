@@ -146,7 +146,7 @@ func TestNewPublisherEnvFallback(t *testing.T) {
 // unreachable server as not ready instead of as empty buckets.
 func TestBucketsReady(t *testing.T) {
 	wantNoErr(t, "BucketsReady() unconfigured", NewPublisher("").BucketsReady("b"))
-	err := NewPublisher("nats://127.0.0.1:1").BucketsReady("b")
+	err := NewPublisher(unreachableNATS).BucketsReady("b")
 	if !errors.Is(err, bus.ErrNotReady) {
 		t.Errorf("BucketsReady() with NATS unreachable = %v, want bus.ErrNotReady", err)
 	}

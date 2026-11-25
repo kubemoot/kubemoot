@@ -33,6 +33,18 @@ type Backoff struct {
 // DefaultBackoff retries after 1 s, then 2 s, 4 s and so on up to 30 s.
 var DefaultBackoff = Backoff{First: time.Second, Max: 30 * time.Second}
 
+// orDefault is b, or DefaultBackoff when b has no positive First (a zero Backoff would
+// retry in a tight loop); a Max below First is raised to First.
+func (b Backoff) orDefault() Backoff {
+	if b.First <= 0 {
+		return DefaultBackoff
+	}
+	if b.Max < b.First {
+		b.Max = b.First
+	}
+	return b
+}
+
 // SubscribeUntilReady calls subscribe until it returns a subscription or ctx ends, so a
 // runnable that starts while NATS is unreachable (after a power loss, NATS waits for its
 // volume) subscribes once NATS is back instead of idling for the life of the process.
@@ -46,6 +58,7 @@ func SubscribeUntilReady(
 	backoff Backoff,
 	failed func(err error, retryIn time.Duration),
 ) (*nats.Subscription, error) {
+	backoff = backoff.orDefault()
 	wait := backoff.First
 	for {
 		sub, err := subscribe()
@@ -55,11 +68,21 @@ func SubscribeUntilReady(
 		if failed != nil {
 			failed(err, wait)
 		}
-		select {
-		case <-ctx.Done():
+		if !sleep(ctx, wait) {
 			return nil, ctx.Err()
-		case <-time.After(wait):
 		}
 		wait = min(wait*2, backoff.Max)
+	}
+}
+
+// sleep waits d, or until ctx ends; it reports whether the full wait passed.
+func sleep(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
 	}
 }

@@ -115,14 +115,14 @@ func TestPublishOnChange_UnconfiguredIsNoOpAndUnencodableErrors(t *testing.T) {
 	if err := p.PublishOnChange("s.a", map[string]any{"a": 1}); err != nil {
 		t.Fatalf("unconfigured publisher must be a no-op, got %v", err)
 	}
-	configured := &Publisher{url: "nats://127.0.0.1:1"}
+	configured := &Publisher{url: unreachableNATS}
 	if err := configured.PublishOnChange("s.a", make(chan int)); err == nil {
 		t.Fatal("a payload that cannot be encoded must return an error")
 	}
 }
 
 func TestPublishOnChange_UnsentPayloadIsNotRemembered(t *testing.T) {
-	p := &Publisher{url: "nats://127.0.0.1:1"} // nothing listens here
+	p := &Publisher{url: unreachableNATS} // nothing listens here
 	if err := p.PublishOnChange("s.a", map[string]any{"a": 1}); err != nil {
 		t.Fatalf("a failed connection is not an error, got %v", err)
 	}

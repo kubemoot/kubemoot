@@ -79,9 +79,12 @@ func NewPublisher(url string) *Publisher {
 	return &Publisher{url: url, conf: conf}
 }
 
-// connect establishes the connection lazily. Must be called under lock.
+// connect establishes the connection lazily. Must be called under lock. A connection that
+// is reconnecting is kept: it reconnects without end (MaxReconnects -1), buffers publishes
+// and replays its subscriptions when the server is back, so replacing it would leak it and
+// its subscriptions. Only a closed connection is replaced.
 func (p *Publisher) connect() error {
-	if p.conn != nil && p.conn.IsConnected() {
+	if p.conn != nil && !p.conn.IsClosed() {
 		return nil
 	}
 

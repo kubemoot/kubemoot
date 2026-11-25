@@ -110,11 +110,11 @@ func (s *ModelLifecycleServer) Start(ctx context.Context) error {
 			// A wake can take minutes; the subscription's callbacks run one at a time.
 			go s.respond(ctx, m)
 		})
-	}, s.backoff(), func(err error, retryIn time.Duration) {
+	}, s.Backoff, func(err error, retryIn time.Duration) {
 		log.Info("model lifecycle server not subscribed yet; agents cannot wake models", "err", err.Error(), "retryIn", retryIn.String())
 	})
 	if err != nil || sub == nil {
-		log.Info("model lifecycle server idle: NATS is not configured or the operator is stopping")
+		log.Info("model lifecycle server idle: NATS is not configured or the operator is stopping", "err", fmt.Sprint(err))
 		<-ctx.Done()
 		return nil
 	}
@@ -122,14 +122,6 @@ func (s *ModelLifecycleServer) Start(ctx context.Context) error {
 	<-ctx.Done()
 	_ = sub.Drain()
 	return nil
-}
-
-// backoff is the configured retry pacing, or the default.
-func (s *ModelLifecycleServer) backoff() kubemootnats.Backoff {
-	if s.Backoff.First <= 0 {
-		return kubemootnats.DefaultBackoff
-	}
-	return s.Backoff
 }
 
 // respond answers one request message.
