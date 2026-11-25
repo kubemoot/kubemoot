@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
 import io.quarkus.runtime.StartupEvent;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import org.slf4j.Logger;
@@ -39,6 +40,7 @@ public class RtfmSubscriber {
     private final ChatService chatService;
     private final AgentProperties properties;
     private final boolean rtfmMode;
+    private SubscribeRetry subscribeRetry = new SubscribeRetry("rtfm-subscriber");
 
     public RtfmSubscriber(
             NatsConnectionProvider natsProvider,
@@ -51,36 +53,57 @@ public class RtfmSubscriber {
         this.rtfmMode = properties.rtfm().mode();
     }
 
+    /** Test seam: retry on a short backoff so a test waits on the state, not on 30 s. */
+    void setSubscribeRetryForTest(SubscribeRetry retry) {
+        this.subscribeRetry = retry;
+    }
+
     void onStart(@Observes StartupEvent event) {
         if (!rtfmMode) {
-            log.info("RTFM mode disabled — RTFM subscriber inactive");
+            log.info("RTFM mode disabled - RTFM subscriber inactive");
             return;
         }
 
         if (!natsProvider.isConfigured()) {
-            log.info("NATS not configured — RTFM subscriber disabled");
+            log.info("NATS not configured - RTFM subscriber disabled");
             return;
         }
 
+        if (!subscribeRetry.attemptOrRetry(this::trySubscribe)) {
+            log.warn("Could not connect to NATS - the RTFM subscription is retried with backoff");
+        }
+    }
+
+    @PreDestroy
+    void stopRetrying() {
+        subscribeRetry.stop();
+    }
+
+    /** One subscribe attempt; false when NATS is not reachable yet. Never subscribes twice. */
+    boolean trySubscribe() {
         Connection conn = natsProvider.getConnection();
         if (conn == null) {
-            log.warn("Could not connect to NATS — RTFM subscriber disabled");
-            return;
+            return false;
         }
 
         Dispatcher dispatcher = conn.createDispatcher();
-
-        // Listen for onboarding deployment events
         String subject = NATS_ONBOARDING_PREFIX + "deployed";
-        dispatcher.subscribe(subject, msg -> {
-            try {
-                handleDeploymentEvent(new String(msg.getData()));
-            } catch (Exception e) {
-                log.warn("Error handling RTFM event: {}", LogContent.reason(e));
-            }
-        });
+        try {
+            dispatcher.subscribe(subject, msg -> {
+                try {
+                    handleDeploymentEvent(new String(msg.getData()));
+                } catch (Exception e) {
+                    log.warn("Error handling RTFM event: {}", LogContent.reason(e));
+                }
+            });
+        } catch (RuntimeException e) {
+            conn.closeDispatcher(dispatcher);
+            log.warn("RTFM subscribe failed: {}", LogContent.reason(e));
+            return false;
+        }
 
-        log.info("RTFM subscriber active — listening for onboarding deployments on {}", subject);
+        log.info("RTFM subscriber active - listening for onboarding deployments on {}", subject);
+        return true;
     }
 
     private void handleDeploymentEvent(String data) {
