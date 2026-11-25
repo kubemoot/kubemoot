@@ -1024,6 +1024,21 @@ class DiscussionOrchestratorHelpersTest {
     }
 
     @Test
+    void aReopenedThread_forgetsTheCauseAndFailureTypesOfTheEarlierRound() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.phase = DiscussionOrchestrator.Phase.CLOSED;
+        failed(state, "a", NO_OPERATOR_TEXT, "operator_unreachable");
+        orchestrator.buildFallbackResponse(state);
+        assertEquals(FailureCause.OPERATOR_UNREACHABLE, state.failureCause);
+
+        orchestrator.handleThreadReopen(state, "t1", "reply", "human");
+
+        assertNull(state.failureCause);
+        assertTrue(state.failureTypes.isEmpty());
+        assertTrue(DiscussionOrchestrator.noContributionCause(state).isEmpty());
+    }
+
+    @Test
     void theFallbackRecordsTheCauseItNamed_forTheAnswersMetadata() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         failed(state, "a", NO_OPERATOR_TEXT, "operator_unreachable");

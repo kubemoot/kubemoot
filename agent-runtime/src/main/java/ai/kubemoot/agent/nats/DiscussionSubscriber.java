@@ -161,8 +161,12 @@ public class DiscussionSubscriber {
     private final ConcurrentHashMap<String, List<String>> threadSelectedSkills = new ConcurrentHashMap<>();
     private final Set<String> processedMessages = ConcurrentHashMap.newKeySet();
     private final Set<String> closedThreads = ConcurrentHashMap.newKeySet();
-    /** Threads whose current evaluation has already published its one terminal signal (see {@link #isTerminal}). */
-    private final Set<String> evaluationAnswered = ConcurrentHashMap.newKeySet();
+    /**
+     * The threads this agent is evaluating now, each with whether the evaluation has already
+     * published its one terminal signal (see {@link #isTerminal}). A signal sent outside an
+     * evaluation, such as a ratification, finds no entry and records nothing.
+     */
+    private final Map<String, Boolean> evaluations = new ConcurrentHashMap<>();
 
     /** The triage call of each thread this agent went on to evaluate, so its placement rides on the evaluation's signal. */
     private final Map<String, ai.kubemoot.agent.chat.ModelUse> triageUses = new ConcurrentHashMap<>();
@@ -823,7 +827,7 @@ public class DiscussionSubscriber {
     // Visible for testing
     void evaluateSelected(String subject, String threadId, String conversation,
                           boolean explicitlySelected) {
-        evaluationAnswered.remove(threadId);
+        evaluations.put(threadId, false);
         try {
             if (closedThreads.contains(threadId)) {
                 log.debug("Thread {} closed before evaluation — {} standing aside", threadId, properties.agentName());
@@ -854,11 +858,11 @@ public class DiscussionSubscriber {
             // Like a failed triage or mulling call: a failure signal with its cause, not a stand-aside.
             // An evaluation sends one terminal signal: when a step already sent it, only the log says more.
             log.warn("Failed to evaluate thread {}: {}", threadId, LogContent.reason(e));
-            if (!evaluationAnswered.contains(threadId)) {
+            if (!Boolean.TRUE.equals(evaluations.get(threadId))) {
                 publishExceptionAsFailure(subject, threadId, e, "Evaluation", 0L, System.currentTimeMillis(), NOT_PLACED);
             }
         } finally {
-            evaluationAnswered.remove(threadId);
+            evaluations.remove(threadId);
         }
     }
 
@@ -1541,7 +1545,7 @@ public class DiscussionSubscriber {
             String publishSubject = scope.discussSubject(channel, threadId);
             publishTraced(conn, publishSubject, signal, message);
             if (isTerminal(signal)) {
-                evaluationAnswered.add(threadId);
+                evaluations.computeIfPresent(threadId, (id, answered) -> true);
             }
             log.info("Published {} signal to {} for thread {}", signal, publishSubject, threadId);
 

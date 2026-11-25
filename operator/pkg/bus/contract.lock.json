@@ -1266,6 +1266,14 @@
     "discussion-metadata.json#/failedTool": {
       "type": "string"
     },
+    "discussion-metadata.json#/failureCause": {
+      "type": "string",
+      "enum": [
+        "model_not_ready",
+        "operator_unreachable",
+        "server_unreachable"
+      ]
+    },
     "discussion-metadata.json#/failureCount": {
       "type": "integer"
     },
