@@ -210,6 +210,14 @@ fronts:
   the scheme's port (`postgres` and `postgresql` 5432, `redis` and `rediss` 6379), and a
   URL whose port cannot be determined is reported as `EndpointInvalid`, not dropped. A file
   database such as `sqlite:///./mcp.db` makes no network call and adds nothing.
+- The calls a Kubemoot gateway makes with the asking person's own token, when a server it
+  fronts sets `registry.callerCredential` with mode `Required`: the lease port (8081) of the
+  discussion gateway pods of the namespace's one crew that keeps tokens (the pods labeled
+  `kubemoot.ai/credential-lease`, the same pods `km-crew-<crew>-gateway-lease` admits the
+  gateway to), and the host and port of each `onForbidden` endpoint of such a server, by the
+  same host rule as an `externalEndpoint`. A loopback `onForbidden` endpoint needs no rule.
+  With no such server, or with no crew or more than one crew that keeps tokens, the gateway
+  gets no rule to the lease port. The lease rule is a NetworkPolicy rule on every CNI.
 - An `externalEndpoint` host is a Service inside the cluster only when it is a single label
   (a Service in the gateway's namespace) or has the form `name.namespace.svc` or
   `name.namespace.svc.<cluster domain>`. A two-label name such as
@@ -225,7 +233,8 @@ fronts:
 A gateway that fronts no external server declares nothing and is not restricted, as for any
 workload without `spec.egress`. A gateway that does front one is restricted to the list
 above, so the operator rewrites its policy whenever an MCPServer it fronts is added, removed,
-or has its endpoint changed.
+or has its endpoint changed, and whenever a crew of the namespace starts or stops keeping
+tokens.
 
 An endpoint that is not an `http` or `https` URL with a usable host name or address and
 port gets no rule. The gateway reports it, and the rest of the list still applies:

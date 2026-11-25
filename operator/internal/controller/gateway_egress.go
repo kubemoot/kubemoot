@@ -64,9 +64,10 @@ func (r *MCPGatewayReconciler) reconcileEgress(ctx context.Context, gateway *kub
 // attachGatewayDestinations derives a gateway's egress from the servers it fronts. A
 // gateway that fronts an external server (spec.externalEndpoint) makes that call itself, so
 // it is restricted to DNS, the host and port of each external endpoint, the pods of the
-// in-cluster servers it fronts, and its other calls (ContextForge database and Redis, the
-// tool index query service). A gateway that fronts no external server declares nothing
-// and is not restricted. An endpoint that is not a usable http or https URL gets no rule
+// in-cluster servers it fronts, its other calls (ContextForge database and Redis, the
+// tool index query service), and the calls it makes with a person's own token (the crew's
+// lease port and each onForbidden endpoint). A gateway that fronts no external server
+// declares nothing and is not restricted. An endpoint that is not a usable http or https URL gets no rule
 // and is listed in the workload's Invalid.
 func (s *NetPolicySync) attachGatewayDestinations(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, servers []kubemootv1alpha1.MCPServer, w *netpol.Workload) error {
 	if !frontsExternalServer(servers) {
@@ -78,8 +79,12 @@ func (s *NetPolicySync) attachGatewayDestinations(ctx context.Context, gateway *
 	if err != nil {
 		return err
 	}
-	w.Defaults = append(w.Defaults, other...)
-	w.Invalid = append(w.Invalid, invalidOther...)
+	leased, invalidLeased, err := s.callerCredentialDests(ctx, gateway, servers)
+	if err != nil {
+		return err
+	}
+	w.Defaults = append(append(w.Defaults, other...), leased...)
+	w.Invalid = append(append(w.Invalid, invalidOther...), invalidLeased...)
 	for i := range servers {
 		mcp := &servers[i]
 		if mcp.Spec.ExternalEndpoint == "" {
@@ -127,7 +132,13 @@ func inClusterServerDests(gatewayNamespace string, mcp *kubemootv1alpha1.MCPServ
 // destination returned, when the endpoint cannot become a rule.
 func (s *NetPolicySync) externalEndpointDests(ctx context.Context, mcp *kubemootv1alpha1.MCPServer, namespace string) ([]netpol.Dest, string, error) {
 	where := fmt.Sprintf("MCPServer %s/%s externalEndpoint: ", mcp.Namespace, mcp.Name)
-	ep, err := netpol.ParseExternalEndpoint(mcp.Spec.ExternalEndpoint, namespace)
+	return s.serverURLDests(ctx, where, mcp.Spec.ExternalEndpoint, namespace)
+}
+
+// serverURLDests reads an http or https URL a server names by the host rule of an external
+// endpoint, on the URL's own port.
+func (s *NetPolicySync) serverURLDests(ctx context.Context, where, raw, namespace string) ([]netpol.Dest, string, error) {
+	ep, err := netpol.ParseExternalEndpoint(raw, namespace)
 	return s.endpointDests(ctx, where, ep, err, []int32{ep.Port()})
 }
 
@@ -160,6 +171,62 @@ func (s *NetPolicySync) endpointDests(ctx context.Context, where string, ep netp
 		return nil, where + res.Reason, nil
 	}
 	return res.Dests, "", nil
+}
+
+// callerCredentialDests are the calls a Kubemoot gateway makes for the servers that take the
+// asking person's own token (callerCredential mode Required): the lease port of the
+// namespace's one crew that keeps tokens, and each such server's onForbidden endpoints. With
+// no such server it returns nothing, and with no single token-keeping crew there is no lease
+// to allow. A leaseUrl adds nothing: the gateway refuses one that is not on the crew's lease
+// address.
+func (s *NetPolicySync) callerCredentialDests(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway, servers []kubemootv1alpha1.MCPServer) ([]netpol.Dest, []string, error) {
+	if !isKubemootGateway(gateway) || !anyCallerCredentialRequired(servers) {
+		return nil, nil, nil
+	}
+	holder, err := tokenCrew(ctx, s.Client, gateway.Namespace)
+	if err != nil {
+		return nil, nil, err
+	}
+	var dests []netpol.Dest
+	var invalid []string
+	if holder != nil {
+		dests = append(dests, netpol.DiscussionGatewayLeaseDest(holder.Name))
+	}
+	for i := range servers {
+		if !requiredCallerCredential(&servers[i]) {
+			continue
+		}
+		found, reasons, err := s.onForbiddenDests(ctx, &servers[i], gateway.Namespace)
+		if err != nil {
+			return nil, nil, err
+		}
+		dests = append(dests, found...)
+		invalid = append(invalid, reasons...)
+	}
+	return dests, invalid, nil
+}
+
+// onForbiddenDests are the endpoints the gateway tries, with the person's token, when the
+// server's own endpoint refuses the person. They follow the host rule of an external
+// endpoint. A loopback endpoint stays inside the gateway's pod and needs no rule.
+func (s *NetPolicySync) onForbiddenDests(ctx context.Context, mcp *kubemootv1alpha1.MCPServer, namespace string) ([]netpol.Dest, []string, error) {
+	var dests []netpol.Dest
+	var invalid []string
+	where := fmt.Sprintf("MCPServer %s/%s callerCredential.onForbidden: ", mcp.Namespace, mcp.Name)
+	for _, raw := range mcp.Spec.Registry.CallerCredential.OnForbidden {
+		if netpol.IsLoopbackURL(raw) {
+			continue
+		}
+		found, reason, err := s.serverURLDests(ctx, where, raw, namespace)
+		if err != nil {
+			return nil, nil, err
+		}
+		dests = append(dests, found...)
+		if reason != "" {
+			invalid = append(invalid, reason)
+		}
+	}
+	return dests, invalid, nil
 }
 
 // gatewayOtherDests are the gateway's other outbound calls: the database and Redis of a

@@ -121,9 +121,19 @@ func brokerTokenVolume() corev1.Volume {
 // tokenCrewBrokerURL is the lease address of the namespace's crew that keeps tokens, empty
 // when there is none or more than one (the crews' CallerCredentials condition says so).
 func (r *MCPGatewayReconciler) tokenCrewBrokerURL(ctx context.Context, namespace string) (string, error) {
-	crews := &kubemootv1alpha1.CrewList{}
-	if err := r.List(ctx, crews, client.InNamespace(namespace)); err != nil {
+	holder, err := tokenCrew(ctx, r.Client, namespace)
+	if err != nil || holder == nil {
 		return "", err
+	}
+	return crewBrokerURL(holder), nil
+}
+
+// tokenCrew is the namespace's one crew that keeps people's tokens, the crew a tool gateway
+// leases from. It is nil when there is none or more than one.
+func tokenCrew(ctx context.Context, c client.Reader, namespace string) (*kubemootv1alpha1.Crew, error) {
+	crews := &kubemootv1alpha1.CrewList{}
+	if err := c.List(ctx, crews, client.InNamespace(namespace)); err != nil {
+		return nil, err
 	}
 	var holder *kubemootv1alpha1.Crew
 	for i := range crews.Items {
@@ -131,14 +141,11 @@ func (r *MCPGatewayReconciler) tokenCrewBrokerURL(ctx context.Context, namespace
 			continue
 		}
 		if holder != nil {
-			return "", nil
+			return nil, nil
 		}
 		holder = &crews.Items[i]
 	}
-	if holder == nil {
-		return "", nil
-	}
-	return crewBrokerURL(holder), nil
+	return holder, nil
 }
 
 func (r *MCPGatewayReconciler) ensureBrokerAccount(ctx context.Context, gateway *kubemootv1alpha1.MCPGateway) error {

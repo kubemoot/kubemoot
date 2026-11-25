@@ -194,6 +194,23 @@ func TestDiscussionGatewayLeaseIngressAdmitsOnlyTheToolGatewayToTheLeasePort(t *
 	eq(t, "serving port", p.Spec.Ingress[1].Ports[0].Port.IntVal, int32(DiscussionGatewayPort))
 }
 
+func TestDiscussionGatewayLeaseDestIsTheCrewsTokenKeepingGatewayOnTheLeasePort(t *testing.T) {
+	d := DiscussionGatewayLeaseDest(testPilot)
+	eq(t, "dest", d, Dest{SameNamespace: true, Port: DiscussionGatewayLeasePort, PodLabels: map[string]string{
+		labelComponent: ComponentDiscussionGateway, LabelCrew: testPilot, LabelCredentialLease: "true",
+	}})
+	res := Egress(Config{Enabled: true, Egress: EgressDeclared, DNS: PodRef{Namespace: "kube-system"}}, Workload{
+		Name: "gateway-lease", Namespace: testNS, Selector: map[string]string{labelComponent: ComponentMCPGateway},
+		Rules: &kubemootv1alpha1.EgressRules{}, Defaults: []Dest{d},
+	})
+	p := asPolicy(t, res.Objects[0])
+	eq(t, "DNS and the lease", len(p.Spec.Egress), 2)
+	eq(t, "lease peer: pods of the policy's namespace by label", p.Spec.Egress[1].To,
+		[]networkingv1.NetworkPolicyPeer{{PodSelector: podsWith(d.PodLabels)}})
+	eq(t, "lease port", p.Spec.Egress[1].Ports, tcpPorts(DiscussionGatewayLeasePort))
+	eq(t, "enforced", res.Status.Enforced, true)
+}
+
 func TestDiscussionGatewayLeaseIngressIsOffWithIngressPolicies(t *testing.T) {
 	eq(t, "no policy", len(DiscussionGatewayLeaseIngress(Config{}, testPilot, testNS)), 0)
 }
