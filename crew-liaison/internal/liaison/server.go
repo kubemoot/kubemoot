@@ -14,9 +14,14 @@ import (
 // Version is stamped by the build; the MCP handshake reports it.
 var Version = "dev"
 
+// DefaultDisplayName is the door's title when the install sets none.
+const DefaultDisplayName = "Kubemoot"
+
 // NewMCPServer registers the four tools on a fresh MCP server.
 func NewMCPServer(svc *Service) *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "kubemoot-crew-liaison", Version: Version}, nil)
+	server := mcp.NewServer(&mcp.Implementation{
+		Name: "kubemoot-crew-liaison", Title: svc.displayName(), Version: Version,
+	}, nil)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_crews",
 		Description: "List the Kubemoot crews you can ask: name, namespace, what each is for, and whether it is ready.",
@@ -73,8 +78,7 @@ func NewHandlerWithFront(svc *Service, token string, auth *identity.Authenticato
 		metadataURL = front.ResourceMetadataURL
 	}
 	server := NewMCPServer(svc)
-	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
+	mcpHandler := newMCPHandler(server)
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", requireCaller(token, auth, metadataURL, mcpHandler))
 	if front != nil {
@@ -84,6 +88,13 @@ func NewHandlerWithFront(svc *Service, token string, auth *identity.Authenticato
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, "ok") })
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, "ready") })
 	return mux
+}
+
+// newMCPHandler serves server over Streamable HTTP, stateless with JSON responses: no session
+// outlives a request, so a client's capabilities are known only when the request carries them.
+func newMCPHandler(server *mcp.Server) http.Handler {
+	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 }
 
 // requireBearer gates next behind a static bearer token; an empty token disables the gate

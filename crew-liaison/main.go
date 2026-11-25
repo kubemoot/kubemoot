@@ -53,6 +53,7 @@ func main() {
 
 	tickets := liaison.NewStore(ttl)
 	svc := liaison.NewService(liaison.NewLister(k8s), liaison.NewGateway(), tickets, maxInflight)
+	svc.WithDisplayName(os.Getenv("LIAISON_DISPLAY_NAME"))
 	if exporter, err := reportExporter(os.Getenv); err != nil {
 		log.Error(err, "conversation export is off")
 	} else if exporter != nil {
