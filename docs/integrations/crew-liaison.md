@@ -73,7 +73,7 @@ By default the liaison accepts every caller that presents the shared token (or a
 
 ### The door's own sign-in
 
-With `liaison.signIn.identity.provider: oidc` the liaison signs people in itself through your OpenID Connect issuer and issues the chat app its own access token for `/mcp`. The person who signed in is the caller and tickets belong to them. See [the door's own sign-in](../signing-in/#the-doors-own-sign-in).
+With `liaison.signIn.identity.provider: oidc` the liaison signs people in itself through your OpenID Connect issuer and issues the chat app its own access token for `/mcp`. The person who signed in is the caller, tickets belong to them, and a crew sees an assertion the liaison signs for each request, not the person's token. See [the door's own sign-in](../signing-in/#the-doors-own-sign-in) and, for the crew's side, [a door that signs people in](../../concepts/who-is-asking/#a-door-that-signs-people-in).
 
 ### A person's own token
 

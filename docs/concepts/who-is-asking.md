@@ -23,7 +23,8 @@ Both doors of a crew, the discussion gateway and the [crew liaison](../../integr
 | Kubernetes token | `Authorization: Bearer <token>` checked with a TokenReview | Built; turned on by `spec.discussion.access` |
 | Service token | `Authorization: Bearer <token>`, a person's own token for a service the crew trusts, accepted when that service accepts it | Built; off unless `ACCESS_SERVICE_TOKENS` is set |
 | OIDC sign-in through oauth2-proxy | The dashboard only: the person's ID token as `Authorization: Bearer` from the sign-in proxy, checked with a TokenReview | Built; off unless `auth.oidc.enabled`; see [people with an identity provider](#people-with-an-identity-provider) |
-| Trusted hop from an adopted gateway, JWT | the gateway's signed identity | Planned: each is one more verifier behind the same seam |
+| Trusted hop, JWT | `Authorization: Bearer <assertion>`, a short signed assertion of the person from a door the crew lists | Built; off unless `spec.discussion.access.trustedHops` lists a door; see [a door that signs people in](#a-door-that-signs-people-in) |
+| Trusted hop from an adopted gateway, mutual TLS | the gateway's client certificate | Planned: one more verifier behind the same seam |
 
 Identity is never read from a request body, a header a client can set, or the text of a question. A `principal` a client puts in a request body is ignored; the gateway sets it.
 
@@ -60,6 +61,30 @@ The runtime sets both keys from the thread. The model supplies only a call's arg
 A person who has no Kubernetes token can still sign in to the dashboard with the identity provider their organization uses. This is the Kubernetes path with a different front door, not a new kind of principal: oauth2-proxy signs the person in and passes their OIDC ID token to the dashboard, the dashboard accepts it only from the proxy's addresses and checks it with the same TokenReview as a pasted token, and the person is then a Kubernetes caller with the user name and groups the API server derives from the token. Kubemoot parses no token of its own.
 
 The API server must trust the same issuer: it needs the `--oidc-issuer-url`, `--oidc-client-id` and claim flags, and a live sign-in cannot work without them, because the TokenReview is how the token is checked. Every Kubernetes right of that person (reading crews, asking, owning conversations) is then decided by RBAC for their OIDC user and groups. Setup is in [the dashboard guide](../../operating/dashboard/#signing-in-with-your-identity-provider). The crews' own doors take the same bearer token, so a person signed in this way is identified in conversations like any other Kubernetes caller.
+
+## A door that signs people in
+
+The liaison can sign people in itself ([the door's own sign-in](../../integrations/signing-in/#the-doors-own-sign-in)). It
+does not pass the person's token to a crew: that token is for the door alone. For each request to a crew's gateway it
+signs a short assertion of who is asking, and the gateway verifies it. This is a trusted hop: the crew trusts the
+door's key, not the person's token.
+
+- **The assertion.** A JWT (ES256) with the type `kubemoot-hop+jwt`, an issuer (the door's name, `liaison`), the user and
+  groups as Kubernetes RBAC will name them, an audience of that one crew's gateway, a unique id, and a life of at most
+  60 seconds. A gateway refuses an assertion that is expired (its minute is exact, not extended), is for another
+  crew, is signed by a key the Crew does not list, names a user or group that starts with `system:`, or lives longer
+  than 60 seconds. Within its minute an assertion can be shown again: it is one person's, for one crew.
+- **The crew lists the door.** `spec.discussion.access.trustedHops` names the door and holds its public keys, as PEM
+  ([Crew reference](../../reference/crew/#a-door-that-signs-people-in)). The operator gives the gateway the list and
+  this crew's audience. Listing two keys lets a key rotate. A crew that lists no door refuses an assertion like any
+  token it does not know.
+- **The door checks too.** The liaison refuses to sign for a person a gateway would refuse (a name that starts with `system:`, more than 64 groups, a name over 256 characters) and answers the question with an error, rather than sending it with no credential.
+- **RBAC decides.** The gateway then asks the API server, with a SubjectAccessReview on the asserted user and groups,
+  whether they may `get` the Crew, exactly as for a Kubernetes token. The person's principal is a Kubernetes one, with the
+  same hashed id a token for the same user name would have, so their conversations are theirs at every door.
+- **What a stolen key means.** Whoever holds the door's signing key can say that anyone is asking, except a `system:`
+  identity. Keep the key in a Secret only the liaison mounts, and rotate it by listing the new public key on each crew
+  before the liaison signs with it.
 
 ## Subscribers
 

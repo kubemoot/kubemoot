@@ -156,14 +156,16 @@ for. What happens, in order:
 
 1. The app asks `/mcp` with no token and is answered 401 with a `WWW-Authenticate` header that names
    `/.well-known/oauth-protected-resource/mcp`. The metadata at `/.well-known/oauth-authorization-server` lists the
-   endpoints, PKCE method `S256` and `authorization_response_iss_parameter_supported`.
-2. The app registers itself at `/oauth/register`, as with the sign-in front.
+   endpoints, PKCE method `S256`, `authorization_response_iss_parameter_supported` and
+   `client_id_metadata_document_supported`.
+2. The app identifies itself by dynamic registration at `/oauth/register`, or with a client ID metadata document (below).
 3. The app sends the person to `/oauth/authorize` with a PKCE challenge (S256 is required) and the `resource` it wants a
    token for, which must be `https://<liaison host>/mcp`; any other value is `invalid_target`.
 4. The person is sent to your issuer: an authorization code flow with PKCE S256, a nonce, and a state that is tied to the
    browser that started it. The ID token is checked for its signature against the issuer's keys, its issuer, its
    audience and its expiry, and its nonce must be this sign-in's.
-5. The door shows a consent page naming the app and the host it will send the person back to. The person allows or denies. The page is shown once per app and host in a
+5. The door shows a consent page naming the app, the host it will send the person back to and, for an app that
+   identifies itself by address, that address. The person allows or denies. The page is shown once per app and host in a
    browser; a sealed cookie remembers it for 180 days, for that person only.
 6. The door redirects to the app with a code that is valid for 60 seconds and works once, and the `iss` parameter. The
    app posts the code and its PKCE verifier to `/oauth/token` and receives an access token and a refresh token.
@@ -197,11 +199,25 @@ A refresh does not ask the issuer again, so a person removed from a group at the
 token made for that person and that one request, and a post that a browser says came from another site is refused.
 Pages are never cached, cannot be framed, send no referrer, and carry a policy that allows nothing but their own style.
 
-**Limits today.** The door's identity is OpenID Connect only. The door does not yet pass the person on to a crew: a crew
-with `spec.discussion.access` refuses a person signed in at the door, and a crew that accepts anonymous callers answers
-them as anonymous. `export_conversation` for such a person is served as the liaison itself, which the operator refuses
-for a crew that verifies callers. The consent cookie is per browser, so the same person at a second browser is asked
-once more.
+**Client ID metadata documents.** An app may use an `https` address as its `client_id`. The door fetches the document at
+that address and reads the app's name and redirect addresses from it. The document must name its own address as
+`client_id`, list one to ten redirect addresses that pass the same rule as registration (including
+`allowedRedirectHosts`), and hold no client secret or key. The request is guarded, because an attacker chooses the
+address:
+
+- Only `https`, with a path, no credentials, no fragment and no dot segments.
+- Every address the name resolves to must be a public one. Private, loopback, link-local, shared (100.64.0.0/10),
+  documentation, reserved and IPv6 transition addresses are refused, and the connection goes to an address that was
+  checked, so a name cannot change its answer between the check and the connection. No proxy is used.
+- No redirect is followed. The answer must be `200` with `application/json`, at most 16 KiB, within 5 seconds.
+- At most five fetches a second, with a burst of ten, for the whole liaison (one shared limit, so a flood of requests for documents can make other apps that identify themselves this way wait; apps that register dynamically are not affected).
+
+An app that fails any check is answered `unknown client` in the browser, with no detail. A redirect address that the
+document does not name is refused the same way. Dynamic registration keeps working beside it.
+
+**Limits today.** The door's identity is OpenID Connect only. `export_conversation` through a person signed in to the
+door is served as the liaison itself, which the operator refuses for a crew that verifies callers. The consent
+cookie is per browser, so the same person at a second browser is asked once more.
 
 ### Configuration of the door's identity
 
@@ -218,6 +234,7 @@ once more.
 | `LIAISON_SIGNIN_OIDC_GROUPS_CLAIM` | `groups` | the ID token claim that lists the person's groups |
 | `LIAISON_SIGNIN_OIDC_USER_PREFIX` | `oidc:` | the prefix of the user name and of every group |
 | `LIAISON_SIGNIN_SIGNING_KEYS_FILE` | none, required | ECDSA P-256 private keys as PEM, at most four. The first signs access tokens; every key verifies |
+| `LIAISON_SIGNIN_HOP_KEYS_FILE` | none | ECDSA P-256 private keys as PEM. The first signs the assertion of who is asking that goes to a crew's gateway. Without it nothing is asserted to a crew |
 | `LIAISON_SIGNIN_REFRESH_MAX_HOURS` | `168` | the most a sign-in lasts, 1 to 2160 |
 
 Make a key with `openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt`. To rotate the
@@ -233,6 +250,7 @@ The chart renders these from `liaison.signIn.identity`:
 | `liaison.signIn.identity.oidc.clientSecret.name`, `key` | empty, required; `client-secret` | a Secret you create, mounted read-only; the secret is never in the environment |
 | `liaison.signIn.identity.oidc.scopes`, `groupsClaim`, `userPrefix` | `openid profile`, `groups`, `oidc:` | the matching variables |
 | `liaison.signIn.identity.signingKeySecret.name`, `key` | empty, required; `signing-keys` | a Secret you create, mounted read-only |
+| `liaison.signIn.identity.hopKeySecret.name`, `key` | empty; `hop-keys` | optional; see [A door that signs people in](../../concepts/who-is-asking/#a-door-that-signs-people-in) |
 | `liaison.signIn.identity.refreshMaxHours` | `168` | `LIAISON_SIGNIN_REFRESH_MAX_HOURS` |
 
 The chart also turns on caller verification for the liaison (`ACCESS_ENFORCE`), with anonymous callers off unless
