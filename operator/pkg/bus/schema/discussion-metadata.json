@@ -101,7 +101,12 @@
     },
     "failureType": {
       "type": "string",
-      "description": "The kind of failure on a failure signal, such as same_tool_repeated, too_many_tool_failures, iterations_exhausted, loop_time_exceeded, model_timeout, model_oom, server_unreachable, internal_exception or evaluation_timeout."
+      "description": "The kind of failure on a failure signal, such as same_tool_repeated, too_many_tool_failures, iterations_exhausted, loop_time_exceeded, model_timeout, model_oom, server_unreachable, operator_unreachable, model_not_ready, internal_exception or evaluation_timeout."
+    },
+    "failureCause": {
+      "type": "string",
+      "enum": ["operator_unreachable", "model_not_ready", "server_unreachable"],
+      "description": "On a synthesis answer written because no agent could contribute: the infrastructure cause the answer names."
     },
     "harness": {
       "type": "string",

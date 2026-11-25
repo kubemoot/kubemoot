@@ -1431,6 +1431,7 @@ public class DiscussionOrchestrator {
         state.blockSignals.clear();
         state.failureSignals.clear();
         state.failureTypes.clear();
+        state.failureCause = null;
         state.failedSources.clear();
         state.clearCapacitySignals();
         state.researcherAgents.clear();
@@ -1985,6 +1986,7 @@ public class DiscussionOrchestrator {
         state.blockSignals.clear();
         state.failureSignals.clear();
         state.failureTypes.clear();
+        state.failureCause = null;
         state.failedSources.clear();
         state.clearCapacitySignals();
         state.researcherAgents.clear();
