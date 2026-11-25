@@ -261,6 +261,59 @@ var _ = Describe("Connected accounts: the ConnectedAccounts condition and the re
 		})
 	})
 
+	Describe("UnknownAccount", func() {
+		It("names a server whose account no crew of the namespace declares", func() {
+			name := "known-" + suffix
+			crew := crewIn(ns, "lib", account(name, "https://auth.example.org/token"))
+			create(crew)
+			create(accountServer("srv", "missing-"+suffix))
+			got := judge(reconciler(name), crew)
+			Expect(got.Status).To(Equal(metav1.ConditionFalse))
+			Expect(got.Reason).To(Equal(reasonUnknownAccount))
+			Expect(got.Message).To(ContainSubstring("srv"))
+			Expect(got.Message).To(ContainSubstring("missing-" + suffix))
+		})
+
+		It("is reported on a crew that declares nothing, and absent when the server has no account", func() {
+			crew := crewIn(ns, "plain")
+			create(crew)
+			create(accountServer("srv", "missing-"+suffix))
+			Expect(judge(reconciler(), crew).Reason).To(Equal(reasonUnknownAccount))
+
+			plain := crewIn(ns, "plain2")
+			create(plain)
+			Expect(k8sClient.Delete(ctx, accountServer("srv", "missing-"+suffix))).To(Succeed())
+			Expect(judge(reconciler(), plain)).To(BeNil())
+		})
+
+		It("clears once a crew of the namespace declares the account", func() {
+			name := "later-" + suffix
+			first := crewIn(ns, "first")
+			create(first)
+			create(accountServer("srv", name))
+			create(gateway("gw"))
+			Expect(judge(reconciler(name), first).Reason).To(Equal(reasonUnknownAccount))
+
+			create(crewIn(ns, "second", account(name, "https://auth.example.org/token")))
+			Expect(judge(reconciler(name), first)).To(BeNil(), "a crew that declares nothing carries no condition once nothing is unknown")
+		})
+
+		It("does not count a server that takes a verifier, or one in mode Off", func() {
+			crew := crewIn(ns, "lib", account("fine-"+suffix, "https://auth.example.org/token"))
+			create(crew)
+			create(requiredServer(ns))
+			Expect(judge(reconciler("fine-"+suffix), crew).Reason).To(Equal(reasonConnectedAccountsReady))
+		})
+
+		It("is checked after a conflict and an unregistered name", func() {
+			name := "ranked-" + suffix
+			crew := crewIn(ns, "lib", account(name, "https://auth.example.org/token"))
+			create(crew)
+			create(accountServer("srv", "missing-"+suffix))
+			Expect(judge(reconciler(), crew).Reason).To(Equal(reasonUnregisteredAccount))
+		})
+	})
+
 	Describe("NoSingleToolGateway", func() {
 		It("is reported when a server takes the crew's account and the namespace has no gateway", func() {
 			name := "gw-" + suffix
@@ -288,8 +341,10 @@ var _ = Describe("Connected accounts: the ConnectedAccounts condition and the re
 			name := "nosrv-" + suffix
 			crew := crewIn(ns, "lib", account(name, "https://auth.example.org/token"))
 			create(crew)
-			elsewhere := accountServer("srv", "another-account")
-			create(elsewhere)
+			create(&kubemootv1alpha1.MCPServer{
+				ObjectMeta: metav1.ObjectMeta{Name: "plain-srv", Namespace: ns},
+				Spec:       kubemootv1alpha1.MCPServerSpec{ExternalEndpoint: credExternalURL},
+			})
 			Expect(judge(reconciler(name), crew).Reason).To(Equal(reasonConnectedAccountsReady))
 		})
 	})

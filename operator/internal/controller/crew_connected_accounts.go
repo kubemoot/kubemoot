@@ -36,6 +36,7 @@ const (
 	reasonConnectedAccountsReady   = "Ready"
 	reasonUnregisteredAccount      = "UnregisteredAccount"
 	reasonAccountConflict          = "Conflict"
+	reasonUnknownAccount           = "UnknownAccount"
 
 	// ConnectedAccountsRegisteredEnv lists, comma separated, the account names this install
 	// has registered a client for.
@@ -86,11 +87,15 @@ func sameHosts(a, b []string) bool {
 // no account carries no condition. A failure to read is returned and leaves the last
 // condition in place.
 func (r *CrewReconciler) reconcileConnectedAccounts(ctx context.Context, crew *kubemootv1alpha1.Crew) error {
-	if len(crew.Spec.ConnectedAccounts) == 0 {
+	unknown, err := r.unknownAccountServers(ctx, crew.Namespace)
+	if err != nil {
+		return err
+	}
+	if len(crew.Spec.ConnectedAccounts) == 0 && len(unknown) == 0 {
 		meta.RemoveStatusCondition(&crew.Status.Conditions, conditionTypeConnectedAccounts)
 		return nil
 	}
-	status, reason, message, err := r.connectedAccountsState(ctx, crew)
+	status, reason, message, err := r.connectedAccountsState(ctx, crew, unknown)
 	if err != nil {
 		return err
 	}
@@ -99,8 +104,8 @@ func (r *CrewReconciler) reconcileConnectedAccounts(ctx context.Context, crew *k
 }
 
 // connectedAccountsState judges one check at a time, most basic first: a name that means two
-// services, a name the install has not registered, then the wiring that carries the token.
-func (r *CrewReconciler) connectedAccountsState(ctx context.Context, crew *kubemootv1alpha1.Crew) (metav1.ConditionStatus, string, string, error) {
+// services, a name the install has not registered, a server's account no crew declares, then the wiring that carries the token.
+func (r *CrewReconciler) connectedAccountsState(ctx context.Context, crew *kubemootv1alpha1.Crew, unknown []string) (metav1.ConditionStatus, string, string, error) {
 	conflict, err := r.accountConflict(ctx, crew)
 	if err != nil {
 		return "", "", "", err
@@ -113,7 +118,40 @@ func (r *CrewReconciler) connectedAccountsState(ctx context.Context, crew *kubem
 			"This install has no registration for %s; the account cannot be connected until the install registers it.",
 			quoteNames(missing)), nil
 	}
+	if len(unknown) > 0 {
+		return metav1.ConditionFalse, reasonUnknownAccount, fmt.Sprintf(
+			"No crew of this namespace declares the account a server takes: %s. Declare it in a crew's spec.connectedAccounts.",
+			strings.Join(unknown, ", ")), nil
+	}
 	return r.connectedAccountsWiring(ctx, crew)
+}
+
+// unknownAccountServers lists, sorted, the servers of the namespace whose callerCredential
+// account no crew of the namespace declares, as "server (account)".
+func (r *CrewReconciler) unknownAccountServers(ctx context.Context, namespace string) ([]string, error) {
+	servers := &kubemootv1alpha1.MCPServerList{}
+	if err := r.List(ctx, servers, client.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+	crews := &kubemootv1alpha1.CrewList{}
+	if err := r.List(ctx, crews, client.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+	declared := map[string]struct{}{}
+	for i := range crews.Items {
+		for name := range accountsOf(&crews.Items[i]) {
+			declared[name] = struct{}{}
+		}
+	}
+	var unknown []string
+	for i := range servers.Items {
+		account := serverAccount(&servers.Items[i])
+		if _, ok := declared[account]; account != "" && !ok {
+			unknown = append(unknown, fmt.Sprintf("%s (%q)", servers.Items[i].Name, account))
+		}
+	}
+	sort.Strings(unknown)
+	return unknown, nil
 }
 
 // unregisteredAccounts are the crew's declared names the install has not registered, sorted.
