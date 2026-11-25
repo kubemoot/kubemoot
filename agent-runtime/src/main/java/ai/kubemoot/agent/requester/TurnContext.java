@@ -52,6 +52,20 @@ public final class TurnContext {
     /** A handle is a hash; anything else could carry text into the prompt, so it names no caller. */
     private static final Pattern HANDLE = Pattern.compile("[A-Za-z0-9._:=-]{1,128}");
 
+    /** True for a principal with a kind that is not anonymous. */
+    private static boolean isNamedCaller(Principal principal) {
+        if (principal == null) {
+            return false;
+        }
+        String kind = principal.kind();
+        return kind != null && !kind.isEmpty() && !Principal.KIND_ANONYMOUS.equals(kind);
+    }
+
+    /** True when the principal's id is a plain-token handle. */
+    private static boolean hasUsableHandle(Principal principal) {
+        return principal.id() != null && HANDLE.matcher(principal.id()).matches();
+    }
+
     /**
      * The sentence that names the caller to an agent: the opaque handle, which is the principal's
      * hashed id and stable across questions, and the label when the door stamped one. It says both
@@ -60,9 +74,7 @@ public final class TurnContext {
      * and a principal with no usable handle.
      */
     public static String callerSentence(Principal principal) {
-        if (principal == null || principal.kind() == null || principal.kind().isEmpty()
-                || Principal.KIND_ANONYMOUS.equals(principal.kind())
-                || principal.id() == null || !HANDLE.matcher(principal.id()).matches()) {
+        if (!isNamedCaller(principal) || !hasUsableHandle(principal)) {
             return "";
         }
         var sentence = new StringBuilder("The caller's handle is ").append(principal.id());
