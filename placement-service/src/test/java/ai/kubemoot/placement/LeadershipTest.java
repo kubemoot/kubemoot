@@ -106,6 +106,7 @@ class LeadershipTest {
     static class Recorder implements Leadership.Callbacks {
         final List<String> events = new ArrayList<>();
         boolean failElection;
+        boolean interruptElection;
         /** How much the clock moves while the previous leader's state is recovered. */
         Duration recoveryTakes = Duration.ZERO;
         AtomicLong clock;
@@ -114,6 +115,9 @@ class LeadershipTest {
         public void elected() throws IOException, InterruptedException, TimeoutException {
             if (failElection) {
                 throw new IllegalStateException("recovery failed");
+            }
+            if (interruptElection) {
+                throw new InterruptedException("stopping");
             }
             if (clock != null) {
                 clock.addAndGet(recoveryTakes.toNanos());
@@ -260,6 +264,21 @@ class LeadershipTest {
         assertEquals(null, bucket.holder(), "a does not sit on a lease it cannot serve");
         b.tick();
         assertTrue(b.isLeader());
+    }
+
+    @Test
+    void aRecoveryThatIsInterruptedGivesTheLeaseBackAndKeepsTheInterrupt() {
+        var interrupted = new Recorder();
+        interrupted.interruptElection = true;
+        var a = replica("a", interrupted);
+        try {
+            a.tick();
+            assertTrue(Thread.currentThread().isInterrupted(), "the thread's interrupt is not swallowed");
+        } finally {
+            Thread.interrupted();
+        }
+        assertFalse(a.isLeader());
+        assertEquals(null, bucket.holder(), "a does not sit on a lease it cannot serve");
     }
 
     @Test

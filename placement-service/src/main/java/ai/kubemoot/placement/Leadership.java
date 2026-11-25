@@ -170,6 +170,10 @@ public class Leadership {
             }
             leader = true;
             log.info("This replica is now the placement leader");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Taking over as leader was interrupted");
+            giveBack();
         } catch (Exception e) {
             log.warn("Taking over as leader failed: {}", e.getMessage());
             giveBack();
