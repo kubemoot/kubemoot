@@ -101,7 +101,7 @@ func (d *door) Verify(r *http.Request) (*identity.Identity, error) {
 	}
 	claims, err := d.verifyAccess(parsed)
 	if err != nil {
-		d.event("door token refused", "reason", err.Error())
+		d.cfg.Logger.V(1).Info("door token refused", "reason", err.Error())
 		return nil, identity.ErrInvalid
 	}
 	return &identity.Identity{Issuer: identity.IssuerKubernetes, Subject: claims.Subject, Groups: claims.Groups}, nil

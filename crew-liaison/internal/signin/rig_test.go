@@ -175,7 +175,7 @@ func (r *rig) postToken(form url.Values) *http.Response {
 func (r *rig) registerClient() string {
 	r.t.Helper()
 	redirects := []string{appRedirect}
-	body, _ := json.Marshal(map[string]any{keyRedirectURIs: redirects, "client_name": "Test App"})
+	body, _ := json.Marshal(map[string]any{keyRedirectURIs: redirects, paramClientName: "Test App"})
 	req, _ := http.NewRequest(http.MethodPost, r.srv.URL+pathRegister, strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
 	resp := r.do(req)
@@ -226,7 +226,7 @@ func appVerifier() (verifier, challenge string) {
 func (r *rig) authorizeQuery(clientID, challenge string, extra url.Values) string {
 	q := url.Values{
 		paramResponseType: {responseCode}, paramClientID: {clientID}, paramRedirect: {appRedirect},
-		"code_challenge": {challenge}, paramChallengeMethod: {methodS256}, paramState: {appState},
+		paramCodeChallenge: {challenge}, paramChallengeMethod: {methodS256}, paramState: {appState},
 	}
 	for k, vs := range extra {
 		q[k] = vs
@@ -240,7 +240,7 @@ func (r *rig) signIn(clientID, challenge string, extra url.Values) (appRedirectU
 	resp := r.get(r.authorizeQuery(clientID, challenge, extra))
 	upstreamAuth = location(r.t, resp)
 	r.up.mu.Lock()
-	r.up.challenge = upstreamAuth.Query().Get("code_challenge")
+	r.up.challenge = upstreamAuth.Query().Get(paramCodeChallenge)
 	r.up.mu.Unlock()
 	var cookie *http.Cookie
 	for _, c := range resp.Cookies() {

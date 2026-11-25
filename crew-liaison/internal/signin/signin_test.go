@@ -66,7 +66,7 @@ func checkUpstreamAuthorize(t *testing.T, r *rig, up *url.URL, appChallenge stri
 			t.Errorf("upstream %s = %q, want %q", k, uq.Get(k), want)
 		}
 	}
-	if uq.Get("code_challenge") == appChallenge {
+	if uq.Get(paramCodeChallenge) == appChallenge {
 		t.Error("the upstream got the app's challenge instead of a fresh one")
 	}
 }
@@ -153,7 +153,7 @@ func TestOnlyRegisteredRedirectWithOneRegistered(t *testing.T) {
 	r := newRig(t, nil)
 	clientID := r.registerClient()
 	_, challenge := appVerifier()
-	q := url.Values{paramResponseType: {responseCode}, paramClientID: {clientID}, "code_challenge": {challenge}, paramChallengeMethod: {methodS256}}
+	q := url.Values{paramResponseType: {responseCode}, paramClientID: {clientID}, paramCodeChallenge: {challenge}, paramChallengeMethod: {methodS256}}
 	loc := location(t, r.get(pathAuthorize+"?"+q.Encode()))
 	if !strings.HasPrefix(loc.String(), r.cfg.UpstreamAuthorizeURL) {
 		t.Errorf("a single registered redirect should be the default: %s", loc)
@@ -375,8 +375,8 @@ func TestMetadataDocuments(t *testing.T) {
 	var as map[string]any
 	decode(t, r.get(pathAuthServer), &as)
 	for k, want := range map[string]string{
-		"issuer": r.srv.URL, "authorization_endpoint": r.srv.URL + pathAuthorize,
-		"token_endpoint": r.srv.URL + pathToken, "registration_endpoint": r.srv.URL + pathRegister,
+		keyIssuer: r.srv.URL, keyAuthEndpoint: r.srv.URL + pathAuthorize,
+		keyTokenEndpoint: r.srv.URL + pathToken, "registration_endpoint": r.srv.URL + pathRegister,
 	} {
 		if as[k] != want {
 			t.Errorf("%s = %v", k, as[k])
@@ -443,7 +443,7 @@ func TestRegistration(t *testing.T) {
 
 func TestRegistrationResponseShape(t *testing.T) {
 	r := newRig(t, nil)
-	body, _ := json.Marshal(map[string]any{keyRedirectURIs: []string{appRedirect}, "client_name": "Test App"})
+	body, _ := json.Marshal(map[string]any{keyRedirectURIs: []string{appRedirect}, paramClientName: "Test App"})
 	req, _ := http.NewRequest(http.MethodPost, r.srv.URL+pathRegister, strings.NewReader(string(body)))
 	var out map[string]any
 	decode(t, r.do(req), &out)
@@ -470,7 +470,7 @@ func TestNothingSecretIsLogged(t *testing.T) {
 		"access token": accessToken, "refresh token": refreshToken, "upstream code": upstreamCode,
 		"sealed code": code, "sealed state": up.Query().Get(paramState), "client id": clientID,
 		"app verifier": verifier, "app challenge": challenge, "rotated access": "ACCESS-2", "rotated refresh": "REFRESH-2",
-		"upstream challenge": up.Query().Get("code_challenge"),
+		"upstream challenge": up.Query().Get(paramCodeChallenge),
 	} {
 		if strings.Contains(logs, secret) {
 			t.Errorf("the %s appears in the logs", name)

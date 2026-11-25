@@ -198,6 +198,7 @@ func signInFront(log logr.Logger) (*liaison.SignInFront, error) {
 	}
 	if doorCfg != nil {
 		doorCfg.Logger = log.WithName("signin")
+		doorCfg.DisplayName = os.Getenv("LIAISON_DISPLAY_NAME")
 		return doorFront(doorCfg)
 	}
 	cfg, err := signin.ConfigFromEnv(os.Getenv, nil)

@@ -2,6 +2,22 @@
 {{- $name := printf "%s-liaison" (include "kubemoot-operator.fullname" .) }}
 {{- $secret := .Values.liaison.auth.existingSecret | default (printf "%s-auth" $name) }}
 {{- $host := .Values.liaison.expose.hostname | default .Values.gateway.hostname }}
+{{- $door := and .Values.liaison.signIn.enabled (eq (.Values.liaison.signIn.identity.provider | default "") "oidc") }}
+{{- if and .Values.liaison.signIn.identity.provider (ne .Values.liaison.signIn.identity.provider "oidc") }}
+{{- fail (printf "liaison.signIn.identity.provider must be empty or \"oidc\", got %q" .Values.liaison.signIn.identity.provider) }}
+{{- end }}
+{{- if and $door .Values.liaison.signIn.upstream.authorizeURL }}
+{{- fail "liaison.signIn.identity and liaison.signIn.upstream are alternatives: the door signs people in itself, or relays one service's sign-in" }}
+{{- end }}
+{{- if and (eq (.Values.liaison.signIn.identity.provider | default "") "oidc") (not .Values.liaison.signIn.enabled) }}
+{{- fail "liaison.signIn.identity.provider needs liaison.signIn.enabled" }}
+{{- end }}
+{{- if and $door .Values.liaison.auth.serviceTokens }}
+{{- fail "liaison.auth.serviceTokens and the door's identity are alternatives: with the door's identity on, /mcp accepts no service's own token" }}
+{{- end }}
+{{- if and $door .Values.liaison.expose.enabled (not .Values.liaison.signIn.allowedRedirectHosts) }}
+{{- fail "liaison.signIn.allowedRedirectHosts is required when the door's identity is on and liaison.expose is on: without it any site could ask a person to allow it" }}
+{{- end }}
 {{- if .Values.liaison.signIn.enabled }}
 {{- $public := required "liaison.signIn.publicURL is required when liaison.signIn.enabled" .Values.liaison.signIn.publicURL | trimSuffix "/" }}
 {{- if ne $public (printf "https://%s" $host) }}
@@ -127,7 +143,7 @@ spec:
               value: {{ .Values.liaison.maxInflight | quote }}
             - name: LIAISON_TICKET_TTL_MINUTES
               value: {{ .Values.liaison.ticketTTLMinutes | quote }}
-            {{- if or .Values.liaison.auth.kubernetesTokens .Values.liaison.auth.serviceTokens }}
+            {{- if or .Values.liaison.auth.kubernetesTokens .Values.liaison.auth.serviceTokens $door }}
             - name: ACCESS_ENFORCE
               value: "true"
             - name: ACCESS_ALLOW_ANONYMOUS
@@ -151,9 +167,39 @@ spec:
             {{- end }}
             {{- if .Values.liaison.signIn.enabled }}
             {{- $in := .Values.liaison.signIn }}
-            # The stateless OAuth sign-in front: it holds no token and no state, only keys.
             - name: LIAISON_SIGNIN_PUBLIC_URL
               value: {{ required "liaison.signIn.publicURL is required when liaison.signIn.enabled" $in.publicURL | quote }}
+            {{- with $in.allowedRedirectHosts }}
+            - name: LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            # The sealing keys come from a Secret the installer creates, as a mounted file.
+            - name: LIAISON_SIGNIN_SEAL_KEYS_FILE
+              value: /etc/kubemoot/signin/seal-keys
+            {{- if $door }}
+            {{- $oidc := $in.identity.oidc }}
+            # The door signs people in itself through the install's OpenID Connect issuer and
+            # issues its own tokens; it holds no token of any service.
+            - name: LIAISON_SIGNIN_IDENTITY
+              value: "oidc"
+            - name: LIAISON_SIGNIN_OIDC_ISSUER
+              value: {{ required "liaison.signIn.identity.oidc.issuer is required with identity.provider oidc" $oidc.issuer | quote }}
+            - name: LIAISON_SIGNIN_OIDC_CLIENT_ID
+              value: {{ required "liaison.signIn.identity.oidc.clientId is required with identity.provider oidc" $oidc.clientId | quote }}
+            - name: LIAISON_SIGNIN_OIDC_CLIENT_SECRET_FILE
+              value: /etc/kubemoot/signin-identity/oidc-client-secret
+            - name: LIAISON_SIGNIN_OIDC_SCOPES
+              value: {{ $oidc.scopes | quote }}
+            - name: LIAISON_SIGNIN_OIDC_GROUPS_CLAIM
+              value: {{ $oidc.groupsClaim | quote }}
+            - name: LIAISON_SIGNIN_OIDC_USER_PREFIX
+              value: {{ $oidc.userPrefix | quote }}
+            - name: LIAISON_SIGNIN_SIGNING_KEYS_FILE
+              value: /etc/kubemoot/signin-identity/signing-keys
+            - name: LIAISON_SIGNIN_REFRESH_MAX_HOURS
+              value: {{ $in.identity.refreshMaxHours | quote }}
+            {{- else }}
+            # The stateless OAuth sign-in front: it holds no token and no state, only keys.
             - name: LIAISON_SIGNIN_UPSTREAM
               value: {{ required "liaison.signIn.upstream.authorizeURL is required when liaison.signIn.enabled" $in.upstream.authorizeURL | quote }}
             - name: LIAISON_SIGNIN_UPSTREAM_TOKEN_URL
@@ -164,13 +210,7 @@ spec:
             - name: LIAISON_SIGNIN_UPSTREAM_SCOPES
               value: {{ . | quote }}
             {{- end }}
-            {{- with $in.allowedRedirectHosts }}
-            - name: LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS
-              value: {{ join "," . | quote }}
             {{- end }}
-            # The sealing keys come from a Secret the installer creates, as a mounted file.
-            - name: LIAISON_SIGNIN_SEAL_KEYS_FILE
-              value: /etc/kubemoot/signin/seal-keys
             {{- end }}
             {{- if or .Values.liaison.auth.existingSecret .Values.liaison.auth.token }}
             - name: LIAISON_TOKEN
@@ -203,6 +243,11 @@ spec:
               mountPath: /etc/kubemoot/signin
               readOnly: true
             {{- end }}
+            {{- if $door }}
+            - name: signin-identity
+              mountPath: /etc/kubemoot/signin-identity
+              readOnly: true
+            {{- end }}
       volumes:
         # The install CA's public certificates, which the operator publishes. The pod waits for
         # the ConfigMap to exist.
@@ -216,6 +261,24 @@ spec:
             items:
               - key: {{ .Values.liaison.signIn.sealKeySecret.key | default "seal-keys" }}
                 path: seal-keys
+        {{- end }}
+        {{- if $door }}
+        {{- $id := .Values.liaison.signIn.identity }}
+        # The door's own secrets, each from a Secret the installer creates: the issuer's client
+        # secret and the keys that sign access tokens. No pod but the liaison mounts them.
+        - name: signin-identity
+          projected:
+            sources:
+              - secret:
+                  name: {{ required "liaison.signIn.identity.oidc.clientSecret.name is required with identity.provider oidc" $id.oidc.clientSecret.name }}
+                  items:
+                    - key: {{ $id.oidc.clientSecret.key | default "client-secret" }}
+                      path: oidc-client-secret
+              - secret:
+                  name: {{ required "liaison.signIn.identity.signingKeySecret.name is required with identity.provider oidc" $id.signingKeySecret.name }}
+                  items:
+                    - key: {{ $id.signingKeySecret.key | default "signing-keys" }}
+                      path: signing-keys
         {{- end }}
 ---
 apiVersion: v1

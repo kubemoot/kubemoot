@@ -565,8 +565,36 @@ liaison:
       key: seal-keys
     # Hosts an https redirect address may use (loopback http is always allowed). Empty allows
     # any host, so anyone could register a redirect address and ask a person to sign in to it:
-    # always set it on a shared deployment.
+    # always set it on a shared deployment. Required when identity.provider is set and
+    # liaison.expose is on.
     allowedRedirectHosts: []
+    # The door's own identity, instead of relaying one service's sign-in (leave upstream empty).
+    # The liaison becomes an authorization server for /mcp: the person signs in at your OpenID
+    # Connect issuer and is the person asking; the chat app gets a token for this door only.
+    # Off by default.
+    identity:
+      # "" (off) or "oidc".
+      provider: ""
+      oidc:
+        issuer: ""
+        clientId: ""
+        # A Secret you create in this namespace holding the client secret. Register
+        # <publicURL>/oauth/callback as the client's redirect address at the issuer.
+        clientSecret:
+          name: ""
+          key: client-secret
+        scopes: "openid profile"
+        # The ID token claim that lists the person's groups, and the prefix on the user name and
+        # every group, as Kubernetes RBAC will see them (for example the user oidc:<subject>).
+        groupsClaim: groups
+        userPrefix: "oidc:"
+      # A Secret you create: ECDSA P-256 private keys as PEM. The first signs access tokens; list
+      # a new key first and keep the old one until its tokens expire (15 minutes) to rotate.
+      signingKeySecret:
+        name: ""
+        key: signing-keys
+      # How long a sign-in lasts at most, in hours, however it is used.
+      refreshMaxHours: 168
   # Outside services whose accounts a person may connect, keyed by account name (a DNS label).
   # A Crew declares the accounts it needs in spec.connectedAccounts; this install registers a
   # client with each service. The operator reports a Crew that declares a name missing here as

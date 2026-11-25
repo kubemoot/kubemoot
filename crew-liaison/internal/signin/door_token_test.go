@@ -25,7 +25,7 @@ func TestCodeBecomesASignedAccessTokenAndASealedRefreshToken(t *testing.T) {
 	if err != nil || id.Subject != doorUser || id.Issuer != identity.IssuerKubernetes {
 		t.Fatalf("verify = %+v, %v", id, err)
 	}
-	if len(id.Groups) != 1 || id.Groups[0] != "oidc:team-a" {
+	if len(id.Groups) != 1 || id.Groups[0] != groupTeamA {
 		t.Errorf("groups = %v", id.Groups)
 	}
 	if strings.Contains(r.logText(), access) || strings.Contains(r.logText(), refresh) {
@@ -271,7 +271,7 @@ func TestOldFrontMetadataIsUnchanged(t *testing.T) {
 	resp := r.get(pathAuthServer)
 	var got map[string]any
 	decode(t, resp, &got)
-	want := []string{"issuer", "authorization_endpoint", "token_endpoint", "registration_endpoint", "response_types_supported",
+	want := []string{keyIssuer, keyAuthEndpoint, keyTokenEndpoint, "registration_endpoint", "response_types_supported",
 		"grant_types_supported", "code_challenge_methods_supported", "token_endpoint_auth_methods_supported"}
 	if len(got) != len(want) {
 		keys, _ := json.Marshal(got)
@@ -288,7 +288,7 @@ func TestDoorMetadataAdvertisesWhatItDoes(t *testing.T) {
 	}
 	var got map[string]any
 	decode(t, resp, &got)
-	if got["authorization_response_iss_parameter_supported"] != true || got["issuer"] != doorPublicURL {
+	if got["authorization_response_iss_parameter_supported"] != true || got[keyIssuer] != doorPublicURL {
 		t.Errorf("metadata = %v", got)
 	}
 }

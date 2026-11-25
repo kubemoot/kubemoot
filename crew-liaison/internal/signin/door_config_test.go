@@ -44,8 +44,8 @@ func TestDoorConfigFromEnv(t *testing.T) {
 		"redirect hosts": {strings.Join(cfg.AllowedRedirectHosts, ","), "app.example.test"},
 		"client secret":  {cfg.OIDC.ClientSecret, "s3cret"},
 		"scopes":         {cfg.OIDC.Scopes, defaultOIDCScopes},
-		"groups claim":   {cfg.OIDC.GroupsClaim, "groups"},
-		"user prefix":    {cfg.OIDC.UserPrefix, "oidc:"},
+		"groups claim":   {cfg.OIDC.GroupsClaim, defaultGroupsClaim},
+		"user prefix":    {cfg.OIDC.UserPrefix, defaultUserPrefix},
 	} {
 		if pair[0] != pair[1] {
 			t.Errorf("%s = %v, want %v", name, pair[0], pair[1])

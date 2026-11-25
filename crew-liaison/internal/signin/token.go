@@ -55,14 +55,20 @@ func (f *front) exchangeCode(w http.ResponseWriter, r *http.Request) {
 
 // checkCodeUse returns why the request may not use the code, or "".
 func checkCodeUse(form url.Values, code authCode) string {
-	if form.Get(paramClientID) != code.ClientID {
+	return checkCodeBinding(form, code.ClientID, code.Redirect, code.RedirectSent, code.Challenge)
+}
+
+// checkCodeBinding returns why a token request may not redeem a code bound to a client, a redirect
+// address and a PKCE challenge, or "". Both fronts redeem codes through it.
+func checkCodeBinding(form url.Values, clientID, redirect string, redirectSent bool, challenge string) string {
+	if form.Get(paramClientID) != clientID {
 		return "the code was issued to a different client"
 	}
 	ru := form.Get(paramRedirect)
-	if (ru != "" || code.RedirectSent) && ru != code.Redirect {
+	if (ru != "" || redirectSent) && ru != redirect {
 		return "redirect_uri does not match the authorization request"
 	}
-	if !verifierMatches(form.Get(paramCodeVerifier), code.Challenge) {
+	if !verifierMatches(form.Get(paramCodeVerifier), challenge) {
 		return "code_verifier does not match the code_challenge"
 	}
 	return ""

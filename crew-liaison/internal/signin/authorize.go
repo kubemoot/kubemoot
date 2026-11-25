@@ -46,11 +46,11 @@ func (f *front) authorize(w http.ResponseWriter, r *http.Request) {
 		f.refuseAuthorize(w, r, req, "unsupported_response_type", "only response_type=code is supported")
 		return
 	}
-	if q.Get(paramChallengeMethod) != methodS256 || !validChallenge(q.Get("code_challenge")) {
+	if q.Get(paramChallengeMethod) != methodS256 || !validChallenge(q.Get(paramCodeChallenge)) {
 		f.refuseAuthorize(w, r, req, "invalid_request", "a PKCE code_challenge with method S256 is required")
 		return
 	}
-	req.challenge = q.Get("code_challenge")
+	req.challenge = q.Get(paramCodeChallenge)
 	f.startUpstream(w, r, req)
 }
 
@@ -75,7 +75,7 @@ func (f *front) checkClient(w http.ResponseWriter, q url.Values) (authorizeReque
 }
 
 func (f *front) refuseAuthorize(w http.ResponseWriter, r *http.Request, req authorizeRequest, code, desc string) {
-	p := url.Values{"error": {code}, "error_description": {desc}}
+	p := url.Values{paramError: {code}, "error_description": {desc}}
 	if req.state != "" {
 		p.Set(paramState, req.state)
 	}
@@ -108,7 +108,7 @@ func (f *front) startUpstream(w http.ResponseWriter, r *http.Request, req author
 		paramClientID:        {f.cfg.UpstreamClientID},
 		paramRedirect:        {f.cfg.PublicURL + pathCallback},
 		"scope":              {scopes},
-		"code_challenge":     {s256(verifier)},
+		paramCodeChallenge:   {s256(verifier)},
 		paramChallengeMethod: {methodS256},
 		paramState:           {sealed},
 	}

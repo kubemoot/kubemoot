@@ -45,6 +45,7 @@ type doorRig struct {
 	door   *door
 	srv    *httptest.Server
 	client *http.Client
+	idp    *fakeIDP
 
 	mu    sync.Mutex
 	now   time.Time
@@ -54,10 +55,10 @@ type doorRig struct {
 
 func newDoorRig(t *testing.T, mutate func(*DoorConfig)) *doorRig {
 	t.Helper()
-	r := &doorRig{t: t, now: time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)}
+	r := &doorRig{t: t, now: time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC), idp: newFakeIDP(t)}
 	r.cfg = DoorConfig{
 		PublicURL: doorPublicURL, SealKeys: testKey(t, "k1"), SigningKeys: privateKeyPEM(t),
-		OIDC:          OIDCConfig{Issuer: "https://idp.example.test", ClientID: "door", ClientSecret: "s3cret", Scopes: defaultOIDCScopes, GroupsClaim: "groups", UserPrefix: "oidc:"},
+		OIDC:          OIDCConfig{Issuer: r.idp.srv.URL, ClientID: idpClientID, ClientSecret: idpClientSecret, Scopes: defaultOIDCScopes, GroupsClaim: defaultGroupsClaim, UserPrefix: defaultUserPrefix},
 		RefreshMaxAge: defaultRefreshMax, AllowedRedirectHosts: []string{appHost},
 		Now: func() time.Time { r.mu.Lock(); defer r.mu.Unlock(); return r.now },
 		Logger: funcr.New(func(prefix, args string) {
@@ -69,7 +70,7 @@ func newDoorRig(t *testing.T, mutate func(*DoorConfig)) *doorRig {
 	if mutate != nil {
 		mutate(&r.cfg)
 	}
-	d, err := newDoor(&r.cfg)
+	d, err := newDoor(&r.cfg, newOIDCProvider(&r.cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func (r *doorRig) code(challenge string) string {
 	r.t.Helper()
 	id, _ := randomString(16)
 	blob, err := r.door.sealer.Seal(purposeDoorCode, doorCode{
-		Who: person{User: doorUser, Groups: []string{"oidc:team-a"}}, ClientID: doorClient, Redirect: appRedirect, RedirectSent: true,
+		Who: person{User: doorUser, Groups: []string{groupTeamA}}, ClientID: doorClient, Redirect: appRedirect, RedirectSent: true,
 		Challenge: challenge, Resource: r.cfg.Resource(), ID: id, Expires: r.clock().Add(codeLifetime).Unix(),
 	})
 	if err != nil {
