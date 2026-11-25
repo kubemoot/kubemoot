@@ -4,7 +4,7 @@
 # back to another image: a missing :<sha> fails the release.
 #
 # Usage: retag-image.sh IMAGE SHA VERSION
-#   IMAGE     the repository, e.g. harbor-homelab.dijure.com/kubemoot/mcp-bridge
+#   IMAGE     the repository, e.g. registry.example.com/kubemoot/mcp-bridge
 #   SHA       the full commit SHA the image was built from
 #   VERSION   the version to tag, e.g. 0.12.3-rc.4
 # Env: CRANE (crane), already logged in to the registry
