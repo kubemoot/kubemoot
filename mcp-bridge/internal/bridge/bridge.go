@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,10 +16,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 )
 
 const (
 	headerContentType = "Content-Type"
+	// stdinPipe and stdoutPipe name the two FIFOs in the pipe directory.
+	stdinPipe  = "stdin"
+	stdoutPipe = "stdout"
 )
 
 // generateSessionID creates a random session identifier for MCP SSE clients.
@@ -175,7 +180,7 @@ func (b *Bridge) installSelf() error {
 // makePipes creates the stdin and stdout FIFOs with world read/write permissions,
 // accepting ones left by a previous start of the sidecar.
 func (b *Bridge) makePipes() error {
-	for _, name := range []string{"stdin", "stdout"} {
+	for _, name := range []string{stdinPipe, stdoutPipe} {
 		p := filepath.Join(b.pipeDir, name)
 		if err := syscall.Mkfifo(p, 0666); err != nil && !os.IsExist(err) {
 			return fmt.Errorf("mkfifo %s: %w", p, err)
@@ -190,49 +195,20 @@ func (b *Bridge) makePipes() error {
 // pipeSession opens the FIFOs (blocking until the MCP server connects),
 // reads from stdout, and broadcasts to SSE clients. Returns on disconnect.
 func (b *Bridge) pipeSession(ctx context.Context) error {
-	stdinPath := filepath.Join(b.pipeDir, "stdin")
-	stdoutPath := filepath.Join(b.pipeDir, "stdout")
-
-	// Open both pipes concurrently - each blocks until the MCP server opens its end
-	type openResult struct {
-		file *os.File
-		err  error
-	}
-
-	stdoutCh := make(chan openResult, 1)
-	stdinCh := make(chan openResult, 1)
-
-	go func() {
-		f, err := os.OpenFile(stdoutPath, os.O_RDONLY, 0)
-		stdoutCh <- openResult{f, err}
-	}()
-
-	go func() {
-		f, err := os.OpenFile(stdinPath, os.O_WRONLY, 0)
-		stdinCh <- openResult{f, err}
-	}()
-
-	var stdoutFile, stdinFile *os.File
-
-	for i := 0; i < 2; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case r := <-stdoutCh:
-			if r.err != nil {
-				return fmt.Errorf("open stdout pipe: %w", r.err)
-			}
-			stdoutFile = r.file
-		case r := <-stdinCh:
-			if r.err != nil {
-				return fmt.Errorf("open stdin pipe: %w", r.err)
-			}
-			stdinFile = r.file
-		}
+	stdinFile, stdoutFile, err := openPipes(ctx, filepath.Join(b.pipeDir, stdinPipe), filepath.Join(b.pipeDir, stdoutPipe))
+	if err != nil {
+		return err
 	}
 
 	defer func() { _ = stdoutFile.Close() }()
 	defer func() { _ = stdinFile.Close() }()
+	// Cancelling the context closes the pipe ends, which ends the blocked read below,
+	// so the session does not wait for the MCP server to close its side.
+	stopClosing := context.AfterFunc(ctx, func() {
+		_ = stdoutFile.Close()
+		_ = stdinFile.Close()
+	})
+	defer stopClosing()
 
 	b.pipeMu.Lock()
 	b.stdin = stdinFile
@@ -266,16 +242,145 @@ func (b *Bridge) pipeSession(ctx context.Context) error {
 
 	// Read JSON-RPC messages from stdout pipe and broadcast to SSE clients.
 	// A reply larger than maxReplyBytes is discarded while it streams in.
-	err := b.readStdoutPipe(stdoutFile, b.maxReplyBytes)
+	err = b.readStdoutPipe(stdoutFile, b.maxReplyBytes)
 
 	b.pipeMu.Lock()
 	b.stdin = nil
 	b.pipeMu.Unlock()
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil {
 		return err
 	}
 	return fmt.Errorf("MCP server disconnected (EOF)")
+}
+
+// pipeOpener is one FIFO open in progress: the open blocks until the MCP server opens its
+// end, so it runs in its own goroutine and delivers its result on done.
+type pipeOpener struct {
+	path string
+	flag int
+	done chan openResult
+}
+
+// openResult is what one FIFO opener delivers.
+type openResult struct {
+	file *os.File
+	err  error
+}
+
+func startOpener(path string, flag int) *pipeOpener {
+	o := &pipeOpener{path: path, flag: flag, done: make(chan openResult, 1)}
+	go func() {
+		f, err := os.OpenFile(path, flag, 0)
+		o.done <- openResult{f, err}
+	}()
+	return o
+}
+
+// unblockFlag is the open flag that gives a blocked opener the end it waits for: a
+// read-only open of a FIFO waits for a writer and a write-only open waits for a reader.
+func (o *pipeOpener) unblockFlag() int {
+	if o.flag == os.O_RDONLY {
+		return os.O_WRONLY
+	}
+	return os.O_RDONLY
+}
+
+// openPipes opens both FIFOs, blocking until the MCP server opens its ends, and returns
+// the bridge's stdin (write) and stdout (read) ends. When ctx ends or an open fails, it
+// closes what it already holds and releases the opener still blocked, so nothing is left
+// behind.
+func openPipes(ctx context.Context, stdinPath, stdoutPath string) (stdin, stdout *os.File, err error) {
+	openers := map[string]*pipeOpener{
+		stdoutPipe: startOpener(stdoutPath, os.O_RDONLY),
+		stdinPipe:  startOpener(stdinPath, os.O_WRONLY),
+	}
+	files := map[string]*os.File{}
+	for len(files) < 2 && err == nil {
+		err = awaitOneOpener(ctx, openers, files)
+	}
+	if err != nil {
+		for _, f := range files {
+			_ = f.Close()
+		}
+		for _, o := range openers {
+			abandonOpener(o)
+		}
+		return nil, nil, err
+	}
+	return files[stdinPipe], files[stdoutPipe], nil
+}
+
+// awaitOneOpener waits for one of the pending openers (those in openers and not yet in
+// files) and moves its file into files. It returns the open error, or ctx's error.
+func awaitOneOpener(ctx context.Context, openers map[string]*pipeOpener, files map[string]*os.File) error {
+	stdoutDone, stdinDone := pendingDone(openers, files, stdoutPipe), pendingDone(openers, files, stdinPipe)
+	var name string
+	var r openResult
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case r = <-stdoutDone:
+		name = stdoutPipe
+	case r = <-stdinDone:
+		name = stdinPipe
+	}
+	delete(openers, name)
+	if r.err != nil {
+		return fmt.Errorf("open %s pipe: %w", name, r.err)
+	}
+	files[name] = r.file
+	return nil
+}
+
+// pendingDone is the opener's result channel while it is pending; nil (which blocks
+// forever in a select) once its file was taken.
+func pendingDone(openers map[string]*pipeOpener, files map[string]*os.File, name string) <-chan openResult {
+	if o, ok := openers[name]; ok && files[name] == nil {
+		return o.done
+	}
+	return nil
+}
+
+// openerRetry is how often an abandoned opener is given the other end of its pipe again.
+const openerRetry = 10 * time.Millisecond
+
+// abandonOpener lets the session return while a FIFO opener is still blocked: a blocked
+// open cannot be interrupted, so the other end of the pipe is opened without blocking
+// (and closed at once) until the opener returns; the file it delivers, if any, is closed.
+// On Linux a blocked read-only open already counts as a reader, so the write-only
+// non-blocking open succeeds; before the opener has called open, that open fails with
+// ENXIO and is repeated. Any other failure (the pipe is gone) ends the attempts, since
+// then the opener's own open fails too.
+func abandonOpener(o *pipeOpener) {
+	go func() {
+		for {
+			if err := unblockOpen(o); err != nil && !errors.Is(err, syscall.ENXIO) {
+				return
+			}
+			select {
+			case r := <-o.done:
+				if r.file != nil {
+					_ = r.file.Close()
+				}
+				return
+			case <-time.After(openerRetry):
+			}
+		}
+	}()
+}
+
+// unblockOpen opens the end of the pipe the opener waits for, without blocking, and
+// closes it at once.
+func unblockOpen(o *pipeOpener) error {
+	f, err := os.OpenFile(o.path, o.unblockFlag()|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 // deliver sends a message to one session, or to every session when session is
