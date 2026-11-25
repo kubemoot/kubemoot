@@ -81,6 +81,37 @@ out="$(render --set liaison.expose.enabled=true --set gateway.enabled=true --set
 paths="$(yq -N 'select(.kind == "HTTPRoute" and .metadata.name == "kubemoot-operator-liaison") | .spec.rules[].matches[].path.value' <<<"$out" | tr '\n' ' ')"
 [ "$paths" = "/mcp " ] || fail "route without sign-in is '$paths'"
 
+# The door's name: neutral by default, the install's own when set.
+out="$(render)"
+grep -qxF 'LIAISON_DISPLAY_NAME=Kubemoot' <<<"$(liaison_env "$out")" || fail "default display name is not Kubemoot"
+out="$(render --set 'liaison.displayName=Example Community')"
+grep -qxF 'LIAISON_DISPLAY_NAME=Example Community' <<<"$(liaison_env "$out")" || fail "display name not rendered"
+
+# The public URL must be https:// plus the door hostname: the exposed hostname wins over the
+# gateway's, a trailing slash is fine, any other host or scheme refuses to render.
+host=(--set liaison.expose.enabled=true --set gateway.enabled=true --set gateway.name=gw --set gateway.namespace=gw-ns --set gateway.hostname=gw.example.com)
+base=(--set liaison.signIn.enabled=true --set liaison.signIn.upstream.authorizeURL=https://up.example.com/authorize
+  --set liaison.signIn.upstream.tokenURL=https://up.example.com/token --set liaison.signIn.upstream.clientId=front
+  --set liaison.signIn.sealKeySecret.name=seal)
+render "${base[@]}" "${host[@]}" --set liaison.signIn.publicURL=https://gw.example.com/ >/dev/null 2>&1 || fail "trailing slash refused"
+out="$(render "${base[@]}" "${host[@]}" --set liaison.expose.hostname=door.example.com --set liaison.signIn.publicURL=https://door.example.com)" \
+  || fail "expose.hostname matching publicURL refused"
+[ "$(yq -N 'select(.kind == "HTTPRoute" and .metadata.name == "kubemoot-operator-liaison") | .spec.hostnames[0]' <<<"$out")" = "door.example.com" ] || fail "route host is not expose.hostname"
+for bad in https://other.example.com http://gw.example.com https://gw.example.com:8443 https://gw.example.com/mcp; do
+  if render "${base[@]}" "${host[@]}" --set "liaison.signIn.publicURL=$bad" >/dev/null 2>&1; then
+    fail "publicURL $bad rendered against host gw.example.com"
+  fi
+done
+if render "${base[@]}" "${host[@]}" --set liaison.expose.hostname=door.example.com --set liaison.signIn.publicURL=https://gw.example.com >/dev/null 2>&1; then
+  fail "publicURL matching the gateway host rendered though expose.hostname differs"
+fi
+
+# The route serves the liaison and nothing else: every backend is the liaison Service, and the
+# paths are exactly /mcp, /oauth and /.well-known with sign-in on (checked above), /mcp alone off.
+out="$(render "${base[@]}" "${host[@]}" --set liaison.signIn.publicURL=https://gw.example.com)"
+backends="$(yq -N 'select(.kind == "HTTPRoute" and .metadata.name == "kubemoot-operator-liaison") | .spec.rules[].backendRefs[].name' <<<"$out" | sort -u | tr '\n' ' ')"
+[ "$backends" = "kubemoot-operator-liaison " ] || fail "route backends are '$backends'"
+
 # Sign-in without its required settings refuses to render.
 for missing in publicURL upstream.authorizeURL upstream.tokenURL upstream.clientId sealKeySecret.name; do
   args=(); for a in "${signin[@]}"; do args+=("$a"); done
