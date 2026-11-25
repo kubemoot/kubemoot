@@ -66,6 +66,9 @@ type DiscussionIdentity struct {
 // A caller needs get on the Crew to use it, and get or list on crews/conversations (the
 // ClusterRole kubemoot-conversation-reader) to read other callers' conversations.
 // +kubebuilder:validation:XValidation:rule="!has(self.serviceTokens) || size(self.serviceTokens) == 0 || has(self.hashKeySecretRef)",message="serviceTokens needs hashKeySecretRef"
+// +kubebuilder:validation:XValidation:rule="!has(self.trustedHops) || size(self.trustedHops) == 0 || has(self.askers)",message="trustedHops needs askers: the rule that decides who may ask"
+// +kubebuilder:validation:XValidation:rule="!has(self.askers) || (has(self.trustedHops) && size(self.trustedHops) > 0)",message="askers needs trustedHops: the door that asserts who is asking"
+// +kubebuilder:validation:XValidation:rule="!has(self.askers) || has(self.askers.kubernetesRBAC) || has(self.hashKeySecretRef)",message="askers other than kubernetesRBAC need hashKeySecretRef"
 // +kubebuilder:validation:XValidation:rule="!has(self.serviceTokens) || size(self.serviceTokens) < 2 || self.serviceTokens.all(t, has(t.audiences) && size(t.audiences) > 0)",message="with more than one serviceTokens entry each needs audiences"
 type DiscussionAccess struct {
 	// TokenReview makes the gateway check Kubernetes bearer tokens with a TokenReview and
@@ -104,13 +107,19 @@ type DiscussionAccess struct {
 	// TrustedHops are doors in front of the crew that sign people in themselves, such as the
 	// crew liaison with its own sign-in. The gateway accepts the short signed assertion such a
 	// door makes of the person asking (user and groups, valid for one minute, for this crew
-	// only), then asks Kubernetes with a SubjectAccessReview whether that user and those
-	// groups may use the crew. Empty by default: no assertion is accepted.
+	// only) and applies askers to that person. Empty by default: no assertion is accepted.
 	// +kubebuilder:validation:MaxItems=4
 	// +listType=map
 	// +listMapKey=name
 	// +optional
 	TrustedHops []TrustedHop `json:"trustedHops,omitempty"`
+
+	// Askers is the rule that decides which of the people a trusted hop asserts may ask this
+	// crew. Required with trustedHops, and only meaningful with it. Every kind but
+	// kubernetesRBAC needs hashKeySecretRef, because such a person is named on the bus by a
+	// keyed id.
+	// +optional
+	Askers *AskerRule `json:"askers,omitempty"`
 }
 
 // TrustedHop is one door whose assertions of who is asking the gateway accepts. The door's
@@ -210,6 +219,7 @@ func (a *DiscussionAccess) AnonymousAllowed() bool {
 }
 
 // CrewSpec defines the desired state of Crew
+// +kubebuilder:validation:XValidation:rule="!has(self.discussion) || !has(self.discussion.access) || !has(self.discussion.access.askers) || !has(self.discussion.access.askers.connectedAccount) || (has(self.connectedAccounts) && self.connectedAccounts.exists(a, a.name == self.discussion.access.askers.connectedAccount))",message="askers.connectedAccount must name an account in spec.connectedAccounts"
 type CrewSpec struct {
 	// Description is a human-readable description of the crew's purpose
 	// +optional

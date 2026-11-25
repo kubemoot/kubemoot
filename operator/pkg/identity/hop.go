@@ -33,8 +33,8 @@ import (
 // with its own sign-in). It does not forward the person's token. For each request it signs a
 // short assertion of who the person is, and the crew's gateway verifies it against the hop's
 // public key, which the Crew lists in spec.discussion.access.trustedHops. The gateway then
-// asks Kubernetes, with a SubjectAccessReview, whether that user and those groups may use the
-// crew, so RBAC decides exactly as it does for a Kubernetes token.
+// applies the crew's askers rule (see AskerAuthorizer) to the person asserted. Only the
+// kubernetesRBAC rule makes the person a Kubernetes user and asks the API server.
 const (
 	// EnvTrustedHops is the JSON list of TrustedHopConfig the operator writes for a gateway.
 	EnvTrustedHops = "ACCESS_TRUSTED_HOPS"
@@ -65,6 +65,10 @@ type TrustedHopConfig struct {
 	Audience string `json:"audience"`
 	// PublicKeys are PEM encoded PKIX ECDSA P-256 keys; several let a key rotate.
 	PublicKeys []string `json:"publicKeys"`
+	// KubernetesUser makes the asserted person a Kubernetes user and groups, which RBAC then
+	// decides. Off, the person is only the sign-in provider's, issued by the hop. The crew's
+	// askers rule sets it: only the kubernetesRBAC kind maps a person to Kubernetes.
+	KubernetesUser bool `json:"kubernetesUser,omitempty"`
 }
 
 // HopAudience is the audience of an assertion for the gateway of one crew.
@@ -117,6 +121,7 @@ func ParseHopPublicKey(pemText string) (*ecdsa.PublicKey, error) {
 
 // hopTrust is one configured hop with its keys by id.
 type hopTrust struct {
+	issuer   string
 	audience string
 	keys     map[string]*ecdsa.PublicKey
 }
@@ -152,7 +157,7 @@ func newHopTrust(c TrustedHopConfig) (hopTrust, error) {
 		return hopTrust{}, fmt.Errorf("%w: a hop needs a name, an audience and one to %d public keys",
 			ErrHopConfig, maxHopKeys)
 	}
-	trust := hopTrust{audience: c.Audience, keys: map[string]*ecdsa.PublicKey{}}
+	trust := hopTrust{issuer: HopIssuerPrefix + c.Name, audience: c.Audience, keys: map[string]*ecdsa.PublicKey{}}
 	for _, text := range c.PublicKeys {
 		pub, err := ParseHopPublicKey(text)
 		if err != nil {
@@ -163,6 +168,9 @@ func newHopTrust(c TrustedHopConfig) (hopTrust, error) {
 			return hopTrust{}, fmt.Errorf("%w: hop %q: %w", ErrHopConfig, c.Name, err)
 		}
 		trust.keys[kid] = pub
+	}
+	if c.KubernetesUser {
+		trust.issuer = IssuerKubernetes
 	}
 	return trust, nil
 }
@@ -230,7 +238,7 @@ func (v *HopVerifier) identityOf(trust hopTrust, c hopClaims) (*Identity, error)
 			return nil, ErrInvalid
 		}
 	}
-	return &Identity{Issuer: IssuerKubernetes, Subject: c.Subject, Groups: c.Groups}, nil
+	return &Identity{Issuer: trust.issuer, Subject: c.Subject, Groups: c.Groups}, nil
 }
 
 // checkAsserted refuses, at the signer, what a gateway would refuse: a user or group a gateway
