@@ -60,6 +60,7 @@ Because the domain is the crew's, a crew must be **portable** across clusters - 
 | `memory` | object | Crew working-memory policy - see below |
 | `workspace.defaultAccess` | enum | The workspace access of every agent in the crew that declares none of its own: `none`, `read`, `write` or `readWrite`. An Agent's `spec.workspace.access` overrides it; left out, the KubemootConfig's `workspace.defaultAccess` applies, and with none declared agents behave as they always have. See [Agent](../../reference/agent/#specworkspaceaccess) |
 | `defaultTimeZone` | string | The IANA time zone (such as `America/New_York`) in which the crew states today's date when the asker's client sent no zone. Left out, or a name that is not an IANA zone, the crew uses UTC. See [the turn context line](../../concepts/agent-context/#the-turn-context-line) |
+| `connectedAccounts` | []object | The outside services whose accounts a person connects so the crew's tools act as them: name, displayName, purpose, usage, scopes, authorizeURL, tokenURL, revocationURL, tokenHosts. See [Connected accounts](../connected-accounts/) |
 | `network.allowedIngress` | []LabelSelector | Namespace selectors whose pods may reach the crew's discussion gateway when the operator generates network policies, for example the namespace of the web server that fronts the crew. See [Network policies](../../concepts/network-policies/) |
 
 ## Working Memory
@@ -145,6 +146,7 @@ Setting `access` turns verification on. A caller sends its Kubernetes token as `
 |-----------|---------|
 | `Authentication` | `False`, reason `Anonymous`: the gateway accepts anonymous callers and verifies no one. `True`, reason `TokenReview`: the gateway verifies callers. `True`, reason `ServiceToken`: the crew lists `serviceTokens`, so a person's own token from a service is verified too. `False`, reason `Closed`: the gateway checks no token and accepts no anonymous caller, so it refuses every request. Absent when the crew runs no gateway |
 | `CallerCredentials` | Present only when a tool server in the crew's namespace has `registry.callerCredential.mode: Required`. `True`, reason `Ready`: a verifier passes the person's token to tools and the pieces that carry it exist. `False`, with the reason: `NoVerifierPassesTokens` (no `serviceTokens` entry has `passToTools`), `UnknownVerifier` (the server names a verifier the crew does not list, or one without `passToTools`), `NoSingleToolGateway` (the namespace has no MCPGateway, or several), `SeveralCrewsPassTokens` (another crew of the namespace also keeps tokens). It never affects `Ready` |
+| `ConnectedAccounts` | Present only when the crew declares `spec.connectedAccounts`. `True`, reason `Ready`: every account is registered by the install and no other crew uses its name for a different service. `False`, with the reason: `Conflict`, `UnregisteredAccount`, `NoSingleToolGateway`. It never affects `Ready`. See [Connected accounts](../connected-accounts/#the-connectedaccounts-condition) |
 
 ### What the agents are told about the caller
 

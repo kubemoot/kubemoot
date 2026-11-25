@@ -199,11 +199,12 @@ spec:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `mode` | string | `Off` | `Off` or `Required`. `Required` calls the server with the asking person's token and with nothing else |
-| `verifier` | string | | Required with `Required`. The name of the crew's `serviceTokens` entry whose people's tokens this server takes |
+| `verifier` | string | | With `Required`, the name of the crew's `serviceTokens` entry whose people's tokens this server takes. Exactly one of `verifier` and `account` is set in mode `Required` |
+| `account` | string | | With `Required`, the name of a `connectedAccounts` entry of a Crew in the namespace: the person's token comes from the account they connected. Needs mode `Required` and excludes `verifier`. See [Connected accounts](../connected-accounts/) |
 | `leaseUrl` | string | | The broker's lease endpoint for this server. Empty uses the address the operator sets, the crew's discussion gateway |
 | `onForbidden` | []string | none | At most four endpoints tried in order, with the same token, when the server answers 403 to the person. Each receives the token, so each must be `https`; plain `http` is accepted only for `localhost`, `127.0.0.0/8` and `[::1]` |
 | `relayContext` | bool | `false` | Keep `conversationId` and `principalId` in the `_meta` forwarded to the server, for a tool server that calls back through the gateway. Works in mode `Off` too: the server is then still called with its own credential, and only the two ids are added, never a token |
-| `accountName` | string | the verifier name | How a refusal names the account to connect |
+| `accountName` | string | the verifier or account name | How a refusal names the account to connect |
 
 ### ToolOverride
 
