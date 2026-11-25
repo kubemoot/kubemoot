@@ -74,7 +74,7 @@ func (d *door) exchangeCode(w http.ResponseWriter, form url.Values) {
 		writeOAuthError(w, http.StatusBadRequest, errInvalidGrant, "the code is not valid or has expired")
 		return
 	}
-	if msg := checkDoorCodeUse(form, code); msg != "" {
+	if msg := checkCodeBinding(form, code.ClientID, code.Redirect, code.RedirectSent, code.Challenge); msg != "" {
 		d.event("code refused", "reason", "mismatch")
 		writeOAuthError(w, http.StatusBadRequest, errInvalidGrant, msg)
 		return
@@ -88,21 +88,6 @@ func (d *door) exchangeCode(w http.ResponseWriter, form url.Values) {
 	}
 	abs := now.Add(d.cfg.RefreshMaxAge)
 	d.mint(w, code.Who, code.ClientID, code.ID, abs)
-}
-
-// checkDoorCodeUse returns why the request may not use the code, or "".
-func checkDoorCodeUse(form url.Values, code doorCode) string {
-	if form.Get(paramClientID) != code.ClientID {
-		return "the code was issued to a different client"
-	}
-	ru := form.Get(paramRedirect)
-	if (ru != "" || code.RedirectSent) && ru != code.Redirect {
-		return "redirect_uri does not match the authorization request"
-	}
-	if !verifierMatches(form.Get(paramCodeVerifier), code.Challenge) {
-		return "code_verifier does not match the code_challenge"
-	}
-	return ""
 }
 
 func (d *door) refresh(w http.ResponseWriter, form url.Values) {

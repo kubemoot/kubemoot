@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,6 +61,8 @@ type DoorConfig struct {
 	OIDC                 OIDCConfig
 	SigningKeys          string // PEM, see ParseSigningKeys
 	RefreshMaxAge        time.Duration
+
+	DisplayName string // what the consent page calls the door; "Kubemoot" by default
 
 	Logger     logr.Logger
 	HTTPClient *http.Client     // for the issuer's endpoints; nil uses the default client
@@ -142,8 +145,8 @@ func (c *DoorConfig) readFiles(getenv func(string) string, readFile func(string)
 }
 
 func parseHours(s string) (time.Duration, error) {
-	var hours int
-	if _, err := fmt.Sscanf(s, "%d", &hours); err != nil || hours < 1 || hours > maxRefreshMaxHours {
+	hours, err := strconv.Atoi(s)
+	if err != nil || hours < 1 || hours > maxRefreshMaxHours {
 		return 0, fmt.Errorf("must be a whole number of hours from 1 to %d", maxRefreshMaxHours)
 	}
 	return time.Duration(hours) * time.Hour, nil
@@ -166,21 +169,25 @@ func (c *DoorConfig) validate() error {
 	if c.OIDC.ClientID == "" || c.OIDC.ClientSecret == "" || len(c.OIDC.ClientSecret) > maxClientSecretLength {
 		return fmt.Errorf("%s and %s are required when the door's identity is enabled", EnvOIDCClientID, EnvOIDCSecretFile)
 	}
+	return c.validateURLs()
+}
+
+// validateURLs checks the two addresses: both https (http only on loopback), and the door's own
+// with no path or query, since it is the issuer of its tokens and the origin its forms post to.
+func (c *DoorConfig) validateURLs() error {
 	for name, raw := range map[string]string{EnvPublicURL: c.PublicURL, EnvOIDCIssuer: c.OIDC.Issuer} {
 		if err := checkURL(raw); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 	}
-	if !strings.HasPrefix(c.PublicURL, "https://") && !isLoopbackURL(c.PublicURL) {
-		return errors.New(EnvPublicURL + " must be https")
+	if u, _ := validWebURL(c.PublicURL); u.Path != "" || u.RawQuery != "" {
+		return errors.New(EnvPublicURL + " must be an address with no path or query: the door's issuer and origin")
 	}
 	return nil
 }
 
-func isLoopbackURL(raw string) bool {
-	u, ok := validWebURL(raw)
-	return ok && isLoopback(u.Hostname())
-}
+// displayName is what the consent page calls the door.
+func (c *DoorConfig) displayName() string { return orDefault(c.DisplayName, "Kubemoot") }
 
 // Resource is the canonical address of the door's MCP resource: the audience of its tokens.
 func (c *DoorConfig) Resource() string { return c.PublicURL + resourcePath }

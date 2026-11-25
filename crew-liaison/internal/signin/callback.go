@@ -37,7 +37,7 @@ func (f *front) callback(w http.ResponseWriter, r *http.Request) {
 	})
 	if upstreamErr := q.Get("error"); upstreamErr != "" {
 		f.event("upstream refused sign-in")
-		p := url.Values{"error": {safeErrorCode(upstreamErr)}}
+		p := url.Values{paramError: {safeErrorCode(upstreamErr)}}
 		if d := q.Get("error_description"); d != "" {
 			p.Set("error_description", truncate(d, 200))
 		}
@@ -52,7 +52,7 @@ func (f *front) finishCallback(w http.ResponseWriter, r *http.Request, st loginS
 	p := url.Values{}
 	withAppState(p, st)
 	if upstreamCode == "" {
-		p.Set("error", "server_error")
+		p.Set(paramError, "server_error")
 		redirectWith(w, r, st.Redirect, p)
 		return
 	}
@@ -62,7 +62,7 @@ func (f *front) finishCallback(w http.ResponseWriter, r *http.Request, st loginS
 	})
 	if err != nil {
 		f.event("callback failed")
-		p.Set("error", "server_error")
+		p.Set(paramError, "server_error")
 		redirectWith(w, r, st.Redirect, p)
 		return
 	}

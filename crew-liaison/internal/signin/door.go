@@ -7,10 +7,15 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
+const pathConsent = "/oauth/consent"
+
 // Purposes of the values only the door seals.
 const (
 	purposeDoorCode = "door-code"
 	purposeRefresh  = "door-refresh"
+	purposeSession  = "door-session"
+	purposeConsent  = "door-consent"
+	purposeCSRF     = "door-csrf"
 )
 
 // Door is the liaison's own authorization server for its /mcp resource. The person proves who
@@ -32,6 +37,7 @@ type door struct {
 	sealer *Sealer
 	now    func() time.Time
 	keys   *tokenKeys
+	idp    identityProvider
 	replay *replayCache
 	mux    *http.ServeMux
 }
@@ -41,10 +47,13 @@ func NewDoor(cfg *DoorConfig) (Door, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	return newDoor(cfg)
+	if cfg.RefreshMaxAge <= 0 {
+		cfg.RefreshMaxAge = defaultRefreshMax
+	}
+	return newDoor(cfg, newOIDCProvider(cfg))
 }
 
-func newDoor(cfg *DoorConfig) (*door, error) {
+func newDoor(cfg *DoorConfig, idp identityProvider) (*door, error) {
 	base, err := newFront(&Config{
 		PublicURL: cfg.PublicURL, SealKeys: cfg.SealKeys, AllowedRedirectHosts: cfg.AllowedRedirectHosts,
 		Logger: cfg.Logger, HTTPClient: cfg.HTTPClient, Now: cfg.Now,
@@ -60,7 +69,7 @@ func newDoor(cfg *DoorConfig) (*door, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &door{cfg: cfg, base: base, sealer: base.sealer, now: base.now, keys: keys, replay: newReplayCache()}
+	d := &door{cfg: cfg, base: base, sealer: base.sealer, now: base.now, keys: keys, idp: idp, replay: newReplayCache()}
 	if len(cfg.AllowedRedirectHosts) == 0 {
 		cfg.Logger.Info("sign-in allows redirect addresses on any host; set " + EnvRedirectHosts + " on a shared deployment")
 	}
@@ -73,6 +82,9 @@ func (d *door) routes() {
 	d.mux.Handle("GET "+pathProtectedResource, protectedResourceHandler(d.cfg.PublicURL))
 	d.mux.HandleFunc("GET "+pathAuthServer, d.serveMetadata)
 	d.mux.HandleFunc("POST "+pathRegister, d.base.register)
+	d.mux.HandleFunc("GET "+pathAuthorize, d.authorize)
+	d.mux.HandleFunc("GET "+pathCallback, d.callback)
+	d.mux.HandleFunc("POST "+pathConsent, d.consent)
 	d.mux.HandleFunc("POST "+pathToken, d.token)
 }
 

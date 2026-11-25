@@ -120,3 +120,48 @@ for missing in publicURL upstream.authorizeURL upstream.tokenURL upstream.client
   fi
 done
 echo "ok: liaison sign-in render tests"
+
+# The door's own identity: off unless chosen, never beside the upstream front, its secrets mounted
+# read-only from Secrets (never inlined), and a redirect allow-list required once it is exposed.
+door=(--set liaison.signIn.enabled=true --set liaison.signIn.publicURL=https://door.example.com
+  --set liaison.signIn.sealKeySecret.name=seal --set liaison.signIn.identity.provider=oidc
+  --set liaison.signIn.identity.oidc.issuer=https://idp.example.com --set liaison.signIn.identity.oidc.clientId=door
+  --set liaison.signIn.identity.oidc.clientSecret.name=idp --set liaison.signIn.identity.signingKeySecret.name=keys
+  --set liaison.expose.hostname=door.example.com --set 'liaison.signIn.allowedRedirectHosts={chat.example.com}')
+out="$(render)"
+grep -q '^LIAISON_SIGNIN_IDENTITY=' <<<"$(liaison_env "$out")" && fail "default render turns the door's identity on"
+out="$(render "${door[@]}")"
+env="$(liaison_env "$out")"
+for want in LIAISON_SIGNIN_IDENTITY=oidc LIAISON_SIGNIN_OIDC_ISSUER=https://idp.example.com LIAISON_SIGNIN_OIDC_CLIENT_ID=door \
+  LIAISON_SIGNIN_OIDC_CLIENT_SECRET_FILE=/etc/kubemoot/signin-identity/oidc-client-secret \
+  LIAISON_SIGNIN_SIGNING_KEYS_FILE=/etc/kubemoot/signin-identity/signing-keys LIAISON_SIGNIN_OIDC_USER_PREFIX=oidc: \
+  LIAISON_SIGNIN_REFRESH_MAX_HOURS=168 LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS=chat.example.com ACCESS_ENFORCE=true \
+  ACCESS_ALLOW_ANONYMOUS=false; do
+  grep -qxF "$want" <<<"$env" || fail "door env lacks $want"
+done
+for absent in LIAISON_SIGNIN_UPSTREAM LIAISON_SIGNIN_UPSTREAM_CLIENT_ID; do
+  grep -q "^$absent=" <<<"$env" && fail "door render sets $absent"
+done
+grep -q '^LIAISON_SIGNIN_OIDC_CLIENT_SECRET=' <<<"$env" && fail "the client secret is in the environment"
+d="$(liaison_deploy "$out")"
+[ "$(yq '.spec.template.spec.volumes[] | select(.name == "signin-identity") | .projected.sources | length' <<<"$d")" = 2 ] || fail "door secrets are not two sources"
+[ "$(yq '.spec.template.spec.volumes[] | select(.name == "signin-identity") | .projected.sources[0].secret.name' <<<"$d")" = "idp" ] || fail "client secret source"
+[ "$(yq '.spec.template.spec.containers[0].volumeMounts[] | select(.name == "signin-identity").readOnly' <<<"$d")" = "true" ] || fail "door secrets are writable"
+# The door's identity beside the upstream front, an unknown provider, or missing pieces: no render.
+for bad in "liaison.signIn.upstream.authorizeURL=https://up.example.com/authorize" "liaison.signIn.identity.provider=ldap" \
+  liaison.signIn.identity.oidc.issuer= liaison.signIn.identity.oidc.clientId= liaison.signIn.identity.oidc.clientSecret.name= \
+  liaison.signIn.identity.signingKeySecret.name= liaison.signIn.publicURL= liaison.signIn.sealKeySecret.name=; do
+  if render "${door[@]}" --set "$bad" >/dev/null 2>&1; then fail "door rendered with $bad"; fi
+done
+# A provider with sign-in switched off would silently render no door.
+if render "${door[@]}" --set liaison.signIn.enabled=false >/dev/null 2>&1; then fail "identity.provider rendered with signIn.enabled off"; fi
+# The door's identity accepts no service's own token.
+if render "${door[@]}" --set-json 'liaison.auth.serviceTokens=[{"name":"svc","verifyURL":"https://api.example.com/mcp","subjectClaim":"sub"}]' --set liaison.auth.hashKeySecret.name=hash >/dev/null 2>&1; then
+  fail "the door's identity rendered beside service tokens"
+fi
+# Exposed with no redirect allow-list, anyone could ask a person to allow their app.
+if render "${door[@]}" "${host[@]}" --set liaison.expose.enabled=true --set 'liaison.signIn.allowedRedirectHosts=null' --set liaison.signIn.publicURL=https://door.example.com >/dev/null 2>&1; then
+  fail "an exposed door rendered with no redirect hosts"
+fi
+render "${door[@]}" "${host[@]}" --set liaison.expose.enabled=true --set liaison.signIn.publicURL=https://door.example.com >/dev/null 2>&1 || fail "an exposed door with redirect hosts did not render"
+echo "ok: liaison door identity render tests"
