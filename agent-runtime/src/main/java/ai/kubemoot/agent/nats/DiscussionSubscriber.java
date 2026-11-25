@@ -848,8 +848,9 @@ public class DiscussionSubscriber {
             runMullingPhase(subject, threadId, conversation, outcome.timing().inferenceMs(), triageStartMs);
 
         } catch (Exception e) {
-            log.warn("Failed to evaluate thread {}: {} — publishing stand_aside", threadId, LogContent.reason(e));
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", SignalTiming.NONE);
+            // Like a failed triage or mulling call: a failure signal with its cause, not a stand-aside.
+            log.warn("Failed to evaluate thread {}: {}", threadId, LogContent.reason(e));
+            publishExceptionAsFailure(subject, threadId, e, "Evaluation", 0L, System.currentTimeMillis(), NOT_PLACED);
         }
     }
 
@@ -879,11 +880,13 @@ public class DiscussionSubscriber {
             handleNoFit(subject, threadId, nfe, 0L, triageStartMs, triageStartMs, triageGpuLabel);
             return null;
         } catch (Exception e) {
+            // A failed call is a failure signal with its cause, never a stand-aside: standing
+            // aside says "nothing to add", and the coordinator could not tell a crew whose
+            // models are down from a question no agent covers.
             long triageMs = System.currentTimeMillis() - triageStartMs;
-            log.info("Triage failed for {} on thread {} ({}ms) - standing aside: {}",
+            log.warn("Triage failed for {} on thread {} ({}ms): {}",
                     properties.agentName(), threadId, triageMs, LogContent.reason(e));
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "",
-                    SignalTiming.of(triageMs, triageStartMs), triageGpuLabel, plannedTriageModel());
+            publishExceptionAsFailure(subject, threadId, e, "Triage", triageMs, triageStartMs, triageGpuLabel);
             return null;
         }
     }
@@ -1106,7 +1109,7 @@ public class DiscussionSubscriber {
                                         long triageMs, long triageStartMs, long mullingStartMs, String mullingGpuLabel) {
         long mullingMs = System.currentTimeMillis() - mullingStartMs;
         long totalMs = triageMs + mullingMs;
-        publishExceptionAsFailure(subject, threadId, other, totalMs, triageStartMs, mullingGpuLabel);
+        publishExceptionAsFailure(subject, threadId, other, "Mulling", totalMs, triageStartMs, mullingGpuLabel);
     }
 
     /**
@@ -1155,15 +1158,16 @@ public class DiscussionSubscriber {
         if (ContextRejection.matches(message)) {
             return "context_exceeded";
         }
+        var cause = FailureCause.classify(message);
+        if (cause.isPresent()) {
+            return cause.get().id();
+        }
         if (message.contains("timeout period of") || message.contains("Timed out")
                 || exceptionClass.contains("Timeout")) {
             return "model_timeout";
         }
         if (exceptionClass.contains("OutOfMemory")) {
             return "model_oom";
-        }
-        if (message.contains("Connection refused") || message.contains("ConnectException")) {
-            return "server_unreachable";
         }
         return "internal_exception";
     }
@@ -1182,7 +1186,7 @@ public class DiscussionSubscriber {
      * and message to map to a known failureType bucket the dashboard /
      * GapDetector understand. Unknown exceptions get "internal_exception".
      */
-    private void publishExceptionAsFailure(String subject, String threadId, Exception e,
+    private void publishExceptionAsFailure(String subject, String threadId, Exception e, String stage,
                                            long totalMs, long triageStartMs, String gpuLabel) {
         String exceptionClass = e.getClass().getName();
         String message = e.getMessage() != null ? e.getMessage() : exceptionClass;
@@ -1195,7 +1199,7 @@ public class DiscussionSubscriber {
                 properties.agentName(), threadId, failureType, LogContent.size(message));
         LogContent.debug(log, "Agent {} failure on thread {}: {}",
                 properties.agentName(), threadId, truncate(message, ERROR_LOG_PREVIEW_CHARS));
-        publishSignal(subject, threadId, SIGNAL_FAILURE, "Mulling failed: " + truncate(message, FAILURE_CONTENT_CHARS),
+        publishSignal(subject, threadId, SIGNAL_FAILURE, stage + " failed: " + truncate(message, FAILURE_CONTENT_CHARS),
                 SignalTiming.of(totalMs, triageStartMs), gpuLabel, meta);
     }
 

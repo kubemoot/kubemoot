@@ -685,11 +685,27 @@ class DiscussionSubscriberHelpersTest {
     }
 
     @Test
-    void triageThatFailsOtherwise_standsAsideWithoutAReason() throws Exception {
+    void triageThatFailsOtherwise_isAFailureSignalWithItsCause() throws Exception {
+        var msg = failedTriage(new IllegalStateException("connection refused"));
+        assertEquals("failure", msg.path("messageType").asText(), "a failed call is not a stand-aside");
+        assertEquals("server_unreachable", msg.path("metadata").path("failureType").asText());
+        assertTrue(msg.path("content").asText().startsWith("Triage failed: "), msg.toString());
+    }
+
+    @Test
+    void triageThatCannotWakeAModelBecauseNoOperatorListens_namesTheOperator() throws Exception {
+        var msg = failedTriage(new IllegalStateException("server vllm-rig0 could not make qwen3:14b ready: "
+                + "no operator is listening for model lifecycle requests"));
+        assertEquals("failure", msg.path("messageType").asText());
+        assertEquals("operator_unreachable", msg.path("metadata").path("failureType").asText());
+        assertTrue(msg.path("content").asText().contains("no operator is listening"), msg.toString());
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode failedTriage(Exception failure) throws Exception {
         var conn = mock(Connection.class);
         var chat = mock(ChatService.class);
         when(chat.getToolNames()).thenReturn(List.of());
-        when(chat.triageChatWithTokens(anyString(), anyString())).thenThrow(new IllegalStateException("connection refused"));
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenThrow(failure);
         var sub = createSubscriberWithConnection(conn, chat);
 
         assertNull(sub.runTriage("kubemoot.discuss.ns-a.nocrew.general.t1", "t1", "conversation", "4090",
@@ -697,9 +713,7 @@ class DiscussionSubscriberHelpersTest {
 
         var payload = ArgumentCaptor.forClass(byte[].class);
         verify(conn).publish(anyString(), payload.capture());
-        var msg = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
-        assertEquals("stand_aside", msg.path("messageType").asText());
-        assertTrue(msg.path("metadata").path("reason").isMissingNode(), msg.toString());
+        return new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
     }
 
     @Test
@@ -832,6 +846,22 @@ class DiscussionSubscriberHelpersTest {
     }
 
     @Test
+    void anEvaluationThatThrows_isAFailureSignalNotAStandAside() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.getTriageEndpoint()).thenThrow(new IllegalStateException("server s could not make m ready: "
+                + "no operator is listening for model lifecycle requests"));
+        var sub = createSubscriberWithConnection(conn, chat);
+
+        sub.evaluateSelected(SUBJECT_T1, "t1", "conversation", false);
+
+        var failure = published(conn, 1).get(0);
+        assertEquals("failure", failure.path("messageType").asText());
+        assertEquals("operator_unreachable", failure.path("metadata").path("failureType").asText());
+    }
+
+    @Test
     void anAgentThatGoesOnAfterTriage_reportsItsTriageCallBeforeItsEvaluation() throws Exception {
         var conn = mock(Connection.class);
         var chat = mock(ChatService.class);
@@ -862,6 +892,26 @@ class DiscussionSubscriberHelpersTest {
                 "dev.langchain4j.exception.InvalidRequestException", vllm));
         assertEquals("context_exceeded", DiscussionSubscriber.classifyException(
                 "dev.langchain4j.exception.InvalidRequestException", "{\"code\":\"context_length_exceeded\"}"));
+    }
+
+    @Test
+    void classifyException_infrastructureCausesAreNamed() {
+        assertEquals("operator_unreachable", DiscussionSubscriber.classifyException("java.lang.IllegalStateException",
+                "server s could not make m ready: no operator is listening for model lifecycle requests"));
+        assertEquals("model_not_ready", DiscussionSubscriber.classifyException("java.lang.IllegalStateException",
+                "server s could not make m ready: the engine refused"));
+    }
+
+    @Test
+    void classifyException_aServerThatRefusesTheConnectionIsUnreachable() {
+        assertEquals("server_unreachable", DiscussionSubscriber.classifyException("java.net.ConnectException", "ConnectException"));
+        assertEquals("server_unreachable", DiscussionSubscriber.classifyException("x.Y", "Connection refused: rig0:8000"));
+    }
+
+    @Test
+    void classifyException_aCauseNamedByTheRuntimeWinsOverATimeoutWordInTheSameMessage() {
+        assertEquals("model_not_ready", DiscussionSubscriber.classifyException("java.lang.IllegalStateException",
+                "server s could not make m ready: Timed out waiting for the engine"));
     }
 
     @Test
