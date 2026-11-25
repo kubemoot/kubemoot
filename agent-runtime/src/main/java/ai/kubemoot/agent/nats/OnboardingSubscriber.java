@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
 import io.quarkus.runtime.StartupEvent;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import org.slf4j.Logger;
@@ -67,6 +68,7 @@ public class OnboardingSubscriber {
     private final GapDetector gapDetector;
     private final boolean onboardingMode;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private SubscribeRetry subscribeRetry = new SubscribeRetry("onboarding-subscriber");
 
     // Dedup
     private final Set<String> processedMessages = ConcurrentHashMap.newKeySet();
@@ -96,17 +98,41 @@ public class OnboardingSubscriber {
     void onStart(@Observes StartupEvent event) {
         if (!canActivate()) return;
 
+        if (!subscribeRetry.attemptOrRetry(this::trySubscribe)) {
+            log.warn("Could not connect to NATS - the onboarding subscription is retried with backoff");
+        }
+    }
+
+    /** Test seam: retry on a short backoff so a test waits on the state, not on 30 s. */
+    void setSubscribeRetryForTest(SubscribeRetry retry) {
+        this.subscribeRetry = retry;
+    }
+
+    @PreDestroy
+    void stopRetrying() {
+        subscribeRetry.stop();
+    }
+
+    /** One subscribe attempt; false when NATS is not reachable yet or a subscription failed. */
+    // Visible for testing
+    boolean trySubscribe() {
         Connection conn = natsProvider.getConnection();
         if (conn == null) {
-            log.warn("Could not connect to NATS — onboarding subscriber disabled");
-            return;
+            return false;
         }
 
         Dispatcher dispatcher = conn.createDispatcher();
-        CrewScope scope = natsProvider.scope();
-
-        subscribeBroadcast(dispatcher, scope);
-        subscribeChannels(dispatcher, scope);
+        try {
+            CrewScope scope = natsProvider.scope();
+            subscribeBroadcast(dispatcher, scope);
+            subscribeChannels(dispatcher, scope);
+        } catch (RuntimeException e) {
+            // A dispatcher left behind would deliver the subjects that did subscribe a second
+            // time once the retry succeeds.
+            conn.closeDispatcher(dispatcher);
+            log.warn("Onboarding subscribe failed: {}", LogContent.reason(e));
+            return false;
+        }
 
         scheduler.scheduleAtFixedRate(() -> {
             gapDetector.cleanup();
@@ -114,6 +140,7 @@ public class OnboardingSubscriber {
         }, CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
 
         log.info("Onboarding subscriber active on {} channels", channels.size());
+        return true;
     }
 
     private boolean canActivate() {

@@ -112,6 +112,10 @@ final class SubscribeRetry {
         }
     }
 
+    /**
+     * One scheduled attempt. Nothing escapes it: an executor drops the next run of a task
+     * that threw, so even an Error from the attempt reschedules the retry.
+     */
     private void runOnce(BooleanSupplier attempt, Duration waited) {
         if (succeeded(attempt)) {
             log.info("{} subscribed after retrying", what);
@@ -124,7 +128,7 @@ final class SubscribeRetry {
     private boolean succeeded(BooleanSupplier attempt) {
         try {
             return attempt.getAsBoolean();
-        } catch (RuntimeException e) {
+        } catch (Throwable e) { // NOSONAR: a retry loop must survive any failure of an attempt
             log.warn("{} subscribe attempt failed: {}", what, LogContent.reason(e));
             return false;
         }

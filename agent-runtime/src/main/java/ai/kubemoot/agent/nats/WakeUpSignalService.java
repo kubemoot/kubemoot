@@ -5,6 +5,7 @@ import ai.kubemoot.agent.chat.ModelWarmupService;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.runtime.StartupEvent;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import org.slf4j.Logger;
@@ -34,10 +35,6 @@ public class WakeUpSignalService {
 
     private static final Logger log = LoggerFactory.getLogger(WakeUpSignalService.class);
 
-    // Poll for the NATS connection this many times before giving up.
-    private static final int NATS_CONNECT_ATTEMPTS = 10;
-    // Wait between NATS-connection polls (ms).
-    private static final long NATS_CONNECT_POLL_MS = 500;
     // Wait between model-warmup readiness polls (ms).
     private static final long WARMUP_POLL_MS = 1000;
 
@@ -45,6 +42,7 @@ public class WakeUpSignalService {
     private final ModelWarmupService warmupService;
     private final AgentProperties properties;
     private final ObjectMapper mapper;
+    private SubscribeRetry connectRetry = new SubscribeRetry("wakeup-signal");
 
     public WakeUpSignalService(NatsConnectionProvider natsProvider,
                                 ModelWarmupService warmupService,
@@ -64,28 +62,37 @@ public class WakeUpSignalService {
             return; // Coordinator doesn't scale to zero
         }
 
-        Thread.ofVirtual().name("wakeup-signal").start(this::run);
+        // A start while NATS is unreachable publishes the signals once it is back, with backoff.
+        if (!connectRetry.attemptOrRetry(this::signalWhenConnected)) {
+            log.warn("NATS not available - the wake-up signals are sent once it is");
+        }
     }
 
-    private void run() {
-        // Wait briefly for NATS connection (native image starts in <0.1s, NATS connects in <1s)
-        for (int i = 0; i < NATS_CONNECT_ATTEMPTS; i++) {
-            if (natsProvider.getConnection() != null) break;
-            try { Thread.sleep(NATS_CONNECT_POLL_MS); } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-        }
+    /** Test seam: retry on a short backoff so a test waits on the state, not on a clock. */
+    void setConnectRetryForTest(SubscribeRetry retry) {
+        this.connectRetry = retry;
+    }
 
+    @PreDestroy
+    void stopRetrying() {
+        connectRetry.stop();
+    }
+
+    /** One attempt: false while there is no NATS connection; otherwise sends the signals and returns true. */
+    // Visible for testing
+    boolean signalWhenConnected() {
         if (natsProvider.getConnection() == null) {
-            log.warn("NATS not available after 5s — skipping wake-up signals");
-            return;
+            return false;
         }
-
         // Phase 1: Publish waking immediately
         publishWakeUpSignal("waking");
 
         // Phase 2: Wait for model warmup, then publish ready
+        Thread.ofVirtual().name("wakeup-signal").start(this::signalReadyWhenWarm);
+        return true;
+    }
+
+    private void signalReadyWhenWarm() {
         while (!warmupService.isModelReady()) {
             try { Thread.sleep(WARMUP_POLL_MS); } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
