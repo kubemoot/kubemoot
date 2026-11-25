@@ -5,7 +5,7 @@
 # outside services a crew uses is declared on the crew, so none of it is named here.
 #
 #   dijure       a host of one particular deployment, anywhere in scope
-#   homelab      the word for one particular deployment (the homelab-pilot reference crew and
+#   homelab      the word for one particular deployment, in any case (the homelab-pilot reference crew and
 #                the product name Homelab Pilot are not it)
 #   oreilly      one outside service, in the liaison code, chart and integration docs (tests
 #                name it by fixture and may)
@@ -37,9 +37,9 @@ search() {
   mapfile -t paths < <(existing "$@")
   [ "${#paths[@]}" -gt 0 ] || return 0
   local hits
-  hits="$(grep -rInE --exclude='*_test.go' --exclude='go.sum' -e "$pattern" "${paths[@]}" || true)"
+  hits="$(grep -rInEi --exclude='*_test.go' --exclude='go.sum' -e "$pattern" "${paths[@]}" || true)"
   if [ -n "$skip" ] && [ -n "$hits" ]; then
-    hits="$(grep -vE -e "$skip" <<<"$hits" || true)"
+    hits="$(grep -viE -e "$skip" <<<"$hits" || true)"
   fi
   [ -z "$hits" ] && return 0
   echo "$label:" >&2
@@ -49,7 +49,7 @@ search() {
 
 status=0
 search "a deployment host (dijure)" 'dijure' '' "${shipped[@]}" || status=1
-search "the word homelab (name the install setting instead)" '(^|[^A-Za-z_-])homelab([^A-Za-z_-]|-[^p]|$)' '' "${shipped[@]}" || status=1
+search "the word homelab (name the install setting instead)" '(^|[^A-Za-z_-])homelab([^A-Za-z_-]|-[^p]|$)' 'homelab pilot' "${shipped[@]}" || status=1
 search "an outside service assumed by the liaison (declare it on the crew)" "[Oo]reilly|O'Reilly" '' "${service_scope[@]}" || status=1
 
 if [ "$status" -ne 0 ]; then

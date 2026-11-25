@@ -39,6 +39,8 @@ refuses "a deployment host in a chart template" operator/chart/kubemoot-operator
 refuses "a deployment host in who-is-asking" docs/concepts/who-is-asking.md 'dijure'
 refuses "the word homelab in the liaison" crew-liaison/main.go '// the homelab host'
 refuses "the word homelab at line start" docs/integrations/crew-liaison.md 'homelab sets the host'
+refuses "the word Homelab in any case" docs/integrations/crew-liaison.md 'Homelab sets the host'
+refuses "HOMELAB in capitals" crew-liaison/main.go '// HOMELAB host'
 refuses "homelab path form" operator/chart/kubemoot-operator/values.yaml '# set in homelab/flux'
 refuses "a service in the liaison code" crew-liaison/internal/liaison/tools.go 'return "O'"'"'Reilly"'
 refuses "a service in the chart values" operator/chart/kubemoot-operator/values.yaml 'upstream: oreilly'
