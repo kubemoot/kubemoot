@@ -1,10 +1,12 @@
 package signin
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -66,8 +68,16 @@ type DoorConfig struct {
 
 	Logger     logr.Logger
 	HTTPClient *http.Client     // for the issuer's endpoints; nil uses the default client
-	TLSConfig  *tls.Config      // roots for fetching a client's metadata document; nil is the system's
+	TLSConfig  *tls.Config      // trust for fetching a client's metadata document; nil is the system's roots
 	Now        func() time.Time // the clock; time.Now by default
+
+	// The fetch of a client metadata document, for tests: how names resolve, which addresses may
+	// be dialled, how long a fetch may take and how many may come at once. Zero values are the
+	// system resolver, public addresses only, five seconds and a burst of ten.
+	fetchLookup  func(ctx context.Context, host string) ([]netip.Addr, error)
+	fetchAllow   func(netip.Addr) bool
+	fetchTimeout time.Duration
+	fetchBurst   int
 }
 
 // DoorConfigFromEnv reads the door's settings. It returns nil, nil when the door's identity is

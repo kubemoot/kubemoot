@@ -57,7 +57,12 @@ func (r *doorRig) signIn(b *browser, clientID, challenge string, claims map[stri
 // consentFields reads the hidden fields of the consent page.
 func consentFields(t *testing.T, resp *http.Response) url.Values {
 	t.Helper()
-	page := body(t, resp)
+	return fieldsOf(t, body(t, resp))
+}
+
+// fieldsOf reads the hidden fields out of the text of a consent page.
+func fieldsOf(t *testing.T, page string) url.Values {
+	t.Helper()
 	form := url.Values{}
 	for _, m := range formField.FindAllStringSubmatch(page, -1) {
 		form.Set(m[1], htmlUnescape(m[2]))
@@ -132,7 +137,7 @@ func TestTheLoginRequestToTheIssuerIsAFreshAuthorizationCodeFlow(t *testing.T) {
 	to := location(t, b.get(r.authorizeQuery(r.register("Test App"), challenge, nil)))
 	q := to.Query()
 	for key, want := range map[string]string{
-		"response_type": "code", "client_id": idpClientID, "redirect_uri": doorPublicURL + pathCallback,
+		"response_type": "code", paramClientID: idpClientID, "redirect_uri": doorPublicURL + pathCallback,
 		"scope": "openid profile", "code_challenge_method": "S256",
 	} {
 		if q.Get(key) != want {

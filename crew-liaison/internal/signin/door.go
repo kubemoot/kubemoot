@@ -32,14 +32,15 @@ type Door interface {
 }
 
 type door struct {
-	cfg    *DoorConfig
-	base   *front
-	sealer *Sealer
-	now    func() time.Time
-	keys   *tokenKeys
-	idp    identityProvider
-	replay *replayCache
-	mux    *http.ServeMux
+	cfg     *DoorConfig
+	base    *front
+	sealer  *Sealer
+	now     func() time.Time
+	keys    *tokenKeys
+	idp     identityProvider
+	fetcher *metadataFetcher
+	replay  *replayCache
+	mux     *http.ServeMux
 }
 
 // NewDoor builds the door from cfg.
@@ -69,7 +70,10 @@ func newDoor(cfg *DoorConfig, idp identityProvider) (*door, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &door{cfg: cfg, base: base, sealer: base.sealer, now: base.now, keys: keys, idp: idp, replay: newReplayCache()}
+	d := &door{
+		cfg: cfg, base: base, sealer: base.sealer, now: base.now, keys: keys, idp: idp,
+		replay: newReplayCache(), fetcher: newMetadataFetcher(cfg),
+	}
 	if len(cfg.AllowedRedirectHosts) == 0 {
 		cfg.Logger.Info("sign-in allows redirect addresses on any host; set " + EnvRedirectHosts + " on a shared deployment")
 	}
@@ -106,5 +110,6 @@ func (d *door) serveMetadata(w http.ResponseWriter, _ *http.Request) {
 		CodeChallengeMethodsSupported: []string{methodS256},
 		TokenEndpointAuthMethods:      []string{authMethodNone},
 		IssParameterSupported:         true,
+		ClientIDMetadataDocuments:     true,
 	})
 }
