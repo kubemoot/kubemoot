@@ -856,7 +856,7 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void acceleratorBusyStandAside_withNoContribution_answersWithTheCapacityMessage() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        orchestrator.handleAgentSignal(state, "rules-keeper", "stand_aside", "", signal("accelerator-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "rules-keeper", "stand_aside", "", signal("accelerator-busy", "model-a"));
 
         assertEquals(DiscussionOrchestrator.ACCELERATOR_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
         assertEquals("accelerator-busy", state.capacityStandAsides.get("rules-keeper"));
@@ -865,7 +865,7 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void deprecatedGpuBusyReason_isAcceptedAndRecordedUnderTheCurrentName() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        orchestrator.handleAgentSignal(state, "rules-keeper", "stand_aside", "", signal("gpu-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "rules-keeper", "stand_aside", "", signal("gpu-busy", "model-a"));
 
         assertEquals("accelerator-busy", state.capacityStandAsides.get("rules-keeper"));
         assertEquals(DiscussionOrchestrator.ACCELERATOR_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
@@ -874,7 +874,7 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void gpuBusyStandAside_withNoContribution_answersWithTheCapacityMessage() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        orchestrator.handleAgentSignal(state, "rules-keeper", "stand_aside", "", signal("gpu-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "rules-keeper", "stand_aside", "", signal("gpu-busy", "model-a"));
 
         assertEquals(DiscussionOrchestrator.ACCELERATOR_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
         String fallback = orchestrator.buildFallbackResponse(state);
@@ -896,7 +896,7 @@ class DiscussionOrchestratorHelpersTest {
     void bothReasons_reportBoth_tooLargeFirst() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         orchestrator.handleAgentSignal(state, "a", "stand_aside", "", signal("model-too-large", "qwen3:235b"));
-        orchestrator.handleAgentSignal(state, "b", "stand_aside", "", signal("gpu-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "b", "stand_aside", "", signal("gpu-busy", "model-a"));
 
         String msg = DiscussionOrchestrator.capacityMessage(state);
         assertTrue(msg.startsWith("No accelerator in this cluster can hold the model qwen3:235b"));
@@ -936,16 +936,16 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void agentStillWaitingAtSettle_countsAsAcceleratorBusy() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("accelerator-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("accelerator-busy", "model-a"));
 
-        assertEquals("qwen3:14b", state.waitingAgents.get("rules-keeper"));
+        assertEquals("model-a", state.waitingAgents.get("rules-keeper"));
         assertEquals(DiscussionOrchestrator.ACCELERATOR_BUSY_MESSAGE, DiscussionOrchestrator.capacityMessage(state));
     }
 
     @Test
     void waitingAgentThatThenAnswers_isNoLongerWaiting_andTheAnswerWins() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("accelerator-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "rules-keeper", "waiting", "", signal("accelerator-busy", "model-a"));
         orchestrator.handleAgentSignal(state, "rules-keeper", "agree", "Rule 7 applies", signal(null, null));
 
         assertTrue(state.waitingAgents.isEmpty());
@@ -964,18 +964,21 @@ class DiscussionOrchestratorHelpersTest {
         assertTrue(orchestrator.buildFallbackResponse(state).startsWith("No agent contributed an answer"));
     }
 
-    private void failed(DiscussionOrchestrator.ThreadState state, String agent, String content) {
-        orchestrator.handleAgentSignal(state, agent, "failure", content, signal(null, null));
+    /** A failure signal as an agent publishes it: its text and the failureType it classified the text as. */
+    private void failed(DiscussionOrchestrator.ThreadState state, String agent, String content, String failureType) {
+        var msg = signal(null, null);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) msg.path("metadata")).put("failureType", failureType);
+        orchestrator.handleAgentSignal(state, agent, "failure", content, msg);
     }
 
-    private static final String NO_OPERATOR_TEXT = "Triage failed: server vllm-rig0 could not make qwen3:14b ready: "
+    private static final String NO_OPERATOR_TEXT = "Triage failed: server server-a could not make model-a ready: "
             + "no operator is listening for model lifecycle requests";
 
     @Test
     void noContribution_becauseNoOperatorListens_isNamedInTheFallbackAnswer() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        failed(state, "k8s-agent", NO_OPERATOR_TEXT);
-        failed(state, "helm-agent", NO_OPERATOR_TEXT);
+        failed(state, "agent-a", NO_OPERATOR_TEXT, "operator_unreachable");
+        failed(state, "agent-b", NO_OPERATOR_TEXT, "operator_unreachable");
 
         assertEquals("No agent could answer: the crew's models could not be made ready (the operator did not respond).",
                 orchestrator.buildFallbackResponse(state));
@@ -984,9 +987,9 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void noContribution_withMixedCauses_namesTheMostCommonOne() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        failed(state, "a", "could not make m ready: the engine refused");
-        failed(state, "b", "could not make m ready: the engine refused");
-        failed(state, "c", NO_OPERATOR_TEXT);
+        failed(state, "a", "could not make m ready: the engine refused", "model_not_ready");
+        failed(state, "b", "could not make m ready: the engine refused", "model_not_ready");
+        failed(state, "c", NO_OPERATOR_TEXT, "operator_unreachable");
 
         assertEquals(FailureCause.MODEL_NOT_READY.answer(), orchestrator.buildFallbackResponse(state));
     }
@@ -994,7 +997,7 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void failuresThatNameNoCause_keepTheGenericNoContributionText() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        failed(state, "a", "Mulling failed: the tool returned an error");
+        failed(state, "a", "Mulling failed: the tool returned an error", "model_timeout");
 
         assertTrue(orchestrator.buildFallbackResponse(state).startsWith("No agent contributed an answer"));
     }
@@ -1002,7 +1005,7 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void anAgentThatAgreed_keepsTheFindingsAsTheFallbackEvenWhenOthersFailedOnTheInfrastructure() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        failed(state, "a", NO_OPERATOR_TEXT);
+        failed(state, "a", NO_OPERATOR_TEXT, "operator_unreachable");
         orchestrator.handleAgentSignal(state, "b", "agree", "Rule 7 applies", signal(null, null));
 
         assertTrue(orchestrator.buildFallbackResponse(state).contains("Rule 7 applies"));
@@ -1023,7 +1026,7 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void theFallbackRecordsTheCauseItNamed_forTheAnswersMetadata() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        failed(state, "a", NO_OPERATOR_TEXT);
+        failed(state, "a", NO_OPERATOR_TEXT, "operator_unreachable");
 
         orchestrator.buildFallbackResponse(state);
 
@@ -1031,21 +1034,31 @@ class DiscussionOrchestratorHelpersTest {
     }
 
     @Test
-    void agentsThatStoodAsideDoNotStopACauseFromBeingNamed() {
+    void agentsThatStoodAside_stillLetTheFallbackNameTheCause_butNeverEndTheMootEarly() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         orchestrator.handleAgentSignal(state, "a", "stand_aside", "", signal(null, null));
-        failed(state, "b", NO_OPERATOR_TEXT);
+        failed(state, "b", NO_OPERATOR_TEXT, "operator_unreachable");
 
-        assertEquals(java.util.Optional.of(FailureCause.OPERATOR_UNREACHABLE), DiscussionOrchestrator.unanimousCause(state));
+        assertTrue(DiscussionOrchestrator.unanimousCause(state).isEmpty(), "one failure and a stand-aside is not unanimous");
+        assertEquals(java.util.Optional.of(FailureCause.OPERATOR_UNREACHABLE), DiscussionOrchestrator.noContributionCause(state));
+    }
+
+    @Test
+    void aFailureTextWithoutAPublishedType_namesNoCause() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "a", "failure", NO_OPERATOR_TEXT, signal(null, null));
+
+        assertTrue(DiscussionOrchestrator.unanimousCause(state).isEmpty());
+        assertTrue(DiscussionOrchestrator.noContributionCause(state).isEmpty());
     }
 
     @Test
     void unanimousCause_needsEveryFailureToNameIt() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        failed(state, "a", NO_OPERATOR_TEXT);
+        failed(state, "a", NO_OPERATOR_TEXT, "operator_unreachable");
         assertEquals(java.util.Optional.of(FailureCause.OPERATOR_UNREACHABLE), DiscussionOrchestrator.unanimousCause(state));
 
-        failed(state, "b", "Mulling failed: the tool returned an error");
+        failed(state, "b", "Mulling failed: the tool returned an error", "model_timeout");
         assertTrue(DiscussionOrchestrator.unanimousCause(state).isEmpty());
         assertEquals(java.util.Optional.of(FailureCause.OPERATOR_UNREACHABLE), DiscussionOrchestrator.noContributionCause(state),
                 "the fallback still names the cause most failures name");
@@ -1054,7 +1067,7 @@ class DiscussionOrchestratorHelpersTest {
     @Test
     void capacityReasonWithAContribution_doesNotReplaceTheAnswer() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        orchestrator.handleAgentSignal(state, "a", "stand_aside", "", signal("gpu-busy", "qwen3:14b"));
+        orchestrator.handleAgentSignal(state, "a", "stand_aside", "", signal("gpu-busy", "model-a"));
         orchestrator.handleAgentSignal(state, "b", "concern", "TOOL_GAP: need a GPU metrics tool", signal(null, null));
 
         assertNull(DiscussionOrchestrator.capacityMessage(state), "a concern is a contribution");

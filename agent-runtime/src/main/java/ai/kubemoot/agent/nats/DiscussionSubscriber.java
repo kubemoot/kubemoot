@@ -161,6 +161,8 @@ public class DiscussionSubscriber {
     private final ConcurrentHashMap<String, List<String>> threadSelectedSkills = new ConcurrentHashMap<>();
     private final Set<String> processedMessages = ConcurrentHashMap.newKeySet();
     private final Set<String> closedThreads = ConcurrentHashMap.newKeySet();
+    /** Threads whose current evaluation has already published its one terminal signal (see {@link #isTerminal}). */
+    private final Set<String> evaluationAnswered = ConcurrentHashMap.newKeySet();
 
     /** The triage call of each thread this agent went on to evaluate, so its placement rides on the evaluation's signal. */
     private final Map<String, ai.kubemoot.agent.chat.ModelUse> triageUses = new ConcurrentHashMap<>();
@@ -821,6 +823,7 @@ public class DiscussionSubscriber {
     // Visible for testing
     void evaluateSelected(String subject, String threadId, String conversation,
                           boolean explicitlySelected) {
+        evaluationAnswered.remove(threadId);
         try {
             if (closedThreads.contains(threadId)) {
                 log.debug("Thread {} closed before evaluation — {} standing aside", threadId, properties.agentName());
@@ -849,8 +852,13 @@ public class DiscussionSubscriber {
 
         } catch (Exception e) {
             // Like a failed triage or mulling call: a failure signal with its cause, not a stand-aside.
+            // An evaluation sends one terminal signal: when a step already sent it, only the log says more.
             log.warn("Failed to evaluate thread {}: {}", threadId, LogContent.reason(e));
-            publishExceptionAsFailure(subject, threadId, e, "Evaluation", 0L, System.currentTimeMillis(), NOT_PLACED);
+            if (!evaluationAnswered.contains(threadId)) {
+                publishExceptionAsFailure(subject, threadId, e, "Evaluation", 0L, System.currentTimeMillis(), NOT_PLACED);
+            }
+        } finally {
+            evaluationAnswered.remove(threadId);
         }
     }
 
@@ -1532,11 +1540,22 @@ public class DiscussionSubscriber {
 
             String publishSubject = scope.discussSubject(channel, threadId);
             publishTraced(conn, publishSubject, signal, message);
+            if (isTerminal(signal)) {
+                evaluationAnswered.add(threadId);
+            }
             log.info("Published {} signal to {} for thread {}", signal, publishSubject, threadId);
 
         } catch (Exception e) {
             log.warn("Failed to publish {} signal: {}", signal, LogContent.reason(e));
         }
+    }
+
+    /** True for the signals that end an agent's evaluation of a thread, as opposed to progress signals. */
+    private static boolean isTerminal(String signal) {
+        return switch (signal) {
+            case SIGNAL_AGREE, "concern", "block", SIGNAL_STAND_ASIDE, "decline", SIGNAL_FAILURE -> true;
+            default -> false;
+        };
     }
 
     /**

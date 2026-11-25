@@ -47,6 +47,20 @@ func TestNoDataAnswerIsAnAnswer(t *testing.T) {
 	}
 }
 
+func TestInfrastructureAnswerIsAnAnswer(t *testing.T) {
+	b := newBuilder("a")
+	b.ev(EvThreadOpened, EventData{ConversationID: b.conv}).msg(MsgThreadStart)
+	b.ev(EvSubcommitteeConvened, EventData{}).msg(MsgAdvisory).msg(MsgSubcommittee)
+	b.ev(EvEvaluationStarted, EventData{}).msg(MsgAdvisoryReady)
+	b.msg(signalFailure).ev(EvSignalApplied, EventData{Signal: signalFailure})
+	b.ev(EvSettled, EventData{})
+	b.ev(EvSynthesisDone, EventData{Outcome: reasonInfrastructure}).msg(MsgSynthesis).msg(MsgThreadClose)
+	b.ev(EvThreadClosed, EventData{Reason: reasonInfrastructure})
+	if vs := Evaluate(observe(1, b), protected(0, 0)); len(vs) != 0 {
+		t.Fatalf("a thread answered with the infrastructure cause is a finished thread: %s", Summary(vs))
+	}
+}
+
 func TestBadReasonMessageListsEveryAllowedReason(t *testing.T) {
 	b := newBuilder("a")
 	b.ev(EvThreadOpened, EventData{ConversationID: b.conv}).msg(MsgThreadStart)

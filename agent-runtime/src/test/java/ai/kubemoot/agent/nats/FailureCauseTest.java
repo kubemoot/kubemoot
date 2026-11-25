@@ -1,5 +1,7 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.modelserver.ModelNotReadyException;
+import ai.kubemoot.agent.modelserver.NatsModelLifecycle;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -11,9 +13,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FailureCauseTest {
 
     private static final String NOT_LISTENING =
-            "Mulling failed: server vllm-rig0 could not make qwen3:14b ready: no operator is listening for model lifecycle requests";
+            "Mulling failed: server server-a could not make model-a ready: no operator is listening for model lifecycle requests";
     private static final String NOT_READY =
-            "Mulling failed: server vllm-rig0 could not make qwen3:14b ready: the engine refused";
+            "Mulling failed: server server-a could not make model-a ready: the engine refused";
     private static final String REFUSED = "Mulling failed: java.net.ConnectException: Connection refused";
 
     @Test
@@ -42,17 +44,17 @@ class FailureCauseTest {
     }
 
     @Test
-    void aTieGoesToTheFirstDeclaredCause() {
-        assertEquals(Optional.of(FailureCause.OPERATOR_UNREACHABLE), FailureCause.dominant(List.of(REFUSED, NOT_LISTENING)));
-    }
-
-    @Test
     void theTextsOfTheRealProducersAreRecognised() {
-        // The messages the placement-core lifecycle client and driver build.
-        assertEquals(Optional.of(FailureCause.OPERATOR_UNREACHABLE), FailureCause.classify(
-                "server s could not make m ready: the operator could not be asked to ready m: boom"));
-        assertEquals(Optional.of(FailureCause.OPERATOR_UNREACHABLE), FailureCause.classify(
-                "server s could not make m ready: the operator's reply could not be read: bad json"));
+        // Built by the placement-core lifecycle client and driver, not typed here.
+        String notListening = ModelNotReadyException.of("s", "m", NatsModelLifecycle.NOT_LISTENING).getMessage();
+        String noAnswer = ModelNotReadyException.of("s", "m", NatsModelLifecycle.NO_ANSWER).getMessage();
+        String couldNotAsk = ModelNotReadyException.of("s", "m", NatsModelLifecycle.COULD_NOT_ASK + "ready m: boom").getMessage();
+        String unreadable = ModelNotReadyException.of("s", "m", NatsModelLifecycle.UNREADABLE_REPLY + ": bad json").getMessage();
+        for (String text : List.of(notListening, noAnswer, couldNotAsk, unreadable)) {
+            assertEquals(Optional.of(FailureCause.OPERATOR_UNREACHABLE), FailureCause.classify(text), text);
+        }
+        assertEquals(Optional.of(FailureCause.MODEL_NOT_READY),
+                FailureCause.classify(ModelNotReadyException.of("s", "m", "the engine refused").getMessage()));
     }
 
     @Test
@@ -62,21 +64,32 @@ class FailureCauseTest {
     }
 
     @Test
-    void unanimousNeedsEveryFailureToNameTheSameCause() {
+    void theCauseIsReadBackFromItsPublishedId() {
+        for (FailureCause cause : FailureCause.values()) {
+            assertEquals(Optional.of(cause), FailureCause.fromId(cause.id()));
+        }
+        assertTrue(FailureCause.fromId("model_timeout").isEmpty());
+        assertTrue(FailureCause.fromId("").isEmpty());
+        assertTrue(FailureCause.fromId(null).isEmpty());
+    }
+
+    @Test
+    void unanimousNeedsEveryFailureTypeToNameTheSameCause() {
         assertEquals(Optional.of(FailureCause.OPERATOR_UNREACHABLE),
-                FailureCause.unanimous(List.of(NOT_LISTENING, NOT_LISTENING)));
-        assertTrue(FailureCause.unanimous(List.of(NOT_LISTENING, NOT_READY)).isEmpty(), "two causes");
-        assertTrue(FailureCause.unanimous(List.of(NOT_LISTENING, "the tool returned an error")).isEmpty(),
+                FailureCause.unanimous(List.of("operator_unreachable", "operator_unreachable")));
+        assertTrue(FailureCause.unanimous(List.of("operator_unreachable", "model_not_ready")).isEmpty(), "two causes");
+        assertTrue(FailureCause.unanimous(List.of("operator_unreachable", "model_timeout")).isEmpty(),
                 "one failure names no cause");
+        assertTrue(FailureCause.unanimous(List.of("operator_unreachable", "")).isEmpty(), "one failure has no type");
         assertTrue(FailureCause.unanimous(List.of()).isEmpty(), "no failures");
     }
 
     @Test
     void dominantIsTheMostCommonCauseAndIgnoresFailuresThatNameNone() {
-        assertEquals(Optional.of(FailureCause.MODEL_NOT_READY),
-                FailureCause.dominant(List.of(NOT_READY, NOT_READY, NOT_LISTENING, "a tool error")));
+        assertEquals(Optional.of(FailureCause.MODEL_NOT_READY), FailureCause.dominant(
+                List.of("model_not_ready", "model_not_ready", "operator_unreachable", "model_timeout")));
         assertEquals(Optional.of(FailureCause.OPERATOR_UNREACHABLE),
-                FailureCause.dominant(List.of(NOT_LISTENING, NOT_READY)), "a tie goes to the first declared");
-        assertTrue(FailureCause.dominant(List.of("a tool error")).isEmpty());
+                FailureCause.dominant(List.of("server_unreachable", "operator_unreachable")), "a tie goes to the first declared");
+        assertTrue(FailureCause.dominant(List.of("model_timeout")).isEmpty());
     }
 }

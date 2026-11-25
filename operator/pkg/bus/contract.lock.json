@@ -545,6 +545,7 @@
         "ceiling",
         "direct",
         "fallback",
+        "infrastructure",
         "no_data",
         "stopped",
         "synthesized"

@@ -269,7 +269,7 @@ Every message is an event:
 | `type` | Written when | Main `data` fields |
 |---|---|---|
 | `thread_opened` | the coordinator takes the thread up | `userQuery`, `conversationId`, `crew`, `source` (`request` or `external`), `openedAt` |
-| `phase_entered` | the thread enters ADVISORY, EVALUATING, REVIEW, SYNTHESIZING, RATIFY or PAUSED, or resumes | `phase`, `phaseStartedAt`, `phaseBeforePause`, `advisoryPending`, `reason` |
+| `phase_entered` | the thread enters ADVISORY, EVALUATING, REVIEW, SYNTHESIZING, RATIFY or PAUSED, or resumes | `phase`, `phaseStartedAt`, `phaseBeforePause`, `advisoryPending`, `reason` (`thread_start`, `advisory`, `settled`, `skip_review`, `infrastructure_failure` when every agent failed for the same infrastructure cause so review is skipped, `stop`, `pause`, `resume` or `direct`) |
 | `subcommittee_convened` | the advisory step ends | `path` (`reasoning`, `fallback`, `broadcast` or `direct`), `members`, `brief` (one text for display), `sharedBrief`, `memberTasks`, `taskFallbacks`, `ignoredTasks` (see [one task per member](../../user-guides/compose-a-crew/#one-task-per-member)), `skills`, `confidence`, `tokens` |
 | `evaluation_started` | the evaluation clock resets after `advisory_ready` | `roster` (who EVALUATING waits for) |
 | `review_started` | `review_ready` is sent | `roster` (the analysts woken), `pending` (each with its deadline) |
@@ -277,7 +277,7 @@ Every message is an event:
 | `failure_recorded` | an agent reports `failure`, or its deadline passes and the coordinator records one | `agent`, `cause` (`reported` or `evaluation_timeout`), `synthesized`, `failedSources` |
 | `settled` | a phase ends | `phase`, `basis` (`roster_signalled`, `fast_path`, `quiet` or `no_pending`), `counts` |
 | `synthesis_started` | the synthesis call begins | the signal counts |
-| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `no_data`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `promptTooLarge`, and for a ratified answer `ratification` (the same object as on the `synthesis` message). A log written by an earlier release may also carry `rounds`, `filledBytes` and `delivery`; they are ignored on replay |
+| `synthesis_done` | the answer exists, before it is published | `outcome` (`synthesized`, `capacity`, `no_data`, `infrastructure`, `direct`, `fallback` or `ceiling`), `response`, `tokens`, `promptTooLarge`, and for a ratified answer `ratification` (the same object as on the `synthesis` message). A log written by an earlier release may also carry `rounds`, `filledBytes` and `delivery`; they are ignored on replay |
 | `thread_reopened` | a human reply reopens a closed thread | `phaseStartedAt` |
 | `thread_closed` | the thread ends | `reason` (an outcome of `synthesis_done`, `zombie`, `no_signals`, `unlogged`, or `expired`), `channel` |
 | `coordinator_resumed` | a restarted coordinator takes the thread over | `fromSeq` (the last event it read), `resumedAt` |

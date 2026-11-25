@@ -1259,6 +1259,7 @@ public class DiscussionOrchestrator {
         metrics.setPendingEvaluations(state.pendingEvaluations.size());
         state.waitingAgents.remove(agentName);
         state.failureSignals.put(agentName, content);
+        state.failureTypes.put(agentName, msg.path(FIELD_METADATA).path(MetaKeys.FAILURE_TYPE).asText(""));
         state.failedSources.addAll(failedSourceNames(msg));
         state.lastSignalReceived = Instant.now();
         log.info("Thread {} — agent {} reported failure ({})", state.threadId, agentName, LogContent.size(content));
@@ -1429,6 +1430,7 @@ public class DiscussionOrchestrator {
         state.standAsideSignals.clear();
         state.blockSignals.clear();
         state.failureSignals.clear();
+        state.failureTypes.clear();
         state.failedSources.clear();
         state.clearCapacitySignals();
         state.researcherAgents.clear();
@@ -1982,6 +1984,7 @@ public class DiscussionOrchestrator {
         state.standAsideSignals.clear();
         state.blockSignals.clear();
         state.failureSignals.clear();
+        state.failureTypes.clear();
         state.failedSources.clear();
         state.clearCapacitySignals();
         state.researcherAgents.clear();
@@ -3490,19 +3493,26 @@ public class DiscussionOrchestrator {
         if (!hasNoContribution(state)) {
             return Optional.empty();
         }
-        return FailureCause.dominant(state.failureSignals.values());
+        return FailureCause.dominant(failureTypes(state));
     }
 
     /**
-     * The infrastructure cause every failed agent names, when no agent contributed: the
-     * moot cannot go on (every model call fails the same way), so it ends at once.
+     * The infrastructure cause every agent that answered the thread names, when none
+     * contributed and none stood aside: the moot cannot go on (every model call fails the
+     * same way), so it ends at once. An agent that stood aside answered without failing, so
+     * the thread is not an infrastructure failure and synthesis still runs.
      */
     // Visible for testing
     static Optional<FailureCause> unanimousCause(ThreadState state) {
-        if (!hasNoContribution(state)) {
+        if (!hasNoContribution(state) || !state.standAsideSignals.isEmpty()) {
             return Optional.empty();
         }
-        return FailureCause.unanimous(state.failureSignals.values());
+        return FailureCause.unanimous(failureTypes(state));
+    }
+
+    /** The failureType each failed agent published; empty text for an agent whose signal named none. */
+    private static List<String> failureTypes(ThreadState state) {
+        return state.failureSignals.keySet().stream().map(agent -> state.failureTypes.getOrDefault(agent, "")).toList();
     }
 
     private static boolean hasNoContribution(ThreadState state) {
@@ -5442,6 +5452,8 @@ public class DiscussionOrchestrator {
          * MCP servers or model servers need attention, not new toolers).
          */
         final ConcurrentHashMap<String, String> failureSignals = new ConcurrentHashMap<>();
+        /** The failureType each failed agent published, by agent; absent after a restart. */
+        final ConcurrentHashMap<String, String> failureTypes = new ConcurrentHashMap<>();
         /** Names of the tools failure signals reported missing or failing: what a user can be told. */
         final java.util.Set<String> failedSources = ConcurrentHashMap.newKeySet();
         /** Agents that stood aside for accelerator capacity: agent name to accelerator-busy or model-too-large. */
