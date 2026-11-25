@@ -45,14 +45,34 @@ echo 1 > "${work}/status.1"; echo 'Dockerfile:3: RUN failed: exit status 2' > "$
 check "a build that failed on its own returns its status" 1 "$(run)"
 check "and is not retried" 1 "$(runs)"
 
+# The last lines of a build that failed its own check: `kubectl run --rm` reports the failed
+# pod and then removes it.
 reset
-echo 1 > "${work}/status.1"; echo 'Error from server (NotFound): pods "buildah-x-1" not found' > "${work}/out.1"
+echo 1 > "${work}/status.1"
+cat > "${work}/out.1" <<'EOF2'
+subprocess exited with status 1
+Error: building at STEP "RUN npm run check": exit status 1
+pod arc-runners/buildah-dashboard-742da97c-93-1 terminated (Error)
+pod "buildah-dashboard-742da97c-93-1" deleted from arc-runners namespace
+EOF2
+check "a failed build that ends with the pod cleanup line returns its status" 1 "$(run)"
+check "and is not retried" 1 "$(runs)"
+
+# The line `kubectl run --rm` prints when it removes the pod.
+reset
+echo 1 > "${work}/status.1"; echo 'pod "buildah-dashboard-a6491825-139-2" deleted from arc-runners namespace' > "${work}/out.1"
+check "the pod cleanup line alone is not a lost pod" 1 "$(run >/dev/null; runs)"
+
+# What kubectl prints for a pod that no longer exists.
+reset
+echo 1 > "${work}/status.1"; echo 'Error from server (NotFound): pods "buildah-absent-0" not found' > "${work}/out.1"
 check "a lost pod is retried and the retry's success is returned" 0 "$(run)"
 check "the build ran twice" 2 "$(runs)"
 check "the first run has the pod name as given" "[p-1]" "$(sed -n 1p "${work}/runs")"
 check "the second run has the retry suffix on the pod name" "[p-1-retry]" "$(sed -n 2p "${work}/runs")"
 check "the retry is a visible warning" 1 "$(grep -c '^::warning title=Build pod lost::' "${work}/log")"
 
+# What kubectl prints for an attach whose pod or node is gone.
 reset
 echo 1 > "${work}/status.1"; echo 'error: unable to upgrade connection: pod does not exist' > "${work}/out.1"
 echo 3 > "${work}/status.2"; echo 'pod lost again: pods "x" not found' > "${work}/out.2"
@@ -69,6 +89,18 @@ echo 1 > "${work}/status.1"; echo 'Error from server: pod "buildah-x-1" was evic
 check "an evicted pod is retried" 2 "$(run >/dev/null; runs)"
 
 reset
+echo 1 > "${work}/status.1"; echo 'E1124 10:00:00.000000    1234 v2.go:104] "Unhandled Error" err="error dialing backend: EOF"' > "${work}/out.1"
+check "a lost node in kubectl's log form is retried" 2 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; echo 'test output: pods "fixture" not found, pod "fixture" was evicted' > "${work}/out.1"
+check "the pod words in the build's own output are not a lost pod" 1 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; echo 'npm ERR! request failed: error dialing backend registry, unable to upgrade connection' > "${work}/out.1"
+check "the connection words in the build's own output are not a lost pod" 1 "$(run >/dev/null; runs)"
+
+reset
 echo 1 > "${work}/status.1"; echo 'error: timed out waiting for the condition' > "${work}/out.1"
 check "a plain timeout is not a lost pod" 1 "$(run >/dev/null; runs)"
 
@@ -81,7 +113,7 @@ echo 1 > "${work}/status.1"; echo 'Error from server (NotFound): pods "x" not fo
 check "a command without --pod is never retried" 1 "$(bash "$script" -- "${work}/build" --sha abc >/dev/null 2>&1; runs)"
 
 reset
-echo 0 > "${work}/status.1"; echo 'a log line that says pod does not exist but the build succeeded' > "${work}/out.1"
+echo 0 > "${work}/status.1"; echo 'error: unable to upgrade connection: pod does not exist' > "${work}/out.1"
 check "a signature in the output of a successful build is not retried" 1 "$(run >/dev/null; runs)"
 
 check "no command is a usage error" 64 "$(bash "$script" -- >/dev/null 2>&1 && echo 0 || echo $?)"

@@ -21,14 +21,28 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "${work}/bin" "${work}/state"
 
-# Fake gh: `gh run list --workflow FILE ...` prints state/FILE.statuses (one status per line),
-# or fails with the text of state/FILE.error.
+# Fake gh: `gh run list --workflow FILE --branch main --json status --jq EXPR` applies EXPR
+# with jq to state/FILE.json (the runs as gh returns them, an array of {"status": ...}), or
+# fails with the text of state/FILE.error. A call without those arguments fails, and
+# state/FILE.blank makes it print nothing and succeed.
 cat > "${work}/bin/gh" <<EOF2
 #!/usr/bin/env bash
-args="\$*"
-file="\$(sed -E 's|.*--workflow ([^ ]+).*|\1|' <<<"\$args")"
+file="" expr="" branch="" json=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    --workflow) file="\$2"; shift ;;
+    --jq) expr="\$2"; shift ;;
+    --branch) branch="\$2"; shift ;;
+    --json) json="\$2"; shift ;;
+  esac
+  shift
+done
+if [ -z "\$expr" ] || [ "\$branch" != main ] || [ "\$json" != status ]; then
+  echo "fake gh: want --branch main --json status --jq EXPR" >&2; exit 2
+fi
 if [ -f "${work}/state/\${file}.error" ]; then cat "${work}/state/\${file}.error" >&2; exit 1; fi
-cat "${work}/state/\${file}.statuses"
+[ ! -f "${work}/state/\${file}.blank" ] || exit 0
+jq -r "\${expr}" "${work}/state/\${file}.json"
 EOF2
 chmod +x "${work}/bin/gh"
 
@@ -36,7 +50,12 @@ reset() { rm -rf "${work:?}"/state/* "${work}/held.txt"; }
 held_line() {
   echo "$1 0.1.0-rc.2: 3 commit(s) after abc123 touch its sources; build it: gh workflow run release-$1.yaml -f force_release=true" >> "${work}/held.txt"
 }
-statuses() { printf '%s\n' "${@:2}" > "${work}/state/release-$1.yaml.statuses"; }
+# statuses COMPONENT [STATUS...]: the runs of the component's release workflow; no STATUS is
+# a workflow that has never run.
+statuses() {
+  if [ $# -eq 1 ]; then echo '[]'; else printf '%s\n' "${@:2}" | jq -R '{status: .}' | jq -s .; fi \
+    > "${work}/state/release-$1.yaml.json"
+}
 run() { PATH="${work}/bin:${PATH}" GH_REPO=o/r bash "$script" "${work}/held.txt" >"${work}/out" 2>&1 && echo 0 || echo $?; }
 
 reset
@@ -55,6 +74,11 @@ held_line dashboard; statuses dashboard queued
 check "a queued release is a wait" 0 "$(run)"
 
 reset
+held_line dashboard; statuses dashboard
+check "a workflow with no runs at all fails the job" 1 "$(run)"
+check "and is reported as nothing running" 1 "$(grep -c '^::error title=Operator chart held: dashboard::No release-dashboard.yaml run is running' "${work}/out")"
+
+reset
 held_line dashboard; held_line indexer
 statuses dashboard in_progress; statuses indexer completed
 check "one stuck component among waiting ones fails the job" 1 "$(run)"
@@ -65,6 +89,11 @@ reset
 held_line dashboard; echo 'HTTP 502: bad gateway' > "${work}/state/release-dashboard.yaml.error"
 check "unreadable runs fail the job" 1 "$(run)"
 check "the error says the runs could not be read" 1 "$(grep -c 'Could not read the runs of release-dashboard.yaml' "${work}/out")"
+
+reset
+held_line dashboard; : > "${work}/state/release-dashboard.yaml.blank"
+check "an answer that is not a count fails the job" 1 "$(run)"
+check "and is reported as runs that could not be read" 1 "$(grep -c 'Could not read the runs of release-dashboard.yaml' "${work}/out")"
 
 reset
 echo "dashboard: cannot list the commits" > "${work}/held.txt"

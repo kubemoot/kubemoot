@@ -26,11 +26,15 @@ file="${1:?usage: report-held-chart.sh HELD_FILE}"
 [ -f "$file" ] || { echo "report-held-chart: no such file: ${file}" >&2; exit 64; }
 repo="${GH_REPO:-${GITHUB_REPOSITORY:?GH_REPO or GITHUB_REPOSITORY must name the repository}}"
 
-# running WORKFLOW: the number of runs on main that have not finished (queued or running).
+# running WORKFLOW: the number of runs on main that have not finished (queued or running);
+# a workflow with no runs at all has none. Fails when the runs cannot be read or the answer
+# is not a number.
 running() {
-  local statuses
-  statuses=$(gh run list --repo "$repo" --workflow "$1" --branch main --limit 20 --json status --jq '.[].status') || return 1
-  grep -vc '^completed$' <<<"$statuses" || true
+  local count
+  count=$(gh run list --repo "$repo" --workflow "$1" --branch main --limit 20 --json status \
+    --jq '[.[] | select(.status != "completed")] | length') || return 1
+  [[ "$count" =~ ^[0-9]+$ ]] || return 1
+  echo "$count"
 }
 
 report() {
