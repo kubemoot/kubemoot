@@ -32,7 +32,10 @@ import (
 
 // KV is the subset of the NATS publisher the migration uses.
 type KV interface {
-	memory.Reader
+	// CrewMemoryKeys lists the bucket's keys and reports a bus that cannot be reached as
+	// an error (bus.ErrNotReady), never as an empty list.
+	CrewMemoryKeys() ([]string, error)
+	GetKVValue(bucket, key string) ([]byte, error)
 	PutKVValue(bucket, key string, value []byte) error
 	DeleteKVKey(bucket, key string) error
 }
@@ -44,9 +47,6 @@ type KV interface {
 type Migrator struct {
 	Reader client.Reader
 	KV     KV
-	// Ready is nil when the bus is ready, else why not; nil means ready. The key list
-	// reads an unreachable bus as "no keys", so the migration waits on this instead.
-	Ready func() error
 	// Backoff paces the retries; the zero value is kubemootnats.DefaultBackoff.
 	Backoff kubemootnats.Backoff
 }
@@ -54,14 +54,14 @@ type Migrator struct {
 // NeedLeaderElection runs the migration only on the elected leader.
 func (m *Migrator) NeedLeaderElection() bool { return true }
 
-// Start runs the migration and returns once it has run, or when ctx ends. A start while
-// NATS is down (after a power loss, NATS waits for its volume) or the Crew list is not
-// readable yet retries with backoff, so the unscoped keys are migrated once the bus is
-// back instead of staying unreadable until the next operator restart.
+// Start runs the migration and returns once it has run, or when ctx ends. While NATS is
+// down or the Crew list is not readable it retries with backoff, so the unscoped keys are
+// migrated once the bus is back instead of staying unreadable until the next operator
+// restart.
 func (m *Migrator) Start(ctx context.Context) error {
 	log := logf.FromContext(ctx).WithName("crew-memory-migration")
 	_ = kubemootnats.RetryUntilNoError(ctx, func() error {
-		return m.attempt(ctx, log)
+		return m.Run(ctx, log)
 	}, m.Backoff, func(err error, retryIn time.Duration) {
 		// A bus that is not ready is expected after an outage; any other failure is not.
 		if errors.Is(err, bus.ErrNotReady) {
@@ -73,18 +73,9 @@ func (m *Migrator) Start(ctx context.Context) error {
 	return nil
 }
 
-// attempt waits for the bus by state, then runs the migration once.
-func (m *Migrator) attempt(ctx context.Context, log logr.Logger) error {
-	if m.Ready != nil {
-		if err := m.Ready(); err != nil {
-			return err
-		}
-	}
-	return m.Run(ctx, log)
-}
-
 // Run lists the Crews and the bucket's keys, then renames every unscoped key
-// that maps to exactly one namespace.
+// that maps to exactly one namespace. A key list that cannot be read is an error: nothing
+// is planned from a bus that cannot be reached.
 func (m *Migrator) Run(ctx context.Context, log logr.Logger) error {
 	if m.KV == nil || m.Reader == nil {
 		return nil
@@ -93,7 +84,7 @@ func (m *Migrator) Run(ctx context.Context, log logr.Logger) error {
 	if err := m.Reader.List(ctx, crews); err != nil {
 		return fmt.Errorf("list crews: %w", err)
 	}
-	keys, err := m.KV.ListKVKeys(memory.Bucket)
+	keys, err := m.KV.CrewMemoryKeys()
 	if err != nil {
 		return fmt.Errorf("list %s keys: %w", memory.Bucket, err)
 	}

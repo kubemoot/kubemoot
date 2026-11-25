@@ -62,11 +62,10 @@ func (p *Publisher) KVEntries(bucket, prefix string) ([]retention.KVEntry, error
 // jetStream returns a JetStream context, holding the publisher's lock only while it
 // connects, so a slow stream operation does not block every other use of the publisher.
 func (p *Publisher) jetStream() (nats.JetStreamContext, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		return nil, err
 	}
+	defer p.mu.Unlock()
 	return p.conn.JetStream()
 }
 

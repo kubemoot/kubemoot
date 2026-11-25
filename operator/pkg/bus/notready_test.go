@@ -11,16 +11,20 @@ You may obtain a copy of the License at
 package bus
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func TestAsNotReady_marksTheErrorsThatMeanTheBusIsNotThereYet(t *testing.T) {
 	for _, cause := range []error{nats.ErrStreamNotFound, nats.ErrBucketNotFound, nats.ErrNoResponders,
-		nats.ErrTimeout, nats.ErrConnectionClosed, nats.ErrNoServers, nats.ErrJetStreamNotEnabled} {
+		nats.ErrTimeout, nats.ErrConnectionClosed, nats.ErrNoServers, nats.ErrJetStreamNotEnabled,
+		jetstream.ErrStreamNotFound, jetstream.ErrBucketNotFound, jetstream.ErrJetStreamNotEnabled,
+		jetstream.ErrJetStreamNotEnabledForAccount, context.DeadlineExceeded} {
 		wrapped := fmt.Errorf("reading tickets: %w", cause)
 		got := AsNotReady(wrapped)
 		if !errors.Is(got, ErrNotReady) || !errors.Is(got, cause) {
@@ -33,6 +37,9 @@ func TestAsNotReady_leavesOtherErrorsAlone(t *testing.T) {
 	other := errors.New("permission denied")
 	if got := AsNotReady(other); got != other {
 		t.Errorf("an unrelated error changed: %v", got)
+	}
+	if got := AsNotReady(jetstream.ErrKeyNotFound); errors.Is(got, ErrNotReady) {
+		t.Error("a missing key is not a missing bus")
 	}
 	if got := AsNotReady(nats.ErrKeyNotFound); errors.Is(got, ErrNotReady) {
 		t.Error("a missing key is not a missing bus")

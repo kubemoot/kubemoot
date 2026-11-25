@@ -20,10 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go"
+
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
 
@@ -150,6 +154,58 @@ func TestBucketsReady(t *testing.T) {
 	if !errors.Is(err, bus.ErrNotReady) {
 		t.Errorf("BucketsReady() with NATS unreachable = %v, want bus.ErrNotReady", err)
 	}
+}
+
+func TestCrewMemoryKeysReportsAnUnreachableBusInsteadOfNoKeys(t *testing.T) {
+	keys, err := NewPublisher("").CrewMemoryKeys()
+	if err != nil || keys != nil {
+		t.Errorf("CrewMemoryKeys() unconfigured = %v, %v; want no keys and no error", keys, err)
+	}
+	_, err = NewPublisher(unreachableNATS).CrewMemoryKeys()
+	if !errors.Is(err, bus.ErrNotReady) {
+		t.Errorf("CrewMemoryKeys() with NATS unreachable = %v, want bus.ErrNotReady", err)
+	}
+}
+
+func TestCrewMemoryKeysListsTheBucketAndReportsAMissingOne(t *testing.T) {
+	url := startLocalJetStream(t)
+	p := NewPublisher(url)
+	t.Cleanup(p.Close)
+	if keys, err := p.CrewMemoryKeys(); !errors.Is(err, bus.ErrNotReady) {
+		t.Fatalf("CrewMemoryKeys() with no bucket = %v, %v; want bus.ErrNotReady", keys, err)
+	}
+
+	kv := createCrewMemoryBucket(t, url)
+	keys, err := p.CrewMemoryKeys()
+	if err != nil || len(keys) != 0 {
+		t.Fatalf("CrewMemoryKeys() of an empty bucket = %v, %v; want no keys and no error", keys, err)
+	}
+	if _, err := kv.Put("ns.crew.topic.key", []byte("v")); err != nil {
+		t.Fatal(err)
+	}
+	keys, err = p.CrewMemoryKeys()
+	if err != nil || !reflect.DeepEqual(keys, []string{"ns.crew.topic.key"}) {
+		t.Fatalf("CrewMemoryKeys() = %v, %v; want the one key", keys, err)
+	}
+}
+
+// createCrewMemoryBucket creates the crew memory bucket on the server at url.
+func createCrewMemoryBucket(t *testing.T, url string) nats.KeyValue {
+	t.Helper()
+	nc, err := nats.Connect(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(nc.Close)
+	js, err := nc.JetStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kv, err := js.CreateKeyValue(&nats.KeyValueConfig{Bucket: crewmemory.Bucket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return kv
 }
 
 func TestOpenCrewMemoryReportsAnUnconfiguredServerInsteadOfAnEmptyStore(t *testing.T) {

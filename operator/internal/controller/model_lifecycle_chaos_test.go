@@ -19,10 +19,9 @@ package controller
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
+	"io"
 	"net"
-	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -57,24 +56,71 @@ func (w *watchedSubscriber) Subscribe(subject string, h nats.MsgHandler) (*nats.
 	return sub, err
 }
 
-// freeAddr returns a loopback port nothing listens on yet.
-func freeAddr(t *testing.T) (string, int) {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	if err := l.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return fmt.Sprintf("nats://127.0.0.1:%d", port), port
+// natsGate stands at the address the operator dials. While it has no backend it closes
+// every connection it accepts, which is what a client sees of a NATS that is down; once a
+// backend is set it relays each connection to that NATS server. The test owns the listener
+// from start to end, so the address is never free for another process to take.
+type natsGate struct {
+	listener net.Listener
+	mu       sync.Mutex
+	backend  string
 }
 
-// startNATSOn runs an in-process NATS server on the port and stops it with the test.
-func startNATSOn(t *testing.T, port int) {
+// startNATSGate serves the listener as a gate with no backend and closes it with the test.
+func startNATSGate(t *testing.T, l net.Listener) *natsGate {
 	t.Helper()
-	s, err := natsd.NewServer(&natsd.Options{Host: "127.0.0.1", Port: port, NoLog: true, NoSigs: true})
+	g := &natsGate{listener: l}
+	t.Cleanup(func() { _ = l.Close() })
+	go g.serve()
+	return g
+}
+
+// url is the NATS URL of the gate.
+func (g *natsGate) url() string { return "nats://" + g.listener.Addr().String() }
+
+// open makes the gate relay to the NATS server at addr.
+func (g *natsGate) open(addr string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.backend = addr
+}
+
+func (g *natsGate) serve() {
+	for {
+		c, err := g.listener.Accept()
+		if err != nil {
+			return // the listener closed with the test
+		}
+		go g.relay(c)
+	}
+}
+
+// relay copies between the client and the backend until either side ends; with no backend
+// it closes the client connection at once.
+func (g *natsGate) relay(client net.Conn) {
+	defer func() { _ = client.Close() }()
+	g.mu.Lock()
+	backend := g.backend
+	g.mu.Unlock()
+	if backend == "" {
+		return
+	}
+	server, err := net.Dial("tcp", backend)
+	if err != nil {
+		return
+	}
+	defer func() { _ = server.Close() }()
+	go func() {
+		_, _ = io.Copy(server, client)
+		_ = server.Close()
+	}()
+	_, _ = io.Copy(client, server)
+}
+
+// startNATS runs an in-process NATS server on a port of its own and stops it with the test.
+func startNATS(t *testing.T) *natsd.Server {
+	t.Helper()
+	s, err := natsd.NewServer(&natsd.Options{Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,37 +129,62 @@ func startNATSOn(t *testing.T, port int) {
 	if !s.ReadyForConnections(10 * time.Second) {
 		t.Fatal("the in-process NATS server did not become ready")
 	}
+	return s
 }
 
-// requestUntilAnswered sends the request until a responder exists: no responders means the
-// server has not subscribed yet, any other outcome ends the wait.
-func requestUntilAnswered(t *testing.T, nc *nats.Conn, subject string, body []byte) bus.ModelLifecycleReply {
+// waitForSubscription waits until the NATS server holds a subscription on the subject: a
+// client's subscribe returns before the server has registered it.
+func waitForSubscription(t *testing.T, s *natsd.Server, subject string) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second) // safety net only
-	for {
-		msg, err := nc.Request(subject, body, 10*time.Second)
-		if err == nil {
-			var reply bus.ModelLifecycleReply
-			if err := json.Unmarshal(msg.Data, &reply); err != nil {
-				t.Fatal(err)
-			}
-			return reply
+	for s.GlobalAccount().Interest(subject) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the NATS server never registered a subscription on %s", subject)
 		}
-		if !errors.Is(err, nats.ErrNoResponders) || time.Now().After(deadline) {
-			t.Fatalf("request: %v", err)
-		}
-		runtime.Gosched() // no responder yet: the subscription is still being registered
+		time.Sleep(time.Millisecond)
 	}
 }
 
-// The failure that cost fitness arm A: the operator started while NATS was down, the
-// lifecycle server subscribed once, and no agent could wake a model until a restart. It
-// must subscribe by itself once NATS comes up.
+// waitFor waits for the signal and fails the test with what when it never comes.
+func waitFor(t *testing.T, signal <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(30 * time.Second): // safety net only
+		t.Fatal(what)
+	}
+}
+
+// requestReady asks the lifecycle server, over the NATS server, to make the model ready.
+func requestReady(t *testing.T, server *natsd.Server, model string) bus.ModelLifecycleReply {
+	t.Helper()
+	nc, err := nats.Connect(server.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(nc.Close)
+	msg, err := nc.Request(lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, model), 30*time.Second)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	var reply bus.ModelLifecycleReply
+	if err := json.Unmarshal(msg.Data, &reply); err != nil {
+		t.Fatal(err)
+	}
+	return reply
+}
+
+// With NATS down at its start, the lifecycle server keeps trying to subscribe, subscribes
+// once NATS is up, and then answers a request to wake a model.
 func TestTheLifecycleServerWakesAModelOnceNATSComesUpAfterAStartWithItDown(t *testing.T) {
-	url, port := freeAddr(t)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := startNATSGate(t, l)
 	adapter := asleepAwake()
 	s, _ := lifecycleServer(t, adapter, namedServer(lifecycleServerName, aiv1alpha1.ServerTypeVLLM))
-	watched := &watchedSubscriber{inner: kubemootnats.NewPublisher(url), retried: make(chan struct{}), ok: make(chan struct{})}
+	watched := &watchedSubscriber{inner: kubemootnats.NewPublisher(gate.url()), retried: make(chan struct{}), ok: make(chan struct{})}
 	s.Subscriber = watched
 	s.Backoff = kubemootnats.Backoff{First: time.Millisecond, Max: 5 * time.Millisecond}
 
@@ -122,29 +193,16 @@ func TestTheLifecycleServerWakesAModelOnceNATSComesUpAfterAStartWithItDown(t *te
 	go func() { _ = s.Start(ctx); close(stopped) }()
 	t.Cleanup(func() { cancel(); <-stopped })
 
-	select { // NATS is down: the server keeps trying
-	case <-watched.retried:
-	case <-time.After(30 * time.Second): // safety net only
-		t.Fatal("the lifecycle server did not keep trying while NATS was down")
-	}
+	waitFor(t, watched.retried, "the lifecycle server did not keep trying while NATS was down")
 	if watched.signaled.Load() {
 		t.Fatal("subscribed with NATS down")
 	}
-	startNATSOn(t, port)
-	select {
-	case <-watched.ok:
-	case <-time.After(30 * time.Second): // safety net only
-		t.Fatal("the lifecycle server never subscribed after NATS came up")
-	}
+	server := startNATS(t)
+	gate.open(server.Addr().String())
+	waitFor(t, watched.ok, "the lifecycle server never subscribed after NATS came up")
+	waitForSubscription(t, server, lifecycleSubject)
 
-	nc, err := nats.Connect(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(nc.Close)
-	// Flushing the server's own connection first would need its handle; instead ask until a
-	// responder exists, which is the state that matters.
-	reply := requestUntilAnswered(t, nc, lifecycleSubject, request(t, bus.ModelLifecycleRequestActionReady, vllmModel14))
+	reply := requestReady(t, server, vllmModel14)
 	if !reply.Ok || reply.State != bus.ModelLifecycleReplyStateAwake {
 		t.Fatalf("reply = %+v", reply)
 	}

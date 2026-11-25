@@ -55,9 +55,11 @@ const connectFmt = "connect NATS: %w"
 // Publisher provides lazy NATS connection and publish capabilities.
 // When NATS is not configured, all operations are graceful no-ops.
 type Publisher struct {
+	// mu guards conn and lastSent.
 	mu sync.Mutex
-	// dialMu serializes dials made outside mu (ensureConnected), so two callers never open
-	// two connections; it is never held while mu is waited for by a publish.
+	// dialMu serializes dials (ensureConnected), so two callers never open two connections.
+	// Lock order: dialMu, then mu. Nothing takes dialMu while it holds mu. mu is not held
+	// during a dial; it is taken under dialMu only to read or install conn.
 	dialMu sync.Mutex
 	conn   *nats.Conn
 	url    string
@@ -84,23 +86,6 @@ func NewPublisher(url string) *Publisher {
 	return &Publisher{url: url, conf: conf}
 }
 
-// connect establishes the connection lazily. Must be called under lock. A connection that
-// is reconnecting is kept: it reconnects without end (MaxReconnects -1), buffers publishes
-// and replays its subscriptions when the server is back, so replacing it would leak it and
-// its subscriptions. Only a closed connection is replaced.
-func (p *Publisher) connect() error {
-	if p.conn != nil && !p.conn.IsClosed() {
-		return nil
-	}
-	conn, err := p.dial()
-	if err != nil {
-		return err
-	}
-	p.conn = conn
-	log.Info("Connected to NATS", "url", p.url)
-	return nil
-}
-
 // dial opens a connection that reconnects without end. It touches no Publisher state, so
 // it can run with or without mu held.
 func (p *Publisher) dial() (*nats.Conn, error) {
@@ -123,11 +108,13 @@ func (p *Publisher) dial() (*nats.Conn, error) {
 }
 
 // ensureConnected makes sure a connection exists, dialing WITHOUT holding mu: a dial to a
-// NATS that is down blocks for the dial timeout, and under mu that would stall every
-// publish for as long. Subscribe, SubscribeDurable and BucketsReady (the calls a retry
-// loop repeats against a NATS that is down) dial this way, through lockConnected; the
-// publish calls still dial under mu in connect(). A connection that appeared while this
-// dialed wins and the extra one is closed.
+// NATS that is down blocks for the dial timeout, and under mu that would stall every other
+// use of the publisher for as long. It is the only place a connection is made; every
+// operation reaches it through lockConnected. A connection that is reconnecting is kept:
+// it reconnects without end (MaxReconnects -1), buffers publishes and replays its
+// subscriptions when the server is back, so replacing it would leak it and its
+// subscriptions. Only a closed connection is replaced. A connection that appeared while
+// this dialed wins and the extra one is closed.
 func (p *Publisher) ensureConnected() error {
 	if p.hasLiveConn() {
 		return nil
@@ -157,8 +144,8 @@ var errConnectionLost = errors.New("the NATS connection closed before it could b
 
 // lockConnected dials outside mu when there is no connection, then takes mu and returns
 // with it HELD and a live connection in p.conn. On an error mu is not held. It never
-// dials under mu: a connection that closed in between is an error the caller's retry
-// loop absorbs.
+// dials under mu: a connection that closed in between is an error the caller reports or
+// its retry loop absorbs.
 func (p *Publisher) lockConnected() error {
 	if err := p.ensureConnected(); err != nil {
 		return err
@@ -171,6 +158,15 @@ func (p *Publisher) lockConnected() error {
 	return nil
 }
 
+// liveConn returns the live connection for a caller that works on it without holding mu.
+func (p *Publisher) liveConn() (*nats.Conn, error) {
+	if err := p.lockConnected(); err != nil {
+		return nil, err
+	}
+	defer p.mu.Unlock()
+	return p.conn, nil
+}
+
 // hasLiveConn reports whether the connection exists and is not closed (it may be
 // reconnecting).
 func (p *Publisher) hasLiveConn() bool {
@@ -181,17 +177,34 @@ func (p *Publisher) hasLiveConn() bool {
 
 // OpenCrewMemory returns a read-only reader of the crew memory bucket. Unlike
 // ListKVKeys it reports every failure (NATS not configured, unreachable, bucket
-// missing), so an export never mistakes an unreachable store for "no facts".
+// missing), so an export never mistakes an unreachable store for "no facts". It asks the
+// server for the bucket without holding mu, so a slow answer does not stall publishes.
 func (p *Publisher) OpenCrewMemory() (crewmemory.EntryReader, error) {
 	if p.url == "" {
 		return nil, errNotConfigured
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if err := p.connect(); err != nil {
+	conn, err := p.liveConn()
+	if err != nil {
 		return nil, fmt.Errorf(connectFmt, err)
 	}
-	return natskv.Open(p.conn)
+	return natskv.Open(conn)
+}
+
+// CrewMemoryKeys lists the keys of the crew memory bucket. Unlike ListKVKeys it reports
+// every failure: a NATS that cannot be reached, a missing bucket and a list the server did
+// not answer in time are bus.ErrNotReady, and any other failure is an error, so a caller
+// never reads an unreachable bus as "no keys". It returns no keys and no error when NATS
+// is not configured.
+func (p *Publisher) CrewMemoryKeys() ([]string, error) {
+	if p.url == "" {
+		return nil, nil
+	}
+	reader, err := p.OpenCrewMemory()
+	if err != nil {
+		return nil, bus.AsNotReady(err)
+	}
+	keys, err := reader.ListKVKeys(crewmemory.Bucket)
+	return keys, bus.AsNotReady(err)
 }
 
 // OpenConversationExport returns a builder of conversation exports over this publisher's
@@ -202,12 +215,11 @@ func (p *Publisher) OpenConversationExport() (*conversationexport.Builder, error
 	if p.url == "" {
 		return nil, errNotConfigured
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if err := p.connect(); err != nil {
+	conn, err := p.liveConn()
+	if err != nil {
 		return nil, fmt.Errorf(connectFmt, err)
 	}
-	source, err := natssource.Open(p.conn)
+	source, err := natssource.Open(conn)
 	if err != nil {
 		return nil, err
 	}
@@ -223,11 +235,10 @@ func (p *Publisher) ConversationOwner(_ context.Context, scope crewscope.Scope, 
 	if p.url == "" {
 		return bus.Principal{}, false, errNotConfigured
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		return bus.Principal{}, false, fmt.Errorf(connectFmt, err)
 	}
+	defer p.mu.Unlock()
 	js, err := p.conn.JetStream()
 	if err != nil {
 		return bus.Principal{}, false, err
@@ -260,9 +271,11 @@ func (p *Publisher) Publish(subject string, payload interface{}) error {
 	if err != nil {
 		return err
 	}
-	p.mu.Lock()
+	if !p.lockForSend(subject) {
+		return nil // a failed send is non-fatal: the operator continues without NATS
+	}
 	defer p.mu.Unlock()
-	p.sendLocked(subject, data) // a failed send is non-fatal: the operator continues without NATS
+	p.sendLocked(subject, data)
 	return nil
 }
 
@@ -285,7 +298,9 @@ func (p *Publisher) PublishOnChange(subject string, payload interface{}) error {
 	}
 	sum := sha256.Sum256(data)
 
-	p.mu.Lock()
+	if !p.lockForSend(subject) {
+		return nil
+	}
 	defer p.mu.Unlock()
 	if last, ok := p.lastSent[subject]; ok && last == sum {
 		return nil
@@ -308,12 +323,19 @@ func (p *Publisher) ForgetPublished(subject string) {
 	delete(p.lastSent, subject)
 }
 
-// sendLocked publishes data and reports whether it went out. Must be called under mu.
-func (p *Publisher) sendLocked(subject string, data []byte) bool {
-	if err := p.connect(); err != nil {
+// lockForSend takes mu with a live connection for a publish on subject and reports whether
+// it did; false means there is no connection and mu is not held.
+func (p *Publisher) lockForSend(subject string) bool {
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS, skipping publish", "subject", subject, "error", err)
 		return false
 	}
+	return true
+}
+
+// sendLocked publishes data and reports whether it went out. Must be called under mu with
+// a live connection (lockForSend).
+func (p *Publisher) sendLocked(subject string, data []byte) bool {
 	if err := p.conn.Publish(subject, data); err != nil {
 		log.V(1).Info("Failed to publish to NATS", "subject", subject, "error", err)
 		return false
@@ -333,12 +355,11 @@ func (p *Publisher) Connected() bool {
 	if p.url == "" {
 		return false
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		return false
 	}
-	return p.conn != nil && p.conn.IsConnected()
+	defer p.mu.Unlock()
+	return p.conn.IsConnected()
 }
 
 // EnsureConsumer creates or updates a durable JetStream consumer on the given stream.
@@ -349,13 +370,11 @@ func (p *Publisher) EnsureConsumer(stream, consumerName string, filterSubjects [
 		return nil
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS for consumer management", "error", err)
 		return nil // Non-fatal
 	}
+	defer p.mu.Unlock()
 
 	js, err := p.conn.JetStream()
 	if err != nil {
@@ -399,13 +418,11 @@ func (p *Publisher) DeleteConsumer(stream, consumerName string) error {
 		return nil
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS for consumer deletion", "error", err)
 		return nil
 	}
+	defer p.mu.Unlock()
 
 	js, err := p.conn.JetStream()
 	if err != nil {
@@ -433,13 +450,11 @@ func (p *Publisher) GetKVValue(bucket, key string) ([]byte, error) {
 		return nil, nil
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS for KV read", "error", err)
 		return nil, nil
 	}
+	defer p.mu.Unlock()
 
 	js, err := p.conn.JetStream()
 	if err != nil {
@@ -469,13 +484,11 @@ func (p *Publisher) PutKVValue(bucket, key string, value []byte) error {
 		return nil
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS for KV write", "error", err)
 		return nil // Non-fatal
 	}
+	defer p.mu.Unlock()
 
 	js, err := p.conn.JetStream()
 	if err != nil {
@@ -537,13 +550,11 @@ func (p *Publisher) ListKVKeys(bucket string) ([]string, error) {
 		return nil, nil
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS for KV list", "error", err)
 		return nil, nil
 	}
+	defer p.mu.Unlock()
 
 	js, err := p.conn.JetStream()
 	if err != nil {
@@ -580,13 +591,11 @@ func (p *Publisher) PurgeKVPrefix(bucket, prefix string) (int, error) {
 		return 0, nil
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS for KV purge", "error", err)
 		return 0, err
 	}
+	defer p.mu.Unlock()
 	js, err := p.conn.JetStream()
 	if err != nil {
 		return 0, err
@@ -623,12 +632,10 @@ func (p *Publisher) PurgeSubject(stream, filter string) error {
 	if p.url == "" {
 		return nil
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		return err
 	}
+	defer p.mu.Unlock()
 	js, err := p.conn.JetStream()
 	if err != nil {
 		return err
@@ -647,12 +654,10 @@ func (p *Publisher) DeleteKVKeys(bucket string, keys []string) error {
 	if p.url == "" || len(keys) == 0 {
 		return nil
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		return err
 	}
+	defer p.mu.Unlock()
 	js, err := p.conn.JetStream()
 	if err != nil {
 		return err
@@ -754,13 +759,11 @@ func (p *Publisher) SubjectHasMessages(stream, subject string) bool {
 		return true
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS for subject existence check", "error", err)
 		return true
 	}
+	defer p.mu.Unlock()
 
 	js, err := p.conn.JetStream()
 	if err != nil {
@@ -789,13 +792,11 @@ func (p *Publisher) DeleteKVKey(bucket, key string) error {
 		return nil
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS for KV delete", "error", err)
 		return nil
 	}
+	defer p.mu.Unlock()
 
 	js, err := p.conn.JetStream()
 	if err != nil {
@@ -855,14 +856,13 @@ func (p *Publisher) Close() {
 // dev-without-NATS, mirroring the rest of Publisher). Callers should
 // nil-check the returned handle before use.
 func (p *Publisher) EnsureObjectStore(bucket string, ttl time.Duration) (nats.ObjectStore, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.url == "" {
 		return nil, nil
 	}
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		return nil, err
 	}
+	defer p.mu.Unlock()
 	js, err := p.conn.JetStream()
 	if err != nil {
 		return nil, err
@@ -908,17 +908,13 @@ func (p *Publisher) PutObject(bucket, key string, data []byte, ttl time.Duration
 // backend uses this to stream XLSX bytes on download. Returns
 // (nil, nil) when NATS is not configured.
 func (p *Publisher) GetObject(bucket, key string) ([]byte, error) {
-	p.mu.Lock()
 	if p.url == "" {
-		p.mu.Unlock()
 		return nil, nil
 	}
-	if err := p.connect(); err != nil {
-		p.mu.Unlock()
+	conn, err := p.liveConn()
+	if err != nil {
 		return nil, err
 	}
-	conn := p.conn
-	p.mu.Unlock()
 
 	js, err := conn.JetStream()
 	if err != nil {
@@ -935,17 +931,13 @@ func (p *Publisher) GetObject(bucket, key string) ([]byte, error) {
 // Used to enumerate a suite's per-iteration transcripts for on-demand report
 // generation. Returns (nil, nil) when NATS is not configured.
 func (p *Publisher) ListObjects(bucket, prefix string) ([]string, error) {
-	p.mu.Lock()
 	if p.url == "" {
-		p.mu.Unlock()
 		return nil, nil
 	}
-	if err := p.connect(); err != nil {
-		p.mu.Unlock()
+	conn, err := p.liveConn()
+	if err != nil {
 		return nil, err
 	}
-	conn := p.conn
-	p.mu.Unlock()
 
 	js, err := conn.JetStream()
 	if err != nil {
@@ -975,17 +967,13 @@ func (p *Publisher) ListObjects(bucket, prefix string) ([]string, error) {
 // not configured (no-op) or the object is already absent, so a purge is
 // idempotent. Used by the fitness artifact purge (controller purgeArtifacts).
 func (p *Publisher) DeleteObject(bucket, key string) error {
-	p.mu.Lock()
 	if p.url == "" {
-		p.mu.Unlock()
 		return nil
 	}
-	if err := p.connect(); err != nil {
-		p.mu.Unlock()
+	conn, err := p.liveConn()
+	if err != nil {
 		return err
 	}
-	conn := p.conn
-	p.mu.Unlock()
 
 	js, err := conn.JetStream()
 	if err != nil {

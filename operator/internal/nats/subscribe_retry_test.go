@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"net"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,15 +117,21 @@ func TestAZeroBackoffUsesTheDefaultInsteadOfSpinning(t *testing.T) {
 
 func TestAPublisherKeepsAConnectionThatIsReconnecting(t *testing.T) {
 	// A connection object that is not closed is kept (it reconnects on its own and replays
-	// its subscriptions); connect must not open a second one and leak the first.
+	// its subscriptions); no second one is dialed, which would leak the first.
 	p := &Publisher{url: unreachableNATS}
+	p.dialFn = func() (*nats.Conn, error) {
+		t.Error("dialed although a connection that is not closed exists")
+		return nil, errors.New("no dial expected")
+	}
 	conn := &nats.Conn{} // not connected and not closed: the state of a reconnecting connection
 	p.conn = conn
-	if err := p.connect(); err != nil {
-		t.Fatalf("connect replaced a live connection: %v", err)
+	if err := p.lockConnected(); err != nil {
+		t.Fatalf("lockConnected with a live connection: %v", err)
 	}
-	if p.conn != conn {
-		t.Fatal("connect replaced a connection that was not closed")
+	kept := p.conn
+	p.mu.Unlock()
+	if kept != conn {
+		t.Fatal("a connection that was not closed was replaced")
 	}
 }
 
@@ -175,7 +183,13 @@ func TestADialInProgressDoesNotHoldThePublisherLock(t *testing.T) {
 		"SubscribeDurable": func(p *Publisher) {
 			_, _ = p.SubscribeDurable("S", "kubemoot.test", "d", func(*nats.Msg) {})
 		},
-		"BucketsReady": func(p *Publisher) { _ = p.BucketsReady("b") },
+		"BucketsReady":    func(p *Publisher) { _ = p.BucketsReady("b") },
+		"Publish":         func(p *Publisher) { _ = p.Publish("kubemoot.test", "x") },
+		"PublishOnChange": func(p *Publisher) { _ = p.PublishOnChange("kubemoot.test", "x") },
+		"Connected":       func(p *Publisher) { _ = p.Connected() },
+		"GetKVValue":      func(p *Publisher) { _, _ = p.GetKVValue("b", "k") },
+		"CrewMemoryKeys":  func(p *Publisher) { _, _ = p.CrewMemoryKeys() },
+		"GetObject":       func(p *Publisher) { _, _ = p.GetObject("b", "k") },
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) { assertDialLeavesTheLockFree(t, call) })
@@ -222,7 +236,20 @@ func assertDialLeavesTheLockFree(t *testing.T, call func(p *Publisher)) {
 // startLocalNATS runs an in-process NATS server and returns its URL.
 func startLocalNATS(t *testing.T) string {
 	t.Helper()
-	srv, err := natsd.NewServer(&natsd.Options{Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true})
+	return startLocalServer(t, &natsd.Options{})
+}
+
+// startLocalJetStream runs an in-process NATS server with JetStream and returns its URL.
+func startLocalJetStream(t *testing.T) string {
+	t.Helper()
+	return startLocalServer(t, &natsd.Options{JetStream: true, StoreDir: t.TempDir()})
+}
+
+// startLocalServer runs an in-process NATS server with opts on a loopback port of its own.
+func startLocalServer(t *testing.T, opts *natsd.Options) string {
+	t.Helper()
+	opts.Host, opts.Port, opts.NoLog, opts.NoSigs = "127.0.0.1", -1, true, true
+	srv, err := natsd.NewServer(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,11 +322,7 @@ func TestCloseWaitsForADialInFlightAndLeavesNoConnectionBehind(t *testing.T) {
 
 	closed := make(chan struct{})
 	go func() { p.Close(); close(closed) }()
-	select {
-	case <-closed:
-		t.Fatal("Close returned while a dial was in flight")
-	default:
-	}
+	waitUntilCloseWaits(t, closed)
 	close(release)
 	if err := <-ensured; err != nil {
 		t.Fatal(err)
@@ -317,6 +340,43 @@ func TestCloseWaitsForADialInFlightAndLeavesNoConnectionBehind(t *testing.T) {
 		t.Fatal("Close left a connection installed")
 	}
 	waitUntilClosed(t, conn)
+}
+
+// waitUntilCloseWaits waits until the goroutine running Close is blocked taking a lock,
+// which with a dial in flight is the dial lock. It fails when Close returns instead.
+func waitUntilCloseWaits(t *testing.T, closed <-chan struct{}) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second) // safety net only
+	for !goroutineBlockedOnLockIn("nats.(*Publisher).Close") {
+		select {
+		case <-closed:
+			t.Fatal("Close returned while a dial was in flight")
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Close neither returned nor waited for the dial")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// goroutineBlockedOnLockIn reports whether some goroutine is blocked on a mutex with fn on
+// its stack. It reads the wait reason the Go runtime prints in a goroutine's stack header
+// ("sync.Mutex.Lock"), and does not tell which mutex of fn the goroutine waits for.
+func goroutineBlockedOnLockIn(fn string) bool {
+	buf := make([]byte, 1<<16)
+	n := runtime.Stack(buf, true)
+	for n == len(buf) { // the dump filled the buffer, so it may be cut short
+		buf = make([]byte, 2*len(buf))
+		n = runtime.Stack(buf, true)
+	}
+	for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+		header, _, _ := strings.Cut(g, "\n")
+		if strings.Contains(header, "[sync.Mutex.Lock") && strings.Contains(g, fn) {
+			return true
+		}
+	}
+	return false
 }
 
 // waitUntilClosed waits for the connection to finish closing (a drain ends asynchronously).
