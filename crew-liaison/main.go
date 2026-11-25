@@ -187,9 +187,19 @@ func callerAuthenticator() (*identity.Authenticator, error) {
 	return settings.Authenticator, err
 }
 
-// signInFront builds the OAuth sign-in front from LIAISON_SIGNIN_* settings. It returns nil
-// when LIAISON_SIGNIN_UPSTREAM is not set, which leaves the liaison without a sign-in.
+// signInFront builds the OAuth sign-in from LIAISON_SIGNIN_* settings: the door's own identity
+// when LIAISON_SIGNIN_IDENTITY is set, else the front that relays one service's sign-in when
+// LIAISON_SIGNIN_UPSTREAM is set. It returns nil when neither is, which leaves the liaison
+// without a sign-in.
 func signInFront(log logr.Logger) (*liaison.SignInFront, error) {
+	doorCfg, err := signin.DoorConfigFromEnv(os.Getenv, nil)
+	if err != nil {
+		return nil, err
+	}
+	if doorCfg != nil {
+		doorCfg.Logger = log.WithName("signin")
+		return doorFront(doorCfg)
+	}
 	cfg, err := signin.ConfigFromEnv(os.Getenv, nil)
 	if err != nil || cfg == nil {
 		return nil, err
@@ -201,5 +211,16 @@ func signInFront(log logr.Logger) (*liaison.SignInFront, error) {
 	}
 	return &liaison.SignInFront{
 		Handler: front.Handler(), ResourceMetadataURL: signin.ResourceMetadataURL(cfg.PublicURL),
+	}, nil
+}
+
+func doorFront(cfg *signin.DoorConfig) (*liaison.SignInFront, error) {
+	door, err := signin.NewDoor(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &liaison.SignInFront{
+		Handler: door.Handler(), ResourceMetadataURL: door.ResourceMetadataURL(),
+		Verifier: door.Verifier(),
 	}, nil
 }

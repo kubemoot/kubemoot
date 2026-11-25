@@ -68,6 +68,8 @@ func NewHandlerWithAuth(svc *Service, token string, auth *identity.Authenticator
 type SignInFront struct {
 	Handler             http.Handler
 	ResourceMetadataURL string
+	// Verifier checks the door's own access tokens on /mcp; nil for a front that issues none.
+	Verifier identity.Verifier
 }
 
 // NewHandlerWithFront is NewHandlerWithAuth with a sign-in front (nil for none). The front
@@ -80,7 +82,11 @@ func NewHandlerWithFront(svc *Service, token string, auth *identity.Authenticato
 	server := NewMCPServer(svc)
 	mcpHandler := newMCPHandler(server)
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", requireCaller(token, auth, metadataURL, mcpHandler))
+	gated := requireCaller(token, auth, metadataURL, mcpHandler)
+	if front != nil && front.Verifier != nil {
+		gated = requireDoor(front, token != "" || (auth != nil && auth.Enforcing()), mcpHandler, gated)
+	}
+	mux.Handle("/mcp", gated)
 	if front != nil {
 		mux.Handle("/.well-known/", front.Handler)
 		mux.Handle("/oauth/", front.Handler)
