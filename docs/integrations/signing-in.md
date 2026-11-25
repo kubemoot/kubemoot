@@ -134,7 +134,7 @@ The operator chart renders the variables above from `liaison.signIn`. It is off 
 | Chart value | Default | Becomes |
 |-------------|---------|---------|
 | `liaison.signIn.enabled` | `false` | Turns the front on. The chart refuses to render without the required values below |
-| `liaison.signIn.publicURL` | empty, required | `LIAISON_SIGNIN_PUBLIC_URL` |
+| `liaison.signIn.publicURL` | empty, required | `LIAISON_SIGNIN_PUBLIC_URL`. Must be `https://` plus the door hostname (`liaison.expose.hostname`, else `gateway.hostname`); the chart refuses to render any other value, because the discovery documents and redirect addresses must name the host the route serves |
 | `liaison.signIn.upstream.authorizeURL` | empty, required | `LIAISON_SIGNIN_UPSTREAM` |
 | `liaison.signIn.upstream.tokenURL` | empty, required | `LIAISON_SIGNIN_UPSTREAM_TOKEN_URL` |
 | `liaison.signIn.upstream.clientId` | empty, required | `LIAISON_SIGNIN_UPSTREAM_CLIENT_ID` |

@@ -141,6 +141,24 @@ edge in front of it authenticates (a Cloudflare Access application with a servic
 token, for example). `maxInflight` caps concurrent discussions; a client that hits
 the cap gets a tool error telling it to try again in a minute.
 
+## The door's name and address
+
+One liaison fronts every crew of an install, so the name a chat app shows for it names the install, never one crew. The MCP server title is `liaison.displayName` in the operator chart (`Kubemoot` by default); set it to the name of your community or organization.
+
+```yaml
+liaison:
+  displayName: Example Community
+  expose:
+    enabled: true
+    hostname: kubemoot.example.org   # defaults to gateway.hostname
+  signIn:
+    publicURL: https://kubemoot.example.org   # must be https:// plus the hostname above
+```
+
+The route on that hostname carries `/mcp`, and with sign-in on, `/oauth` and `/.well-known`. It carries no other path and no other backend; the health probes stay cluster-internal. With sign-in on, the chart refuses to render when `liaison.signIn.publicURL` is not `https://` plus the hostname the route serves.
+
+Which outside services a crew uses on a person's behalf is declared on the crew, not in the liaison; see [Connected accounts](../../reference/connected-accounts/).
+
 ## Connecting a client
 
 - [Claude Code](../claude-code/): one command.

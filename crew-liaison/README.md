@@ -38,6 +38,7 @@ past two minutes into a background task, so the chain of polls runs unattended.
 |---|---|---|
 | `PORT` | `8080` | listen port |
 | `LIAISON_TOKEN` | empty | when set, `/mcp` requires `Authorization: Bearer <token>`; leave empty when an edge (for example Cloudflare Access) authenticates |
+| `LIAISON_DISPLAY_NAME` | `Kubemoot` | the MCP server title a chat app shows for this install's door |
 | `LIAISON_OPERATOR_REPORT_URL` | empty | the operator's report service, which builds conversation exports; without it `export_conversation` answers that export is not configured. It serves TLS, so the URL is https and is verified against `LIAISON_CA_FILE`; the chart sets both. A URL that is not https is refused unless `LIAISON_ALLOW_INSECURE_REPORT=true` |
 | `LIAISON_CA_FILE` | empty | the install CA's public certificates (the chart mounts them), which verify the report service; read again when they change |
 | `LIAISON_ALLOW_INSECURE_REPORT` | `false` | accept a report URL that is not https; the chart never sets it |
