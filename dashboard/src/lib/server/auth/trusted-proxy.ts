@@ -50,7 +50,7 @@ async function lookupAddresses(host: string, resolve: Resolver, now: number): Pr
 /** The addresses behind the proxy's DNS name: reused for ADDRESS_TTL_MS, failures included, and one lookup at a time. */
 async function hostAddresses(host: string, resolve: Resolver, now: number): Promise<string[]> {
 	if (!host) return [];
-	if (resolved && resolved.host === host && now - resolved.at < ADDRESS_TTL_MS) return resolved.addresses;
+	if (resolved?.host === host && now - resolved.at < ADDRESS_TTL_MS) return resolved.addresses;
 	resolving ??= lookupAddresses(host, resolve, now).finally(() => {
 		resolving = undefined;
 	});
@@ -90,7 +90,7 @@ function liveSession(key: string, now: number): Session | undefined {
 
 function forgetStale(now: number): void {
 	if (remembered.size < MAX_REMEMBERED) return;
-	for (const key of [...remembered.keys()]) liveSession(key, now);
+	for (const key of remembered.keys()) liveSession(key, now);
 }
 
 async function openSession(token: string, key: string, review: TokenReviewer, now: () => number): Promise<string | undefined> {
