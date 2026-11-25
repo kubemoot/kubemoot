@@ -37,6 +37,7 @@ type Service struct {
 	gateway  *Gateway
 	tickets  *Store
 	exporter *Exporter
+	title    string
 	inflight chan struct{}
 	now      func() time.Time
 }
@@ -60,6 +61,21 @@ func NewService(crews Lister, gateway *Gateway, tickets *Store, maxInflight int)
 func (s *Service) WithExporter(exporter *Exporter) *Service {
 	s.exporter = exporter
 	return s
+}
+
+// WithDisplayName sets the name a chat app shows for this install's door (the MCP server's
+// title), and returns the service. Empty keeps the default.
+func (s *Service) WithDisplayName(name string) *Service {
+	s.title = strings.TrimSpace(name)
+	return s
+}
+
+// displayName is the configured title, or the default.
+func (s *Service) displayName() string {
+	if s.title == "" {
+		return DefaultDisplayName
+	}
+	return s.title
 }
 
 // ListCrewsInput has no fields; the tool takes no arguments.
