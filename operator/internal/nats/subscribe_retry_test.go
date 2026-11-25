@@ -101,3 +101,29 @@ func TestSubscribeUntilReadySucceedsFirstTimeWithoutWaiting(t *testing.T) {
 		t.Fatalf("got %v, %v, %d failures", sub, err, failedCalls)
 	}
 }
+
+func TestAZeroBackoffUsesTheDefaultInsteadOfSpinning(t *testing.T) {
+	if got := (Backoff{}).orDefault(); got != DefaultBackoff {
+		t.Fatalf("zero backoff became %v, want %v", got, DefaultBackoff)
+	}
+	if got := (Backoff{First: time.Second, Max: time.Millisecond}).orDefault(); got.Max != time.Second {
+		t.Fatalf("a Max below First became %v, want it raised to First", got.Max)
+	}
+}
+
+func TestAPublisherKeepsAConnectionThatIsReconnecting(t *testing.T) {
+	// A connection object that is not closed is kept (it reconnects on its own and replays
+	// its subscriptions); connect must not open a second one and leak the first.
+	p := &Publisher{url: unreachableNATS}
+	conn := &nats.Conn{} // not connected and not closed: the state of a reconnecting connection
+	p.conn = conn
+	if err := p.connect(); err != nil {
+		t.Fatalf("connect replaced a live connection: %v", err)
+	}
+	if p.conn != conn {
+		t.Fatal("connect replaced a connection that was not closed")
+	}
+}
+
+// unreachableNATS is an address nothing listens on, for tests of a NATS that is down.
+const unreachableNATS = "nats://127.0.0.1:1"

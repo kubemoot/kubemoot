@@ -46,9 +46,16 @@ const DispatcherDurableName = "kubemoot-notification-dispatcher"
 // NotificationSink → webhook path. Sinks are looked up in the namespace the
 // discussion subject names; HTTP
 // client is injectable for tests.
+// durableSubscriber is the slice of the NATS publisher the dispatcher uses.
+type durableSubscriber interface {
+	SubscribeDurable(stream, subject, durable string, handler nats.MsgHandler) (*nats.Subscription, error)
+}
+
 type Dispatcher struct {
-	Client        client.Client
-	Publisher     *kubemootnats.Publisher
+	Client    client.Client
+	Publisher durableSubscriber
+	// Backoff paces subscribe retries while NATS is unreachable; zero is kubemootnats.DefaultBackoff.
+	Backoff       kubemootnats.Backoff
 	HTTPClient    *http.Client
 	DashboardBase string // optional, e.g. "https://dashboard.example.com"
 	Now           func() time.Time
@@ -106,11 +113,11 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 				}
 			},
 		)
-	}, kubemootnats.DefaultBackoff, func(err error, retryIn time.Duration) {
+	}, d.Backoff, func(err error, retryIn time.Duration) {
 		log.Info("dispatcher not subscribed yet; notifications wait", "err", err.Error(), "retryIn", retryIn.String())
 	})
 	if err != nil {
-		log.Info("dispatcher idle: the operator is stopping")
+		log.Info("dispatcher idle: the operator is stopping", "err", err.Error())
 		<-ctx.Done()
 		return nil
 	}

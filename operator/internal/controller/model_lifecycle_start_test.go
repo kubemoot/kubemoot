@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -38,6 +37,10 @@ type flakySubscriber struct {
 	calls    int
 	subjects []string
 	accepted chan struct{}
+	once     sync.Once
+	// retried is closed once the subscriber has been asked retriedAfter times.
+	retried      chan struct{}
+	retriedAfter int
 }
 
 func (f *flakySubscriber) Subscribe(subject string, _ nats.MsgHandler) (*nats.Subscription, error) {
@@ -45,10 +48,13 @@ func (f *flakySubscriber) Subscribe(subject string, _ nats.MsgHandler) (*nats.Su
 	defer f.mu.Unlock()
 	f.calls++
 	f.subjects = append(f.subjects, subject)
+	if f.retried != nil && f.calls == f.retriedAfter {
+		close(f.retried)
+	}
 	if f.calls <= f.fails {
 		return nil, errors.New("nats: no servers available for connection")
 	}
-	close(f.accepted)
+	f.once.Do(func() { close(f.accepted) })
 	return &nats.Subscription{}, nil
 }
 
@@ -83,38 +89,20 @@ func TestTheLifecycleServerSubscribesOnceNATSComesBack(t *testing.T) {
 }
 
 func TestTheLifecycleServerStopsRetryingWhenTheOperatorStops(t *testing.T) {
-	sub := &flakySubscriber{fails: 1 << 30, accepted: make(chan struct{})}
+	sub := &flakySubscriber{fails: 1 << 30, accepted: make(chan struct{}), retried: make(chan struct{}), retriedAfter: 3}
 	server := &ModelLifecycleServer{Subscriber: sub, Backoff: kubemootnats.Backoff{First: time.Millisecond, Max: time.Millisecond}}
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	go func() { _ = server.Start(ctx); close(stopped) }()
-	waitForCalls(t, sub, 3) // it is retrying
+	select {
+	case <-sub.retried: // it is retrying
+	case <-time.After(5 * time.Second):
+		t.Fatal("the server did not retry")
+	}
 	cancel()
 	select {
 	case <-stopped:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Start kept retrying after its context ended")
 	}
-}
-
-func TestTheLifecycleServerUsesTheDefaultBackoffWhenUnset(t *testing.T) {
-	if got := (&ModelLifecycleServer{}).backoff(); got != kubemootnats.DefaultBackoff {
-		t.Fatalf("backoff %v, want the default %v", got, kubemootnats.DefaultBackoff)
-	}
-}
-
-// waitForCalls waits until the subscriber has been asked at least n times.
-func waitForCalls(t *testing.T, sub *flakySubscriber, n int) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		sub.mu.Lock()
-		calls := sub.calls
-		sub.mu.Unlock()
-		if calls >= n {
-			return
-		}
-		runtime.Gosched()
-	}
-	t.Fatalf("the server did not retry %d times", n)
 }
