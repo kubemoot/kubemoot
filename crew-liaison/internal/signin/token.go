@@ -45,11 +45,11 @@ func (f *front) exchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.callUpstream(w, r, url.Values{
-		paramGrantType:  {grantAuthCode},
-		paramCode:       {code.UpstreamCode},
-		paramRedirect:   {f.cfg.PublicURL + pathCallback},
-		paramClientID:   {f.cfg.UpstreamClientID},
-		"code_verifier": {code.Verifier},
+		paramGrantType:    {grantAuthCode},
+		paramCode:         {code.UpstreamCode},
+		paramRedirect:     {f.cfg.PublicURL + pathCallback},
+		paramClientID:     {f.cfg.UpstreamClientID},
+		paramCodeVerifier: {code.Verifier},
 	})
 }
 
@@ -62,12 +62,16 @@ func checkCodeUse(form url.Values, code authCode) string {
 	if (ru != "" || code.RedirectSent) && ru != code.Redirect {
 		return "redirect_uri does not match the authorization request"
 	}
-	verifier := form.Get("code_verifier")
-	got := s256(verifier)
-	if len(verifier) < 43 || len(verifier) > 128 || subtle.ConstantTimeCompare([]byte(got), []byte(code.Challenge)) != 1 {
+	if !verifierMatches(form.Get(paramCodeVerifier), code.Challenge) {
 		return "code_verifier does not match the code_challenge"
 	}
 	return ""
+}
+
+// verifierMatches reports whether a PKCE code_verifier of a valid length hashes to the challenge.
+func verifierMatches(verifier, challenge string) bool {
+	got := s256(verifier)
+	return len(verifier) >= 43 && len(verifier) <= 128 && subtle.ConstantTimeCompare([]byte(got), []byte(challenge)) == 1
 }
 
 func (f *front) refresh(w http.ResponseWriter, r *http.Request) {

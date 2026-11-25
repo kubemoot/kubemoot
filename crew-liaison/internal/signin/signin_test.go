@@ -13,7 +13,7 @@ import (
 func tokenForm(clientID, code, verifier string) url.Values {
 	return url.Values{
 		paramGrantType: {grantAuthCode}, paramClientID: {clientID}, paramCode: {code},
-		"code_verifier": {verifier}, paramRedirect: {appRedirect},
+		paramCodeVerifier: {verifier}, paramRedirect: {appRedirect},
 	}
 }
 
@@ -279,21 +279,21 @@ func TestResourceIsNeverForwarded(t *testing.T) {
 	r := newRig(t, nil)
 	clientID := r.registerClient()
 	verifier, challenge := appVerifier()
-	res := url.Values{"resource": {"https://liaison.example.test/mcp"}}
+	res := url.Values{paramResource: {"https://liaison.example.test/mcp"}}
 
 	back, up := r.signIn(clientID, challenge, res)
-	if _, found := up.Query()["resource"]; found || strings.Contains(up.String(), "liaison.example.test") {
+	if _, found := up.Query()[paramResource]; found || strings.Contains(up.String(), "liaison.example.test") {
 		t.Errorf("resource reached the upstream authorize request: %s", up)
 	}
 	form := tokenForm(clientID, back.Query().Get(paramCode), verifier)
-	form.Set("resource", "https://liaison.example.test/mcp")
+	form.Set(paramResource, "https://liaison.example.test/mcp")
 	if resp := r.postToken(form); resp.StatusCode != http.StatusOK {
 		t.Fatalf("token: %d", resp.StatusCode)
 	}
-	rf := url.Values{paramGrantType: {grantRefresh}, paramClientID: {clientID}, grantRefresh: {refreshToken}, "resource": {"x"}}
+	rf := url.Values{paramGrantType: {grantRefresh}, paramClientID: {clientID}, grantRefresh: {refreshToken}, paramResource: {"x"}}
 	r.postToken(rf)
 	for _, f := range r.up.sent() {
-		if _, found := f["resource"]; found {
+		if _, found := f[paramResource]; found {
 			t.Errorf("resource reached the upstream token endpoint: %v", f)
 		}
 	}
@@ -351,7 +351,7 @@ func TestRefreshPassesThrough(t *testing.T) {
 	}
 	assertOAuthError(t, r.postToken(url.Values{paramGrantType: {grantRefresh}, paramClientID: {clientID}, grantRefresh: {"stale"}}),
 		http.StatusBadRequest, "invalid_grant")
-	assertOAuthError(t, r.postToken(url.Values{paramGrantType: {grantRefresh}, paramClientID: {"nope"}, grantRefresh: {refreshToken}}),
+	assertOAuthError(t, r.postToken(url.Values{paramGrantType: {grantRefresh}, paramClientID: {notPEM}, grantRefresh: {refreshToken}}),
 		http.StatusUnauthorized, "invalid_client")
 }
 
@@ -368,7 +368,7 @@ func TestMetadataDocuments(t *testing.T) {
 	var prm map[string]any
 	resp := r.get(pathProtectedResource)
 	decode(t, resp, &prm)
-	if prm["resource"] != r.srv.URL+"/mcp" || toStrings(prm["authorization_servers"])[0] != r.srv.URL {
+	if prm[paramResource] != r.srv.URL+"/mcp" || toStrings(prm["authorization_servers"])[0] != r.srv.URL {
 		t.Errorf("protected resource metadata: %v", prm)
 	}
 

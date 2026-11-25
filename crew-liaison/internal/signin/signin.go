@@ -32,6 +32,8 @@ const (
 	paramChallengeMethod = "code_challenge_method"
 	paramState           = "state"
 	paramRedirect        = "redirect_uri"
+	paramCodeVerifier    = "code_verifier"
+	paramResource        = "resource"
 	paramResponseType    = "response_type"
 	keyRedirectURIs      = "redirect_uris"
 	responseCode         = "code"
@@ -71,12 +73,29 @@ func New(cfg *Config) (SignIn, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	sealer, err := ParseKeys(cfg.SealKeys)
+	f, err := newFront(cfg)
 	if err != nil {
 		return nil, err
 	}
 	if len(cfg.AllowedRedirectHosts) == 0 {
 		cfg.Logger.Info("sign-in allows redirect addresses on any host; set " + EnvRedirectHosts + " on a shared deployment")
+	}
+	f.mux = http.NewServeMux()
+	f.mux.Handle("GET "+pathProtectedResource, protectedResourceHandler(cfg.PublicURL))
+	f.mux.HandleFunc("GET "+pathAuthServer, f.serveAuthServerMetadata)
+	f.mux.HandleFunc("POST "+pathRegister, f.register)
+	f.mux.HandleFunc("GET "+pathAuthorize, f.authorize)
+	f.mux.HandleFunc("GET "+pathCallback, f.callback)
+	f.mux.HandleFunc("POST "+pathToken, f.token)
+	return f, nil
+}
+
+// newFront is the parts of the front that both the upstream front and the door's own
+// identity share: the sealing keys, the clock and the HTTP client. It validates nothing.
+func newFront(cfg *Config) (*front, error) {
+	sealer, err := ParseKeys(cfg.SealKeys)
+	if err != nil {
+		return nil, err
 	}
 	f := &front{cfg: cfg, sealer: sealer, now: cfg.Now, http: cfg.HTTPClient}
 	if f.now == nil {
@@ -88,13 +107,6 @@ func New(cfg *Config) (SignIn, error) {
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		}
 	}
-	f.mux = http.NewServeMux()
-	f.mux.Handle("GET "+pathProtectedResource, protectedResourceHandler(cfg.PublicURL))
-	f.mux.HandleFunc("GET "+pathAuthServer, f.serveAuthServerMetadata)
-	f.mux.HandleFunc("POST "+pathRegister, f.register)
-	f.mux.HandleFunc("GET "+pathAuthorize, f.authorize)
-	f.mux.HandleFunc("GET "+pathCallback, f.callback)
-	f.mux.HandleFunc("POST "+pathToken, f.token)
 	return f, nil
 }
 

@@ -3,6 +3,7 @@ module github.com/kubemoot/kubemoot/crew-liaison
 go 1.27.4
 
 require (
+	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/go-logr/logr v1.4.4
 	github.com/google/jsonschema-go v0.4.3
 	github.com/kubemoot/kubemoot/operator v0.0.0

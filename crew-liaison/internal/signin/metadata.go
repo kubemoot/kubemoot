@@ -29,6 +29,9 @@ type authServerMetadata struct {
 	GrantTypesSupported           []string `json:"grant_types_supported"`
 	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported"`
 	TokenEndpointAuthMethods      []string `json:"token_endpoint_auth_methods_supported"`
+	// The door's own identity adds these two; the upstream front leaves them out.
+	IssParameterSupported     bool `json:"authorization_response_iss_parameter_supported,omitempty"`
+	ClientIDMetadataDocuments bool `json:"client_id_metadata_document_supported,omitempty"`
 }
 
 func (f *front) serveAuthServerMetadata(w http.ResponseWriter, _ *http.Request) {
