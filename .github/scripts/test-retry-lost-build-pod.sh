@@ -101,6 +101,18 @@ echo 1 > "${work}/status.1"; echo 'npm ERR! request failed: error dialing backen
 check "the connection words in the build's own output are not a lost pod" 1 "$(run >/dev/null; runs)"
 
 reset
+echo 1 > "${work}/status.1"; echo 'error: failed to fetch the base image: error dialing backend registry' > "${work}/out.1"
+check "a build line that begins error: and mentions dialing is not a lost pod" 1 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; echo 'step 7: NodeLost handler compiled, test failed' > "${work}/out.1"
+check "NodeLost in the build's own output is not a lost pod" 1 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; echo 'Error from server: NodeLost' > "${work}/out.1"
+check "NodeLost on a kubectl error line is retried" 2 "$(run >/dev/null; runs)"
+
+reset
 echo 1 > "${work}/status.1"; echo 'error: timed out waiting for the condition' > "${work}/out.1"
 check "a plain timeout is not a lost pod" 1 "$(run >/dev/null; runs)"
 
