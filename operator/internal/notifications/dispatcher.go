@@ -42,15 +42,15 @@ const DiscussStreamName = bus.DiscussStream
 // resumes; renaming it strands the existing consumer + loses position.
 const DispatcherDurableName = "kubemoot-notification-dispatcher"
 
-// Dispatcher is a leader-elected runnable that drives the
-// NotificationSink → webhook path. Sinks are looked up in the namespace the
-// discussion subject names; HTTP
-// client is injectable for tests.
 // durableSubscriber is the slice of the NATS publisher the dispatcher uses.
 type durableSubscriber interface {
 	SubscribeDurable(stream, subject, durable string, handler nats.MsgHandler) (*nats.Subscription, error)
 }
 
+// Dispatcher is a leader-elected runnable that drives the
+// NotificationSink -> webhook path. Sinks are looked up in the namespace the
+// discussion subject names; HTTP
+// client is injectable for tests.
 type Dispatcher struct {
 	Client    client.Client
 	Publisher durableSubscriber
@@ -63,7 +63,7 @@ type Dispatcher struct {
 	sub *nats.Subscription
 }
 
-// NeedLeaderElection ensures only the leader pod dispatches — otherwise
+// NeedLeaderElection ensures only the leader pod dispatches - otherwise
 // each running operator pod fires duplicate webhooks.
 func (d *Dispatcher) NeedLeaderElection() bool { return true }
 
@@ -79,7 +79,7 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 	}
 
 	if d.Publisher == nil {
-		log.Info("publisher not configured — notifications dispatcher idle")
+		log.Info("publisher not configured - notifications dispatcher idle")
 		<-ctx.Done()
 		return nil
 	}
@@ -99,11 +99,11 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 					log.V(1).Info("dispatch error", "subject", m.Subject, "err", err)
 				}
 				// Ack regardless of ProcessMessage outcome. Real failure modes:
-				//   - decode error → permanent; Nak'ing would just retry forever
-				//   - k8s API error → may be transient, but the next message in
+				//   - decode error -> permanent; Nak'ing would just retry forever
+				//   - k8s API error -> may be transient, but the next message in
 				//     the stream will retry the same flow; redelivery storm is
 				//     a worse failure than dropping one message
-				//   - dispatch error → already recorded per-sink via recordFailure;
+				//   - dispatch error -> already recorded per-sink via recordFailure;
 				//     redelivery would re-dispatch to ALL sinks, double-firing
 				//     the ones that already succeeded
 				// AckWait+MaxDeliver in SubscribeDurable still cover the
@@ -128,7 +128,7 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 			"subject", DiscussionSubjectWildcard,
 			"durable", DispatcherDurableName)
 	} else {
-		log.Info("NATS not configured — dispatcher idle")
+		log.Info("NATS not configured - dispatcher idle")
 	}
 
 	<-ctx.Done()
