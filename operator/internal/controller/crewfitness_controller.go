@@ -113,12 +113,17 @@ func (r *CrewFitnessReconciler) startTest(ctx context.Context, cf *kubemootv1alp
 		return r.setError(ctx, cf, fmt.Sprintf("failed to ensure RBAC: %v", err))
 	}
 
+	id, err := r.crewIdentity(ctx, cf)
+	if err != nil {
+		return r.setError(ctx, cf, fmt.Sprintf("failed to let the runner use the crew: %v", err))
+	}
+
 	jobName := fmt.Sprintf("cf-%s", cf.Name)
 	if len(jobName) > 63 {
 		jobName = jobName[:63]
 	}
 
-	if done, res, err := r.createFitnessJob(ctx, cf, jobName, endpoint, testKey, configMapName); done {
+	if done, res, err := r.createFitnessJob(ctx, cf, jobName, endpoint, testKey, configMapName, id); done {
 		return res, err
 	}
 
@@ -169,10 +174,11 @@ func (r *CrewFitnessReconciler) resolveEndpointOrRequeue(ctx context.Context, cf
 // result/error immediately (a terminal Error from owner-ref or create failure);
 // an AlreadyExists create is treated as success (done=false) so the run still
 // transitions to Running.
-func (r *CrewFitnessReconciler) createFitnessJob(ctx context.Context, cf *kubemootv1alpha1.CrewFitness, jobName, endpoint, testKey, configMapName string) (done bool, res ctrl.Result, err error) {
+func (r *CrewFitnessReconciler) createFitnessJob(ctx context.Context, cf *kubemootv1alpha1.CrewFitness, jobName, endpoint, testKey, configMapName string, id *gatewayIdentity) (done bool, res ctrl.Result, err error) {
 	log := logf.FromContext(ctx)
 
 	job := r.buildJob(cf, jobName, endpoint, testKey, configMapName)
+	withGatewayIdentity(&job.Spec.Template.Spec, id)
 	if refErr := ctrl.SetControllerReference(cf, job, r.Scheme); refErr != nil {
 		res, err = r.setError(ctx, cf, fmt.Sprintf("failed to set owner reference: %v", refErr))
 		return true, res, err
@@ -260,8 +266,13 @@ func (r *CrewFitnessReconciler) checkJob(ctx context.Context, cf *kubemootv1alph
 	}
 
 	r.recordCompletion(cf)
-	r.loadAssertionResults(cf, job)
-	r.determinePhase(cf, job, isComplete, isFailed)
+	if reason := job.Annotations[fitnessRefusedAnnotation]; reason != "" {
+		cf.Status.Phase = kubemootv1alpha1.CrewFitnessPhaseError
+		cf.Status.Error = reason
+	} else {
+		r.loadAssertionResults(cf, job)
+		r.determinePhase(cf, job, isComplete, isFailed)
+	}
 
 	if err := r.Status().Update(ctx, cf); err != nil {
 		return ctrl.Result{}, err

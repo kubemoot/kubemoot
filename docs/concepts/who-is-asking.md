@@ -11,6 +11,8 @@ A crew answers whoever asks. Until a crew says otherwise, that is everyone: the 
 - **Operators and workloads** hold Kubernetes credentials: kmctl, CrewForge, the dashboard, other crews, fitness runs. Their identity is Kubernetes': a bearer token checked with a TokenReview, and RBAC checked with a SubjectAccessReview. This is the path described here.
 - **Subscribers** are the people a product serves through a crew. They have no Kubernetes identity; their identity lives in a service the crew trusts, such as the service that sold them access to the tools the crew uses. They present their own token for that service, and the crew accepts it when the service does. See [subscribers](#subscribers).
 
+A fitness run is one of those workloads: against a crew that requires identity, the operator gives the fitness runner a projected ServiceAccount token for the crew's audience and `get` on that Crew. See [A crew that requires identity](../../fitness/kubemoot-crew-fitness-functions/#a-crew-that-requires-identity).
+
 ## The seam
 
 Both doors of a crew, the discussion gateway and the [crew liaison](../../integrations/crew-liaison/), use one authenticator. It tries a list of verifiers in order; each checks one kind of credential and answers "not mine", "valid" or "invalid". The first valid answer becomes the caller. A credential that is present and not valid is refused and never treated as anonymous.
