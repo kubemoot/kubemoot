@@ -330,6 +330,22 @@ The fitness runner is a lightweight Go binary that:
 
 The runner needs minimal resources (50m CPU, 64Mi RAM) - it's an HTTP client, not an inference workload.
 
+### A crew that requires identity
+
+A crew that sets `spec.discussion.access` with `tokenReview` on (the default) and `allowAnonymous: false` refuses every caller that sends no verified Kubernetes token, and the fitness runner is such a caller. When the crew under test verifies tokens, the operator:
+
+- runs the Job as the `fitness-runner` ServiceAccount with a projected ServiceAccount token, bound to the crew's first `tokenAudiences` entry (or to the API server's own audience when the crew lists none), renewed by the kubelet;
+- creates a Role and RoleBinding named `fitness-runner-<crew>` that give that ServiceAccount `get` on that one Crew, the access a gateway asks of every caller, and nothing else. They are owned by the Crew and go with it.
+
+The runner sends the token as `Authorization: Bearer` on every call to the gateway. A crew that verifies no token gets no token volume and no Role, so the runner asks it as before.
+
+If the crew refuses the runner anyway, the scenario is not retried. It ends as `Error` with the reason in `status.error`, and in `status.scenarios[].failureReason` of a suite:
+
+| Gateway answer | Reason |
+|---|---|
+| 401 | `the crew refused the fitness runner: it requires identity (401)` |
+| 403 | `the crew refused the fitness runner: the runner's ServiceAccount may not use the crew (403)` |
+
 ## Relationship to CrewForge
 
 [CrewForge](../../ecosystem/crewforge/) runs fitness from VS Code: it lists a crew's

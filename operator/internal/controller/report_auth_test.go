@@ -55,7 +55,7 @@ func TestReviewAuthorizerAdmitsAnIdentityThatMayGetTheCrew(t *testing.T) {
 	}
 	attrs := asked.Spec.ResourceAttributes
 	if asked.Spec.User != dashboardUser || attrs.Verb != verbGet || attrs.Group != kubemootv1alpha1.GroupVersion.Group ||
-		attrs.Resource != "crews" || attrs.Namespace != "ns" || attrs.Name != "c" {
+		attrs.Resource != crewsResource || attrs.Namespace != "ns" || attrs.Name != "c" {
 		t.Errorf("access review = %+v / %+v", asked.Spec, attrs)
 	}
 }

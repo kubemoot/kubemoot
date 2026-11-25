@@ -56,6 +56,10 @@ const (
 	// fitnessResultAnnotation is the annotation key written to the owning Job.
 	fitnessResultAnnotation = "kubemoot.ai/fitness-result"
 
+	// fitnessRefusedAnnotation is written to the Job when the crew refused the runner;
+	// the operator reads it to name the reason in the suite status.
+	fitnessRefusedAnnotation = "kubemoot.ai/fitness-refused"
+
 	// defaultMaxDuration is the fallback if DEFINE CONST MAX_DURATION is absent.
 	defaultMaxDuration = 120 * time.Second
 
@@ -108,6 +112,11 @@ func run() error {
 	// Print results to stdout for debugging
 	printResults(results)
 
+	// A crew that refused the runner is named, not retried.
+	if outcome.Refusal != "" {
+		return recordRefusal(ctx, namespace, jobName, outcome.Refusal)
+	}
+
 	// An unanswered run is a transient/infra failure, not a measurement: the crew
 	// was never reached or never synthesized an answer. Do NOT record results or a
 	// transcript for it (that would freeze a spurious zero into the suite); return
@@ -145,6 +154,17 @@ func run() error {
 	// the pass/fail verdict lives in the recorded results, and a Job retry must
 	// NOT re-run a scenario that already produced a real answer.
 	fmt.Println(verdict(results))
+	return nil
+}
+
+// recordRefusal names on the Job why the crew refused the runner, and ends the run with
+// exit 0: asking again is refused again, so the Job's retries would only repeat it. The
+// operator reads the annotation and records the scenario as an Error with this reason.
+func recordRefusal(ctx context.Context, namespace, jobName, reason string) error {
+	fmt.Println("[fitness-runner] " + reason)
+	if err := patchJobAnnotationKey(ctx, namespace, jobName, fitnessRefusedAnnotation, reason); err != nil {
+		return fmt.Errorf("record that the crew refused the runner (%s): %w", reason, err)
+	}
 	return nil
 }
 
@@ -246,6 +266,11 @@ func printResults(results []AssertionResult) {
 // patchJobAnnotation patches the kubemoot.ai/fitness-result annotation on the Job
 // using the in-cluster Kubernetes client.
 func patchJobAnnotation(ctx context.Context, namespace, jobName, resultJSON string) error {
+	return patchJobAnnotationKey(ctx, namespace, jobName, fitnessResultAnnotation, resultJSON)
+}
+
+// patchJobAnnotationKey sets one annotation on the owning Job with the in-cluster client.
+func patchJobAnnotationKey(ctx context.Context, namespace, jobName, key, value string) error {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return fmt.Errorf("in-cluster config: %w", err)
@@ -257,13 +282,13 @@ func patchJobAnnotation(ctx context.Context, namespace, jobName, resultJSON stri
 	}
 
 	// Escape the JSON value for embedding in the patch JSON
-	escapedJSON, err := json.Marshal(resultJSON)
+	escapedJSON, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("escape result JSON: %w", err)
 	}
 
 	patch := fmt.Sprintf(`{"metadata":{"annotations":{%q:%s}}}`,
-		fitnessResultAnnotation, string(escapedJSON))
+		key, string(escapedJSON))
 
 	_, err = clientset.BatchV1().Jobs(namespace).Patch(
 		ctx,
@@ -276,7 +301,7 @@ func patchJobAnnotation(ctx context.Context, namespace, jobName, resultJSON stri
 		return fmt.Errorf("patch job %s/%s: %w", namespace, jobName, err)
 	}
 
-	fmt.Printf("[fitness-runner] patched job %s/%s with %d assertion result(s)\n",
-		namespace, jobName, len(resultJSON))
+	fmt.Printf("[fitness-runner] patched job %s/%s annotation %s (%d bytes)\n",
+		namespace, jobName, key, len(value))
 	return nil
 }

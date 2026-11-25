@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -58,6 +59,9 @@ type RunOutcome struct {
 	// the deadline) that the Job's backoffLimit should retry rather than record
 	// as a spurious zero. See [[Rollout-Safety Fitness Job Fails BackoffLimitExceeded]].
 	Answered bool `json:"answered"`
+	// Refusal names why the crew turned the runner away, empty when it did not. A
+	// refused scenario is not retried and has no measurement.
+	Refusal string `json:"-"`
 	// Evidence is the names the run's tool results held, captured before the
 	// thread's workspace is deleted (see captureEvidence).
 	Evidence
@@ -85,8 +89,66 @@ type discussionStartResponse struct {
 // gets Go's standard certificate verification.
 func newHTTPClient() *http.Client {
 	return &http.Client{
-		Timeout: 0, // No client-level timeout; we use context cancellation instead
+		Timeout:   0, // No client-level timeout; we use context cancellation instead
+		Transport: bearerTransport{tokenFile: os.Getenv(envTokenFile), next: http.DefaultTransport},
 	}
+}
+
+// envTokenFile names the file holding the runner's ServiceAccount token. The operator
+// projects it for a crew whose gateway verifies callers. Unset, the runner asks as
+// anonymous.
+const envTokenFile = "GATEWAY_TOKEN_FILE"
+
+// bearerTransport sends the runner's token as "Authorization: Bearer" on every call to
+// the gateway. The file is read per request because the kubelet renews a projected token.
+type bearerTransport struct {
+	tokenFile string
+	next      http.RoundTripper
+}
+
+func (t bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.tokenFile == "" {
+		return t.next.RoundTrip(req)
+	}
+	raw, err := os.ReadFile(t.tokenFile)
+	if err != nil {
+		return nil, fmt.Errorf("read the runner's token %s: %w", t.tokenFile, err)
+	}
+	authed := req.Clone(req.Context())
+	authed.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(raw)))
+	return t.next.RoundTrip(authed)
+}
+
+// refusal is the error of a gateway that turned the runner away. Asking again gets the
+// same answer, so the runner records it and stops rather than retrying.
+type refusal struct{ status int }
+
+func (r *refusal) Error() string { return refusalReason(r.status) }
+
+// refusalReason names why the crew refused the runner, for the suite status.
+func refusalReason(status int) string {
+	if status == http.StatusUnauthorized {
+		return "the crew refused the fitness runner: it requires identity (401)"
+	}
+	return "the crew refused the fitness runner: the runner's ServiceAccount may not use the crew (403)"
+}
+
+// refused reports whether err says a gateway refused the runner.
+func refused(err error) (*refusal, bool) {
+	var r *refusal
+	return r, errors.As(err, &r)
+}
+
+// checkStatus turns a refusal status into a *refusal and any other bad status into a
+// plain error naming what was asked.
+func checkStatus(status int, what string) error {
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		return &refusal{status: status}
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("%s returned %d", what, status)
+	}
+	return nil
 }
 
 // waitForReady polls the discussion gateway's /ready endpoint until it returns 200
@@ -156,8 +218,8 @@ func postDiscussion(ctx context.Context, client *http.Client, endpoint, question
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", resp.StatusCode, fmt.Errorf("POST returned %d", resp.StatusCode)
+	if err := checkStatus(resp.StatusCode, "POST"); err != nil {
+		return "", resp.StatusCode, err
 	}
 
 	var parsed discussionStartResponse
@@ -188,8 +250,8 @@ func collectSSE(ctx context.Context, client *http.Client, streamURL string) ([]S
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("SSE stream returned %d", resp.StatusCode)
+	if err := checkStatus(resp.StatusCode, "SSE stream"); err != nil {
+		return nil, err
 	}
 
 	events, scanErr := scanSSEEvents(resp.Body)
@@ -278,7 +340,13 @@ func RunFitnessTest(
 	// unanswered on purpose, so the retry can recover the clean conclusion.)
 	answered := postOK && fitnessscript.HasDone(events)
 
+	refusalText := ""
+	if r, ok := refused(postErr); ok {
+		refusalText = r.Error()
+	}
+
 	return &RunOutcome{
+		Refusal:        refusalText,
 		Assertions:     results,
 		Events:         events,
 		ConversationID: conversationID,
