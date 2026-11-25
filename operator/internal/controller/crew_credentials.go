@@ -209,10 +209,19 @@ func (r *CrewReconciler) applyCredentialLease(ctx context.Context, crew *kubemoo
 	return nil
 }
 
-// requiredCallerCredential reports whether a server takes the asking person's own token.
-func requiredCallerCredential(s *kubemootv1alpha1.MCPServer) bool {
+// takesPersonsToken reports whether a server takes the asking person's own token, from a
+// service token verifier or from a connected account.
+func takesPersonsToken(s *kubemootv1alpha1.MCPServer) bool {
 	return s.Spec.Registry != nil && s.Spec.Registry.CallerCredential != nil &&
 		s.Spec.Registry.CallerCredential.Mode == kubemootv1alpha1.CallerCredentialRequired
+}
+
+// requiredCallerCredential reports whether a server takes the asking person's token from a
+// crew's service token verifier: the tokens the crew's discussion gateway keeps and its tool
+// gateway leases. A server that takes a connected account's token is not one; its crew's
+// ConnectedAccounts condition describes it.
+func requiredCallerCredential(s *kubemootv1alpha1.MCPServer) bool {
+	return takesPersonsToken(s) && s.Spec.Registry.CallerCredential.Account == ""
 }
 
 // reconcileAccessConditions records the conditions that describe who may ask the crew and
@@ -222,6 +231,9 @@ func (r *CrewReconciler) reconcileAccessConditions(ctx context.Context, crew *ku
 	reconcileAuthentication(crew)
 	if err := r.reconcileCallerCredentials(ctx, crew); err != nil {
 		logf.FromContext(ctx).Error(err, "Failed to check the crew's caller credentials", "crew", crew.Name)
+	}
+	if err := r.reconcileConnectedAccounts(ctx, crew); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to check the crew's connected accounts", "crew", crew.Name)
 	}
 }
 

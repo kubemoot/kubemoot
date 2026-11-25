@@ -28,14 +28,18 @@ import (
 // it was, unless it sets relayContext: then only the mode and relayContext go, so the gateway
 // forwards the two ids and no credential.
 func callerCredentialPayload(mcp *kubemootv1alpha1.MCPServer) map[string]interface{} {
-	if !requiredCallerCredential(mcp) {
+	if !takesPersonsToken(mcp) {
 		return relayOnlyPayload(mcp)
 	}
 	cc := mcp.Spec.Registry.CallerCredential
 	payload := map[string]interface{}{
 		"mode":         string(cc.Mode),
-		"verifier":     cc.Verifier,
 		"relayContext": cc.RelayContext,
+	}
+	if cc.Account != "" {
+		payload["account"] = cc.Account
+	} else {
+		payload["verifier"] = cc.Verifier
 	}
 	if cc.LeaseURL != "" {
 		payload["leaseUrl"] = cc.LeaseURL

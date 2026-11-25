@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/gomem"
@@ -73,6 +74,9 @@ type CrewReconciler struct {
 	Recorder events.EventRecorder
 	// NetPol applies the network policy of the crew's discussion gateway. Nil generates none.
 	NetPol *NetPolicySync
+	// RegisteredAccounts are the connected-account names this install has registered a client
+	// for; a crew declaring any other name reports UnregisteredAccount. Nil registers none.
+	RegisteredAccounts RegisteredAccounts
 	// bus replaces NATSPublisher for discussion-state cleanup in tests.
 	bus crewDiscussionBus
 }
@@ -840,6 +844,10 @@ func (r *CrewReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// leases it, change what a crew's gateway is told and what its condition says.
 		Watches(&kubemootv1alpha1.MCPServer{}, enqueueCrewsInNamespace(mgr.GetClient())).
 		Watches(&kubemootv1alpha1.MCPGateway{}, enqueueCrewsInNamespace(mgr.GetClient())).
+		// Two crews that declare one account name for different services conflict, and the
+		// condition of each follows the other.
+		Watches(&kubemootv1alpha1.Crew{}, enqueueCrewsSharingAccounts(mgr.GetClient()),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		// Re-reconcile every Crew when KubemootConfig changes so a
 		// discussionGateway image bump propagates to the Deployment
 		// spec without per-CR annotation. See kubemootconfig_propagation.go.

@@ -551,6 +551,12 @@ liaison:
     # any host, so anyone could register a redirect address and ask a person to sign in to it:
     # always set it on a shared deployment.
     allowedRedirectHosts: []
+  # Outside services whose accounts a person may connect, keyed by account name (a DNS label).
+  # A Crew declares the accounts it needs in spec.connectedAccounts; this install registers a
+  # client with each service. The operator reports a Crew that declares a name missing here as
+  # ConnectedAccounts=False, reason UnregisteredAccount. Only the names are read today.
+  connectedAccounts:
+    accounts: {}
   # Public route through the Gateway API listener configured under `gateway` above.
   # The route carries exactly /mcp, plus /oauth and /.well-known when signIn is on, and nothing
   # else (never the dashboard); the hostname defaults to gateway.hostname.
