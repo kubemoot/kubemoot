@@ -496,6 +496,9 @@ liaison:
   replicas: 1
   maxInflight: 4            # discussions at once; each spends GPU time
   ticketTTLMinutes: 60
+  # The name a chat app shows for this install's door (the MCP server title). Neutral by
+  # default; name it for your community or organization, never for one crew.
+  displayName: Kubemoot
   # Bearer token for /mcp. Empty means no token: only do that behind an edge that
   # authenticates (for example Cloudflare Access). existingSecret wins over token.
   auth:
@@ -528,7 +531,9 @@ liaison:
   # person's browser can reach /oauth and /.well-known on the hostname.
   signIn:
     enabled: false
-    # The liaison's public base URL as the chat app and the browser reach it.
+    # The liaison's public base URL as the chat app and the browser reach it: https:// plus the
+    # door hostname (expose.hostname, else gateway.hostname). The chart refuses any other value,
+    # because the discovery documents and redirect addresses must name the host the route serves.
     publicURL: ""
     upstream:
       # The service's authorization and token endpoints, and the client id the front registered
@@ -547,7 +552,8 @@ liaison:
     # always set it on a shared deployment.
     allowedRedirectHosts: []
   # Public route through the Gateway API listener configured under `gateway` above.
-  # Path /mcp on the hostname; the hostname defaults to gateway.hostname.
+  # The route carries exactly /mcp, plus /oauth and /.well-known when signIn is on, and nothing
+  # else (never the dashboard); the hostname defaults to gateway.hostname.
   expose:
     enabled: false
     hostname: ""
