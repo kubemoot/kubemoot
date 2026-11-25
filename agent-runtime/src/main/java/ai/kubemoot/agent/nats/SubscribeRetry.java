@@ -6,7 +6,9 @@ import org.slf4j.LoggerFactory;
 
 import io.nats.client.Connection;
 import io.nats.client.Dispatcher;
+import io.nats.client.JetStreamApiException;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -25,8 +27,8 @@ final class SubscribeRetry {
 
     private static final Logger log = LoggerFactory.getLogger(SubscribeRetry.class);
 
-    static final Duration FIRST = Duration.ofSeconds(1);
-    static final Duration MAX = Duration.ofSeconds(30);
+    static final Duration DEFAULT_FIRST_WAIT = Duration.ofSeconds(1);
+    static final Duration DEFAULT_MAX_WAIT = Duration.ofSeconds(30);
 
     private final String what;
     private final Duration first;
@@ -35,19 +37,19 @@ final class SubscribeRetry {
     private boolean stopped;
 
     SubscribeRetry(String what) {
-        this(what, FIRST, MAX);
+        this(what, DEFAULT_FIRST_WAIT, DEFAULT_MAX_WAIT);
     }
 
     SubscribeRetry(String what, Duration first, Duration max) {
         this.what = what;
-        this.first = first.isZero() || first.isNegative() ? FIRST : first;
+        this.first = first.isZero() || first.isNegative() ? DEFAULT_FIRST_WAIT : first;
         this.max = max.compareTo(this.first) < 0 ? this.first : max;
     }
 
     /** What a subscribe attempt does on its new dispatcher; it may throw. */
     @FunctionalInterface
     interface DispatcherSetup {
-        void run(Dispatcher dispatcher) throws Exception;
+        void run(Dispatcher dispatcher) throws IOException, JetStreamApiException;
     }
 
     /**

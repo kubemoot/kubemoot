@@ -462,8 +462,6 @@ public class DiscussionOrchestrator {
         return resume.get();
     }
 
-    private volatile boolean subscribed = false;
-
     public boolean isEnabled() {
         return coordinator && !channels.isEmpty() && natsProvider.isAvailable();
     }
@@ -573,7 +571,6 @@ public class DiscussionOrchestrator {
         resume.get().launch(llmExecutor);
         startLeases();
 
-        subscribed = true;
         log.info("Discussion orchestrator active: advisory={}s, review={}s, synthesis={}s, minEval={}s, settle={}s, channels={}",
                 advisoryTimeoutSeconds, reviewTimeoutSeconds, synthesisTimeoutSeconds, minEvalSeconds, settleSeconds, channels);
     }

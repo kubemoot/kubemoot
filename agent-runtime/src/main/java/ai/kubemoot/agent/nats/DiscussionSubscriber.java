@@ -56,6 +56,7 @@ public class DiscussionSubscriber {
     private static final String NOTHING_TO_ADD = "NOTHING_TO_ADD";
     /** Signal metadata: the stored tool calls the agent read, as keys and key patterns. */
     private static final String SIGNAL_AGREE = "agree";
+    private static final String SIGNAL_CONCERN = "concern";
     private static final String SIGNAL_STAND_ASIDE = "stand_aside";
     /** Published once when an agent starts waiting for GPU capacity. */
     private static final String SIGNAL_WAITING = "waiting";
@@ -1395,7 +1396,7 @@ public class DiscussionSubscriber {
         if (content.startsWith("TOOL_GAP:")) {
             String toolNeed = content.substring("TOOL_GAP:".length()).trim();
             log.info("Agent {} reported tool gap for thread {}: {}", properties.agentName(), threadId, toolNeed);
-            publishSignal(subject, threadId, "concern", toolNeed, timing, gpuLabel,
+            publishSignal(subject, threadId, SIGNAL_CONCERN, toolNeed, timing, gpuLabel,
                     ModelAttribution.withEarlierCall(findingMetadata(result), triageUse));
             return;
         }
@@ -1446,7 +1447,7 @@ public class DiscussionSubscriber {
             "advisory", "Advisory",
             SIGNAL_AGREE, "Response",
             "contribution", "Response",
-            "concern", "Concern",
+            SIGNAL_CONCERN, "Concern",
             SIGNAL_STAND_ASIDE, "Stand Aside",
             "decline", "Stand Aside",
             "proposal", "Proposal");
@@ -1495,11 +1496,6 @@ public class DiscussionSubscriber {
         static SignalTiming of(long inferenceMs, long inferenceStartMs) {
             return new SignalTiming(inferenceMs, inferenceStartMs, 0, 0);
         }
-    }
-
-    private void publishSignal(String originalSubject, String threadId, String signal, String content,
-                               SignalTiming timing) {
-        publishSignal(originalSubject, threadId, signal, content, timing, AcceleratorLabels.fromEndpoint(ollamaBaseUrl));
     }
 
     private void publishSignal(String originalSubject, String threadId, String signal, String content,
@@ -1564,7 +1560,7 @@ public class DiscussionSubscriber {
     /** True for the signals that end an agent's evaluation of a thread, as opposed to progress signals. */
     private static boolean isTerminal(String signal) {
         return switch (signal) {
-            case SIGNAL_AGREE, "concern", "block", SIGNAL_STAND_ASIDE, "decline", SIGNAL_FAILURE -> true;
+            case SIGNAL_AGREE, SIGNAL_CONCERN, "block", SIGNAL_STAND_ASIDE, "decline", SIGNAL_FAILURE -> true;
             default -> false;
         };
     }

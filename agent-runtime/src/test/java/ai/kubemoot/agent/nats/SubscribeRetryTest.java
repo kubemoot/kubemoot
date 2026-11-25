@@ -128,7 +128,7 @@ class SubscribeRetryTest {
     @Test
     void aZeroFirstWaitUsesTheDefaultInsteadOfSpinning() {
         retry = new SubscribeRetry("test", Duration.ZERO, Duration.ZERO);
-        assertEquals(SubscribeRetry.FIRST, retry.first());
-        assertEquals(SubscribeRetry.FIRST, retry.nextDelay(retry.first()), "a Max below First is raised to First");
+        assertEquals(SubscribeRetry.DEFAULT_FIRST_WAIT, retry.first());
+        assertEquals(SubscribeRetry.DEFAULT_FIRST_WAIT, retry.nextDelay(retry.first()), "a Max below First is raised to First");
     }
 }
