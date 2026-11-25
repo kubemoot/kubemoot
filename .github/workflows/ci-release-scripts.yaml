@@ -15,6 +15,12 @@ on:
       - 'dashboard/charts/kubemoot-dashboard/values.yaml'
       - 'brand.lock'
       - 'scripts/brand-sync*.sh'
+      - 'scripts/check-neutral-names*.sh'
+      - 'crew-liaison/**'
+      - 'operator/chart/kubemoot-operator/templates/**'
+      - 'docs/integrations/**'
+      - 'docs/concepts/who-is-asking.md'
+      - 'docs/reference/connected-accounts.md'
       - '.github/assets/**'
       - 'k8s/tests/job/**'
       - 'k8s/tests/lib.sh'
@@ -44,6 +50,12 @@ on:
       - 'dashboard/charts/kubemoot-dashboard/values.yaml'
       - 'brand.lock'
       - 'scripts/brand-sync*.sh'
+      - 'scripts/check-neutral-names*.sh'
+      - 'crew-liaison/**'
+      - 'operator/chart/kubemoot-operator/templates/**'
+      - 'docs/integrations/**'
+      - 'docs/concepts/who-is-asking.md'
+      - 'docs/reference/connected-accounts.md'
       - '.github/assets/**'
       - 'k8s/tests/job/**'
       - 'k8s/tests/lib.sh'
@@ -76,13 +88,16 @@ jobs:
       # brand.lock pins the commit and each copy's sha256.
       - name: Check the brand copies against brand.lock
         run: scripts/brand-sync.sh check && scripts/brand-sync.test.sh
+      # Nothing one install owns (its host, a named outside service) in what every install ships.
+      - name: Check the shipped files name no install
+        run: scripts/check-neutral-names.sh && scripts/check-neutral-names.test.sh
       - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
         with:
           version: 'v3.14.0'
       - name: Set up the release helpers
         uses: kubemoot/release-actions/setup@899dec57c20fafcccae4120d20bfd88e454f0a0f # v0.12.2
       - name: Shellcheck
-        run: shellcheck -x .github/scripts/*.sh k8s/tests/job/*.sh k8s/tests/lib.test.sh k8s/tests/lib-modelserver.sh k8s/tests/lib-ask.sh k8s/tests/ask.test.sh
+        run: shellcheck -x .github/scripts/*.sh scripts/check-neutral-names.sh scripts/check-neutral-names.test.sh k8s/tests/job/*.sh k8s/tests/lib.test.sh k8s/tests/lib-modelserver.sh k8s/tests/lib-ask.sh k8s/tests/ask.test.sh
       - name: Check every Go module against its Dockerfile builder
         run: bash .github/scripts/check-go-builder-version.sh
       # The stub MCP server test runs python3; pin it as the native check job does.
