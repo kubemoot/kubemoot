@@ -158,12 +158,13 @@ Setting `access` turns verification on. A caller sends its Kubernetes token as `
 
 ### A door that signs people in
 
-`access.trustedHops` lists the doors whose signed assertion of who is asking the gateway accepts, such as the crew liaison when it signs people in itself (see [Who is asking](../../concepts/who-is-asking/#a-door-that-signs-people-in)). It is empty by default and nothing changes for a crew that leaves it out. With `tokenReview: false` a crew can accept only the door. The operator gives the gateway the right to create SubjectAccessReviews and sets the audience to this crew's own, so an assertion signed for another crew is refused.
+`access.trustedHops` lists the doors whose signed assertion of who is asking the gateway accepts, such as the crew liaison when it signs people in itself (see [Who is asking](../../concepts/who-is-asking/#a-door-that-signs-people-in)). `access.askers` is the one rule that decides which of the people such a door asserts may ask this crew. The door only proves who is asking; the crew decides. Both are empty by default and nothing changes for a crew that leaves them out. With `tokenReview: false` a crew can accept only the door. The operator sets the audience to this crew's own, so an assertion signed for another crew is refused.
 
 ```yaml
 spec:
   discussion:
     access:
+      tokenReview: false
       trustedHops:
         - name: liaison
           publicKeys:
@@ -171,12 +172,52 @@ spec:
               -----BEGIN PUBLIC KEY-----
               ...
               -----END PUBLIC KEY-----
+      askers:
+        kubernetesRBAC: {}
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `access.trustedHops[].name` | string | required | The issuer the door signs as, a DNS label. The liaison signs as `liaison`. Names are unique in the list; at most four doors |
-| `access.trustedHops[].publicKeys` | []string | required | The door's ECDSA P-256 public keys as PEM, one to four. List the old and the new key while a key rotates. Derive one with `openssl pkey -pubout` from the door's private key. A key that is not an ECDSA P-256 public key stops that crew's gateway at start, so check it before you apply the Crew |
+| `access.trustedHops[].publicKeys` | []string | required | The door's ECDSA P-256 public keys as PEM, one to four. List the old and the new key while a key rotates. Derive one with `openssl pkey -pubout` from the door's private key. A key that is not an ECDSA P-256 public key makes the `Authentication` condition `False` with reason `InvalidTrustedHops`, and the gateway accepts no assertion until it is fixed |
+| `access.askers` | object | required with `trustedHops`, and only valid with it | One rule, exactly one of the five kinds below. The admission check refuses none or several |
+| `access.hashKeySecretRef` | object | none | Needed by every kind but `kubernetesRBAC`: a person who is not a Kubernetes user is named on the bus by an id keyed with the install's hash key |
+
+The kinds of `access.askers`. A rule admits a person for this crew only: the gateway refuses the same person at another crew name in a request path. The rule applies only to people a trusted door asserts: a Kubernetes token is always checked by RBAC and a service token by its own `authorize` setting. Only `kubernetesRBAC` turns the person into a Kubernetes user and calls the Kubernetes API for them; no other kind does, and the operator gives the gateway the right to create SubjectAccessReviews only for that kind.
+
+| Kind | Who may ask | What is enforced |
+|------|-------------|------------------|
+| `kubernetesRBAC: {}` | The person's user name and groups, as the door asserts them, may `get` this Crew in Kubernetes RBAC | A SubjectAccessReview per request. The person's conversations are the same ones a Kubernetes token for that user name would reach |
+| `connectedAccount: <name>` | Anyone the door signed in. The rule names the account the crew's tools act with | The name must be in `spec.connectedAccounts` (admission refuses it otherwise, and the operator reports `Authentication` `False` if it is not). Today the gateway admits every signed-in person and does not check that they connected the account: connecting it and leasing it to the crew's tools is a later step, so a person who has not connected it is admitted and the outside service refuses the tool call. The outside service decides entitlement on each call |
+| `issuerGroups: [<group>, ...]` | A person whose asserted groups, exactly as the door sends them (with its group prefix), include at least one listed | A string match on the asserted groups, one to 32 names |
+| `anySignedIn: {}` | Every person the door asserts | Nothing beyond the door's own sign-in |
+| `external: {url, ...}` | Whatever an external policy decision point decides | An OpenID AuthZEN Authorization API 1.0 access evaluation call per request (below) |
+
+Examples, one per way a crew decides:
+
+```yaml
+# Only the cluster's administrators may ask.
+askers:
+  kubernetesRBAC: {}
+---
+# Anyone the sign-in provider accepts, whose account at an outside service the crew's tools use.
+askers:
+  connectedAccount: library
+---
+askers:
+  issuerGroups: ["oidc:staff", "oidc:support"]
+---
+askers:
+  anySignedIn: {}
+```
+
+**`external`.** The gateway sends the policy decision point a `POST` of `{subject, action, resource}` (the [AuthZEN](https://openid.net/specs/authorization-api-1_0.html) access evaluation request) and admits only an HTTP 200 whose `decision` is `true`. The subject is `{type, id: <asserted user>, properties: {groups: [...]}}`, the resource is `{type, id: "<namespace>/<crew>"}` and the action is `{name}`. Any other answer, an error, a redirect, a timeout (5 seconds) or a response over 64 KiB refuses the request. Nothing is cached.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `askers.external.url` | required | The decision point's access evaluation endpoint, `https` only (the specification requires a secured connection). The gateway does not discover it |
+| `askers.external.subjectType`, `resourceType`, `action` | `user`, `crew`, `ask` | The names the request carries |
+| `askers.external.tokenSecretRef` | none | A Secret key (`name`, `key` defaulting to `token`) with a bearer token the gateway presents to the decision point |
 
 ### A person's own token from a service
 

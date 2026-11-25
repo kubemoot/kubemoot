@@ -170,19 +170,19 @@ for. What happens, in order:
 6. The door redirects to the app with a code that is valid for 60 seconds and works once, and the `iss` parameter. The
    app posts the code and its PKCE verifier to `/oauth/token` and receives an access token and a refresh token.
 
-**The person's name for RBAC.** The user is `<prefix><subject>` and every group is `<prefix><group>`, with the prefix
+**The person's name.** The user is `<prefix><subject>` and every group is `<prefix><group>`, with the prefix
 `oidc:` unless you set another. The prefix keeps the issuer from naming a Kubernetes system identity or a group an
 administrator bound for another purpose: a name that would start with `system:` is refused. Groups come from the ID
 token's groups claim (`groups` unless you set another claim), at most 64, each at most 256 characters. The token must
-carry them; the door does not call the issuer's userinfo endpoint. Bind roles to these names. For example, to let
-everyone in the group `team-a` ask a crew, bind a Role that grants `get` on that Crew to the group `oidc:team-a`.
+carry them; the door does not call the issuer's userinfo endpoint. A crew with the `kubernetesRBAC` rule decides by binding roles to these names: to let
+everyone in the group `team-a` ask such a crew, bind a Role that grants `get` on that Crew to the group `oidc:team-a`. A crew with the `issuerGroups` rule lists the same names, such as `oidc:team-a`.
 
 **Tokens.**
 
 | Token | Lifetime | What it is |
 |-------|----------|------------|
 | Access token | 15 minutes | A signed JWT (ES256) with `iss`, `aud` (the `/mcp` resource), `sub`, `iat`, `exp` and a unique `jti`. `/mcp` refuses a token for any other audience, an expired one, one signed by a key the door does not list, and one without the access-token type |
-| Refresh token | 30 days idle, 168 hours at most | A sealed (encrypted) string. Each use returns a new one; showing a used one again, or a used code again, ends that whole sign-in. Rotation never extends the 168 hours (`LIAISON_SIGNIN_REFRESH_MAX_HOURS`), so the person signs in again then |
+| Refresh token | 30 days idle, 24 hours at most | A sealed (encrypted) string. Each use returns a new one; showing a used one again, or a used code again, ends that whole sign-in. Rotation never extends the 24 hours (`LIAISON_SIGNIN_REFRESH_MAX_HOURS`), so the person signs in again then |
 
 The door keeps no store. The one thing it remembers is in the process, and a restart empties it: which codes and refresh tokens it has seen, so a
 code works once and a refresh token rotates. After a restart, a code or refresh token that was already used works once more until it expires, and an ended sign-in is not remembered as ended. With more than one liaison replica each has its own memory, so a stolen
@@ -192,7 +192,7 @@ and sealing keys are shared, so any replica verifies a token another issued. `/m
 door's identity is on (the chart refuses `liaison.auth.serviceTokens` beside it), and it is never open: with the door on and no other credential configured, a request with no
 token is refused.
 
-A refresh does not ask the issuer again, so a person removed from a group at the issuer keeps the groups they signed in with until the sign-in ends (at most 168 hours by default). `liaison.auth.allowAnonymous` applies only beside the shared token or Kubernetes tokens: with the door alone, a request with no token is always refused. Any account at the issuer can sign in to the door; what it may then do is decided by RBAC on the person's prefixed user and groups, so restrict who can sign in at the issuer when it is a public one.
+A refresh does not ask the issuer again, so a person removed from a group at the issuer keeps the groups they signed in with until the sign-in ends (at most 24 hours by default). `liaison.auth.allowAnonymous` applies only beside the shared token or Kubernetes tokens: with the door alone, a request with no token is always refused. Any account at the issuer can sign in to the door; which crews it may then ask is decided by each crew's `askers` rule ([Crew reference](../../reference/crew/#a-door-that-signs-people-in)), so restrict who can sign in at the issuer when it is a public one and give a crew the rule that fits it.
 
 **The consent page and the sign-in cookie.** The sign-in cookie is sealed, `HttpOnly`, `Secure` (the public address is
 `https`), `SameSite=Lax`, scoped to `/oauth`, and ends after 10 minutes idle or 8 hours. Every form post must carry a
@@ -235,7 +235,7 @@ cookie is per browser, so the same person at a second browser is asked once more
 | `LIAISON_SIGNIN_OIDC_USER_PREFIX` | `oidc:` | the prefix of the user name and of every group |
 | `LIAISON_SIGNIN_SIGNING_KEYS_FILE` | none, required | ECDSA P-256 private keys as PEM, at most four. The first signs access tokens; every key verifies |
 | `LIAISON_SIGNIN_HOP_KEYS_FILE` | none | ECDSA P-256 private keys as PEM. The first signs the assertion of who is asking that goes to a crew's gateway. Without it nothing is asserted to a crew |
-| `LIAISON_SIGNIN_REFRESH_MAX_HOURS` | `168` | the most a sign-in lasts, 1 to 2160 |
+| `LIAISON_SIGNIN_REFRESH_MAX_HOURS` | `24` | the most a sign-in lasts, 1 to 2160 |
 
 Make a key with `openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt`. To rotate the
 signing key, put the new key first and keep the old one listed until its tokens have expired (15 minutes), then remove it.
@@ -251,7 +251,7 @@ The chart renders these from `liaison.signIn.identity`:
 | `liaison.signIn.identity.oidc.scopes`, `groupsClaim`, `userPrefix` | `openid profile`, `groups`, `oidc:` | the matching variables |
 | `liaison.signIn.identity.signingKeySecret.name`, `key` | empty, required; `signing-keys` | a Secret you create, mounted read-only |
 | `liaison.signIn.identity.hopKeySecret.name`, `key` | empty; `hop-keys` | optional; see [A door that signs people in](../../concepts/who-is-asking/#a-door-that-signs-people-in) |
-| `liaison.signIn.identity.refreshMaxHours` | `168` | `LIAISON_SIGNIN_REFRESH_MAX_HOURS` |
+| `liaison.signIn.identity.refreshMaxHours` | `24` | `LIAISON_SIGNIN_REFRESH_MAX_HOURS` |
 
 The chart also turns on caller verification for the liaison (`ACCESS_ENFORCE`), with anonymous callers off unless
 `liaison.auth.allowAnonymous` is set.
