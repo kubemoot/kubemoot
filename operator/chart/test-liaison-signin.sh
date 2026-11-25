@@ -135,7 +135,7 @@ env="$(liaison_env "$out")"
 for want in LIAISON_SIGNIN_IDENTITY=oidc LIAISON_SIGNIN_OIDC_ISSUER=https://idp.example.com LIAISON_SIGNIN_OIDC_CLIENT_ID=door \
   LIAISON_SIGNIN_OIDC_CLIENT_SECRET_FILE=/etc/kubemoot/signin-identity/oidc-client-secret \
   LIAISON_SIGNIN_SIGNING_KEYS_FILE=/etc/kubemoot/signin-identity/signing-keys LIAISON_SIGNIN_OIDC_USER_PREFIX=oidc: \
-  LIAISON_SIGNIN_REFRESH_MAX_HOURS=168 LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS=chat.example.com ACCESS_ENFORCE=true \
+  LIAISON_SIGNIN_REFRESH_MAX_HOURS=24 LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS=chat.example.com ACCESS_ENFORCE=true \
   ACCESS_ALLOW_ANONYMOUS=false; do
   grep -qxF "$want" <<<"$env" || fail "door env lacks $want"
 done

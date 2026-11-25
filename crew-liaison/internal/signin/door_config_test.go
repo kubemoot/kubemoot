@@ -41,7 +41,7 @@ func TestDoorConfigFromEnv(t *testing.T) {
 		"public address": {cfg.PublicURL, "https://liaison.example.test"},
 		"resource":       {cfg.Resource(), "https://liaison.example.test/mcp"},
 		"hop keys":       {cfg.HopKeys, "pem"},
-		"refresh age":    {cfg.RefreshMaxAge, 168 * time.Hour},
+		"refresh age":    {cfg.RefreshMaxAge, 24 * time.Hour},
 		"redirect hosts": {strings.Join(cfg.AllowedRedirectHosts, ","), "app.example.test"},
 		"client secret":  {cfg.OIDC.ClientSecret, "s3cret"},
 		"scopes":         {cfg.OIDC.Scopes, defaultOIDCScopes},
