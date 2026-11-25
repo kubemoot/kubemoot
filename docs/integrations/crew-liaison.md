@@ -71,6 +71,10 @@ By default the liaison accepts every caller that presents the shared token (or a
 - A caller with no token is refused, unless `liaison.auth.allowAnonymous` is `true`. A token that is present and not valid is always refused, and when a shared token is also configured a request that presents nothing is refused even with `allowAnonymous`.
 - The caller's token is handed to the background follower only to open the discussion's stream. Once the stream is open the follower holds no token, so the liaison keeps none while the discussion runs. It is never stored, logged or put in a trace.
 
+### The door's own sign-in
+
+With `liaison.signIn.identity.provider: oidc` the liaison signs people in itself through your OpenID Connect issuer and issues the chat app its own access token for `/mcp`. The person who signed in is the caller and tickets belong to them. See [the door's own sign-in](../signing-in/#the-doors-own-sign-in).
+
 ### A person's own token
 
 When the liaison has service token verifiers (`ACCESS_SERVICE_TOKENS`, with the install's `ACCESS_HASH_KEY`, the same settings a crew's gateway reads), a person's own token for a service the crew trusts is accepted at `/mcp` when that service accepts it:

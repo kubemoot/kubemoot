@@ -9,8 +9,8 @@ liaison's door, and the services a crew's tools call. This page states what is b
 
 ## Today
 
-- **The liaison has no sign-in of its own unless you enable the front below.** It does not run a login page, an OAuth
-  flow, or an identity provider. It accepts one of three things, set in the chart:
+- **The liaison has no sign-in of its own unless you enable one of the two below.** Without them it does not run a login
+  page, an OAuth flow, or an identity provider. It accepts one of three things, set in the chart:
   - No token and no Kubernetes token check: every caller is accepted, as anonymous.
   - A shared token (`liaison.auth.token`): the app sends
     `Authorization: Bearer <token>`. Everyone who holds the token is the same caller.
@@ -144,6 +144,99 @@ The operator chart renders the variables above from `liaison.signIn`. It is off 
 | `liaison.signIn.allowedRedirectHosts` | `[]` | `LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS`. Set it on a shared deployment |
 
 The front is one for the whole liaison, not one per crew. To hand the person's token to a crew's tools, also set `liaison.auth.serviceTokens` ([Crew liaison](../crew-liaison/#a-persons-own-token-from-a-service)) and the matching `serviceTokens` on the crew.
+
+## The door's own sign-in
+
+The liaison can sign people in itself, through any standard OpenID Connect issuer your install names. The person who
+signs in is the person asking: their identity, not an outside service's token, is what the crews see. It is off by
+default and is an alternative to the sign-in front above: set one, not both.
+
+To a chat app the liaison is the authorization server for its own `/mcp` door, and the only resource it issues tokens
+for. What happens, in order:
+
+1. The app asks `/mcp` with no token and is answered 401 with a `WWW-Authenticate` header that names
+   `/.well-known/oauth-protected-resource/mcp`. The metadata at `/.well-known/oauth-authorization-server` lists the
+   endpoints, PKCE method `S256` and `authorization_response_iss_parameter_supported`.
+2. The app registers itself at `/oauth/register`, as with the sign-in front.
+3. The app sends the person to `/oauth/authorize` with a PKCE challenge (S256 is required) and the `resource` it wants a
+   token for, which must be `https://<liaison host>/mcp`; any other value is `invalid_target`.
+4. The person is sent to your issuer: an authorization code flow with PKCE S256, a nonce, and a state that is tied to the
+   browser that started it. The ID token is checked for its signature against the issuer's keys, its issuer, its
+   audience and its expiry, and its nonce must be this sign-in's.
+5. The door shows a consent page naming the app and the host it will send the person back to. The person allows or denies. The page is shown once per app and host in a
+   browser; a sealed cookie remembers it for 180 days, for that person only.
+6. The door redirects to the app with a code that is valid for 60 seconds and works once, and the `iss` parameter. The
+   app posts the code and its PKCE verifier to `/oauth/token` and receives an access token and a refresh token.
+
+**The person's name for RBAC.** The user is `<prefix><subject>` and every group is `<prefix><group>`, with the prefix
+`oidc:` unless you set another. The prefix keeps the issuer from naming a Kubernetes system identity or a group an
+administrator bound for another purpose: a name that would start with `system:` is refused. Groups come from the ID
+token's groups claim (`groups` unless you set another claim), at most 64, each at most 256 characters. The token must
+carry them; the door does not call the issuer's userinfo endpoint. Bind roles to these names. For example, to let
+everyone in the group `team-a` ask a crew, bind a Role that grants `get` on that Crew to the group `oidc:team-a`.
+
+**Tokens.**
+
+| Token | Lifetime | What it is |
+|-------|----------|------------|
+| Access token | 15 minutes | A signed JWT (ES256) with `iss`, `aud` (the `/mcp` resource), `sub`, `iat`, `exp` and a unique `jti`. `/mcp` refuses a token for any other audience, an expired one, one signed by a key the door does not list, and one without the access-token type |
+| Refresh token | 30 days idle, 168 hours at most | A sealed (encrypted) string. Each use returns a new one; showing a used one again, or a used code again, ends that whole sign-in. Rotation never extends the 168 hours (`LIAISON_SIGNIN_REFRESH_MAX_HOURS`), so the person signs in again then |
+
+The door keeps no store. The one thing it remembers is in the process, and a restart empties it: which codes and refresh tokens it has seen, so a
+code works once and a refresh token rotates. After a restart, a code or refresh token that was already used works once more until it expires, and an ended sign-in is not remembered as ended. With more than one liaison replica each has its own memory, so a stolen
+code or refresh token can be used once on each replica until it expires; run one replica where that matters. Signing keys
+and sealing keys are shared, so any replica verifies a token another issued. `/mcp` also still accepts the shared token
+(`liaison.auth.token`) and Kubernetes tokens when you enable them; it never accepts a service's own token when the
+door's identity is on (the chart refuses `liaison.auth.serviceTokens` beside it), and it is never open: with the door on and no other credential configured, a request with no
+token is refused.
+
+A refresh does not ask the issuer again, so a person removed from a group at the issuer keeps the groups they signed in with until the sign-in ends (at most 168 hours by default). `liaison.auth.allowAnonymous` applies only beside the shared token or Kubernetes tokens: with the door alone, a request with no token is always refused. Any account at the issuer can sign in to the door; what it may then do is decided by RBAC on the person's prefixed user and groups, so restrict who can sign in at the issuer when it is a public one.
+
+**The consent page and the sign-in cookie.** The sign-in cookie is sealed, `HttpOnly`, `Secure` (the public address is
+`https`), `SameSite=Lax`, scoped to `/oauth`, and ends after 10 minutes idle or 8 hours. Every form post must carry a
+token made for that person and that one request, and a post that a browser says came from another site is refused.
+Pages are never cached, cannot be framed, send no referrer, and carry a policy that allows nothing but their own style.
+
+**Limits today.** The door's identity is OpenID Connect only. The door does not yet pass the person on to a crew: a crew
+with `spec.discussion.access` refuses a person signed in at the door, and a crew that accepts anonymous callers answers
+them as anonymous. `export_conversation` for such a person is served as the liaison itself, which the operator refuses
+for a crew that verifies callers. The consent cookie is per browser, so the same person at a second browser is asked
+once more.
+
+### Configuration of the door's identity
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LIAISON_SIGNIN_IDENTITY` | empty (off) | `oidc` turns the door's identity on. Setting `LIAISON_SIGNIN_UPSTREAM` as well stops the liaison at start |
+| `LIAISON_SIGNIN_PUBLIC_URL` | none, required | the door's public address, `https://<liaison host>` with no path. It is the issuer of the access tokens and the origin of the pages |
+| `LIAISON_SIGNIN_SEAL_KEYS(_FILE)` | none, required | sealing keys, as for the sign-in front |
+| `LIAISON_SIGNIN_ALLOWED_REDIRECT_HOSTS` | empty (any host) | hosts an `https` redirect address may use. Always set it on a shared install |
+| `LIAISON_SIGNIN_OIDC_ISSUER` | none, required | the issuer's URL, `https`. The liaison reads `/.well-known/openid-configuration` from it on the first sign-in, not at start, so an issuer that is down does not keep the liaison down |
+| `LIAISON_SIGNIN_OIDC_CLIENT_ID` | none, required | the door's client id at the issuer. Register `<public URL>/oauth/callback` as its redirect address |
+| `LIAISON_SIGNIN_OIDC_CLIENT_SECRET_FILE` | none, required | a file holding the client secret, from a mounted Secret |
+| `LIAISON_SIGNIN_OIDC_SCOPES` | `openid profile` | scopes asked of the issuer |
+| `LIAISON_SIGNIN_OIDC_GROUPS_CLAIM` | `groups` | the ID token claim that lists the person's groups |
+| `LIAISON_SIGNIN_OIDC_USER_PREFIX` | `oidc:` | the prefix of the user name and of every group |
+| `LIAISON_SIGNIN_SIGNING_KEYS_FILE` | none, required | ECDSA P-256 private keys as PEM, at most four. The first signs access tokens; every key verifies |
+| `LIAISON_SIGNIN_REFRESH_MAX_HOURS` | `168` | the most a sign-in lasts, 1 to 2160 |
+
+Make a key with `openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt`. To rotate the
+signing key, put the new key first and keep the old one listed until its tokens have expired (15 minutes), then remove it.
+
+The chart renders these from `liaison.signIn.identity`:
+
+| Chart value | Default | Becomes |
+|-------------|---------|---------|
+| `liaison.signIn.enabled` | `false` | Required, with `publicURL` and `sealKeySecret`, as for the front |
+| `liaison.signIn.identity.provider` | empty | `oidc` turns it on. The chart refuses to render it with `liaison.signIn.upstream.authorizeURL` or `liaison.auth.serviceTokens` set, and refuses an empty `allowedRedirectHosts` when `liaison.expose.enabled` is on |
+| `liaison.signIn.identity.oidc.issuer`, `clientId` | empty, required | the issuer and the client id |
+| `liaison.signIn.identity.oidc.clientSecret.name`, `key` | empty, required; `client-secret` | a Secret you create, mounted read-only; the secret is never in the environment |
+| `liaison.signIn.identity.oidc.scopes`, `groupsClaim`, `userPrefix` | `openid profile`, `groups`, `oidc:` | the matching variables |
+| `liaison.signIn.identity.signingKeySecret.name`, `key` | empty, required; `signing-keys` | a Secret you create, mounted read-only |
+| `liaison.signIn.identity.refreshMaxHours` | `168` | `LIAISON_SIGNIN_REFRESH_MAX_HOURS` |
+
+The chart also turns on caller verification for the liaison (`ACCESS_ENFORCE`), with anonymous callers off unless
+`liaison.auth.allowAnonymous` is set.
 
 ## What a crew's tools sign in to
 
