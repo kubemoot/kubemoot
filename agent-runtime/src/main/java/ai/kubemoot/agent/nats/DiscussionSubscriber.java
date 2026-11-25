@@ -22,6 +22,7 @@ import io.nats.client.Message;
 import io.nats.client.PushSubscribeOptions;
 import io.nats.client.api.ConsumerConfiguration;
 import io.quarkus.runtime.StartupEvent;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -114,8 +115,6 @@ public class DiscussionSubscriber {
     private static final long HEARTBEAT_PERIOD_SECONDS = 30;
     // Period (minutes) between rate-limiter and stale-thread cleanup sweeps.
     private static final long CLEANUP_INTERVAL_MINUTES = 5;
-    // Retry interval (seconds) for re-attempting NATS subscription at startup.
-    private static final long SUBSCRIBE_RETRY_SECONDS = 30;
 
     // Message type constants
     private static final String MSG_THREAD_START = "thread_start";
@@ -239,12 +238,17 @@ public class DiscussionSubscriber {
         }
     }
 
+    /** Test seam: retry on a short backoff so a test waits on the state, not on 30 s. */
+    void setSubscribeRetryForTest(SubscribeRetry retry) {
+        this.subscribeRetry = retry;
+    }
+
     /** Test seam: override the skill body loader with a temp-dir-backed one. */
     void setSkillBodyLoaderForTest(SkillBodyLoader loader) {
         this.skillBodyLoader = loader;
     }
 
-    private volatile boolean subscribed = false;
+    private SubscribeRetry subscribeRetry = new SubscribeRetry("discussion-subscriber");
 
     void onStart(@Observes StartupEvent event) {
         if (!tooler) {
@@ -267,12 +271,14 @@ public class DiscussionSubscriber {
             return;
         }
 
-        if (!trySubscribe()) {
-            log.info("NATS not yet available — will retry subscription every 30s");
-            scheduler.scheduleAtFixedRate(() -> {
-                if (!subscribed) trySubscribe();
-            }, SUBSCRIBE_RETRY_SECONDS, SUBSCRIBE_RETRY_SECONDS, TimeUnit.SECONDS);
+        if (!subscribeRetry.attemptOrRetry(this::trySubscribe)) {
+            log.info("NATS not yet available - the subscription is retried with backoff");
         }
+    }
+
+    @PreDestroy
+    void stopRetrying() {
+        subscribeRetry.stop();
     }
 
     boolean trySubscribe() {
@@ -291,6 +297,7 @@ public class DiscussionSubscriber {
      * Messages require explicit ack — ack after signal published or immediately for non-triggers.
      */
     private boolean tryJetStreamSubscribe(Connection conn) {
+        Dispatcher dispatcher = null;
         try {
             JetStream js = conn.jetStream();
 
@@ -300,7 +307,8 @@ public class DiscussionSubscriber {
                     .durable(jetstreamConsumer)
                     .build();
 
-            js.subscribe(natsProvider.scope().discussWildcard(), conn.createDispatcher(), msg -> {
+            dispatcher = conn.createDispatcher();
+            js.subscribe(natsProvider.scope().discussWildcard(), dispatcher, msg -> {
                 try {
                     handleJetStreamMessage(msg);
                 } catch (Exception e) {
@@ -314,6 +322,9 @@ public class DiscussionSubscriber {
                     jetstreamConsumer, properties.agentName());
 
         } catch (Exception e) {
+            if (dispatcher != null) {
+                conn.closeDispatcher(dispatcher); // a retry must not leave this one behind
+            }
             log.warn("Failed to create JetStream subscription for consumer {}: {}",
                     jetstreamConsumer, LogContent.reason(e));
             return false;
@@ -324,19 +335,13 @@ public class DiscussionSubscriber {
             cleanupOldThreads();
         }, CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
 
-        subscribed = true;
         log.info("Discussion subscriber active (JetStream, priority={}) consumer={} for agent: {}",
                 priority, jetstreamConsumer, properties.agentName());
         return true;
     }
 
-    /**
-     * Core NATS Dispatcher mode (default): ephemeral subscriptions, fire-and-forget.
-     * Original behavior — backward compatible when no JetStream consumer is configured.
-     */
-    private boolean tryDispatcherSubscribe(Connection conn) {
-        Dispatcher dispatcher = conn.createDispatcher();
-
+    /** Subscribes the broadcast subject and every configured channel on the dispatcher. */
+    private void subscribeChannels(Dispatcher dispatcher) {
         CrewScope scope = natsProvider.scope();
         String broadcastSubject = scope.channelWildcard("broadcast");
         dispatcher.subscribe(broadcastSubject, msg -> {
@@ -359,13 +364,28 @@ public class DiscussionSubscriber {
             });
             log.info("Subscribed to discussion channel: {}", subject);
         }
+    }
+
+    /**
+     * Core NATS Dispatcher mode (default): ephemeral subscriptions, fire-and-forget.
+     * Original behavior - backward compatible when no JetStream consumer is configured.
+     */
+    private boolean tryDispatcherSubscribe(Connection conn) {
+        Dispatcher dispatcher = conn.createDispatcher();
+        try {
+            subscribeChannels(dispatcher);
+        } catch (RuntimeException e) {
+            // Drop the half-made dispatcher so a retry does not subscribe twice.
+            conn.closeDispatcher(dispatcher);
+            log.warn("Failed to subscribe to the discussion channels: {}", LogContent.reason(e));
+            return false;
+        }
 
         scheduler.scheduleAtFixedRate(() -> {
             rateLimiter.cleanup();
             cleanupOldThreads();
         }, CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
 
-        subscribed = true;
         log.info("Discussion subscriber active (Dispatcher, priority={}) on {} channels for agent: {}",
                 priority, channels.size(), properties.agentName());
         return true;

@@ -92,6 +92,86 @@ class DiscussionSubscriberTest {
         assertFalse(result);
     }
 
+    @Test
+    void onStart_subscribesOnceNatsComesUp_afterStartingWithItDown() throws Exception {
+        var natsProvider = mock(NatsConnectionProvider.class);
+        var conn = mock(Connection.class);
+        var dispatcher = mock(Dispatcher.class);
+        var subscribed = new java.util.concurrent.CountDownLatch(1);
+        when(natsProvider.isConfigured()).thenReturn(true);
+        when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", "crew-x"));
+        when(conn.createDispatcher()).thenReturn(dispatcher);
+        when(dispatcher.subscribe(anyString(), any(MessageHandler.class))).thenAnswer(inv -> {
+            subscribed.countDown();
+            return mock(Subscription.class);
+        });
+        // NATS is down for the first three asks, then up.
+        when(natsProvider.getConnection()).thenReturn(null, null, null, conn);
+
+        var subscriber = createSubscriber(null, "kubernetes", natsProvider);
+        subscriber.setSubscribeRetryForTest(new SubscribeRetry("test",
+                java.time.Duration.ofMillis(1), java.time.Duration.ofMillis(2)));
+        try {
+            subscriber.onStart(new io.quarkus.runtime.StartupEvent());
+            assertTrue(subscribed.await(10, java.util.concurrent.TimeUnit.SECONDS),
+                    "the subscriber stayed idle after NATS came up");
+        } finally {
+            subscriber.stopRetrying();
+        }
+    }
+
+    @Test
+    void trySubscribe_dispatcherPath_dropsTheDispatcherAndRetriesWhenASubscribeFails() {
+        var natsProvider = mock(NatsConnectionProvider.class);
+        var conn = mock(Connection.class);
+        var dispatcher = mock(Dispatcher.class);
+        when(natsProvider.getConnection()).thenReturn(conn);
+        when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", "crew-x"));
+        when(conn.createDispatcher()).thenReturn(dispatcher);
+        when(dispatcher.subscribe(anyString(), any(MessageHandler.class)))
+                .thenThrow(new IllegalStateException("connection closed"));
+
+        var subscriber = createSubscriber(null, "kubernetes", natsProvider);
+
+        assertFalse(subscriber.trySubscribe());
+        verify(conn).closeDispatcher(dispatcher);
+    }
+
+    @Test
+    void trySubscribe_jetStreamPath_dropsTheDispatcherWhenTheSubscribeFails() throws Exception {
+        var natsProvider = mock(NatsConnectionProvider.class);
+        var conn = mock(Connection.class);
+        var dispatcher = mock(Dispatcher.class);
+        var jetStream = mock(JetStream.class);
+        when(natsProvider.getConnection()).thenReturn(conn);
+        when(natsProvider.scope()).thenReturn(CrewScope.of("ns-a", "crew-x"));
+        when(conn.createDispatcher()).thenReturn(dispatcher);
+        when(conn.jetStream()).thenReturn(jetStream);
+        when(jetStream.subscribe(anyString(), any(Dispatcher.class),
+                any(MessageHandler.class), eq(false), any(PushSubscribeOptions.class)))
+                .thenThrow(new IllegalStateException("connection closed"));
+
+        var subscriber = createSubscriber("discuss-test-agent", "kubernetes", natsProvider);
+
+        assertFalse(subscriber.trySubscribe());
+        verify(conn).closeDispatcher(dispatcher);
+    }
+
+    @Test
+    void onStart_doesNotThrow_whenTheFirstAttemptThrows() {
+        var natsProvider = mock(NatsConnectionProvider.class);
+        when(natsProvider.isConfigured()).thenReturn(true);
+        when(natsProvider.getConnection()).thenThrow(new IllegalStateException("connection closing"));
+        var subscriber = createSubscriber(null, "kubernetes", natsProvider);
+        subscriber.setSubscribeRetryForTest(new SubscribeRetry("test",
+                java.time.Duration.ofMillis(1), java.time.Duration.ofMillis(2)));
+        try {
+            assertDoesNotThrow(() -> subscriber.onStart(new io.quarkus.runtime.StartupEvent()));
+        } finally {
+            subscriber.stopRetrying();
+        }
+    }
+
     // --- Helper methods ---
 
     private DiscussionSubscriber createSubscriber(String jetstreamConsumer, String channels) {
