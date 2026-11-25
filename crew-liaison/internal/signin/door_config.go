@@ -27,7 +27,7 @@ const (
 	EnvOIDCUserPrefix  = "LIAISON_SIGNIN_OIDC_USER_PREFIX"  // default "oidc:"
 	EnvSigningKeysFile = "LIAISON_SIGNIN_SIGNING_KEYS_FILE" // PEM, first key signs access tokens
 	EnvHopKeysFile     = "LIAISON_SIGNIN_HOP_KEYS_FILE"     // PEM, first key signs hop assertions
-	EnvRefreshMaxHours = "LIAISON_SIGNIN_REFRESH_MAX_HOURS" // absolute life of a sign-in, default 168
+	EnvRefreshMaxHours = "LIAISON_SIGNIN_REFRESH_MAX_HOURS" // absolute life of a sign-in, default 24
 )
 
 // IdentityOIDC is the one identity provider this version has: any standard OpenID Connect
@@ -38,7 +38,7 @@ const (
 	defaultOIDCScopes     = "openid profile"
 	defaultGroupsClaim    = "groups"
 	defaultUserPrefix     = "oidc:"
-	defaultRefreshMax     = 168 * time.Hour
+	defaultRefreshMax     = 24 * time.Hour
 	maxRefreshMaxHours    = 24 * 90
 	accessTokenLifetime   = 15 * time.Minute
 	refreshIdleLifetime   = 30 * 24 * time.Hour

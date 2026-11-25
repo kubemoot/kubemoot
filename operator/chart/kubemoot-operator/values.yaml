@@ -600,7 +600,7 @@ liaison:
         name: ""
         key: hop-keys
       # How long a sign-in lasts at most, in hours, however it is used.
-      refreshMaxHours: 168
+      refreshMaxHours: 24
   # Outside services whose accounts a person may connect, keyed by account name (a DNS label).
   # A Crew declares the accounts it needs in spec.connectedAccounts; this install registers a
   # client with each service. The operator reports a Crew that declares a name missing here as
