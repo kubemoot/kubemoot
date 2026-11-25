@@ -144,7 +144,7 @@ Setting `access` turns verification on. A caller sends its Kubernetes token as `
 
 | Condition | Meaning |
 |-----------|---------|
-| `Authentication` | `False`, reason `Anonymous`: the gateway accepts anonymous callers and verifies no one. `True`, reason `TokenReview`: the gateway verifies callers. `True`, reason `ServiceToken`: the crew lists `serviceTokens`, so a person's own token from a service is verified too. `False`, reason `Closed`: the gateway checks no token and accepts no anonymous caller, so it refuses every request. Absent when the crew runs no gateway |
+| `Authentication` | `False`, reason `Anonymous`: the gateway accepts anonymous callers and verifies no one. `True`, reason `TokenReview`: the gateway verifies callers. `True`, reason `ServiceToken`: the crew lists `serviceTokens`, so a person's own token from a service is verified too. `True`, reason `TrustedHop`: the crew lists `trustedHops`, so a door's assertion of who is asking is verified. `False`, reason `Closed`: the gateway checks no token and accepts no anonymous caller, so it refuses every request. Absent when the crew runs no gateway |
 | `CallerCredentials` | Present only when a tool server in the crew's namespace has `registry.callerCredential.mode: Required`. `True`, reason `Ready`: a verifier passes the person's token to tools and the pieces that carry it exist. `False`, with the reason: `NoVerifierPassesTokens` (no `serviceTokens` entry has `passToTools`), `UnknownVerifier` (the server names a verifier the crew does not list, or one without `passToTools`), `NoSingleToolGateway` (the namespace has no MCPGateway, or several), `SeveralCrewsPassTokens` (another crew of the namespace also keeps tokens). It never affects `Ready` |
 | `ConnectedAccounts` | Present when the crew declares `spec.connectedAccounts`, or when a server in its namespace names an account no crew of the namespace declares. `True`, reason `Ready`: every account is registered by the install, every account a server names is declared, and no other crew uses a declared name for a different service. `False`, with the reason: `Conflict`, `UnregisteredAccount`, `UnknownAccount`, `NoSingleToolGateway`. It never affects `Ready`. See [Connected accounts](../connected-accounts/#the-connectedaccounts-condition) |
 
@@ -155,6 +155,28 @@ Setting `access` turns verification on. A caller sends its Kubernetes token as `
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `identity.exposeToAgents` | bool | `false` | Tell the agents the caller's handle and, for a Kubernetes caller, a label. Needs `access` |
+
+### A door that signs people in
+
+`access.trustedHops` lists the doors whose signed assertion of who is asking the gateway accepts, such as the crew liaison when it signs people in itself (see [Who is asking](../../concepts/who-is-asking/#a-door-that-signs-people-in)). It is empty by default and nothing changes for a crew that leaves it out. With `tokenReview: false` a crew can accept only the door. The operator gives the gateway the right to create SubjectAccessReviews and sets the audience to this crew's own, so an assertion signed for another crew is refused.
+
+```yaml
+spec:
+  discussion:
+    access:
+      trustedHops:
+        - name: liaison
+          publicKeys:
+            - |
+              -----BEGIN PUBLIC KEY-----
+              ...
+              -----END PUBLIC KEY-----
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `access.trustedHops[].name` | string | required | The issuer the door signs as, a DNS label. The liaison signs as `liaison`. Names are unique in the list; at most four doors |
+| `access.trustedHops[].publicKeys` | []string | required | The door's ECDSA P-256 public keys as PEM, one to four. List the old and the new key while a key rotates. Derive one with `openssl pkey -pubout` from the door's private key. A key that is not an ECDSA P-256 public key stops that crew's gateway at start, so check it before you apply the Crew |
 
 ### A person's own token from a service
 
