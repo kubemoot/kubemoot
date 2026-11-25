@@ -26,6 +26,7 @@ const (
 	EnvOIDCGroups      = "LIAISON_SIGNIN_OIDC_GROUPS_CLAIM" // default "groups"
 	EnvOIDCUserPrefix  = "LIAISON_SIGNIN_OIDC_USER_PREFIX"  // default "oidc:"
 	EnvSigningKeysFile = "LIAISON_SIGNIN_SIGNING_KEYS_FILE" // PEM, first key signs access tokens
+	EnvHopKeysFile     = "LIAISON_SIGNIN_HOP_KEYS_FILE"     // PEM, first key signs hop assertions
 	EnvRefreshMaxHours = "LIAISON_SIGNIN_REFRESH_MAX_HOURS" // absolute life of a sign-in, default 168
 )
 
@@ -41,6 +42,7 @@ const (
 	maxRefreshMaxHours    = 24 * 90
 	accessTokenLifetime   = 15 * time.Minute
 	refreshIdleLifetime   = 30 * 24 * time.Hour
+	hopIssuer             = "liaison"
 	resourcePath          = "/mcp"
 	maxClientSecretLength = 1024
 )
@@ -62,6 +64,7 @@ type DoorConfig struct {
 	AllowedRedirectHosts []string
 	OIDC                 OIDCConfig
 	SigningKeys          string // PEM, see ParseSigningKeys
+	HopKeys              string // PEM; empty means the door asserts nobody to a crew
 	RefreshMaxAge        time.Duration
 
 	DisplayName string // what the consent page calls the door; "Kubemoot" by default
@@ -137,6 +140,7 @@ func (c *DoorConfig) readFiles(getenv func(string) string, readFile func(string)
 	files := map[string]*string{
 		EnvSealKeysFile:    &c.SealKeys,
 		EnvSigningKeysFile: &c.SigningKeys,
+		EnvHopKeysFile:     &c.HopKeys,
 		EnvOIDCSecretFile:  &c.OIDC.ClientSecret,
 	}
 	for env, dst := range files {

@@ -187,7 +187,7 @@ func (r *doorRig) mint(t *testing.T, mutate func(*accessClaims), typ string) str
 	}}
 	mutate(&claims)
 	keys, _ := ParseSigningKeys(r.cfg.SigningKeys)
-	kid, _ := keyID(&keys[0].PublicKey)
+	kid, _ := identity.KeyThumbprint(&keys[0].PublicKey)
 	opts := (&jose.SignerOptions{}).WithHeader(jose.HeaderKey("kid"), kid)
 	if typ != "" {
 		opts = opts.WithType(jose.ContentType(typ))

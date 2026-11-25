@@ -245,7 +245,10 @@ func (s *Service) start(ctx context.Context, crew Crew, question, timeZone strin
 	}
 	ticket := s.tickets.Create(crew.Name, crew.Namespace, conversation, question, ownerOf(ctx))
 	s.recordStartCredential(ctx, ticket)
-	go s.follow(ticket, newHandoff(credentialFrom(ctx)))
+	// The same person was asserted a moment ago for the question, so this cannot fail now; if it
+	// did, the stream would be refused and the ticket would say so.
+	token, _ := credentialFor(ctx, crew.Namespace, crew.Name)
+	go s.follow(ticket, newHandoff(token))
 	return ticket, nil
 }
 

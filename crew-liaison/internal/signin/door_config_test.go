@@ -11,7 +11,7 @@ func doorEnv() map[string]string {
 	return map[string]string{
 		EnvIdentity: IdentityOIDC, EnvPublicURL: "https://liaison.example.test/", EnvSealKeys: "k1:abc",
 		EnvOIDCIssuer: "https://idp.example.test", EnvOIDCClientID: "door", EnvOIDCSecretFile: "/secrets/client",
-		EnvSigningKeysFile: "/secrets/signing", EnvRedirectHosts: "App.Example.Test",
+		EnvSigningKeysFile: "/secrets/signing", EnvHopKeysFile: "/secrets/hop", EnvRedirectHosts: "App.Example.Test",
 	}
 }
 
@@ -19,7 +19,7 @@ func fakeFiles(path string) ([]byte, error) {
 	switch path {
 	case "/secrets/client":
 		return []byte("s3cret\n"), nil
-	case "/secrets/signing":
+	case "/secrets/signing", "/secrets/hop":
 		return []byte("pem"), nil
 	}
 	return nil, errors.New("no such file")
@@ -40,6 +40,7 @@ func TestDoorConfigFromEnv(t *testing.T) {
 	for name, pair := range map[string][2]any{
 		"public address": {cfg.PublicURL, "https://liaison.example.test"},
 		"resource":       {cfg.Resource(), "https://liaison.example.test/mcp"},
+		"hop keys":       {cfg.HopKeys, "pem"},
 		"refresh age":    {cfg.RefreshMaxAge, 168 * time.Hour},
 		"redirect hosts": {strings.Join(cfg.AllowedRedirectHosts, ","), "app.example.test"},
 		"client secret":  {cfg.OIDC.ClientSecret, "s3cret"},
@@ -85,5 +86,16 @@ func TestDoorWontStartWithoutUsableKeys(t *testing.T) {
 	cfg.SigningKeys = notPEM
 	if _, err := NewDoor(&cfg); err == nil {
 		t.Error("started with a signing key that is not PEM")
+	}
+	cfg = newDoorRig(t, nil).cfg
+	cfg.HopKeys = notPEM
+	if _, err := NewDoor(&cfg); err == nil {
+		t.Error("started with a hop key that is not PEM")
+	}
+	cfg = newDoorRig(t, nil).cfg
+	cfg.HopKeys = privateKeyPEM(t)
+	d, err := NewDoor(&cfg)
+	if err != nil || d.HopSigner() == nil {
+		t.Errorf("a good hop key: %v %v", d, err)
 	}
 }

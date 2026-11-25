@@ -139,14 +139,17 @@ for want in LIAISON_SIGNIN_IDENTITY=oidc LIAISON_SIGNIN_OIDC_ISSUER=https://idp.
   ACCESS_ALLOW_ANONYMOUS=false; do
   grep -qxF "$want" <<<"$env" || fail "door env lacks $want"
 done
-for absent in LIAISON_SIGNIN_UPSTREAM LIAISON_SIGNIN_UPSTREAM_CLIENT_ID; do
+for absent in LIAISON_SIGNIN_UPSTREAM LIAISON_SIGNIN_UPSTREAM_CLIENT_ID LIAISON_SIGNIN_HOP_KEYS_FILE; do
   grep -q "^$absent=" <<<"$env" && fail "door render sets $absent"
 done
 grep -q '^LIAISON_SIGNIN_OIDC_CLIENT_SECRET=' <<<"$env" && fail "the client secret is in the environment"
 d="$(liaison_deploy "$out")"
-[ "$(yq '.spec.template.spec.volumes[] | select(.name == "signin-identity") | .projected.sources | length' <<<"$d")" = 2 ] || fail "door secrets are not two sources"
+[ "$(yq '.spec.template.spec.volumes[] | select(.name == "signin-identity") | .projected.sources | length' <<<"$d")" = 2 ] || fail "door secrets are not two sources without a hop key"
 [ "$(yq '.spec.template.spec.volumes[] | select(.name == "signin-identity") | .projected.sources[0].secret.name' <<<"$d")" = "idp" ] || fail "client secret source"
 [ "$(yq '.spec.template.spec.containers[0].volumeMounts[] | select(.name == "signin-identity").readOnly' <<<"$d")" = "true" ] || fail "door secrets are writable"
+out="$(render "${door[@]}" --set liaison.signIn.identity.hopKeySecret.name=hop)"
+grep -qxF 'LIAISON_SIGNIN_HOP_KEYS_FILE=/etc/kubemoot/signin-identity/hop-keys' <<<"$(liaison_env "$out")" || fail "hop key file not set with a hop Secret"
+[ "$(liaison_deploy "$out" | yq '.spec.template.spec.volumes[] | select(.name == "signin-identity") | .projected.sources | length')" = 3 ] || fail "hop key source missing"
 # The door's identity beside the upstream front, an unknown provider, or missing pieces: no render.
 for bad in "liaison.signIn.upstream.authorizeURL=https://up.example.com/authorize" "liaison.signIn.identity.provider=ldap" \
   liaison.signIn.identity.oidc.issuer= liaison.signIn.identity.oidc.clientId= liaison.signIn.identity.oidc.clientSecret.name= \
