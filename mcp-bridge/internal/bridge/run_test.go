@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -60,8 +62,8 @@ type fakeServer struct {
 func startFakeServer(t *testing.T, dir string) *fakeServer {
 	t.Helper()
 	// Opening blocks until the bridge opens the other end of each pipe.
-	stdin := pipetest.Open(t, filepath.Join(dir, "stdin"), os.O_RDONLY)
-	stdout := pipetest.Open(t, filepath.Join(dir, "stdout"), os.O_WRONLY)
+	stdin := pipetest.Open(t, filepath.Join(dir, stdinPipe), os.O_RDONLY)
+	stdout := pipetest.Open(t, filepath.Join(dir, stdoutPipe), os.O_WRONLY)
 	f := &fakeServer{stdin: stdin, stdout: stdout, lines: make(chan string, 32), done: make(chan struct{})}
 	go f.serve()
 	return f
@@ -174,7 +176,7 @@ func startRun(t *testing.T) (base, dir string, cancel context.CancelFunc, runErr
 	base = fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	waitFor(t, "the pipes", func() bool {
-		st, err := os.Stat(filepath.Join(dir, "stdout"))
+		st, err := os.Stat(filepath.Join(dir, stdoutPipe))
 		return err == nil && st.Mode()&os.ModeNamedPipe != 0
 	})
 	waitFor(t, "the HTTP server", func() bool { return status(t, base+"/healthz") != 0 })
@@ -288,9 +290,8 @@ func TestMakePipes_AcceptsPipesLeftByAPreviousStart(t *testing.T) {
 	}
 }
 
-// The two goroutines pipeSession starts to open the FIFOs stay blocked after it
-// returns, because nothing ever opens the other ends. That is production behavior
-// too; the card "MCP Bridge Waits for Pipes on Shutdown" will fix pipeSession.
+// The goroutines pipeSession starts to open the FIFOs are released when it returns,
+// even though no server ever opens the other ends.
 func TestPipeSession_StopsWhenTheContextEndsBeforeAServerConnects(t *testing.T) {
 	b := New(t.TempDir(), 0, "/healthz")
 	if err := b.makePipes(); err != nil {
@@ -304,6 +305,68 @@ func TestPipeSession_StopsWhenTheContextEndsBeforeAServerConnects(t *testing.T) 
 	if b.connected.Load() {
 		t.Fatal("connected without a server")
 	}
+	waitForNoBridgeGoroutines(t)
+}
+
+// bridgeGoroutines lists the goroutines running bridge code other than the tests.
+func bridgeGoroutines() []string {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	var found []string
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		if strings.Contains(g, "internal/bridge.(*Bridge).") || strings.Contains(g, "internal/bridge.abandonOpener") ||
+			strings.Contains(g, "internal/bridge.startOpener") || strings.Contains(g, "internal/bridge.openPipes") {
+			found = append(found, g)
+		}
+	}
+	return found
+}
+
+// waitForNoBridgeGoroutines waits until every goroutine the bridge started has ended.
+func waitForNoBridgeGoroutines(t *testing.T) {
+	t.Helper()
+	var left []string
+	waitFor(t, "the bridge's goroutines to end", func() bool {
+		left = bridgeGoroutines()
+		return len(left) == 0
+	})
+}
+
+// A cancel while a server's session is open must end Run at once: the bridge closes its
+// pipe ends instead of waiting for the server to close its own, and starts nothing that
+// outlives it.
+func TestRun_ReturnsAtOnceWhenCancelledWhileASessionIsOpen(t *testing.T) {
+	base, dir, cancel, runErr := startRun(t)
+	server := connectAndHandshake(t, dir)
+	waitFor(t, "/readyz 200", func() bool { return status(t, base+"/readyz") == http.StatusOK })
+	requestAndReply(t, base, server)
+	t.Cleanup(server.disconnect)
+
+	cancel() // the server stays connected: its pipe ends are still open
+	select {
+	case err := <-runErr:
+		if err != nil {
+			t.Fatalf("Run returned %v after cancel", err)
+		}
+	case <-time.After(safetyDeadline):
+		t.Fatal("Run waited for the server's pipes instead of returning after cancel")
+	}
+	waitForNoBridgeGoroutines(t)
+}
+
+// A cancel before any server connects must also end Run and release the pipe openers.
+func TestRun_ReturnsWhenCancelledBeforeAServerConnects(t *testing.T) {
+	_, _, cancel, runErr := startRun(t)
+	cancel()
+	select {
+	case err := <-runErr:
+		if err != nil {
+			t.Fatalf("Run returned %v after cancel", err)
+		}
+	case <-time.After(safetyDeadline):
+		t.Fatal("Run did not return after cancel")
+	}
+	waitForNoBridgeGoroutines(t)
 }
 
 func TestPipeSession_ReportsAMissingPipe(t *testing.T) {
@@ -350,4 +413,52 @@ func TestSendBridgeInitialize_WritesTheHandshakeToTheServer(t *testing.T) {
 	if rpc.Method != "initialize" || rpc.ID != bridgeInitID {
 		t.Fatalf("wrote %+v", rpc)
 	}
+}
+
+// One pipe opened and the other still blocked when the context ends: the opened end is
+// closed (the server sees EOF) and the blocked opener is released.
+func TestPipeSession_ClosesAnOpenedEndWhenTheOtherNeverOpens(t *testing.T) {
+	b := New(t.TempDir(), 0, "/healthz")
+	if err := b.makePipes(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() { done <- b.pipeSession(ctx) }()
+
+	// Opening the read end of the bridge's stdin pipe pairs with the bridge's writer; the
+	// server never opens the stdout pipe, so the bridge's reader stays blocked.
+	serverStdin := pipetest.Open(t, filepath.Join(b.pipeDir, stdinPipe), os.O_RDONLY)
+	t.Cleanup(func() { _ = serverStdin.Close() })
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != context.Canceled {
+			t.Fatalf("pipeSession = %v, want context.Canceled", err)
+		}
+	case <-time.After(safetyDeadline):
+		t.Fatal("pipeSession did not return after cancel")
+	}
+	if _, err := io.ReadAll(serverStdin); err != nil { // EOF only once the bridge closed its write end
+		t.Fatalf("reading the server's stdin: %v", err)
+	}
+	waitForNoBridgeGoroutines(t)
+}
+
+func TestOpenPipes_ReleasesTheOtherOpenerWhenOneFails(t *testing.T) {
+	dir := t.TempDir()
+	stdinPath := filepath.Join(dir, stdinPipe)
+	if err := os.Mkdir(stdinPath, 0o755); err != nil { // opening a directory for writing fails at once
+		t.Fatal(err)
+	}
+	b := New(dir, 0, "/healthz")
+	if err := syscall.Mkfifo(filepath.Join(b.pipeDir, stdoutPipe), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := openPipes(context.Background(), stdinPath, filepath.Join(dir, stdoutPipe)); err == nil {
+		t.Fatal("openPipes succeeded although the stdin pipe cannot be opened")
+	}
+	waitForNoBridgeGoroutines(t)
 }
