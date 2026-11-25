@@ -29,7 +29,7 @@ let loaded: { file: string; mtimeMs: number; size: number; pem: string } | null 
  */
 export function readCA(file: string): string {
 	const info = statSync(file);
-	if (loaded && loaded.file === file && loaded.mtimeMs === info.mtimeMs && loaded.size === info.size) return loaded.pem;
+	if (loaded?.file === file && loaded.mtimeMs === info.mtimeMs && loaded.size === info.size) return loaded.pem;
 	const pem = readFileSync(file, 'utf8');
 	if (!pem.includes('BEGIN CERTIFICATE')) throw new Error(`the CA file ${file} holds no certificate`);
 	loaded = { file, mtimeMs: info.mtimeMs, size: info.size, pem };
