@@ -318,6 +318,43 @@ spec:
                           TokenReview makes the gateway check Kubernetes bearer tokens with a TokenReview and
                           a SubjectAccessReview.
                         type: boolean
+                      trustedHops:
+                        description: |-
+                          TrustedHops are doors in front of the crew that sign people in themselves, such as the
+                          crew liaison with its own sign-in. The gateway accepts the short signed assertion such a
+                          door makes of the person asking (user and groups, valid for one minute, for this crew
+                          only), then asks Kubernetes with a SubjectAccessReview whether that user and those
+                          groups may use the crew. Empty by default: no assertion is accepted.
+                        items:
+                          description: |-
+                            TrustedHop is one door whose assertions of who is asking the gateway accepts. The door's
+                            private key stays with the door; the crew holds only the public half.
+                          properties:
+                            name:
+                              description: Name is the issuer the door signs as, a
+                                DNS label. The liaison signs as "liaison".
+                              pattern: ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$
+                              type: string
+                            publicKeys:
+                              description: |-
+                                PublicKeys are the door's ECDSA P-256 public keys as PEM ("-----BEGIN PUBLIC KEY-----").
+                                List the old and the new key while a key rotates.
+                              items:
+                                maxLength: 512
+                                pattern: ^-----BEGIN PUBLIC KEY-----
+                                type: string
+                              maxItems: 4
+                              minItems: 1
+                              type: array
+                          required:
+                          - name
+                          - publicKeys
+                          type: object
+                        maxItems: 4
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
                     type: object
                     x-kubernetes-validations:
                     - message: serviceTokens needs hashKeySecretRef

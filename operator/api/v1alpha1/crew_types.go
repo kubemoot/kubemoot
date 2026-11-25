@@ -100,6 +100,33 @@ type DiscussionAccess struct {
 	// Required while serviceTokens is set; the installer creates the Secret.
 	// +optional
 	HashKeySecretRef *HashKeySecretRef `json:"hashKeySecretRef,omitempty"`
+
+	// TrustedHops are doors in front of the crew that sign people in themselves, such as the
+	// crew liaison with its own sign-in. The gateway accepts the short signed assertion such a
+	// door makes of the person asking (user and groups, valid for one minute, for this crew
+	// only), then asks Kubernetes with a SubjectAccessReview whether that user and those
+	// groups may use the crew. Empty by default: no assertion is accepted.
+	// +kubebuilder:validation:MaxItems=4
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	TrustedHops []TrustedHop `json:"trustedHops,omitempty"`
+}
+
+// TrustedHop is one door whose assertions of who is asking the gateway accepts. The door's
+// private key stays with the door; the crew holds only the public half.
+type TrustedHop struct {
+	// Name is the issuer the door signs as, a DNS label. The liaison signs as "liaison".
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`
+	Name string `json:"name"`
+
+	// PublicKeys are the door's ECDSA P-256 public keys as PEM ("-----BEGIN PUBLIC KEY-----").
+	// List the old and the new key while a key rotates.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=4
+	// +kubebuilder:validation:items:MaxLength=512
+	// +kubebuilder:validation:items:Pattern=`^-----BEGIN PUBLIC KEY-----`
+	PublicKeys []string `json:"publicKeys"`
 }
 
 // HashKeySecretRef is a key of a Secret in the crew's namespace.
