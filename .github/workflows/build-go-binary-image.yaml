@@ -72,7 +72,8 @@ jobs:
           NAME: ${{ inputs.name }}
           BINARY: ${{ inputs.binary }}
         run: |
-          "${BUILD_IMAGE_DIR}/build-image-buildpacks.sh" \
+          bash .github/scripts/retry-lost-build-pod.sh -- \
+            "${BUILD_IMAGE_DIR}/build-image-buildpacks.sh" \
             --pod "buildpacks-${NAME}-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
             --sha "${SHA}" --ref "${GITHUB_REF}" \
             --builder builder-java-tiny --run-image run-static \

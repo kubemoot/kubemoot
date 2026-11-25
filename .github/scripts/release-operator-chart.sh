@@ -41,7 +41,9 @@
 #   RELEASE_LIB  release-lib.sh of kubemoot/release-actions (its actions set it)
 # Outputs ($GITHUB_OUTPUT): will_release (a candidate is due: true in a dry run too, so
 # a workflow can plan first and mint its push token only when one is), released,
-# chart_version, test_runner (the test-runner tag the chart pins for verification jobs).
+# held and held_file (a pinned image is behind the code; the stale pins, one per line, are
+# in held_file for report-held-chart.sh), chart_version, test_runner (the test-runner tag
+# the chart pins for verification jobs).
 set -euo pipefail
 # The release token leaves the environment before any other command runs (see push-token.sh).
 # shellcheck source=/dev/null
@@ -116,6 +118,11 @@ main() {
   [ "$pairing" -ne 2 ] || die "cannot tell whether every pinned image is current (above)"
   if [ "$pairing" -ne 0 ]; then
     echo "::warning::No chart candidate at ${commit}: ${lines//$'\n'/%0A}"
+    # The lines go to a file for report-held-chart.sh, which fails the job when no release
+    # of the held component is running, so a hold nothing will clear is not just a warning.
+    printf '%s\n' "$lines" > "${OUT_DIR}/held-chart.txt"
+    output held true
+    output held_file "${OUT_DIR}/held-chart.txt"
     output will_release false
     output released false
     return 0

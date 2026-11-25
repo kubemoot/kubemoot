@@ -114,6 +114,8 @@ jobs:
           bash .github/scripts/test-install-crane.sh
           bash .github/scripts/test-check-chart-triggers.sh
           bash .github/scripts/test-chart-image-pairing.sh
+          bash .github/scripts/test-report-held-chart.sh
+          bash .github/scripts/test-retry-lost-build-pod.sh
           bash .github/scripts/test-check-native-libs.sh
           bash .github/scripts/test-check-native-target.sh
           bash .github/scripts/test-check-go-builder-version.sh

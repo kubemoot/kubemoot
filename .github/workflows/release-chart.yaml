@@ -12,7 +12,10 @@
 # a commit after a pinned image's tagged commit touches that component's release path
 # filter, the run builds nothing (chart-image-pairing.sh) and the component's own release,
 # when it succeeds, runs this workflow again. The plan step and the push step each run the
-# check on the same checkout, so both reach the same decision.
+# check on the same checkout, so both reach the same decision. When no release of the held
+# component is running, nothing will run this workflow again: the run then fails, naming the
+# component and the command that recovers it (report-held-chart.sh), so the hold does not
+# sit unseen while a fix waits to be released.
 #
 # Chart builds run one at a time. A pending run that a newer one replaces loses
 # nothing: the newer run reads the tags later, so it includes every image the replaced
@@ -65,6 +68,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write   # pushes the chart candidate tag
+      actions: read     # reads whether a held component's release is running
     outputs:
       released: ${{ steps.chart.outputs.released }}
       chart_version: ${{ steps.chart.outputs.chart_version }}
@@ -99,6 +103,15 @@ jobs:
           DRY_RUN: 'true'
           FORCE: ${{ inputs.force_release || false }}
         run: bash .github/scripts/release-operator-chart.sh
+
+      # A pinned image behind the code holds the chart: a wait while that component's release
+      # runs, a failure (red check, email) naming the component and the recovery when none does.
+      - name: Report a held chart
+        if: steps.plan.outputs.held == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HELD_FILE: ${{ steps.plan.outputs.held_file }}
+        run: bash .github/scripts/report-held-chart.sh "${HELD_FILE}"
 
       - name: Mint a release token
         id: app-token
