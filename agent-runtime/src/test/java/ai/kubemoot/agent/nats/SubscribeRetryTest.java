@@ -71,6 +71,21 @@ class SubscribeRetryTest {
     }
 
     @Test
+    void anAttemptThatThrowsAnErrorDoesNotEndTheRetries() throws Exception {
+        retry = new SubscribeRetry("test", QUICK, QUICK);
+        var attempts = new AtomicInteger();
+        var done = new CountDownLatch(1);
+        retry.attemptOrRetry(() -> {
+            if (attempts.incrementAndGet() < 3) {
+                throw new NoClassDefFoundError("a class the connection needs");
+            }
+            done.countDown();
+            return true;
+        });
+        assertTrue(done.await(SAFETY_SECONDS, TimeUnit.SECONDS), "an Error from an attempt ended the retries");
+    }
+
+    @Test
     void stopEndsTheRetries() throws Exception {
         retry = new SubscribeRetry("test", QUICK, QUICK);
         var attempts = new AtomicInteger();

@@ -23,6 +23,7 @@ import io.nats.client.KeyValue;
 import io.nats.client.api.KeyValueEntry;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.enterprise.event.Observes;
@@ -317,6 +318,7 @@ public class DiscussionOrchestrator {
     private final String conversationKvBucket;
 
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private SubscribeRetry subscribeRetry = new SubscribeRetry("discussion-orchestrator");
     // Separate executor for LLM calls so they never starve the scheduler's
     // periodic tasks (checkPhaseTransitions, cleanupOldThreads).
     private final ExecutorService llmExecutor = Executors.newCachedThreadPool();
@@ -475,12 +477,19 @@ public class DiscussionOrchestrator {
             return;
         }
 
-        if (!trySubscribe()) {
-            log.info("NATS not yet available — orchestrator will retry subscription every 30s");
-            scheduler.scheduleAtFixedRate(() -> {
-                if (!subscribed) trySubscribe();
-            }, 30, 30, TimeUnit.SECONDS);
+        if (!subscribeRetry.attemptOrRetry(this::trySubscribe)) {
+            log.info("NATS not yet available - the orchestrator retries the subscription with backoff");
         }
+    }
+
+    /** Test seam: retry on a short backoff so a test waits on the state, not on 30 s. */
+    void setSubscribeRetryForTest(SubscribeRetry retry) {
+        this.subscribeRetry = retry;
+    }
+
+    @PreDestroy
+    void stopRetrying() {
+        subscribeRetry.stop();
     }
 
     /**
@@ -494,12 +503,27 @@ public class DiscussionOrchestrator {
         }
     }
 
-    private boolean trySubscribe() {
+    /** One subscribe attempt; false when NATS is not reachable yet or a subscription failed. */
+    // Visible for testing
+    boolean trySubscribe() {
         Connection conn = natsProvider.getConnection();
         if (conn == null) return false;
 
         Dispatcher dispatcher = conn.createDispatcher();
+        try {
+            subscribeAll(conn, dispatcher);
+        } catch (RuntimeException e) {
+            // A dispatcher left behind would deliver the subjects that did subscribe a second
+            // time once the retry succeeds.
+            conn.closeDispatcher(dispatcher);
+            log.warn("Coordinator subscribe failed: {}", LogContent.reason(e));
+            return false;
+        }
+        startPeriodicTasks();
+        return true;
+    }
 
+    private void subscribeAll(Connection conn, Dispatcher dispatcher) {
         // With resume on, find the threads the last coordinator left in flight and hold their live
         // messages back before the subscription below delivers any.
         resume.get().discover();
@@ -532,7 +556,9 @@ public class DiscussionOrchestrator {
             }
         });
         log.info("Subscribed to lifecycle signals: {}", lifecycleSub);
+    }
 
+    private void startPeriodicTasks() {
         // Phase transition checker (1s interval for responsive signal-driven transitions)
         scheduler.scheduleAtFixedRate(this::checkPhaseTransitions, 1, 1, TimeUnit.SECONDS);
 
@@ -550,7 +576,6 @@ public class DiscussionOrchestrator {
         subscribed = true;
         log.info("Discussion orchestrator active: advisory={}s, review={}s, synthesis={}s, minEval={}s, settle={}s, channels={}",
                 advisoryTimeoutSeconds, reviewTimeoutSeconds, synthesisTimeoutSeconds, minEvalSeconds, settleSeconds, channels);
-        return true;
     }
 
     /** With leases on: renews them, and looks for threads whose owner stopped renewing. */
