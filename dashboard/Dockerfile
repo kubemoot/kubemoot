@@ -17,6 +17,8 @@ COPY . .
 # runner libatomic/Node 26 coupling). A failing check, lint, or test fails the build.
 RUN npm run check
 RUN npm run lint
+# The internal TLS tests make a throwaway CA and certificate with openssl (this stage only).
+RUN apk add --no-cache openssl
 RUN npm test
 
 # Build the application
