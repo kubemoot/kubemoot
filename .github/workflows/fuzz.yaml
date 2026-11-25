@@ -1,0 +1,61 @@
+# Fuzzes every Go native fuzz target (func FuzzXxx(f *testing.F)) in the operator for
+# fuzz_time each. Pull requests call it briefly from ci.yaml; the nightly schedule fuzzes
+# longer. A new input a fuzzer finds fails the run and is uploaded as a regression seed.
+name: Fuzz
+
+on:
+  workflow_call:
+    inputs:
+      fuzz_time:
+        description: How long to fuzz each target (a Go duration).
+        type: string
+        default: 10s
+  schedule:
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzz_time:
+        description: How long to fuzz each target (a Go duration).
+        type: string
+        default: 2m
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    # Pull requests (including forks) run on GitHub-hosted runners; the cluster runners take
+    # the nightly and dispatched runs from main only.
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
+    timeout-minutes: 60
+    env:
+      FUZZ_TIME: ${{ inputs.fuzz_time || '2m' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: operator/go.mod
+          cache-dependency-path: operator/go.sum
+
+      # Targets are found by searching the test files, so a new fuzz test runs here without a
+      # workflow change and no package is compiled only to list its tests. Go fuzzes one
+      # target per invocation.
+      - name: Fuzz each target
+        working-directory: operator
+        run: bash ../.github/scripts/fuzz-targets.sh run "${FUZZ_TIME}"
+
+      # A failing input is written under the package's testdata/fuzz/<target>/. Keep it
+      # so it can be committed as a regression seed beside the fix.
+      - name: Upload failing fuzz inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-failures
+          path: operator/**/testdata/fuzz/
