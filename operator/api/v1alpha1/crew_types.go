@@ -220,6 +220,15 @@ type CrewSpec struct {
 	// +kubebuilder:validation:MaxLength=64
 	// +optional
 	DefaultTimeZone string `json:"defaultTimeZone,omitempty"`
+
+	// ConnectedAccounts are the outside services whose accounts a person connects so this
+	// crew's tools act as them. Each name is unique within the crew, and an MCPServer takes its
+	// per-person token from one with registry.callerCredential.account.
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	ConnectedAccounts []ConnectedAccount `json:"connectedAccounts,omitempty"`
 }
 
 // CrewMemoryConfig governs a crew's working-memory storage, injection, and GC.

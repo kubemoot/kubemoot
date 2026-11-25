@@ -152,7 +152,9 @@ const (
 // CallerCredential configures a server's per-person credential. A crew whose discussion
 // gateway has a serviceTokens verifier with passToTools holds the token; the MCP gateway
 // leases it for each call.
-// +kubebuilder:validation:XValidation:rule="self.mode != 'Required' || (has(self.verifier) && size(self.verifier) > 0)",message="verifier is required when mode is Required"
+// +kubebuilder:validation:XValidation:rule="self.mode != 'Required' || (has(self.verifier) && size(self.verifier) > 0) || (has(self.account) && size(self.account) > 0)",message="verifier or account is required when mode is Required"
+// +kubebuilder:validation:XValidation:rule="!(has(self.verifier) && size(self.verifier) > 0 && has(self.account) && size(self.account) > 0)",message="verifier and account are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(self.account) || size(self.account) == 0 || self.mode == 'Required'",message="account needs mode Required"
 type CallerCredential struct {
 	// Mode is Off (the default) or Required.
 	// +kubebuilder:default=Off
@@ -160,10 +162,17 @@ type CallerCredential struct {
 	Mode CallerCredentialMode `json:"mode,omitempty"`
 
 	// Verifier is the name of the crew's serviceTokens entry whose people's tokens this
-	// server takes. Required when mode is Required.
+	// server takes. Required with mode Required unless account is set.
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`
 	// +optional
 	Verifier string `json:"verifier,omitempty"`
+
+	// Account is the name of a connectedAccounts entry of a Crew in this namespace: the
+	// person's token comes from the account they connected, not from a service token. Use it
+	// instead of verifier; the two are mutually exclusive, and account needs mode Required.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`
+	// +optional
+	Account string `json:"account,omitempty"`
 
 	// LeaseURL is the credential broker's lease endpoint for this server. Empty uses the
 	// address the operator sets on the MCP gateway, which is the crew's discussion gateway.

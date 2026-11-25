@@ -465,6 +465,13 @@ spec:
                       instead of the server's own credential. Unset, or mode Off, the server's own credential
                       is used as before.
                     properties:
+                      account:
+                        description: |-
+                          Account is the name of a connectedAccounts entry of a Crew in this namespace: the
+                          person's token comes from the account they connected, not from a service token. Use it
+                          instead of verifier; the two are mutually exclusive, and account needs mode Required.
+                        pattern: ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$
+                        type: string
                       accountName:
                         description: |-
                           AccountName is how a refusal names the account to connect, for example "O'Reilly".
@@ -509,14 +516,20 @@ spec:
                       verifier:
                         description: |-
                           Verifier is the name of the crew's serviceTokens entry whose people's tokens this
-                          server takes. Required when mode is Required.
+                          server takes. Required with mode Required unless account is set.
                         pattern: ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$
                         type: string
                     type: object
                     x-kubernetes-validations:
-                    - message: verifier is required when mode is Required
+                    - message: verifier or account is required when mode is Required
                       rule: self.mode != 'Required' || (has(self.verifier) && size(self.verifier)
-                        > 0)
+                        > 0) || (has(self.account) && size(self.account) > 0)
+                    - message: verifier and account are mutually exclusive
+                      rule: '!(has(self.verifier) && size(self.verifier) > 0 && has(self.account)
+                        && size(self.account) > 0)'
+                    - message: account needs mode Required
+                      rule: '!has(self.account) || size(self.account) == 0 || self.mode
+                        == ''Required'''
                   categories:
                     description: Categories are searchable tags for tool discovery
                       (e.g., kubernetes, database)
