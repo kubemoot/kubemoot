@@ -11,10 +11,12 @@ You may obtain a copy of the License at
 package bus
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // ErrNotReady marks a failure that means the bus is not there yet or not
@@ -24,8 +26,12 @@ import (
 // verdict on the work that hit it.
 var ErrNotReady = errors.New("the bus is not ready")
 
-// notReadyCauses are the NATS client errors that mean the bus is not ready.
+// notReadyCauses are the NATS client errors that mean the bus is not ready, as both client
+// APIs report them: the nats package, and the jetstream package, whose calls end with the
+// context's deadline where the nats package reports a timeout.
 var notReadyCauses = []error{
+	jetstream.ErrStreamNotFound, jetstream.ErrBucketNotFound, jetstream.ErrJetStreamNotEnabled,
+	jetstream.ErrJetStreamNotEnabledForAccount, context.DeadlineExceeded,
 	nats.ErrStreamNotFound, nats.ErrBucketNotFound, nats.ErrNoResponders,
 	nats.ErrTimeout, nats.ErrConnectionClosed, nats.ErrDisconnected,
 	nats.ErrNoServers, nats.ErrJetStreamNotEnabled, nats.ErrJetStreamNotEnabledForAccount,

@@ -13,6 +13,7 @@ package crewmemory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"testing"
@@ -26,6 +27,7 @@ import (
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 )
 
 const (
@@ -97,9 +99,22 @@ func TestPlanIsIdempotent(t *testing.T) {
 type fakeKV struct {
 	data    map[string][]byte
 	failPut bool
+	// busDown is how many key lists still fail because the bus cannot be reached.
+	busDown int
+	lists   int
+	// onList runs at every key list, before it answers.
+	onList func()
 }
 
-func (f *fakeKV) ListKVKeys(string) ([]string, error) {
+func (f *fakeKV) CrewMemoryKeys() ([]string, error) {
+	f.lists++
+	if f.onList != nil {
+		f.onList()
+	}
+	if f.busDown > 0 {
+		f.busDown--
+		return nil, fmt.Errorf("%w: no servers", bus.ErrNotReady)
+	}
 	keys := make([]string, 0, len(f.data))
 	for k := range f.data {
 		keys = append(keys, k)
@@ -190,24 +205,29 @@ func TestRunNoopWithoutKV(t *testing.T) {
 	}
 }
 
+func TestRunReportsAnUnreachableBusInsteadOfFindingNoKeys(t *testing.T) {
+	m := newReader(t, crew(nsA, "pilot"))
+	kv := &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}, busDown: 1}
+	m.KV = kv
+	err := m.Run(context.Background(), logr.Discard())
+	if !errors.Is(err, bus.ErrNotReady) {
+		t.Fatalf("Run with the bus down = %v, want bus.ErrNotReady", err)
+	}
+	if string(kv.data[legacyKey]) != legacyValue || len(kv.data) != 1 {
+		t.Errorf("nothing may be migrated while the bus is down: %v", kv.data)
+	}
+}
+
 func TestStartWaitsForTheBusThenMigrates(t *testing.T) {
 	m := newReader(t, crew(nsA, "pilot"))
-	kv := &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}}
+	kv := &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}, busDown: 3}
 	m.KV = kv
 	m.Backoff = kubemootnats.Backoff{First: time.Millisecond, Max: time.Millisecond}
-	polls := 0
-	m.Ready = func() error {
-		polls++
-		if polls < 4 {
-			return errors.New("bus not ready")
-		}
-		return nil
-	}
 	if err := m.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if polls != 4 {
-		t.Errorf("the migration must wait for the bus by state; polled %d times, want 4", polls)
+	if kv.lists != 4 {
+		t.Errorf("the migration must wait for the bus by state; listed %d times, want 4", kv.lists)
 	}
 	if string(kv.data[scopedKey]) != legacyValue {
 		t.Errorf("the key was not migrated once the bus was ready: %v", kv.data)
@@ -216,10 +236,10 @@ func TestStartWaitsForTheBusThenMigrates(t *testing.T) {
 
 func TestStartEndsWithTheContextWhenTheBusNeverComes(t *testing.T) {
 	m := newReader(t, crew(nsA, "pilot"))
-	m.KV = &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}}
-	m.Backoff = kubemootnats.Backoff{First: time.Millisecond, Max: time.Millisecond}
 	ctx, cancel := context.WithCancel(context.Background())
-	m.Ready = func() error { cancel(); return errors.New("bus down") }
+	kv := &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}, busDown: 1 << 30, onList: cancel}
+	m.KV = kv
+	m.Backoff = kubemootnats.Backoff{First: time.Millisecond, Max: time.Millisecond}
 	done := make(chan error, 1)
 	go func() { done <- m.Start(ctx) }()
 	select {
@@ -230,7 +250,7 @@ func TestStartEndsWithTheContextWhenTheBusNeverComes(t *testing.T) {
 	case <-time.After(10 * time.Second): // safety net only
 		t.Fatal("Start did not return after the context ended")
 	}
-	if _, ok := m.KV.(*fakeKV).data[legacyKey]; !ok {
+	if _, ok := kv.data[legacyKey]; !ok {
 		t.Error("nothing may be migrated while the bus is down")
 	}
 }
