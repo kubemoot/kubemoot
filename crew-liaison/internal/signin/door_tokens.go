@@ -1,9 +1,7 @@
 package signin
 
 import (
-	"crypto"
 	"crypto/ecdsa"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"time"
@@ -35,16 +33,6 @@ type accessClaims struct {
 	ClientID string   `json:"client_id,omitempty"`
 }
 
-// keyID names a public key by its RFC 7638 thumbprint, so a token and the key list agree on it
-// without a table of ids.
-func keyID(pub *ecdsa.PublicKey) (string, error) {
-	sum, err := (&jose.JSONWebKey{Key: pub}).Thumbprint(crypto.SHA256)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(sum[:16]), nil
-}
-
 // tokenKeys signs access tokens with the first key and verifies with all of them.
 type tokenKeys struct {
 	signer jose.Signer
@@ -54,7 +42,7 @@ type tokenKeys struct {
 func newTokenKeys(keys []*ecdsa.PrivateKey) (*tokenKeys, error) {
 	tk := &tokenKeys{byKID: map[string]*ecdsa.PublicKey{}}
 	for i, k := range keys {
-		kid, err := keyID(&k.PublicKey)
+		kid, err := identity.KeyThumbprint(&k.PublicKey)
 		if err != nil {
 			return nil, err
 		}

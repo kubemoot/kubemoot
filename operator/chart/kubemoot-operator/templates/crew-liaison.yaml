@@ -196,6 +196,10 @@ spec:
               value: {{ $oidc.userPrefix | quote }}
             - name: LIAISON_SIGNIN_SIGNING_KEYS_FILE
               value: /etc/kubemoot/signin-identity/signing-keys
+            {{- if $in.identity.hopKeySecret.name }}
+            - name: LIAISON_SIGNIN_HOP_KEYS_FILE
+              value: /etc/kubemoot/signin-identity/hop-keys
+            {{- end }}
             - name: LIAISON_SIGNIN_REFRESH_MAX_HOURS
               value: {{ $in.identity.refreshMaxHours | quote }}
             {{- else }}
@@ -265,7 +269,8 @@ spec:
         {{- if $door }}
         {{- $id := .Values.liaison.signIn.identity }}
         # The door's own secrets, each from a Secret the installer creates: the issuer's client
-        # secret and the keys that sign access tokens. No pod but the liaison mounts them.
+        # secret, the keys that sign access tokens, and (optional) the key that signs the
+        # assertion of a person to a crew. No pod but the liaison mounts them.
         - name: signin-identity
           projected:
             sources:
@@ -279,6 +284,13 @@ spec:
                   items:
                     - key: {{ $id.signingKeySecret.key | default "signing-keys" }}
                       path: signing-keys
+              {{- if $id.hopKeySecret.name }}
+              - secret:
+                  name: {{ $id.hopKeySecret.name }}
+                  items:
+                    - key: {{ $id.hopKeySecret.key | default "hop-keys" }}
+                      path: hop-keys
+              {{- end }}
         {{- end }}
 ---
 apiVersion: v1

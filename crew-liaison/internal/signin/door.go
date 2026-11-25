@@ -27,6 +27,8 @@ type Door interface {
 	Handler() http.Handler
 	// Verifier checks a door access token on /mcp.
 	Verifier() identity.Verifier
+	// HopSigner asserts a person to a crew's gateway; nil when no hop key is configured.
+	HopSigner() *identity.HopSigner
 	// ResourceMetadataURL is the address the 401 on /mcp names.
 	ResourceMetadataURL() string
 }
@@ -39,6 +41,7 @@ type door struct {
 	keys    *tokenKeys
 	idp     identityProvider
 	fetcher *metadataFetcher
+	hop     *identity.HopSigner
 	replay  *replayCache
 	mux     *http.ServeMux
 }
@@ -74,11 +77,26 @@ func newDoor(cfg *DoorConfig, idp identityProvider) (*door, error) {
 		cfg: cfg, base: base, sealer: base.sealer, now: base.now, keys: keys, idp: idp,
 		replay: newReplayCache(), fetcher: newMetadataFetcher(cfg),
 	}
+	if err := d.loadHop(); err != nil {
+		return nil, err
+	}
 	if len(cfg.AllowedRedirectHosts) == 0 {
 		cfg.Logger.Info("sign-in allows redirect addresses on any host; set " + EnvRedirectHosts + " on a shared deployment")
 	}
 	d.routes()
 	return d, nil
+}
+
+func (d *door) loadHop() error {
+	if d.cfg.HopKeys == "" {
+		return nil
+	}
+	hopKeys, err := ParseSigningKeys(d.cfg.HopKeys)
+	if err != nil {
+		return err
+	}
+	d.hop, err = identity.NewHopSigner(hopKeys[0], hopIssuer, d.now)
+	return err
 }
 
 func (d *door) routes() {
@@ -92,10 +110,11 @@ func (d *door) routes() {
 	d.mux.HandleFunc("POST "+pathToken, d.token)
 }
 
-func (d *door) Handler() http.Handler        { return d.mux }
-func (d *door) Verifier() identity.Verifier  { return d }
-func (d *door) ResourceMetadataURL() string  { return ResourceMetadataURL(d.cfg.PublicURL) }
-func (d *door) event(name string, kv ...any) { d.cfg.Logger.Info(name, kv...) }
+func (d *door) Handler() http.Handler          { return d.mux }
+func (d *door) Verifier() identity.Verifier    { return d }
+func (d *door) HopSigner() *identity.HopSigner { return d.hop }
+func (d *door) ResourceMetadataURL() string    { return ResourceMetadataURL(d.cfg.PublicURL) }
+func (d *door) event(name string, kv ...any)   { d.cfg.Logger.Info(name, kv...) }
 
 func (d *door) serveMetadata(w http.ResponseWriter, _ *http.Request) {
 	base := d.cfg.PublicURL

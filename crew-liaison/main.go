@@ -222,6 +222,6 @@ func doorFront(cfg *signin.DoorConfig) (*liaison.SignInFront, error) {
 	}
 	return &liaison.SignInFront{
 		Handler: door.Handler(), ResourceMetadataURL: door.ResourceMetadataURL(),
-		Verifier: door.Verifier(),
+		Verifier: door.Verifier(), Hop: door.HopSigner(),
 	}, nil
 }

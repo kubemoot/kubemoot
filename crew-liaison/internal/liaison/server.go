@@ -70,6 +70,8 @@ type SignInFront struct {
 	ResourceMetadataURL string
 	// Verifier checks the door's own access tokens on /mcp; nil for a front that issues none.
 	Verifier identity.Verifier
+	// Hop signs the assertion of a person for a crew's gateway; nil sends none.
+	Hop *identity.HopSigner
 }
 
 // NewHandlerWithFront is NewHandlerWithAuth with a sign-in front (nil for none). The front

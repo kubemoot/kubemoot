@@ -593,6 +593,12 @@ liaison:
       signingKeySecret:
         name: ""
         key: signing-keys
+      # Optional. A Secret with the key that signs the assertion of who is asking, which a crew
+      # lists the public half of in spec.discussion.access.trustedHops. Without it no crew that
+      # verifies callers can be asked through the door.
+      hopKeySecret:
+        name: ""
+        key: hop-keys
       # How long a sign-in lasts at most, in hours, however it is used.
       refreshMaxHours: 168
   # Outside services whose accounts a person may connect, keyed by account name (a DNS label).
