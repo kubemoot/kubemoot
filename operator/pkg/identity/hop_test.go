@@ -96,7 +96,7 @@ func TestHopAssertionIsAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a good assertion was refused: %v", err)
 	}
-	if id.Issuer != IssuerKubernetes || id.Subject != hopUser || len(id.Groups) != 1 || id.Groups[0] != hopTeam {
+	if id.Issuer != HopIssuerPrefix+hopName1 || id.Subject != hopUser || len(id.Groups) != 1 || id.Groups[0] != hopTeam {
 		t.Fatalf("identity = %+v", id)
 	}
 }
@@ -253,7 +253,7 @@ func TestFromEnvTrustedHopAsksRBACAboutTheAssertedUser(t *testing.T) {
 	key := hopKey(t)
 	cfg, _ := json.Marshal([]TrustedHopConfig{{Name: hopName1, Audience: hopAud, PublicKeys: []string{publicPEM(t, key)}}})
 	client := tokenClient(nil, map[string]bool{"oidc:jane get crews": true})
-	env := map[string]string{EnvEnforce: EnvTrue, EnvTrustedHops: string(cfg)}
+	env := map[string]string{EnvEnforce: EnvTrue, EnvTrustedHops: string(cfg), EnvAskers: `{"kubernetesRBAC":{}}`}
 	settings, err := FromEnv(func(k string) string { return env[k] },
 		func() (kubernetes.Interface, error) { return client, nil })
 	if err != nil {

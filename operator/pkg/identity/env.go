@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/callerline"
@@ -50,7 +51,8 @@ type Settings struct {
 // so a door that enforces nothing needs no Kubernetes credentials. An error means the door
 // must not start: serving open while verification was asked for would be the wrong failure.
 // ACCESS_TRUSTED_HOPS (a JSON list, see TrustedHopConfig) adds the verifier of doors that assert who is
-// asking; it is first in the chain and needs the Kubernetes client for the SubjectAccessReview.
+// asking; it is first in the chain. It needs ACCESS_ASKERS (see AskersConfig), the rule that admits
+// those people: only the kubernetesRBAC kind needs the Kubernetes client, and every other kind needs ACCESS_HASH_KEY.
 // ACCESS_SERVICE_TOKENS (a JSON list, see ServiceTokenConfig) adds a verifier per service,
 // after the Kubernetes one so a Kubernetes token never goes to a service; it needs
 // ACCESS_HASH_KEY, because a subscriber is never named without the install key.
@@ -59,7 +61,7 @@ func FromEnv(getenv func(string) string, newClient func() (kubernetes.Interface,
 		return Settings{Authenticator: AnonymousAuthenticator()}, nil
 	}
 	allowAnonymous := getenv(EnvAllowAnonymous) == EnvTrue
-	hops, err := trustedHopsFromEnv(getenv)
+	askers, hops, err := hopsFromEnv(getenv)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -69,43 +71,106 @@ func FromEnv(getenv func(string) string, newClient func() (kubernetes.Interface,
 		verifiers = append(verifiers, hops)
 	}
 	routed := RoutedAuthorizer{}
-	if getenv(EnvTokenReview) == EnvTrue || hops != nil {
-		client, err := newClient()
-		if err != nil {
-			return Settings{}, fmt.Errorf("token review needs a Kubernetes client: %w", err)
-		}
-		reviewer := Reviewer{Client: client, Audiences: splitList(getenv(EnvTokenAudiences))}
-		if getenv(EnvTokenReview) == EnvTrue {
-			verifiers = append(verifiers, TokenReviewVerifier{Reviewer: reviewer})
-		}
-		routed.Kubernetes = reviewer
+	rbac := hops != nil && askers.KubernetesRBAC != nil
+	kv, reviewer, err := kubernetesFromEnv(getenv, newClient, rbac)
+	if err != nil {
+		return Settings{}, err
 	}
+	verifiers = append(verifiers, kv...)
+	routed.Kubernetes = reviewer
 	hasher, serviceVerifiers, subscribers, err := serviceTokensFromEnv(getenv)
 	if err != nil {
 		return Settings{}, err
 	}
 	verifiers = append(verifiers, serviceVerifiers...)
 	routed.Subscribers = subscribers
+	if hops != nil && !rbac {
+		if hasher, routed.Askers, err = askersFromEnv(getenv, *askers, hasher); err != nil {
+			return Settings{}, err
+		}
+	}
 	auth := NewAuthenticator(hasher, allowAnonymous, verifiers...)
 	return Settings{Authenticator: auth, Authorizer: authorizerOf(routed)}, nil
 }
 
-// trustedHopsFromEnv builds the verifier of the trusted hops, nil when none is configured.
-func trustedHopsFromEnv(getenv func(string) string) (*HopVerifier, error) {
+// trustedHopsFromEnv builds the verifier of the trusted hops, nil when none is configured. Hops
+// with no askers rule are refused: a door's people are never admitted by default.
+func trustedHopsFromEnv(getenv func(string) string, askers *AskersConfig) (*HopVerifier, error) {
 	configs, err := ParseTrustedHops(getenv(EnvTrustedHops))
 	if err != nil || len(configs) == 0 {
 		return nil, err
 	}
+	if askers == nil {
+		return nil, fmt.Errorf("%w: %s lists hops and %s is not set", ErrAskersConfig, EnvTrustedHops, EnvAskers)
+	}
+	for i := range configs {
+		configs[i].KubernetesUser = askers.KubernetesRBAC != nil
+	}
 	return NewHopVerifier(configs, nil)
 }
 
+// hopsFromEnv reads the askers rule and the trusted hops it admits people for.
+func hopsFromEnv(getenv func(string) string) (*AskersConfig, *HopVerifier, error) {
+	askers, err := ParseAskers(getenv(EnvAskers))
+	if err != nil {
+		return nil, nil, err
+	}
+	hops, err := trustedHopsFromEnv(getenv, askers)
+	return askers, hops, err
+}
+
+// kubernetesFromEnv builds the Kubernetes reviewer when tokens are to be checked or a hop's
+// people are Kubernetes users (needsRBAC). The verifiers are the token review one, if on.
+func kubernetesFromEnv(
+	getenv func(string) string, newClient func() (kubernetes.Interface, error), needsRBAC bool,
+) ([]Verifier, Authorizer, error) {
+	tokenReview := getenv(EnvTokenReview) == EnvTrue
+	if !tokenReview && !needsRBAC {
+		return nil, nil, nil
+	}
+	client, err := newClient()
+	if err != nil {
+		return nil, nil, fmt.Errorf("token review needs a Kubernetes client: %w", err)
+	}
+	reviewer := Reviewer{Client: client, Audiences: splitList(getenv(EnvTokenAudiences))}
+	if tokenReview {
+		return []Verifier{TokenReviewVerifier{Reviewer: reviewer}}, reviewer, nil
+	}
+	return nil, reviewer, nil
+}
+
+// askersFromEnv is the keyed hasher and the authorizer of a rule that does not map to Kubernetes.
+// Such a person is never named without the install's key.
+func askersFromEnv(getenv func(string) string, rule AskersConfig, hasher Hasher) (Hasher, Authorizer, error) {
+	if !hasher.Keyed() {
+		if hasher = (Hasher{Key: []byte(getenv(EnvHashKey))}); !hasher.Keyed() {
+			return Hasher{}, nil, fmt.Errorf("askers other than kubernetesRBAC need %s: %w", EnvHashKey, ErrNoHashKey)
+		}
+	}
+	authz, err := askerAuthorizerFromEnv(getenv, rule)
+	return hasher, authz, err
+}
+
+// askerAuthorizerFromEnv builds the authorizer of a rule that does not map to Kubernetes.
+func askerAuthorizerFromEnv(getenv func(string) string, rule AskersConfig) (Authorizer, error) {
+	a := AskerAuthorizer{Rule: rule, Log: logr.Discard()}
+	if rule.External != nil {
+		pdp, err := NewAuthZENClient(*rule.External, getenv(EnvAskersToken), nil)
+		if err != nil {
+			return nil, err
+		}
+		a.PDP = pdp
+	}
+	return a, nil
+}
+
 // authorizerOf is the authorizer of what FromEnv configured: nil when nothing is checked,
-// the Kubernetes authorizer alone when there are no subscribers, as before they existed.
+// the Kubernetes authorizer alone when there are no subscribers or askers, as before they existed.
 func authorizerOf(r RoutedAuthorizer) Authorizer {
 	switch {
-	case r.Subscribers == nil && r.Kubernetes == nil:
+	case r.Subscribers == nil && r.Askers == nil && r.Kubernetes == nil:
 		return nil
-	case r.Subscribers == nil:
+	case r.Subscribers == nil && r.Askers == nil:
 		return r.Kubernetes
 	}
 	return r

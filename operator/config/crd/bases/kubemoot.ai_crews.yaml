@@ -191,6 +191,102 @@ spec:
                           as the anonymous caller. A token that is present and not
                           valid is always refused.
                         type: boolean
+                      askers:
+                        description: |-
+                          Askers is the rule that decides which of the people a trusted hop asserts may ask this
+                          crew. Required with trustedHops, and only meaningful with it. Every kind but
+                          kubernetesRBAC needs hashKeySecretRef, because such a person is named on the bus by a
+                          keyed id.
+                        properties:
+                          anySignedIn:
+                            description: AnySignedIn admits every person the door
+                              asserts.
+                            type: object
+                          connectedAccount:
+                            description: |-
+                              ConnectedAccount admits every person the door signed in and names the account the crew's
+                              tools act with, which this crew declares in spec.connectedAccounts. The outside service
+                              decides entitlement on each call the crew's tools make. Today the gateway does not check
+                              that the person has connected the account; leasing it per person is a later step.
+                            pattern: ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$
+                            type: string
+                          external:
+                            description: |-
+                              External delegates the decision to a policy decision point the install runs, through the
+                              OpenID AuthZEN Authorization API 1.0 access evaluation call.
+                            properties:
+                              action:
+                                default: ask
+                                description: Action is the action name sent.
+                                maxLength: 64
+                                minLength: 1
+                                type: string
+                              resourceType:
+                                default: crew
+                                description: ResourceType is the type the Crew is
+                                  sent with. Its id is "<namespace>/<name>".
+                                maxLength: 64
+                                minLength: 1
+                                type: string
+                              subjectType:
+                                default: user
+                                description: SubjectType is the type the subject is
+                                  sent with.
+                                maxLength: 64
+                                minLength: 1
+                                type: string
+                              tokenSecretRef:
+                                description: |-
+                                  TokenSecretRef names a Secret key, in the crew's namespace, with a bearer token the
+                                  gateway presents to the policy decision point. Without it no credential is sent.
+                                properties:
+                                  key:
+                                    description: Key is the key in the Secret.
+                                    minLength: 1
+                                    type: string
+                                  name:
+                                    description: Name is the Secret's name.
+                                    minLength: 1
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                type: object
+                              url:
+                                description: |-
+                                  URL is the policy decision point's access evaluation endpoint, such as
+                                  https://pdp.example.org/access/v1/evaluation. It must be https.
+                                maxLength: 512
+                                pattern: ^https://[^/?#\s]+(/[^?#\s]*)?$
+                                type: string
+                            required:
+                            - url
+                            type: object
+                          issuerGroups:
+                            description: |-
+                              IssuerGroups admits a person whose asserted groups, as the sign-in provider sent them
+                              (with the door's group prefix), include at least one of these.
+                            items:
+                              maxLength: 256
+                              minLength: 1
+                              type: string
+                            maxItems: 32
+                            minItems: 1
+                            type: array
+                          kubernetesRBAC:
+                            description: |-
+                              KubernetesRBAC maps the person to a Kubernetes user name and groups and asks the API
+                              server with a SubjectAccessReview whether they may get this Crew. Use it for a crew only
+                              a cluster's administrators ask. It is the only kind that calls the Kubernetes API for the
+                              asker.
+                            type: object
+                        type: object
+                        x-kubernetes-validations:
+                        - message: set exactly one of kubernetesRBAC, connectedAccount,
+                            issuerGroups, anySignedIn, external
+                          rule: '(has(self.kubernetesRBAC) ? 1 : 0) + (has(self.connectedAccount)
+                            ? 1 : 0) + (has(self.issuerGroups) ? 1 : 0) + (has(self.anySignedIn)
+                            ? 1 : 0) + (has(self.external) ? 1 : 0) == 1'
                       hashKeySecretRef:
                         description: |-
                           HashKeySecretRef names the Secret key, in the crew's namespace, that holds the install's
@@ -323,8 +419,7 @@ spec:
                           TrustedHops are doors in front of the crew that sign people in themselves, such as the
                           crew liaison with its own sign-in. The gateway accepts the short signed assertion such a
                           door makes of the person asking (user and groups, valid for one minute, for this crew
-                          only), then asks Kubernetes with a SubjectAccessReview whether that user and those
-                          groups may use the crew. Empty by default: no assertion is accepted.
+                          only) and applies askers to that person. Empty by default: no assertion is accepted.
                         items:
                           description: |-
                             TrustedHop is one door whose assertions of who is asking the gateway accepts. The door's
@@ -360,6 +455,17 @@ spec:
                     - message: serviceTokens needs hashKeySecretRef
                       rule: '!has(self.serviceTokens) || size(self.serviceTokens)
                         == 0 || has(self.hashKeySecretRef)'
+                    - message: 'trustedHops needs askers: the rule that decides who
+                        may ask'
+                      rule: '!has(self.trustedHops) || size(self.trustedHops) == 0
+                        || has(self.askers)'
+                    - message: 'askers needs trustedHops: the door that asserts who
+                        is asking'
+                      rule: '!has(self.askers) || (has(self.trustedHops) && size(self.trustedHops)
+                        > 0)'
+                    - message: askers other than kubernetesRBAC need hashKeySecretRef
+                      rule: '!has(self.askers) || has(self.askers.kubernetesRBAC)
+                        || has(self.hashKeySecretRef)'
                     - message: with more than one serviceTokens entry each needs audiences
                       rule: '!has(self.serviceTokens) || size(self.serviceTokens)
                         < 2 || self.serviceTokens.all(t, has(t.audiences) && size(t.audiences)
@@ -638,6 +744,11 @@ spec:
                     type: string
                 type: object
             type: object
+            x-kubernetes-validations:
+            - message: askers.connectedAccount must name an account in spec.connectedAccounts
+              rule: '!has(self.discussion) || !has(self.discussion.access) || !has(self.discussion.access.askers)
+                || !has(self.discussion.access.askers.connectedAccount) || (has(self.connectedAccounts)
+                && self.connectedAccounts.exists(a, a.name == self.discussion.access.askers.connectedAccount))'
           status:
             description: CrewStatus defines the observed state of Crew
             properties:

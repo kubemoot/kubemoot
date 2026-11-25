@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +62,12 @@ type hopSetup struct {
 // hop: from the environment, so the same code runs as in a cluster.
 func newHopGateway(t *testing.T, nc *natsclient.Client, client kubernetes.Interface, tokenReview bool) hopSetup {
 	t.Helper()
+	return newAskersGateway(t, nc, client, tokenReview, `{"kubernetesRBAC":{}}`)
+}
+
+// newAskersGateway is newHopGateway with the crew's askers rule (the JSON the operator writes).
+func newAskersGateway(t *testing.T, nc *natsclient.Client, client kubernetes.Interface, tokenReview bool, askers string) hopSetup {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +76,10 @@ func newHopGateway(t *testing.T, nc *natsclient.Client, client kubernetes.Interf
 	hops, _ := json.Marshal([]identity.TrustedHopConfig{{
 		Name: hopIssuer, Audience: hopAud, PublicKeys: []string{string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))},
 	}})
-	env := map[string]string{identity.EnvEnforce: identity.EnvTrue, identity.EnvTrustedHops: string(hops)}
+	env := map[string]string{
+		identity.EnvEnforce: identity.EnvTrue, identity.EnvTrustedHops: string(hops), identity.EnvAskers: strings.TrimSuffix(askers, "}") + `,"namespace":"ns","crew":"pilot"}`,
+		identity.EnvHashKey: "install-key",
+	}
 	if tokenReview {
 		env[identity.EnvTokenReview] = identity.EnvTrue
 	}

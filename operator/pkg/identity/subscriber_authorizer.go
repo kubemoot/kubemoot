@@ -13,6 +13,7 @@ package identity
 import (
 	"context"
 	"slices"
+	"strings"
 
 	authorizationv1 "k8s.io/api/authorization/v1"
 )
@@ -59,10 +60,12 @@ func isUseAccess(attrs authorizationv1.ResourceAttributes) bool {
 	return attrs.Name != "" && attrs == UseAccess(attrs.Namespace, attrs.Name)
 }
 
-// RoutedAuthorizer sends a Kubernetes identity to the Kubernetes authorizer (RBAC) and a
-// subscriber to the subscriber authorizer. Either may be nil, which refuses that kind.
+// RoutedAuthorizer sends a Kubernetes identity to the Kubernetes authorizer (RBAC), a person a
+// trusted hop asserted to the askers authorizer, and a subscriber to the subscriber authorizer.
+// Any may be nil, which refuses that kind.
 type RoutedAuthorizer struct {
 	Kubernetes  Authorizer
+	Askers      Authorizer
 	Subscribers Authorizer
 }
 
@@ -71,8 +74,11 @@ func (r RoutedAuthorizer) Allowed(
 	ctx context.Context, id *Identity, attrs authorizationv1.ResourceAttributes,
 ) (bool, error) {
 	target := r.Subscribers
-	if id.Issuer == IssuerKubernetes {
+	switch {
+	case id.Issuer == IssuerKubernetes:
 		target = r.Kubernetes
+	case strings.HasPrefix(id.Issuer, HopIssuerPrefix):
+		target = r.Askers
 	}
 	if target == nil {
 		return false, nil
