@@ -42,9 +42,14 @@ with_retry_pod() {
 # line kubectl itself wrote ("error: ...", "Error from server...", or its "E<MMDD> ..." log
 # form), so the same words in the build's own output do not. `kubectl run --rm` ends every
 # build, passed or failed, with `pod "NAME" deleted`, so that line is not part of the
-# signature. A build that failed on its own prints none of these, and a plain timeout is not
-# one of them.
-pattern="${LOST_POD_PATTERN:-^(error|Error from server|E[0-9]+ ).*(pods? \"[^\"]*\" (not found|was evicted)|pod does not exist|error dialing backend|unable to upgrade connection)|NodeLost}"
+# signature. The dial and upgrade errors are matched only in the form kubectl prints them
+# ("Error from server...", "error: unable to upgrade connection", its log form): a build line
+# that begins "error:" and mentions dialing is the build's own. A build that failed on its own
+# prints none of these, and a plain timeout is not one of them.
+kubectl_line='^(error|Error from server|E[0-9]+ )'
+default_pattern="${kubectl_line}.*(pods? \"[^\"]*\" (not found|was evicted)|pod does not exist|NodeLost)"
+default_pattern+="|^(Error from server|E[0-9]+ ).*error dialing backend|^error: unable to upgrade connection"
+pattern="${LOST_POD_PATTERN:-${default_pattern}}"
 
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
