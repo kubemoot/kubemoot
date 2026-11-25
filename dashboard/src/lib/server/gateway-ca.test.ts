@@ -80,7 +80,7 @@ describe('the dashboard calling a gateway over https', () => {
 	});
 
 	it('does not need the CA file for a gateway given as http', async () => {
-		const fetchMock = vi.fn(async () => new Response('{}'));
+		const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{}'));
 		vi.stubGlobal('fetch', fetchMock);
 		process.env[GATEWAY_URL_ENV] = 'http://gw.test/{namespace}/{crew}';
 		process.env[CA_FILE_ENV] = '/nonexistent/ca.crt';
