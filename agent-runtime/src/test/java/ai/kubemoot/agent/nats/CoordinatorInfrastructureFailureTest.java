@@ -14,9 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class CoordinatorInfrastructureFailureTest extends CoordinatorThreadTestBase {
 
-    private static final String NO_OPERATOR = "Triage failed: server vllm-rig0 could not make qwen3:14b ready: "
+    private static final String NO_OPERATOR = "Triage failed: server server-a could not make model-a ready: "
             + "no operator is listening for model lifecycle requests";
-    private static final String ENGINE_REFUSED = "Mulling failed: server vllm-rig0 could not make qwen3:14b ready: "
+    private static final String ENGINE_REFUSED = "Mulling failed: server server-a could not make model-a ready: "
             + "the engine refused";
 
     @Override
@@ -56,8 +56,8 @@ class CoordinatorInfrastructureFailureTest extends CoordinatorThreadTestBase {
     void failuresWithDifferentCauses_doNotEndTheMootEarly() throws Exception {
         String t = "t-mixed";
         startAndEvaluate(t);
-        send(t, "k8s-metrics", "failure", NO_OPERATOR, null);
-        send(t, "k8s-workloads", "failure", ENGINE_REFUSED, null);
+        send(t, "k8s-metrics", "failure", NO_OPERATOR, "{\"failureType\":\"operator_unreachable\"}");
+        send(t, "k8s-workloads", "failure", ENGINE_REFUSED, "{\"failureType\":\"model_not_ready\"}");
 
         settle(t, EVALUATION_TO_REVIEW);
         await(() -> !publishedOfType("review_ready").isEmpty(), "the review did not start, got " + timeline);
@@ -70,7 +70,7 @@ class CoordinatorInfrastructureFailureTest extends CoordinatorThreadTestBase {
         String t = "t-one-agrees";
         startAndEvaluate(t);
         send(t, "k8s-metrics", "agree", "11 pods", null);
-        send(t, "k8s-workloads", "failure", NO_OPERATOR, null);
+        send(t, "k8s-workloads", "failure", NO_OPERATOR, "{\"failureType\":\"operator_unreachable\"}");
 
         settle(t, EVALUATION_TO_REVIEW);
         await(() -> !publishedOfType("review_ready").isEmpty(), "the review did not start, got " + timeline);
@@ -83,12 +83,38 @@ class CoordinatorInfrastructureFailureTest extends CoordinatorThreadTestBase {
     void aFailureThatNamesNoCause_keepsTheMootGoing() throws Exception {
         String t = "t-unknown";
         startAndEvaluate(t);
-        send(t, "k8s-metrics", "failure", "Mulling failed: the tool returned an error", null);
-        send(t, "k8s-workloads", "failure", "Mulling failed: the tool returned an error", null);
+        send(t, "k8s-metrics", "failure", "Mulling failed: the tool returned an error", "{\"failureType\":\"model_timeout\"}");
+        send(t, "k8s-workloads", "failure", "Mulling failed: the tool returned an error", "{\"failureType\":\"model_timeout\"}");
 
         settle(t, EVALUATION_TO_REVIEW);
         await(() -> !publishedOfType("review_ready").isEmpty(), "the review did not start, got " + timeline);
 
         assertFalse(publishedOfType("review_ready").isEmpty());
+    }
+
+    @Test
+    void aFailureTextWithoutAPublishedType_keepsTheMootGoing() throws Exception {
+        String t = "t-text-only";
+        startAndEvaluate(t);
+        send(t, "k8s-metrics", "failure", NO_OPERATOR, null);
+        send(t, "k8s-workloads", "failure", NO_OPERATOR, null);
+
+        settle(t, EVALUATION_TO_REVIEW);
+        await(() -> !publishedOfType("review_ready").isEmpty(), "the review did not start, got " + timeline);
+
+        assertFalse(publishedOfType("review_ready").isEmpty(), "the coordinator reads the failureType, not the text");
+    }
+
+    @Test
+    void oneFailureAndAStandAside_doNotSkipTheSynthesis() throws Exception {
+        String t = "t-stand-aside";
+        startAndEvaluate(t);
+        send(t, "k8s-metrics", "failure", NO_OPERATOR, "{\"failureType\":\"operator_unreachable\"}");
+        send(t, "k8s-workloads", "stand_aside", "", null);
+
+        settle(t, EVALUATION_TO_REVIEW);
+        await(() -> !publishedOfType("review_ready").isEmpty(), "the review did not start, got " + timeline);
+
+        assertFalse(publishedOfType("review_ready").isEmpty(), "an agent that stood aside did not fail");
     }
 }

@@ -132,8 +132,7 @@ final class OperatorLifecycleDriver implements EngineDriver {
     public boolean ensureReady(ServerState server, String model, String ticketId) {
         ModelLifecycle.Reply reply = lifecycle.ready(server.name(), model, ticketId);
         if (!reply.ok()) {
-            throw new ModelNotReadyException("server " + server.name() + " could not make " + model
-                    + " ready: " + reply.error());
+            throw ModelNotReadyException.of(server.name(), model, reply.error());
         }
         return true;
     }

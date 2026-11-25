@@ -38,8 +38,14 @@ public final class NatsModelLifecycle implements ModelLifecycle {
     /** How long past the request's own timeout the wait lasts before it gives up on NATS. */
     private static final long GRACE_MS = 5_000L;
 
-    static final String NO_ANSWER = "the operator did not answer before the safety limit";
-    static final String NOT_LISTENING = "no operator is listening for model lifecycle requests";
+    /** The failure text when the operator did not reply in time. */
+    public static final String NO_ANSWER = "the operator did not answer before the safety limit";
+    /** The failure text when nothing listens for lifecycle requests. */
+    public static final String NOT_LISTENING = "no operator is listening for model lifecycle requests";
+    /** Starts the failure text when the request could not be sent. */
+    public static final String COULD_NOT_ASK = "the operator could not be asked to ";
+    /** Starts the failure text when the operator's reply was not JSON the client reads. */
+    public static final String UNREADABLE_REPLY = "the operator's reply could not be read";
 
     private final NatsLink nats;
     private final ObjectMapper mapper;
@@ -138,7 +144,7 @@ public final class NatsModelLifecycle implements ModelLifecycle {
     }
 
     private static String couldNotAsk(String action, String model, String reason) {
-        return "the operator could not be asked to " + action + " " + model + ": " + reason;
+        return COULD_NOT_ASK + action + " " + model + ": " + reason;
     }
 
     /** Reads the operator's reply by tree navigation (record deserialization fails in native images). */
@@ -154,7 +160,7 @@ public final class NatsModelLifecycle implements ModelLifecycle {
             return new Reply(n.path("ok").asBoolean(false), n.path("state").asText(""),
                     n.path("switchMs").asLong(0L), n.path("error").asText(""));
         } catch (Exception e) {
-            return Reply.failure("the operator's reply could not be read: " + e.getMessage());
+            return Reply.failure(UNREADABLE_REPLY + ": " + e.getMessage());
         }
     }
 }

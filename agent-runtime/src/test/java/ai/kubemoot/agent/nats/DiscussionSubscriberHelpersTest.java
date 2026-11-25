@@ -425,12 +425,12 @@ class DiscussionSubscriberHelpersTest {
 
     @Test
     void noFit_gpuBusy_contentAndMetadataNameTheReasonAndModel() {
-        var nfe = ai.kubemoot.agent.modelserver.NoFitException.acceleratorBusy("qwen3:14b", "wait limit");
-        assertEquals("Could not get an accelerator: every accelerator that can hold qwen3:14b was busy",
+        var nfe = ai.kubemoot.agent.modelserver.NoFitException.acceleratorBusy("model-a", "wait limit");
+        assertEquals("Could not get an accelerator: every accelerator that can hold model-a was busy",
                 DiscussionSubscriber.noFitContent(nfe));
         var meta = DiscussionSubscriber.noFitMetadata(nfe);
         assertEquals("accelerator-busy", meta.get("reason"));
-        assertEquals("qwen3:14b", meta.get("model"));
+        assertEquals("model-a", meta.get("model"));
         assertEquals("wait limit", meta.get("predictorReason"));
     }
 
@@ -452,16 +452,16 @@ class DiscussionSubscriberHelpersTest {
 
     @Test
     void serverAttribution_carriesTheModelTheCallRanOn() {
-        var result = new ChatService.ChatResult("c", "answer", "qwen3:14b", null, 1, 1, "ollama-a", "warm");
+        var result = new ChatService.ChatResult("c", "answer", "model-a", null, 1, 1, "ollama-a", "warm");
         var meta = DiscussionSubscriber.serverAttribution(result);
         assertEquals("ollama-a", meta.get("server"));
-        assertEquals("qwen3:14b", meta.get("model"));
+        assertEquals("model-a", meta.get("model"));
         assertEquals("warm", meta.get("pickReason"));
         var evicting = new ChatService.ChatResult("c", "answer", "qwen3:32b", null, 1, 1, "ollama-a", "cold",
                 List.of("qwen3:8b"));
         assertEquals(List.of("qwen3:8b"), DiscussionSubscriber.serverAttribution(evicting).get("evicted"));
         assertNull(DiscussionSubscriber.serverAttribution(
-                new ChatService.ChatResult("c", "answer", "qwen3:14b", null, 1, 1, "", "")),
+                new ChatService.ChatResult("c", "answer", "model-a", null, 1, 1, "", "")),
                 "the static fallback has no JIT attribution");
     }
 
@@ -694,7 +694,7 @@ class DiscussionSubscriberHelpersTest {
 
     @Test
     void triageThatCannotWakeAModelBecauseNoOperatorListens_namesTheOperator() throws Exception {
-        var msg = failedTriage(new IllegalStateException("server vllm-rig0 could not make qwen3:14b ready: "
+        var msg = failedTriage(new IllegalStateException("server server-a could not make model-a ready: "
                 + "no operator is listening for model lifecycle requests"));
         assertEquals("failure", msg.path("messageType").asText());
         assertEquals("operator_unreachable", msg.path("metadata").path("failureType").asText());
@@ -734,13 +734,13 @@ class DiscussionSubscriberHelpersTest {
         var sub = createSubscriberWithConnection(conn);
         var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1");
 
-        wait.onWaiting("qwen3:14b");
+        wait.onWaiting("model-a");
 
         var payload = ArgumentCaptor.forClass(byte[].class);
         verify(conn).publish(anyString(), payload.capture());
         var msg = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
         assertEquals("waiting", msg.path("messageType").asText());
-        assertEquals("qwen3:14b", msg.path("metadata").path("model").asText());
+        assertEquals("model-a", msg.path("metadata").path("model").asText());
         assertTrue(msg.path("metadata").path("gpuLabel").isMissingNode(), "no accelerator while waiting: " + msg);
         assertEquals("accelerator-busy", msg.path("metadata").path("reason").asText());
     }
@@ -751,13 +751,13 @@ class DiscussionSubscriberHelpersTest {
         var sub = createSubscriberWithConnection(conn);
         var wait = sub.new ThreadCapacityWait("kubemoot.discuss.ns-a.nocrew.general.t1", "t1");
 
-        wait.onCapacity("qwen3:14b");
+        wait.onCapacity("model-a");
 
         var payload = ArgumentCaptor.forClass(byte[].class);
         verify(conn).publish(anyString(), payload.capture());
         var msg = new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
         assertEquals("evaluating", msg.path("messageType").asText());
-        assertEquals("qwen3:14b", msg.path("metadata").path("model").asText());
+        assertEquals("model-a", msg.path("metadata").path("model").asText());
         assertTrue(msg.path("metadata").path("gpuLabel").isMissingNode(),
                 "the call is not placed yet, so no accelerator: " + msg);
     }
@@ -822,6 +822,17 @@ class DiscussionSubscriberHelpersTest {
         return new com.fasterxml.jackson.databind.ObjectMapper().readTree(payload.getValue());
     }
 
+    private static List<com.fasterxml.jackson.databind.JsonNode> allPublished(Connection conn) throws Exception {
+        var payload = ArgumentCaptor.forClass(byte[].class);
+        verify(conn, atLeastOnce()).publish(anyString(), payload.capture());
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var out = new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>();
+        for (byte[] p : payload.getAllValues()) {
+            out.add(mapper.readTree(p));
+        }
+        return out;
+    }
+
     private static ai.kubemoot.agent.chat.ModelUse placedUse(String model, String server, String policy) {
         var call = new ai.kubemoot.agent.modelserver.PlacedCall(server, model,
                 new ai.kubemoot.agent.modelserver.PlacementDecision(policy, "because " + policy, null, null));
@@ -859,6 +870,33 @@ class DiscussionSubscriberHelpersTest {
         var failure = published(conn, 1).get(0);
         assertEquals("failure", failure.path("messageType").asText());
         assertEquals("operator_unreachable", failure.path("metadata").path("failureType").asText());
+    }
+
+    @Test
+    void anEvaluationThatThrowsAfterItsTerminalSignal_sendsNoSecondOne() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        when(chat.getToolNames()).thenReturn(List.of());
+        when(chat.triageChatWithTokens(anyString(), anyString())).thenReturn(new ChatService.SimpleLlmResult(
+                "CONTRIBUTE", 50, 2, placedUse("triage-model:4b", "server-c", "algorithm")));
+        var evaluation = new ChatService.ChatResult("c", "the finding", "model-b", "t1", 10, 5, "server-b", "",
+                List.of(), List.of(placedUse("model-b", "server-b", "learned")));
+        when(chat.directChat(any(), anyBoolean(), any())).thenReturn(evaluation);
+        var sub = org.mockito.Mockito.spy(createSubscriberWithConnection(conn, chat));
+        org.mockito.Mockito.doAnswer(call -> {
+            call.callRealMethod();
+            throw new IllegalStateException("fails after the agree went out");
+        }).when(sub).classifyAndPublishResult(anyString(), anyString(), any(), any(), anyString());
+
+        sub.evaluateSelected(SUBJECT_T1, "t1", "conversation", true);
+
+        var types = new java.util.ArrayList<String>();
+        for (var msg : allPublished(conn)) {
+            types.add(msg.path("messageType").asText());
+        }
+        assertEquals(1, types.stream().filter(t -> t.equals("agree") || t.equals("failure")).count(),
+                "one terminal signal, got " + types);
+        assertTrue(types.contains("agree"), types.toString());
     }
 
     @Test
