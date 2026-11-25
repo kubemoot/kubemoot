@@ -23,6 +23,8 @@ import java.util.regex.Pattern;
  *                     answers 403 to the asker
  * @param relayContext keep {@code conversationId} and {@code principalId} in the forwarded
  *                     {@code _meta}, for a tool server that calls back through the gateway
+ * @param connectedAccount the name of the crew's connected account whose token the person's call
+ *                     carries, in place of a verifier; in mode {@code Required} exactly one of the two is set
  */
 public record CallerCredentialConfig(
     Mode mode,
@@ -30,7 +32,8 @@ public record CallerCredentialConfig(
     String verifier,
     String accountName,
     List<String> onForbidden,
-    boolean relayContext
+    boolean relayContext,
+    String connectedAccount
 ) {
     public enum Mode {
         @JsonProperty("Off") OFF,
@@ -39,10 +42,16 @@ public record CallerCredentialConfig(
 
     /** The default: the server's own credential, nothing per person. */
     public static final CallerCredentialConfig OFF =
-        new CallerCredentialConfig(Mode.OFF, null, null, null, List.of(), false);
+        new CallerCredentialConfig(Mode.OFF, null, null, null, List.of(), false, null);
 
     private static final Pattern DNS_LABEL = Pattern.compile("[a-z0-9]([-a-z0-9]*[a-z0-9])?");
     private static final int MAX_FALLBACKS = 4;
+
+    /** A configuration that takes its token from a verifier, or from none. */
+    public CallerCredentialConfig(Mode mode, String leaseUrl, String verifier, String accountName,
+                                  List<String> onForbidden, boolean relayContext) {
+        this(mode, leaseUrl, verifier, accountName, onForbidden, relayContext, null);
+    }
 
     @JsonCreator
     public CallerCredentialConfig(
@@ -51,8 +60,9 @@ public record CallerCredentialConfig(
             @JsonProperty("verifier") String verifier,
             @JsonProperty("accountName") String accountName,
             @JsonProperty("onForbidden") List<String> onForbidden,
-            @JsonProperty("relayContext") Boolean relayContext) {
-        this(mode, leaseUrl, verifier, accountName, onForbidden, Boolean.TRUE.equals(relayContext));
+            @JsonProperty("relayContext") Boolean relayContext,
+            @JsonProperty("account") String connectedAccount) {
+        this(mode, leaseUrl, verifier, accountName, onForbidden, Boolean.TRUE.equals(relayContext), connectedAccount);
     }
 
     public CallerCredentialConfig {
@@ -61,10 +71,9 @@ public record CallerCredentialConfig(
         leaseUrl = blankToNull(leaseUrl);
         verifier = blankToNull(verifier);
         accountName = blankToNull(accountName);
+        connectedAccount = blankToNull(connectedAccount);
         if (mode == Mode.REQUIRED) {
-            if (verifier == null || !DNS_LABEL.matcher(verifier).matches()) {
-                throw new IllegalArgumentException("callerCredential.verifier must be a DNS label in mode Required");
-            }
+            requireOneSource(verifier, connectedAccount);
             if (leaseUrl != null) {
                 requireHttp("callerCredential.leaseUrl", leaseUrl);
             }
@@ -81,7 +90,24 @@ public record CallerCredentialConfig(
 
     /** What a refusal calls the account to connect. */
     public String account() {
-        return accountName != null ? accountName : verifier;
+        if (accountName != null) {
+            return accountName;
+        }
+        return verifier != null ? verifier : connectedAccount;
+    }
+
+    /** Mode Required takes the person's token from exactly one source, named by a DNS label. */
+    private static void requireOneSource(String verifier, String connectedAccount) {
+        if ((verifier == null) == (connectedAccount == null)) {
+            throw new IllegalArgumentException(
+                "callerCredential takes exactly one of verifier and account in mode Required");
+        }
+        boolean viaVerifier = verifier != null;
+        String name = viaVerifier ? verifier : connectedAccount;
+        if (!DNS_LABEL.matcher(name).matches()) {
+            throw new IllegalArgumentException(
+                "callerCredential." + (viaVerifier ? "verifier" : "account") + " must be a DNS label in mode Required");
+        }
     }
 
     private static String blankToNull(String value) {

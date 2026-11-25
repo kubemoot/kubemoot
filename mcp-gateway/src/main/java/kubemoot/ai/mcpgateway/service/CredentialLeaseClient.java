@@ -80,6 +80,12 @@ public class CredentialLeaseClient {
             log.warn("Credential lease not possible: the broker address or the gateway's own token is missing");
             return Mono.just(new Denied(Reason.UNAVAILABLE));
         }
+        if (config.verifier() == null) {
+            // A connected account's token comes from a broker that does not exist yet; sending the
+            // person's ids to the verifier broker would only be refused.
+            log.warn("Credential lease not possible: the server takes a connected account, which no broker leases");
+            return Mono.just(new Denied(Reason.UNAVAILABLE));
+        }
         Map<String, String> body = Map.of(
             "conversationId", who.conversationId(),
             "principalId", who.principalId(),

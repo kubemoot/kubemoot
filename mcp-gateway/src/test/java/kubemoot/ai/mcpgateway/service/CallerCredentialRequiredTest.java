@@ -145,6 +145,17 @@ class CallerCredentialRequiredTest {
     }
 
     @Test
+    void aServerThatTakesAConnectedAccountIsNotLeasedFromTheVerifierBroker() {
+        register(new CallerCredentialConfig(Mode.REQUIRED, base(broker) + "/internal/v1/lease", null, "Example Library",
+            List.of(), false, "library"));
+
+        call("conv-1", "principal-a", Map.of());
+
+        assertEquals(0, leases.size(), "no lease request is sent for an account");
+        assertTrue(rpc(expert, "tools/call").isEmpty(), "the server is not called without a token");
+    }
+
+    @Test
     void theLeaseIsAskedForOnEveryCallAndNotCached() {
         register(required(List.of()));
 

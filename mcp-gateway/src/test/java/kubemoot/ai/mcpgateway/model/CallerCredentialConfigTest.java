@@ -44,6 +44,45 @@ class CallerCredentialConfigTest {
         assertTrue(config.relayContext());
     }
 
+
+    @Test
+    void aRequiredRegistrationCanNameAConnectedAccountInsteadOfAVerifier() throws Exception {
+        RegisterServerRequest request = mapper.readValue("""
+            {"name":"o","url":"https://api.example.com/mcp","callerCredential":{
+              "mode":"Required","account":"library","relayContext":false}}""", RegisterServerRequest.class);
+
+        CallerCredentialConfig config = request.callerCredential();
+        assertTrue(config.required());
+        assertEquals("library", config.connectedAccount());
+        assertNull(config.verifier());
+        assertEquals("library", config.account());
+    }
+
+    @Test
+    void anAccountNameStillWinsTheRefusalText() {
+        CallerCredentialConfig config = new CallerCredentialConfig(
+            Mode.REQUIRED, null, null, "Example Library", null, false, "library");
+        assertEquals("Example Library", config.account());
+    }
+
+    @Test
+    void requiredTakesExactlyOneOfAVerifierAndAnAccount() {
+        assertThrows(IllegalArgumentException.class,
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, "oreilly", null, null, false, "library"));
+        assertThrows(IllegalArgumentException.class,
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, null, null, null, false, null));
+        assertThrows(IllegalArgumentException.class,
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, null, null, null, false, "  "));
+        assertThrows(IllegalArgumentException.class,
+            () -> new CallerCredentialConfig(Mode.REQUIRED, null, null, null, null, false, "Not A Label"));
+    }
+
+    @Test
+    void anAccountIsIgnoredOutsideModeRequired() {
+        CallerCredentialConfig config = new CallerCredentialConfig(Mode.OFF, null, null, null, null, true, "library");
+        assertFalse(config.required());
+        assertTrue(config.relayContext());
+    }
     @Test
     void theAccountNameDefaultsToTheVerifier() {
         assertEquals("oreilly", new CallerCredentialConfig(Mode.REQUIRED, null, "oreilly", null, null, false).account());
