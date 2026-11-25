@@ -157,7 +157,7 @@ liaison:
 
 The route on that hostname carries `/mcp`, and with sign-in on, `/oauth` and `/.well-known`. It carries no other path and no other backend; the health probes stay cluster-internal. With sign-in on, the chart refuses to render when `liaison.signIn.publicURL` is not `https://` plus the hostname the route serves.
 
-Which outside services a crew uses on a person's behalf is declared on the crew, not in the liaison; see [Connected accounts](../../reference/connected-accounts/).
+The outside accounts a crew needs are declared on the crew, not in the liaison; see [Connected accounts](../../reference/connected-accounts/).
 
 ## Connecting a client
 

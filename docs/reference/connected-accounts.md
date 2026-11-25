@@ -1,14 +1,14 @@
 ---
 title: "Connected accounts"
-description: "How a crew declares the outside accounts a person connects, how a tool server takes the person's token from one, and the ConnectedAccounts condition that says whether a declaration can work."
+description: "How a crew declares the outside accounts it needs, how an MCPServer names one, and the ConnectedAccounts condition that says whether a declaration is consistent."
 weight: 12
 ---
 
 ## Overview
 
-Some crews use a service that bills or entitles each person: a library, a code host, a document store. A crew declares each such service as a **connected account**. The person connects it once, and the crew's tools act as that person at the service. The declaration travels with the crew and names no install: it says what the crew needs and where the service signs people in. The install registers its own client with the service, and an MCP server of the crew takes the person's token from the account.
+Some crews use a service that bills or entitles each person: a library, a code host, a document store. A crew declares each such service as a **connected account**. The declaration travels with the crew and names no install: it says what the crew needs and where the service signs people in. The install registers its own client with each service, and an MCPServer of the crew names the account it takes the person's token from.
 
-Nothing about an account is assumed by the door. A crew that declares none behaves as it always has.
+A crew that declares none behaves as it always has.
 
 ## Declaring an account on a Crew
 
@@ -33,20 +33,20 @@ spec:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `connectedAccounts[].name` | string | required | The account's name across the install, a DNS label. A crew and an MCPServer name it, and two crews that declare one name declare one service. Names are unique within a crew |
-| `connectedAccounts[].displayName` | string | required | The service's name as a person sees it on the consent page and in an answer that asks them to connect. Up to 64 characters |
-| `connectedAccounts[].purpose` | string | | One sentence shown on the consent page: what the crew does with the account. Up to 300 characters |
-| `connectedAccounts[].usage` | string | `Required` | `Required`: asking the crew needs the account connected. `Optional`: the crew's tools fall back or skip without it |
+| `connectedAccounts[].displayName` | string | required | The service's name as a person sees it. Up to 64 characters |
+| `connectedAccounts[].purpose` | string | | One sentence saying what the crew does with the account. Up to 300 characters |
+| `connectedAccounts[].usage` | string | `Required` | `Required`: the crew needs the account. `Optional`: the crew's tools can fall back or skip without it |
 | `connectedAccounts[].scopes` | []string | none | The OAuth scopes the crew needs at the service |
-| `connectedAccounts[].authorizeURL` | string | required | The service's OAuth authorization endpoint. `https` only |
-| `connectedAccounts[].tokenURL` | string | required | The service's OAuth token endpoint. `https` only |
-| `connectedAccounts[].revocationURL` | string | | The service's [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009) revocation endpoint. When set, disconnecting the account revokes the token there. `https` only |
-| `connectedAccounts[].tokenHosts` | []string | required | The hosts the account's token may be sent to, as bare lower-case host names without scheme, port or path. At least one. A call to any other host is refused, so a tool cannot send the token elsewhere |
+| `connectedAccounts[].authorizeURL` | string | required | The service's OAuth authorization endpoint. `https` with a host |
+| `connectedAccounts[].tokenURL` | string | required | The service's OAuth token endpoint. `https` with a host |
+| `connectedAccounts[].revocationURL` | string | | The service's [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009) revocation endpoint. `https` with a host |
+| `connectedAccounts[].tokenHosts` | []string | required | The hosts the account's token may be sent to, as bare lower-case host names without scheme, port or path. At least one |
 
-The API server refuses a declaration whose name is not a DNS label, whose endpoints are not `https`, or that has no `tokenHosts`.
+The API server refuses a declaration whose name is not a DNS label, whose endpoints are not `https` with a host, or that has no `tokenHosts`.
 
-## Taking the token in an MCPServer
+## Naming an account in an MCPServer
 
-Set `registry.callerCredential.account` to the name of an account the crew of the server's namespace declares. It replaces `verifier` as the way to name where the person's token comes from.
+Set `registry.callerCredential.account` to the name of an account a Crew of the server's namespace declares. It replaces `verifier` as the way to name where the person's token comes from.
 
 ```yaml
 apiVersion: kubemoot.ai/v1alpha1
@@ -66,12 +66,13 @@ spec:
 | `account` needs `mode: Required` | the API server |
 | `account` and `verifier` are mutually exclusive | the API server |
 | `mode: Required` needs one of `verifier` and `account` | the API server |
+| `account` is declared by a Crew of the namespace | the `ConnectedAccounts` condition, reason `UnknownAccount` |
 
-The server's other `callerCredential` fields (`onForbidden`, `relayContext`, `accountName`) work as described in the [MCPServer guide](../mcpserver-guide/#calls-with-the-asking-persons-own-token). The tool gateway receives the account name in the server's registration. An `account` that no crew of the namespace declares is not reported anywhere; declare it on a crew first.
+The tool gateway receives the account name in the server's registration.
 
 ## What the install registers
 
-The install registers a client with each service and lists the account names it has registered under `liaison.connectedAccounts.accounts` in the operator chart. The operator reads the names.
+The install lists the account names it has registered a client for under `liaison.connectedAccounts.accounts` in the operator chart. Each name must be a DNS label, or the chart refuses to render. The operator reads the names.
 
 ```yaml
 liaison:
@@ -80,17 +81,18 @@ liaison:
       library: {}
 ```
 
-A crew that declares a name missing from this list reports `UnregisteredAccount` until the install registers it.
+A crew that declares a name missing from this list reports `UnregisteredAccount`.
 
 ## The ConnectedAccounts condition
 
-A Crew that declares at least one account carries a `ConnectedAccounts` condition. A Crew that declares none carries no such condition. The condition never affects the crew's `Ready`.
+A Crew carries a `ConnectedAccounts` condition when it declares at least one account, or when a server in its namespace names an account that no Crew of the namespace declares. Otherwise it carries none. The condition never affects the crew's `Ready`.
 
 | Status and reason | Meaning |
 |-------------------|---------|
-| `True`, `Ready` | Every declared account is registered by the install, and no other crew uses its name for a different service |
-| `False`, `Conflict` | Another crew, in any namespace, declares the same name with a different `authorizeURL`, `tokenURL`, `revocationURL` or set of `tokenHosts`. One name must mean one service, because the install keeps one registration and one token per person for each name. Both crews report it; rename one of the accounts |
+| `True`, `Ready` | Every declared account is registered by the install, every account a server names is declared, and no other crew uses a declared name for a different service |
+| `False`, `Conflict` | Another crew, in any namespace, declares the same name with a different `authorizeURL`, `tokenURL`, `revocationURL` or set of `tokenHosts`. One name must mean one service, so give one of the accounts another name. Both crews report it |
 | `False`, `UnregisteredAccount` | The install has not registered a name the crew declares. The message lists the missing names |
-| `False`, `NoSingleToolGateway` | A server in the crew's namespace takes one of the crew's accounts, and the namespace has no MCPGateway or several. The servers of a namespace are fronted by its single Kubemoot MCPGateway |
+| `False`, `UnknownAccount` | A server in the namespace takes an account that no Crew of the namespace declares. The message lists each server and account. Every Crew of the namespace reports it |
+| `False`, `NoSingleToolGateway` | A server in the crew's namespace takes one of the crew's accounts, and the namespace has no MCPGateway or several |
 
-The reasons are checked in this order: `Conflict`, `UnregisteredAccount`, `NoSingleToolGateway`.
+The reasons are checked in this order: `Conflict`, `UnregisteredAccount`, `UnknownAccount`, `NoSingleToolGateway`.
