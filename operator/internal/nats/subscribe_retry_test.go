@@ -19,9 +19,11 @@ package nats
 import (
 	"context"
 	"errors"
+	"net"
 	"testing"
 	"time"
 
+	natsd "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )
 
@@ -127,3 +129,204 @@ func TestAPublisherKeepsAConnectionThatIsReconnecting(t *testing.T) {
 
 // unreachableNATS is an address nothing listens on, for tests of a NATS that is down.
 const unreachableNATS = "nats://127.0.0.1:1"
+
+func TestRetryUntilReadyReturnsTheValueOfTheFirstSuccessfulAttempt(t *testing.T) {
+	calls := 0
+	got, err := RetryUntilReady(context.Background(), func() (string, error) {
+		calls++
+		if calls < 3 {
+			return "", errors.New("not ready")
+		}
+		return "the value", nil
+	}, quick, nil)
+	if err != nil || got != "the value" || calls != 3 {
+		t.Fatalf("got %q, %v after %d calls", got, err, calls)
+	}
+}
+
+func TestRetryUntilReadyStopsWithTheContextAndReturnsTheZeroValue(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	got, err := RetryUntilReady(ctx, func() (int, error) {
+		cancel()
+		return 7, errors.New("down")
+	}, quick, nil)
+	if got != 0 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %d, %v; want 0 and context.Canceled", got, err)
+	}
+}
+
+func TestRetryUntilNoErrorReturnsNilOnceTheAttemptSucceeds(t *testing.T) {
+	calls := 0
+	err := RetryUntilNoError(context.Background(), func() error {
+		calls++
+		if calls < 3 {
+			return errors.New("not ready")
+		}
+		return nil
+	}, quick, nil)
+	if err != nil || calls != 3 {
+		t.Fatalf("got %v after %d calls", err, calls)
+	}
+}
+
+func TestADialInProgressDoesNotHoldThePublisherLock(t *testing.T) {
+	calls := map[string]func(p *Publisher){
+		"Subscribe": func(p *Publisher) { _, _ = p.Subscribe("kubemoot.test", func(*nats.Msg) {}) },
+		"SubscribeDurable": func(p *Publisher) {
+			_, _ = p.SubscribeDurable("S", "kubemoot.test", "d", func(*nats.Msg) {})
+		},
+		"BucketsReady": func(p *Publisher) { _ = p.BucketsReady("b") },
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) { assertDialLeavesTheLockFree(t, call) })
+	}
+}
+
+// assertDialLeavesTheLockFree runs call against a server that accepts the connection and
+// never speaks, so the dial waits for the INFO line the way a NATS that is half up does,
+// and requires the publisher lock to be free while it waits.
+func assertDialLeavesTheLockFree(t *testing.T, call func(p *Publisher)) {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := l.Accept()
+		if err == nil {
+			accepted <- c
+		}
+	}()
+	p := NewPublisher("nats://" + l.Addr().String())
+	done := make(chan struct{})
+	go func() {
+		call(p)
+		close(done)
+	}()
+	var conn net.Conn
+	select {
+	case conn = <-accepted: // the dial is now waiting on the silent server
+	case <-time.After(10 * time.Second): // safety net only
+		t.Fatal("the call never dialed")
+	}
+	if !p.mu.TryLock() {
+		t.Fatal("the call holds the publisher lock while it dials: publishes would stall for the dial timeout")
+	}
+	p.mu.Unlock()
+	_ = conn.Close() // ends the dial with an error
+	<-done
+}
+
+// startLocalNATS runs an in-process NATS server and returns its URL.
+func startLocalNATS(t *testing.T) string {
+	t.Helper()
+	srv, err := natsd.NewServer(&natsd.Options{Host: "127.0.0.1", Port: -1, NoLog: true, NoSigs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Start()
+	t.Cleanup(srv.Shutdown)
+	if !srv.ReadyForConnections(10 * time.Second) {
+		t.Fatal("the in-process NATS server did not become ready")
+	}
+	return srv.ClientURL()
+}
+
+// gatedDial returns a dial that waits for release, then connects to url, and a channel that
+// is closed when the dial has started.
+func gatedDial(t *testing.T, url string) (dial func() (*nats.Conn, error), started chan struct{}, release chan struct{}, dialed chan *nats.Conn) {
+	t.Helper()
+	started, release, dialed = make(chan struct{}), make(chan struct{}), make(chan *nats.Conn, 1)
+	dial = func() (*nats.Conn, error) {
+		close(started)
+		<-release
+		c, err := nats.Connect(url)
+		if err == nil {
+			dialed <- c
+		}
+		return c, err
+	}
+	return dial, started, release, dialed
+}
+
+func TestAConnectionInstalledDuringADialWinsAndTheExtraOneIsClosed(t *testing.T) {
+	url := startLocalNATS(t)
+	dial, started, release, dialed := gatedDial(t, url)
+	p := NewPublisher(url)
+	p.dialFn = dial
+	done := make(chan error, 1)
+	go func() { done <- p.ensureConnected() }()
+	<-started
+
+	winner, err := nats.Connect(url) // another caller connects while the dial is in flight
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(winner.Close)
+	p.mu.Lock()
+	p.conn = winner
+	p.mu.Unlock()
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	loser := <-dialed
+	p.mu.Lock()
+	kept := p.conn
+	p.mu.Unlock()
+	if kept != winner {
+		t.Fatal("ensureConnected replaced a connection that appeared during its dial")
+	}
+	if !loser.IsClosed() {
+		t.Fatal("the extra connection was not closed: it would leak")
+	}
+}
+
+func TestCloseWaitsForADialInFlightAndLeavesNoConnectionBehind(t *testing.T) {
+	url := startLocalNATS(t)
+	dial, started, release, dialed := gatedDial(t, url)
+	p := NewPublisher(url)
+	p.dialFn = dial
+	ensured := make(chan error, 1)
+	go func() { ensured <- p.ensureConnected() }()
+	<-started
+
+	closed := make(chan struct{})
+	go func() { p.Close(); close(closed) }()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while a dial was in flight")
+	default:
+	}
+	close(release)
+	if err := <-ensured; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-closed:
+	case <-time.After(10 * time.Second): // safety net only
+		t.Fatal("Close did not return once the dial finished")
+	}
+	conn := <-dialed
+	p.mu.Lock()
+	left := p.conn
+	p.mu.Unlock()
+	if left != nil {
+		t.Fatal("Close left a connection installed")
+	}
+	waitUntilClosed(t, conn)
+}
+
+// waitUntilClosed waits for the connection to finish closing (a drain ends asynchronously).
+func waitUntilClosed(t *testing.T, c *nats.Conn) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second) // safety net only
+	for !c.IsClosed() {
+		if time.Now().After(deadline) {
+			t.Fatal("the connection was never closed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}

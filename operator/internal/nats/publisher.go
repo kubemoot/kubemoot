@@ -55,12 +55,17 @@ const connectFmt = "connect NATS: %w"
 // Publisher provides lazy NATS connection and publish capabilities.
 // When NATS is not configured, all operations are graceful no-ops.
 type Publisher struct {
-	mu   sync.Mutex
-	conn *nats.Conn
-	url  string
+	mu sync.Mutex
+	// dialMu serializes dials made outside mu (ensureConnected), so two callers never open
+	// two connections; it is never held while mu is waited for by a publish.
+	dialMu sync.Mutex
+	conn   *nats.Conn
+	url    string
 	// conf holds the TLS and credential settings every component reads the same way
 	// (pkg/natsconn); the zero value is a plain, anonymous connection.
 	conf natsconn.Config
+	// dialFn replaces the real dial in tests; nil dials with conf.
+	dialFn func() (*nats.Conn, error)
 	// lastSent holds, per subject, the hash of the payload last published through
 	// PublishOnChange. It lives in memory only, so the first publish after an operator
 	// restart always goes out.
@@ -87,10 +92,24 @@ func (p *Publisher) connect() error {
 	if p.conn != nil && !p.conn.IsClosed() {
 		return nil
 	}
+	conn, err := p.dial()
+	if err != nil {
+		return err
+	}
+	p.conn = conn
+	log.Info("Connected to NATS", "url", p.url)
+	return nil
+}
 
-	opts := []nats.Option{
+// dial opens a connection that reconnects without end. It touches no Publisher state, so
+// it can run with or without mu held.
+func (p *Publisher) dial() (*nats.Conn, error) {
+	if p.dialFn != nil {
+		return p.dialFn()
+	}
+	return p.conf.Connect(
 		nats.Name("kubemoot-operator"),
-		nats.ReconnectWait(5 * time.Second),
+		nats.ReconnectWait(5*time.Second),
 		nats.MaxReconnects(-1),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			if err != nil {
@@ -100,16 +119,64 @@ func (p *Publisher) connect() error {
 		nats.ReconnectHandler(func(_ *nats.Conn) {
 			log.V(1).Info("NATS reconnected")
 		}),
-	}
+	)
+}
 
-	conn, err := p.conf.Connect(opts...)
+// ensureConnected makes sure a connection exists, dialing WITHOUT holding mu: a dial to a
+// NATS that is down blocks for the dial timeout, and under mu that would stall every
+// publish for as long. Subscribe, SubscribeDurable and BucketsReady (the calls a retry
+// loop repeats against a NATS that is down) dial this way, through lockConnected; the
+// publish calls still dial under mu in connect(). A connection that appeared while this
+// dialed wins and the extra one is closed.
+func (p *Publisher) ensureConnected() error {
+	if p.hasLiveConn() {
+		return nil
+	}
+	p.dialMu.Lock()
+	defer p.dialMu.Unlock()
+	if p.hasLiveConn() {
+		return nil
+	}
+	conn, err := p.dial()
 	if err != nil {
 		return err
 	}
-
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn != nil && !p.conn.IsClosed() {
+		conn.Close()
+		return nil
+	}
 	p.conn = conn
 	log.Info("Connected to NATS", "url", p.url)
 	return nil
+}
+
+// errConnectionLost is returned when the connection closed between the dial and its use.
+var errConnectionLost = errors.New("the NATS connection closed before it could be used")
+
+// lockConnected dials outside mu when there is no connection, then takes mu and returns
+// with it HELD and a live connection in p.conn. On an error mu is not held. It never
+// dials under mu: a connection that closed in between is an error the caller's retry
+// loop absorbs.
+func (p *Publisher) lockConnected() error {
+	if err := p.ensureConnected(); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	if p.conn == nil || p.conn.IsClosed() {
+		p.mu.Unlock()
+		return errConnectionLost
+	}
+	return nil
+}
+
+// hasLiveConn reports whether the connection exists and is not closed (it may be
+// reconnecting).
+func (p *Publisher) hasLiveConn() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.conn != nil && !p.conn.IsClosed()
 }
 
 // OpenCrewMemory returns a read-only reader of the crew memory bucket. Unlike
@@ -447,11 +514,10 @@ func (p *Publisher) BucketsReady(buckets ...string) error {
 	if p.url == "" {
 		return nil
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if err := p.connect(); err != nil {
+	if err := p.lockConnected(); err != nil {
 		return fmt.Errorf("%w: connecting to NATS: %w", bus.ErrNotReady, err)
 	}
+	defer p.mu.Unlock()
 	js, err := p.conn.JetStream()
 	if err != nil {
 		return bus.AsNotReady(fmt.Errorf("opening JetStream: %w", err))
@@ -616,13 +682,12 @@ func (p *Publisher) Subscribe(subject string, handler nats.MsgHandler) (*nats.Su
 		return nil, nil
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	// Dial outside mu: a failed dial must not block publishes for the dial timeout.
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS for subscribe", "subject", subject, "error", err)
 		return nil, err
 	}
+	defer p.mu.Unlock()
 	return p.conn.Subscribe(subject, handler)
 }
 
@@ -645,13 +710,12 @@ func (p *Publisher) SubscribeDurable(stream, subject, durable string, handler na
 		return nil, nil
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.connect(); err != nil {
+	// Dial outside mu: a failed dial must not block publishes for the dial timeout.
+	if err := p.lockConnected(); err != nil {
 		log.V(1).Info("Failed to connect to NATS for durable subscribe", "subject", subject, "error", err)
 		return nil, err
 	}
+	defer p.mu.Unlock()
 	js, err := p.conn.JetStream()
 	if err != nil {
 		log.V(1).Info("Failed to get JetStream context for durable subscribe", "error", err)
@@ -753,8 +817,13 @@ func (p *Publisher) DeleteKVKey(bucket, key string) error {
 	return nil
 }
 
-// Close gracefully drains and closes the NATS connection.
+// Close gracefully drains and closes the NATS connection. It waits for a dial in flight
+// (at most the dial timeout) so the connection that dial makes is closed too.
 func (p *Publisher) Close() {
+	// dialMu first (the order ensureConnected uses), so a dial in flight finishes before the
+	// connection is closed and cannot install a connection nothing closes.
+	p.dialMu.Lock()
+	defer p.dialMu.Unlock()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
