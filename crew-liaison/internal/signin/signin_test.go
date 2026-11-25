@@ -97,7 +97,7 @@ func TestPKCEAndClientChecks(t *testing.T) {
 	cases := map[string]func(form url.Values){
 		"wrong verifier":     func(f url.Values) { f.Set("code_verifier", verifier+"x") },
 		"missing verifier":   func(f url.Values) { f.Del("code_verifier") },
-		"wrong redirect":     func(f url.Values) { f.Set(paramRedirect, "https://evil.example.test/cb") },
+		"wrong redirect":     func(f url.Values) { f.Set(paramRedirect, evilRedirect) },
 		"different client":   func(f url.Values) { f.Set(paramClientID, otherClient) },
 		"code from nowhere":  func(f url.Values) { f.Set(paramCode, "garbage") },
 		"unknown grant type": func(f url.Values) { f.Set(paramGrantType, "password") },
@@ -125,7 +125,7 @@ func TestAuthorizeRefusals(t *testing.T) {
 
 	// An unusable client or redirect is shown, never redirected to.
 	for name, q := range map[string]string{
-		"unregistered redirect": r.authorizeQuery(clientID, challenge, url.Values{paramRedirect: {"https://evil.example.test/cb"}}),
+		"unregistered redirect": r.authorizeQuery(clientID, challenge, url.Values{paramRedirect: {evilRedirect}}),
 		"unknown client":        r.authorizeQuery("not-sealed", challenge, nil),
 		"forged client":         r.authorizeQuery(clientID[:len(clientID)-2]+"AA", challenge, nil),
 	} {

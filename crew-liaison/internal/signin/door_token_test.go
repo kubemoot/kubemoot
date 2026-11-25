@@ -58,7 +58,7 @@ func TestCodeRefusals(t *testing.T) {
 			return map[string]string{paramClientID: "other"}, r.code(challenge)
 		},
 		"another redirect": func(r *doorRig) (map[string]string, string) {
-			return map[string]string{paramRedirect: "https://evil.example.test/cb"}, r.code(challenge)
+			return map[string]string{paramRedirect: evilRedirect}, r.code(challenge)
 		},
 		"another verifier": func(r *doorRig) (map[string]string, string) {
 			return map[string]string{paramCodeVerifier: strings.Repeat("x", 50)}, r.code(challenge)

@@ -5,6 +5,7 @@ const (
 	keyAuthEndpoint  = "authorization_endpoint"
 	keyTokenEndpoint = "token_endpoint"
 	keyIssuer        = "issuer"
+	evilRedirect     = "https://evil.example.test/cb"
 	claimSub         = "sub"
 	claimNameKey     = "name"
 	groupTeamA       = "oidc:team-a"
