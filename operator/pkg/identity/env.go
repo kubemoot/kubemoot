@@ -49,6 +49,8 @@ type Settings struct {
 // FromEnv reads the access settings. newClient is called only when tokens are to be checked,
 // so a door that enforces nothing needs no Kubernetes credentials. An error means the door
 // must not start: serving open while verification was asked for would be the wrong failure.
+// ACCESS_TRUSTED_HOPS (a JSON list, see TrustedHopConfig) adds the verifier of doors that assert who is
+// asking; it is first in the chain and needs the Kubernetes client for the SubjectAccessReview.
 // ACCESS_SERVICE_TOKENS (a JSON list, see ServiceTokenConfig) adds a verifier per service,
 // after the Kubernetes one so a Kubernetes token never goes to a service; it needs
 // ACCESS_HASH_KEY, because a subscriber is never named without the install key.
@@ -57,15 +59,25 @@ func FromEnv(getenv func(string) string, newClient func() (kubernetes.Interface,
 		return Settings{Authenticator: AnonymousAuthenticator()}, nil
 	}
 	allowAnonymous := getenv(EnvAllowAnonymous) == EnvTrue
+	hops, err := trustedHopsFromEnv(getenv)
+	if err != nil {
+		return Settings{}, err
+	}
 	var verifiers []Verifier
+	if hops != nil {
+		// First, so an assertion is never sent to the API server as if it were a token.
+		verifiers = append(verifiers, hops)
+	}
 	routed := RoutedAuthorizer{}
-	if getenv(EnvTokenReview) == EnvTrue {
+	if getenv(EnvTokenReview) == EnvTrue || hops != nil {
 		client, err := newClient()
 		if err != nil {
 			return Settings{}, fmt.Errorf("token review needs a Kubernetes client: %w", err)
 		}
 		reviewer := Reviewer{Client: client, Audiences: splitList(getenv(EnvTokenAudiences))}
-		verifiers = append(verifiers, TokenReviewVerifier{Reviewer: reviewer})
+		if getenv(EnvTokenReview) == EnvTrue {
+			verifiers = append(verifiers, TokenReviewVerifier{Reviewer: reviewer})
+		}
 		routed.Kubernetes = reviewer
 	}
 	hasher, serviceVerifiers, subscribers, err := serviceTokensFromEnv(getenv)
@@ -76,6 +88,15 @@ func FromEnv(getenv func(string) string, newClient func() (kubernetes.Interface,
 	routed.Subscribers = subscribers
 	auth := NewAuthenticator(hasher, allowAnonymous, verifiers...)
 	return Settings{Authenticator: auth, Authorizer: authorizerOf(routed)}, nil
+}
+
+// trustedHopsFromEnv builds the verifier of the trusted hops, nil when none is configured.
+func trustedHopsFromEnv(getenv func(string) string) (*HopVerifier, error) {
+	configs, err := ParseTrustedHops(getenv(EnvTrustedHops))
+	if err != nil || len(configs) == 0 {
+		return nil, err
+	}
+	return NewHopVerifier(configs, nil)
 }
 
 // authorizerOf is the authorizer of what FromEnv configured: nil when nothing is checked,

@@ -11,6 +11,7 @@ You may obtain a copy of the License at
 package controller
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -31,6 +32,7 @@ const (
 	reasonTokenReview           = "TokenReview"
 	reasonClosed                = "Closed"
 	reasonServiceToken          = "ServiceToken"
+	reasonTrustedHop            = "TrustedHop"
 
 	verbCreate = "create"
 )
@@ -58,6 +60,27 @@ func gatewayAccessEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar
 		env = append(env, corev1.EnvVar{Name: identity.EnvTokenAudiences, Value: strings.Join(access.TokenAudiences, ",")})
 	}
 	return append(env, gatewayServiceTokenEnv(access)...)
+}
+
+// gatewayTrustedHopEnv is the list of doors whose assertions the gateway accepts, each with
+// the audience of this crew's gateway alone, so an assertion signed for one crew is refused by
+// every other. Nothing for a crew that lists none.
+func gatewayTrustedHopEnv(crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
+	access := discussionAccess(crew)
+	if access == nil || len(access.TrustedHops) == 0 {
+		return nil
+	}
+	hops := make([]identity.TrustedHopConfig, 0, len(access.TrustedHops))
+	for _, h := range access.TrustedHops {
+		hops = append(hops, identity.TrustedHopConfig{
+			Name: h.Name, Audience: identity.HopAudience(crew.Namespace, crew.Name), PublicKeys: h.PublicKeys,
+		})
+	}
+	raw, err := json.Marshal(hops)
+	if err != nil { // a list of strings always marshals
+		return nil
+	}
+	return []corev1.EnvVar{{Name: identity.EnvTrustedHops, Value: string(raw)}}
 }
 
 // exposesCaller reports whether the crew lets its agents be told who is asking. It needs
@@ -97,10 +120,21 @@ func gatewayAccessRules(access *kubemootv1alpha1.DiscussionAccess) []rbacv1.Poli
 		return nil
 	}
 	if !access.TokenReviewEnabled() {
-		return leaseAccessRules(access)
+		return append(leaseAccessRules(access), hopAccessRules(access)...)
 	}
 	return []rbacv1.PolicyRule{
 		{APIGroups: []string{"authentication.k8s.io"}, Resources: []string{"tokenreviews"}, Verbs: []string{verbCreate}},
+		{APIGroups: []string{"authorization.k8s.io"}, Resources: []string{"subjectaccessreviews"}, Verbs: []string{verbCreate}},
+	}
+}
+
+// hopAccessRules are the rights of a gateway that verifies no Kubernetes token but accepts a
+// trusted hop's assertion: it asks Kubernetes whether the asserted user may use the crew.
+func hopAccessRules(access *kubemootv1alpha1.DiscussionAccess) []rbacv1.PolicyRule {
+	if len(access.TrustedHops) == 0 {
+		return nil
+	}
+	return []rbacv1.PolicyRule{
 		{APIGroups: []string{"authorization.k8s.io"}, Resources: []string{"subjectaccessreviews"}, Verbs: []string{verbCreate}},
 	}
 }
@@ -137,6 +171,27 @@ func serviceTokenAuthentication(crew *kubemootv1alpha1.Crew, access *kubemootv1a
 	return true
 }
 
+// trustedHopAuthentication is the Authentication condition of a crew that accepts a trusted
+// hop's assertion of who is asking, and false when it lists none.
+func trustedHopAuthentication(crew *kubemootv1alpha1.Crew, access *kubemootv1alpha1.DiscussionAccess) bool {
+	if access == nil || len(access.TrustedHops) == 0 {
+		return false
+	}
+	names := make([]string, 0, len(access.TrustedHops))
+	for _, h := range access.TrustedHops {
+		names = append(names, h.Name)
+	}
+	msg := "The assertion of who is asking from " + strings.Join(names, ", ") + " is verified, each person needs get on the Crew, and conversations belong to that person."
+	if access.TokenReviewEnabled() {
+		msg += " Kubernetes tokens are verified too."
+	}
+	if access.AnonymousAllowed() {
+		msg += " Callers with no token are also accepted, as anonymous."
+	}
+	setCrewCondition(crew, conditionTypeAuthentication, metav1.ConditionTrue, reasonTrustedHop, msg)
+	return true
+}
+
 // reconcileAuthentication records the Authentication condition: False with reason
 // Anonymous while the gateway accepts callers it cannot name, so that state is visible,
 // True when it verifies callers' tokens, and False with reason Closed when it accepts no
@@ -147,7 +202,7 @@ func reconcileAuthentication(crew *kubemootv1alpha1.Crew) {
 		return
 	}
 	access := discussionAccess(crew)
-	if serviceTokenAuthentication(crew, access) {
+	if serviceTokenAuthentication(crew, access) || trustedHopAuthentication(crew, access) {
 		return
 	}
 	switch {

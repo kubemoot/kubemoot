@@ -624,7 +624,7 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 							Ports: []corev1.ContainerPort{
 								{Name: portNameHTTP, ContainerPort: crewGatewayPort, Protocol: corev1.ProtocolTCP},
 							},
-							Env: gomem.With(append(gatewayEnv(natsURL, discussionAccess(crew)), gatewayIdentityEnv(crew)...), resources),
+							Env: gomem.With(append(append(gatewayEnv(natsURL, discussionAccess(crew)), gatewayIdentityEnv(crew)...), gatewayTrustedHopEnv(crew)...), resources),
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: &noEscalation,
 								ReadOnlyRootFilesystem:   &nonRoot,
