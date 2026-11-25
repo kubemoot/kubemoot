@@ -196,7 +196,7 @@ func (r *CrewReconciler) applyCredentialLease(ctx context.Context, crew *kubemoo
 	if err != nil {
 		return err
 	}
-	d.Spec.Template.Labels = mergeLabels(d.Spec.Template.Labels, map[string]string{netpol.LabelCredentialLease: valueTrue})
+	d.Spec.Template.Labels = mergeLabels(d.Spec.Template.Labels, map[string]string{netpol.LabelCredentialLease: netpol.CredentialLeaseValue})
 	c := &d.Spec.Template.Spec.Containers[0]
 	c.Ports = append(c.Ports, corev1.ContainerPort{
 		Name: portNameInternal, ContainerPort: netpol.DiscussionGatewayLeasePort, Protocol: corev1.ProtocolTCP,

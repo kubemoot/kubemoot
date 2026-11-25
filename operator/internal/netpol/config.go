@@ -40,6 +40,8 @@ const (
 	// every-port rule for the namespace's pods, so the lease port is reachable only through
 	// DiscussionGatewayLeaseIngress.
 	LabelCredentialLease = "kubemoot.ai/credential-lease"
+	// CredentialLeaseValue is the value of LabelCredentialLease.
+	CredentialLeaseValue = "true"
 	// LabelAgent is on every agent pod.
 	LabelAgent = "kubemoot.ai/agent"
 

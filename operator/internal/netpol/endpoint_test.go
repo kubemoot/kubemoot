@@ -139,3 +139,16 @@ func TestParseExternalEndpointStillRefusesOtherSchemes(t *testing.T) {
 		t.Error("an external tool server endpoint is http or https")
 	}
 }
+
+func TestIsLoopbackURL(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"http://localhost:9000/mcp": true, "http://LOCALHOST": true, "http://localhost./mcp": true,
+		"http://127.0.0.1": true, "http://127.8.9.10:80": true, "http://[::1]:9000": true,
+		"https://example.com": false, "https://10.0.0.1": false, "https://localhost.example.com": false,
+		"://bad": false, "": false, "localhost": false,
+	} {
+		if got := IsLoopbackURL(raw); got != want {
+			t.Errorf("IsLoopbackURL(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}

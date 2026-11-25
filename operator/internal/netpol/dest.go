@@ -37,6 +37,19 @@ type Dest struct {
 	Port int32
 }
 
+// DiscussionGatewayLeaseDest is the lease port of the discussion gateway of a crew that keeps
+// people's tokens, in the workload's own namespace: the pods DiscussionGatewayLeaseIngress
+// admits the tool gateway to, and only those that carry LabelCredentialLease.
+func DiscussionGatewayLeaseDest(crew string) Dest {
+	return Dest{
+		SameNamespace: true,
+		PodLabels: map[string]string{
+			labelComponent: ComponentDiscussionGateway, LabelCrew: crew, LabelCredentialLease: CredentialLeaseValue,
+		},
+		Port: DiscussionGatewayLeasePort,
+	}
+}
+
 // labelSvc is the third label of a cluster Service name.
 const labelSvc = "svc"
 
@@ -209,6 +222,17 @@ func hostPort(raw string) (string, int32, error) {
 		return "", 0, fmt.Errorf("%q has no usable port", raw)
 	}
 	return host, port, nil
+}
+
+// IsLoopbackURL reports whether a URL names the caller's own pod: localhost or a loopback
+// address. It reads the host as hostPort does, so letter case and a trailing dot are dropped.
+func IsLoopbackURL(raw string) bool {
+	host, _, err := hostPort(raw)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return host == "localhost" || (ip != nil && ip.IsLoopback())
 }
 
 var hostNameRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)

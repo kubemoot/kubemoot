@@ -470,7 +470,7 @@ spec:
 
 The operator passes the field through the registration and wires the rest, only for a gateway whose servers include one in mode `Required`: the MCPGateway runs as its own ServiceAccount (`<gateway>-credential-broker`), carries a projected token for the audience `kubemoot-credential-broker`, and is told the address of the crew's lease port. The server's `authSecretRef` lists the tools at registration and is never sent on a call in this mode: with no token for the turn the call fails, and the agent reports that the person's account is not connected. How the gateway makes the call and what the agent sees is in the [MCPGateway guide](../mcpgateway-guide/#calls-with-the-asking-persons-own-credential).
 
-The transport must be `http`; the API server refuses `Required` on any other. Each `onForbidden` entry must be `https`, because it receives the person's token. A namespace uses one MCPGateway and one crew that keeps tokens; with more, the crew's `CallerCredentials` condition says so.
+The transport must be `http`; the API server refuses `Required` on any other. Each `onForbidden` entry must be `https`, because it receives the person's token; a gateway whose outbound traffic is restricted is allowed each one and the crew's lease port, see [A gateway's outbound traffic](../../concepts/network-policies/#a-gateways-outbound-traffic). A namespace uses one MCPGateway and one crew that keeps tokens; with more, the crew's `CallerCredentials` condition says so.
 
 ### Connect an external MCP server that needs a key
 
