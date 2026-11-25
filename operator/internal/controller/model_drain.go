@@ -30,6 +30,7 @@ import (
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/engine"
+	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -174,8 +175,9 @@ type ServerStateRepublisher struct {
 	Servers *ModelServerReconciler
 	// Ready is nil when the bus is ready, else why not; nil means ready.
 	Ready func() error
-	// PollInterval paces the wait for the bus; zero is one second. It never ends the wait.
-	PollInterval time.Duration
+	// Backoff paces the wait for the bus; the zero value is kubemootnats.DefaultBackoff.
+	// It never ends the wait.
+	Backoff kubemootnats.Backoff
 }
 
 // NeedLeaderElection keeps the publish to the leader.
@@ -183,19 +185,17 @@ func (p *ServerStateRepublisher) NeedLeaderElection() bool { return true }
 
 // Start waits for the bus by state, publishes once, and returns; the manager keeps running.
 func (p *ServerStateRepublisher) Start(ctx context.Context) error {
-	every := p.PollInterval
-	if every <= 0 {
-		every = time.Second
-	}
-	for p.Ready != nil && p.Ready() != nil {
-		select {
-		case <-ctx.Done():
+	log := logf.FromContext(ctx)
+	if p.Ready != nil {
+		err := kubemootnats.RetryUntilNoError(ctx, p.Ready, p.Backoff, func(err error, retryIn time.Duration) {
+			log.V(1).Info("the bus is not ready; server states not republished yet", "err", err.Error(), "retryIn", retryIn.String())
+		})
+		if err != nil {
 			return nil
-		case <-time.After(every):
 		}
 	}
 	if err := p.Republish(ctx); err != nil {
-		logf.FromContext(ctx).Error(err, "Could not republish the server states at start")
+		log.Error(err, "Could not republish the server states at start")
 	}
 	return nil
 }

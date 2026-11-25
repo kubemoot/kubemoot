@@ -15,13 +15,17 @@ package crewmemory
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	memory "github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 )
@@ -40,19 +44,43 @@ type KV interface {
 type Migrator struct {
 	Reader client.Reader
 	KV     KV
+	// Ready is nil when the bus is ready, else why not; nil means ready. The key list
+	// reads an unreachable bus as "no keys", so the migration waits on this instead.
+	Ready func() error
+	// Backoff paces the retries; the zero value is kubemootnats.DefaultBackoff.
+	Backoff kubemootnats.Backoff
 }
 
 // NeedLeaderElection runs the migration only on the elected leader.
 func (m *Migrator) NeedLeaderElection() bool { return true }
 
-// Start runs the migration once and returns. A failure is logged, never fatal:
-// the unscoped keys stay readable to nobody but are not lost.
+// Start runs the migration and returns once it has run, or when ctx ends. A start while
+// NATS is down (after a power loss, NATS waits for its volume) or the Crew list is not
+// readable yet retries with backoff, so the unscoped keys are migrated once the bus is
+// back instead of staying unreadable until the next operator restart.
 func (m *Migrator) Start(ctx context.Context) error {
 	log := logf.FromContext(ctx).WithName("crew-memory-migration")
-	if err := m.Run(ctx, log); err != nil {
-		log.Error(err, "Crew memory key migration failed; unscoped keys left in place")
-	}
+	_ = kubemootnats.RetryUntilNoError(ctx, func() error {
+		return m.attempt(ctx, log)
+	}, m.Backoff, func(err error, retryIn time.Duration) {
+		// A bus that is not ready is expected after an outage; any other failure is not.
+		if errors.Is(err, bus.ErrNotReady) {
+			log.Info("Crew memory key migration waits for the bus", "err", err.Error(), "retryIn", retryIn.String())
+			return
+		}
+		log.Error(err, "Crew memory key migration failed; unscoped keys left in place until it succeeds", "retryIn", retryIn.String())
+	})
 	return nil
+}
+
+// attempt waits for the bus by state, then runs the migration once.
+func (m *Migrator) attempt(ctx context.Context, log logr.Logger) error {
+	if m.Ready != nil {
+		if err := m.Ready(); err != nil {
+			return err
+		}
+	}
+	return m.Run(ctx, log)
 }
 
 // Run lists the Crews and the bucket's keys, then renames every unscoped key

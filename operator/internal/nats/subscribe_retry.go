@@ -45,34 +45,60 @@ func (b Backoff) orDefault() Backoff {
 	return b
 }
 
-// SubscribeUntilReady calls subscribe until it returns a subscription or ctx ends, so a
-// runnable that starts while NATS is unreachable (after a power loss, NATS waits for its
-// volume) subscribes once NATS is back instead of idling for the life of the process.
-// failed is told about every failed attempt and the wait before the next one. A subscribe
-// that returns neither a subscription nor an error means NATS is not configured (Publisher
-// with no URL): that is returned at once as (nil, nil), since retrying cannot change it.
-// It returns nil and ctx's error when ctx ends first.
+// RetryUntilReady calls attempt until it returns without an error or ctx ends, waiting
+// between attempts by b (doubling, never more than b.Max). It is the one "retry until
+// ready with backoff" loop: a runnable that starts while NATS is unreachable (after a
+// power loss, NATS waits for its volume) gets ready once NATS is back instead of idling
+// for the life of the process. failed is told about every failed attempt and the wait
+// before the next one. It returns the zero value and ctx's error when ctx ends first.
+func RetryUntilReady[T any](
+	ctx context.Context,
+	attempt func() (T, error),
+	b Backoff,
+	failed func(err error, retryIn time.Duration),
+) (T, error) {
+	b = b.orDefault()
+	wait := b.First
+	for {
+		v, err := attempt()
+		if err == nil {
+			return v, nil
+		}
+		if failed != nil {
+			failed(err, wait)
+		}
+		if !sleep(ctx, wait) {
+			var zero T
+			return zero, ctx.Err()
+		}
+		wait = min(wait*2, b.Max)
+	}
+}
+
+// RetryUntilNoError is RetryUntilReady for an attempt that returns only an error, such as a
+// readiness check or a one-time job: it returns nil once attempt succeeds, or ctx's error
+// when ctx ends first.
+func RetryUntilNoError(
+	ctx context.Context,
+	attempt func() error,
+	b Backoff,
+	failed func(err error, retryIn time.Duration),
+) error {
+	_, err := RetryUntilReady(ctx, func() (struct{}, error) { return struct{}{}, attempt() }, b, failed)
+	return err
+}
+
+// SubscribeUntilReady is RetryUntilReady for a subscribe call. A subscribe that returns
+// neither a subscription nor an error means NATS is not configured (Publisher with no
+// URL): that is returned at once as (nil, nil), since retrying cannot change it. It
+// returns nil and ctx's error when ctx ends first.
 func SubscribeUntilReady(
 	ctx context.Context,
 	subscribe func() (*nats.Subscription, error),
 	backoff Backoff,
 	failed func(err error, retryIn time.Duration),
 ) (*nats.Subscription, error) {
-	backoff = backoff.orDefault()
-	wait := backoff.First
-	for {
-		sub, err := subscribe()
-		if err == nil {
-			return sub, nil
-		}
-		if failed != nil {
-			failed(err, wait)
-		}
-		if !sleep(ctx, wait) {
-			return nil, ctx.Err()
-		}
-		wait = min(wait*2, backoff.Max)
-	}
+	return RetryUntilReady(ctx, subscribe, backoff, failed)
 }
 
 // sleep waits d, or until ctx ends; it reports whether the full wait passed.

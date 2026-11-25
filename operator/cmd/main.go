@@ -55,6 +55,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/internal/retention"
 	kubemootscheduler "github.com/kubemoot/kubemoot/operator/internal/scheduler"
 	kubemootwebhook "github.com/kubemoot/kubemoot/operator/internal/webhook"
+	memory "github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 	// +kubebuilder:scaffold:imports
 )
@@ -129,7 +130,10 @@ func mustAddRunnables(mgr ctrl.Manager, natsPublisher *kubemootnats.Publisher, r
 		{"scheduler poller", kubemootscheduler.New(natsPublisher)},
 		// One-time crew-memory key migration: <crew>.<topic>.<key> becomes
 		// <ns>.<crew>.<topic>.<key> when exactly one namespace has a Crew of that name.
-		{"crew memory migration", &crewmemory.Migrator{Reader: mgr.GetAPIReader(), KV: natsPublisher}},
+		{"crew memory migration", &crewmemory.Migrator{
+			Reader: mgr.GetAPIReader(), KV: natsPublisher,
+			Ready: func() error { return natsPublisher.BucketsReady(memory.Bucket) },
+		}},
 		// Removes each crew's expired conversations, facts and messages on the crew's
 		// retention schedule and records what it removed in the Crew status.
 		{"crew retention cleanup", &retention.Runner{

@@ -29,6 +29,7 @@ import (
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"github.com/kubemoot/kubemoot/operator/internal/engine"
+	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 	"github.com/kubemoot/kubemoot/operator/pkg/bus"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -160,7 +161,7 @@ func TestStartRepublishesAStaleDrainingEntryOnceTheBusIsReady(t *testing.T) {
 	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(p).Build()
 	r := &ModelServerReconciler{StateStore: kv}
 	polls := 0
-	rep := &ServerStateRepublisher{Reader: reader, Servers: r, PollInterval: time.Millisecond,
+	rep := &ServerStateRepublisher{Reader: reader, Servers: r, Backoff: kubemootnats.Backoff{First: time.Millisecond, Max: time.Millisecond},
 		Ready: func() error {
 			polls++
 			if polls < 3 {

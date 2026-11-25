@@ -16,16 +16,20 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	kubemootnats "github.com/kubemoot/kubemoot/operator/internal/nats"
 )
 
 const (
+	legacyValue  = "old"
 	legacyKey    = "pilot.infra.disk"
 	scopedKey    = "team-a.pilot.infra.disk"
 	ambiguousKey = "shared.infra.disk"
@@ -128,7 +132,7 @@ func newReader(t *testing.T, crews ...kubemootv1alpha1.Crew) *Migrator {
 func TestRunRenamesAndLeavesTheRest(t *testing.T) {
 	m := newReader(t, crew(nsA, "pilot"), crew(nsA, "shared"), crew(nsB, "shared"))
 	kv := &fakeKV{data: map[string][]byte{
-		legacyKey:    []byte("old"),
+		legacyKey:    []byte(legacyValue),
 		ambiguousKey: []byte("amb"),
 		"ghost.x.y":  []byte("orphan"),
 	}}
@@ -137,7 +141,7 @@ func TestRunRenamesAndLeavesTheRest(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string][]byte{
-		scopedKey:    []byte("old"),
+		scopedKey:    []byte(legacyValue),
 		ambiguousKey: []byte("amb"),
 		"ghost.x.y":  []byte("orphan"),
 	}
@@ -149,7 +153,7 @@ func TestRunRenamesAndLeavesTheRest(t *testing.T) {
 func TestRunKeepsExistingScopedValue(t *testing.T) {
 	m := newReader(t, crew(nsA, "pilot"))
 	kv := &fakeKV{data: map[string][]byte{
-		legacyKey: []byte("old"),
+		legacyKey: []byte(legacyValue),
 		scopedKey: []byte("new"),
 	}}
 	m.KV = kv
@@ -166,12 +170,12 @@ func TestRunKeepsExistingScopedValue(t *testing.T) {
 
 func TestRunKeepsUnscopedKeyWhenPutFails(t *testing.T) {
 	m := newReader(t, crew(nsA, "pilot"))
-	kv := &fakeKV{data: map[string][]byte{legacyKey: []byte("old")}, failPut: true}
+	kv := &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}, failPut: true}
 	m.KV = kv
 	if err := m.Run(context.Background(), logr.Discard()); err != nil {
 		t.Fatal(err)
 	}
-	if string(kv.data[legacyKey]) != "old" {
+	if string(kv.data[legacyKey]) != legacyValue {
 		t.Error("unscoped key must survive a failed copy")
 	}
 }
@@ -184,4 +188,76 @@ func TestRunNoopWithoutKV(t *testing.T) {
 	if !m.NeedLeaderElection() {
 		t.Error("migration must run on the leader only")
 	}
+}
+
+func TestStartWaitsForTheBusThenMigrates(t *testing.T) {
+	m := newReader(t, crew(nsA, "pilot"))
+	kv := &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}}
+	m.KV = kv
+	m.Backoff = kubemootnats.Backoff{First: time.Millisecond, Max: time.Millisecond}
+	polls := 0
+	m.Ready = func() error {
+		polls++
+		if polls < 4 {
+			return errors.New("bus not ready")
+		}
+		return nil
+	}
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if polls != 4 {
+		t.Errorf("the migration must wait for the bus by state; polled %d times, want 4", polls)
+	}
+	if string(kv.data[scopedKey]) != legacyValue {
+		t.Errorf("the key was not migrated once the bus was ready: %v", kv.data)
+	}
+}
+
+func TestStartEndsWithTheContextWhenTheBusNeverComes(t *testing.T) {
+	m := newReader(t, crew(nsA, "pilot"))
+	m.KV = &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}}
+	m.Backoff = kubemootnats.Backoff{First: time.Millisecond, Max: time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.Ready = func() error { cancel(); return errors.New("bus down") }
+	done := make(chan error, 1)
+	go func() { done <- m.Start(ctx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second): // safety net only
+		t.Fatal("Start did not return after the context ended")
+	}
+	if _, ok := m.KV.(*fakeKV).data[legacyKey]; !ok {
+		t.Error("nothing may be migrated while the bus is down")
+	}
+}
+
+func TestStartRetriesWhenTheCrewListFails(t *testing.T) {
+	m := newReader(t, crew(nsA, "pilot"))
+	m.KV = &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}}
+	m.Backoff = kubemootnats.Backoff{First: time.Millisecond, Max: time.Millisecond}
+	m.Reader = &flakyReader{Reader: m.Reader, failures: 2}
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if string(m.KV.(*fakeKV).data[scopedKey]) != legacyValue {
+		t.Error("the migration did not run after the crew list recovered")
+	}
+}
+
+// flakyReader fails the first failures lists, then reads through.
+type flakyReader struct {
+	client.Reader
+	failures int
+}
+
+func (f *flakyReader) List(ctx context.Context, l client.ObjectList, o ...client.ListOption) error {
+	if f.failures > 0 {
+		f.failures--
+		return errors.New("the API server is not reachable")
+	}
+	return f.Reader.List(ctx, l, o...)
 }
