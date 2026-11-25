@@ -31,10 +31,26 @@ repo="${GH_REPO:-${GITHUB_REPOSITORY:?GH_REPO or GITHUB_REPOSITORY must name the
 # is not a number.
 running() {
   local count
-  count=$(gh run list --repo "$repo" --workflow "$1" --branch main --limit 20 --json status \
-    --jq '[.[] | select(.status != "completed")] | length') || return 1
+  if [ -z "${HELD_CHART_USE_API:-}" ] && command -v gh >/dev/null 2>&1; then
+    count=$(gh run list --repo "$repo" --workflow "$1" --branch main --limit 20 --json status \
+      --jq '[.[] | select(.status != "completed")] | length') || return 1
+  else
+    count=$(api_running "$1") || return 1
+  fi
   [[ "$count" =~ ^[0-9]+$ ]] || return 1
   echo "$count"
+}
+
+# api_running WORKFLOW: the same count from the GitHub REST API, for runners without gh
+# (HELD_CHART_USE_API=1 forces it, for tests);
+# each run object carries one top-level "status".
+api_running() {
+  local body
+  body=$(curl -fsS -H "Authorization: Bearer ${GH_TOKEN:?GH_TOKEN is needed to read workflow runs}" \
+    -H "Accept: application/vnd.github+json" \
+    "${GITHUB_API_URL:-https://api.github.com}/repos/${repo}/actions/workflows/$1/runs?branch=main&per_page=20") || return 1
+  grep -q '"workflow_runs"' <<<"$body" || return 1
+  grep -o '"status": *"[a-z_]*"' <<<"$body" | grep -vc '"completed"' || true
 }
 
 report() {

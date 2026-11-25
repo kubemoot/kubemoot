@@ -112,5 +112,25 @@ check "the summary holds no workflow command" 0 "$(grep -c '^::' "$summary")"
 
 check "a missing file is a usage error" 64 "$(PATH="${work}/bin:${PATH}" GH_REPO=o/r bash "$script" "${work}/absent" >/dev/null 2>&1 && echo 0 || echo $?)"
 
+# Runners without gh read the runs from the REST API with curl.
+cat > "${work}/bin/curl" <<EOF2
+url="\${@: -1}"
+wf=\$(sed -n 's#.*/workflows/\\([^/]*\\)/runs.*#\\1#p' <<<"\$url")
+[ -f "${work}/state/\${wf}.json" ] || exit 22
+printf '{"total_count":1,"workflow_runs":['
+jq -c '[.[] | {status: .status, head_commit: {message: "x"}}]' "${work}/state/\${wf}.json" | sed 's/^\\[//; s/\\]\$//'
+printf ']}'
+EOF2
+chmod +x "${work}/bin/curl"
+api_run() { PATH="${work}/bin:${PATH}" GH_REPO=o/r GH_TOKEN=t HELD_CHART_USE_API=1 bash "$script" "${work}/held.txt" >"${work}/out" 2>&1 && echo 0 || echo $?; }
+reset; held_line dashboard; statuses dashboard in_progress completed
+check "without gh, a running release read from the API is a wait" 0 "$(api_run)"
+reset; held_line dashboard; statuses dashboard completed completed
+check "without gh, no running release read from the API fails the job" 1 "$(api_run)"
+reset; held_line dashboard; statuses dashboard
+check "without gh, zero runs is not running" 1 "$(api_run)"
+reset; held_line nosuch
+check "without gh, an unreadable API answer fails the job" 1 "$(api_run)"
+
 [ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
 echo "all passed"
