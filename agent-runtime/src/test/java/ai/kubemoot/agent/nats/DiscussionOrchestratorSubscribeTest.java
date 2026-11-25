@@ -109,4 +109,25 @@ class DiscussionOrchestratorSubscribeTest {
 
         assertTrue(subscribed.await(10, TimeUnit.SECONDS), "the coordinator stayed idle after NATS came up");
     }
+
+    @Test
+    void aFailureStartingThePeriodicTasks_closesTheDispatcher_andTheRetryStartsThemOnce() {
+        var conn = mock(Connection.class);
+        var first = mock(Dispatcher.class);
+        var second = mock(Dispatcher.class);
+        when(natsProvider.getConnection()).thenReturn(conn);
+        when(conn.createDispatcher()).thenReturn(first, second);
+        var spied = org.mockito.Mockito.spy(orchestrator);
+        org.mockito.Mockito.doThrow(new IllegalStateException("scheduler is shut down"))
+                .doCallRealMethod().when(spied).startPeriodicTasks();
+
+        assertFalse(spied.trySubscribe());
+        verify(conn).closeDispatcher(first);
+
+        assertTrue(spied.trySubscribe());
+        verify(conn, never()).closeDispatcher(second);
+        verify(first, org.mockito.Mockito.times(2)).subscribe(anyString(), any(MessageHandler.class));
+        verify(second, org.mockito.Mockito.times(2)).subscribe(anyString(), any(MessageHandler.class));
+        spied.stopRetrying();
+    }
 }

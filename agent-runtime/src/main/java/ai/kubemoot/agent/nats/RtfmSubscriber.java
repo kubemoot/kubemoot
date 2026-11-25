@@ -5,7 +5,6 @@ import ai.kubemoot.agent.chat.ChatService;
 import ai.kubemoot.agent.config.AgentProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.nats.client.Connection;
-import io.nats.client.Dispatcher;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -86,19 +85,16 @@ public class RtfmSubscriber {
             return false;
         }
 
-        Dispatcher dispatcher = conn.createDispatcher();
         String subject = NATS_ONBOARDING_PREFIX + "deployed";
-        try {
-            dispatcher.subscribe(subject, msg -> {
-                try {
-                    handleDeploymentEvent(new String(msg.getData()));
-                } catch (Exception e) {
-                    log.warn("Error handling RTFM event: {}", LogContent.reason(e));
-                }
-            });
-        } catch (RuntimeException e) {
-            conn.closeDispatcher(dispatcher);
-            log.warn("RTFM subscribe failed: {}", LogContent.reason(e));
+        boolean subscribed = SubscribeRetry.onNewDispatcher(conn, "RTFM", dispatcher ->
+                dispatcher.subscribe(subject, msg -> {
+                    try {
+                        handleDeploymentEvent(new String(msg.getData()));
+                    } catch (Exception e) {
+                        log.warn("Error handling RTFM event: {}", LogContent.reason(e));
+                    }
+                }));
+        if (!subscribed) {
             return false;
         }
 

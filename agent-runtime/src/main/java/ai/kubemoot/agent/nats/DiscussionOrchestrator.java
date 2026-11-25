@@ -319,6 +319,8 @@ public class DiscussionOrchestrator {
 
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private SubscribeRetry subscribeRetry = new SubscribeRetry("discussion-orchestrator");
+    /** Set once the periodic tasks are scheduled, so a retried subscribe never schedules them again. */
+    private final AtomicBoolean periodicTasksStarted = new AtomicBoolean();
     // Separate executor for LLM calls so they never starve the scheduler's
     // periodic tasks (checkPhaseTransitions, cleanupOldThreads).
     private final ExecutorService llmExecutor = Executors.newCachedThreadPool();
@@ -509,18 +511,12 @@ public class DiscussionOrchestrator {
         Connection conn = natsProvider.getConnection();
         if (conn == null) return false;
 
-        Dispatcher dispatcher = conn.createDispatcher();
-        try {
+        // The periodic tasks start inside the attempt, last, so a failed attempt closes its
+        // dispatcher and the retry starts them exactly once.
+        return SubscribeRetry.onNewDispatcher(conn, "Coordinator", dispatcher -> {
             subscribeAll(conn, dispatcher);
-        } catch (RuntimeException e) {
-            // A dispatcher left behind would deliver the subjects that did subscribe a second
-            // time once the retry succeeds.
-            conn.closeDispatcher(dispatcher);
-            log.warn("Coordinator subscribe failed: {}", LogContent.reason(e));
-            return false;
-        }
-        startPeriodicTasks();
-        return true;
+            startPeriodicTasks();
+        });
     }
 
     private void subscribeAll(Connection conn, Dispatcher dispatcher) {
@@ -558,7 +554,11 @@ public class DiscussionOrchestrator {
         log.info("Subscribed to lifecycle signals: {}", lifecycleSub);
     }
 
-    private void startPeriodicTasks() {
+    // Visible for testing
+    void startPeriodicTasks() {
+        if (!periodicTasksStarted.compareAndSet(false, true)) {
+            return;
+        }
         // Phase transition checker (1s interval for responsive signal-driven transitions)
         scheduler.scheduleAtFixedRate(this::checkPhaseTransitions, 1, 1, TimeUnit.SECONDS);
 

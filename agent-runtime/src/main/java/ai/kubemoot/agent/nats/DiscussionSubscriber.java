@@ -303,8 +303,7 @@ public class DiscussionSubscriber {
      * Messages require explicit ack — ack after signal published or immediately for non-triggers.
      */
     private boolean tryJetStreamSubscribe(Connection conn) {
-        Dispatcher dispatcher = null;
-        try {
+        boolean subscribed = SubscribeRetry.onNewDispatcher(conn, "Discussion JetStream", dispatcher -> {
             JetStream js = conn.jetStream();
 
             // Bind to the existing durable consumer (created by the operator).
@@ -313,7 +312,6 @@ public class DiscussionSubscriber {
                     .durable(jetstreamConsumer)
                     .build();
 
-            dispatcher = conn.createDispatcher();
             js.subscribe(natsProvider.scope().discussWildcard(), dispatcher, msg -> {
                 try {
                     handleJetStreamMessage(msg);
@@ -323,27 +321,23 @@ public class DiscussionSubscriber {
                     msg.ack();
                 }
             }, false, opts);
-
-            log.info("JetStream push-subscribe active: consumer={}, agent={}",
-                    jetstreamConsumer, properties.agentName());
-
-        } catch (Exception e) {
-            if (dispatcher != null) {
-                conn.closeDispatcher(dispatcher); // a retry must not leave this one behind
-            }
-            log.warn("Failed to create JetStream subscription for consumer {}: {}",
-                    jetstreamConsumer, LogContent.reason(e));
+            startCleanup();
+        });
+        if (!subscribed) {
             return false;
         }
-
-        scheduler.scheduleAtFixedRate(() -> {
-            rateLimiter.cleanup();
-            cleanupOldThreads();
-        }, CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
 
         log.info("Discussion subscriber active (JetStream, priority={}) consumer={} for agent: {}",
                 priority, jetstreamConsumer, properties.agentName());
         return true;
+    }
+
+    /** Starts the periodic cleanup; called last in a subscribe attempt, so a failed attempt starts none. */
+    private void startCleanup() {
+        scheduler.scheduleAtFixedRate(() -> {
+            rateLimiter.cleanup();
+            cleanupOldThreads();
+        }, CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
     }
 
     /** Subscribes the broadcast subject and every configured channel on the dispatcher. */
@@ -377,20 +371,13 @@ public class DiscussionSubscriber {
      * Original behavior - backward compatible when no JetStream consumer is configured.
      */
     private boolean tryDispatcherSubscribe(Connection conn) {
-        Dispatcher dispatcher = conn.createDispatcher();
-        try {
+        boolean subscribed = SubscribeRetry.onNewDispatcher(conn, "Discussion channels", dispatcher -> {
             subscribeChannels(dispatcher);
-        } catch (RuntimeException e) {
-            // Drop the half-made dispatcher so a retry does not subscribe twice.
-            conn.closeDispatcher(dispatcher);
-            log.warn("Failed to subscribe to the discussion channels: {}", LogContent.reason(e));
+            startCleanup();
+        });
+        if (!subscribed) {
             return false;
         }
-
-        scheduler.scheduleAtFixedRate(() -> {
-            rateLimiter.cleanup();
-            cleanupOldThreads();
-        }, CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
 
         log.info("Discussion subscriber active (Dispatcher, priority={}) on {} channels for agent: {}",
                 priority, channels.size(), properties.agentName());

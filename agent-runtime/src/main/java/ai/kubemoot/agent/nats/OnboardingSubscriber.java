@@ -121,23 +121,19 @@ public class OnboardingSubscriber {
             return false;
         }
 
-        Dispatcher dispatcher = conn.createDispatcher();
-        try {
+        boolean subscribed = SubscribeRetry.onNewDispatcher(conn, "Onboarding", dispatcher -> {
             CrewScope scope = natsProvider.scope();
             subscribeBroadcast(dispatcher, scope);
             subscribeChannels(dispatcher, scope);
-        } catch (RuntimeException e) {
-            // A dispatcher left behind would deliver the subjects that did subscribe a second
-            // time once the retry succeeds.
-            conn.closeDispatcher(dispatcher);
-            log.warn("Onboarding subscribe failed: {}", LogContent.reason(e));
+            // Last: a failure above closes the dispatcher before anything is scheduled.
+            scheduler.scheduleAtFixedRate(() -> {
+                gapDetector.cleanup();
+                if (processedMessages.size() > MAX_PROCESSED_MESSAGES) processedMessages.clear();
+            }, CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
+        });
+        if (!subscribed) {
             return false;
         }
-
-        scheduler.scheduleAtFixedRate(() -> {
-            gapDetector.cleanup();
-            if (processedMessages.size() > MAX_PROCESSED_MESSAGES) processedMessages.clear();
-        }, CLEANUP_INTERVAL_MINUTES, CLEANUP_INTERVAL_MINUTES, TimeUnit.MINUTES);
 
         log.info("Onboarding subscriber active on {} channels", channels.size());
         return true;
