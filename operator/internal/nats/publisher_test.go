@@ -189,6 +189,57 @@ func TestCrewMemoryKeysListsTheBucketAndReportsAMissingOne(t *testing.T) {
 	}
 }
 
+func TestCrewMemoryKeyOperationsReportAnUnreachableBus(t *testing.T) {
+	if v, found, err := NewPublisher("").CrewMemoryGet("k"); v != nil || found || err != nil {
+		t.Errorf("CrewMemoryGet() unconfigured = %v, %v, %v; want not found and no error", v, found, err)
+	}
+	down := NewPublisher(unreachableNATS)
+	if _, _, err := down.CrewMemoryGet("k"); !errors.Is(err, bus.ErrNotReady) {
+		t.Errorf("CrewMemoryGet() with NATS unreachable = %v, want bus.ErrNotReady", err)
+	}
+	if err := down.CrewMemoryPut("k", []byte("v")); !errors.Is(err, bus.ErrNotReady) {
+		t.Errorf("CrewMemoryPut() with NATS unreachable = %v, want bus.ErrNotReady", err)
+	}
+	if err := down.CrewMemoryDelete("k"); !errors.Is(err, bus.ErrNotReady) {
+		t.Errorf("CrewMemoryDelete() with NATS unreachable = %v, want bus.ErrNotReady", err)
+	}
+
+}
+
+func TestCrewMemoryKeyOperationsReadAndWriteTheBucket(t *testing.T) {
+	url := startLocalJetStream(t)
+	p := NewPublisher(url)
+	t.Cleanup(p.Close)
+	if _, _, err := p.CrewMemoryGet("k"); !errors.Is(err, bus.ErrNotReady) {
+		t.Fatalf("CrewMemoryGet() with no bucket = %v, want bus.ErrNotReady", err)
+	}
+	createCrewMemoryBucket(t, url)
+	if _, found, err := p.CrewMemoryGet("missing"); found || err != nil {
+		t.Fatalf("CrewMemoryGet() of a missing key = %v, %v; want not found and no error", found, err)
+	}
+	if err := p.CrewMemoryPut("k", []byte("v")); err != nil {
+		t.Fatal(err)
+	}
+	if v, found, err := p.CrewMemoryGet("k"); err != nil || !found || string(v) != "v" {
+		t.Fatalf("CrewMemoryGet() = %q, %v, %v; want the value", v, found, err)
+	}
+	deleteTwiceAndExpectGone(t, p, "k")
+}
+
+// deleteTwiceAndExpectGone deletes key twice (a key that is gone is not a failure) and
+// checks it no longer reads.
+func deleteTwiceAndExpectGone(t *testing.T, p *Publisher, key string) {
+	t.Helper()
+	for i := 0; i < 2; i++ {
+		if err := p.CrewMemoryDelete(key); err != nil {
+			t.Fatalf("CrewMemoryDelete() #%d = %v, want no error", i+1, err)
+		}
+	}
+	if _, found, _ := p.CrewMemoryGet(key); found {
+		t.Error("the key must be gone after the delete")
+	}
+}
+
 // createCrewMemoryBucket creates the crew memory bucket on the server at url.
 func createCrewMemoryBucket(t *testing.T, url string) nats.KeyValue {
 	t.Helper()

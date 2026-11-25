@@ -207,6 +207,73 @@ func (p *Publisher) CrewMemoryKeys() ([]string, error) {
 	return keys, bus.AsNotReady(err)
 }
 
+// crewMemoryBucket returns the crew memory bucket. Every failure to reach it (NATS not
+// reachable, JetStream or the bucket missing, a call the server did not answer) is
+// bus.ErrNotReady. It reads the connection without holding mu while it asks the server.
+func (p *Publisher) crewMemoryBucket() (nats.KeyValue, error) {
+	conn, err := p.liveConn()
+	if err != nil {
+		return nil, bus.AsNotReady(fmt.Errorf(connectFmt, err))
+	}
+	js, err := conn.JetStream()
+	if err != nil {
+		return nil, bus.AsNotReady(err)
+	}
+	kv, err := js.KeyValue(crewmemory.Bucket)
+	return kv, bus.AsNotReady(err)
+}
+
+// CrewMemoryGet reads one key of the crew memory bucket. A key that does not exist is
+// (nil, false, nil); a bus that cannot be reached is bus.ErrNotReady, never "no value".
+// It returns not found when NATS is not configured.
+func (p *Publisher) CrewMemoryGet(key string) ([]byte, bool, error) {
+	if p.url == "" {
+		return nil, false, nil
+	}
+	kv, err := p.crewMemoryBucket()
+	if err != nil {
+		return nil, false, err
+	}
+	entry, err := kv.Get(key)
+	if errors.Is(err, nats.ErrKeyNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, bus.AsNotReady(err)
+	}
+	return entry.Value(), true, nil
+}
+
+// CrewMemoryPut writes one key of the crew memory bucket and reports every failure.
+// It writes nothing when NATS is not configured.
+func (p *Publisher) CrewMemoryPut(key string, value []byte) error {
+	if p.url == "" {
+		return nil
+	}
+	kv, err := p.crewMemoryBucket()
+	if err != nil {
+		return err
+	}
+	_, err = kv.Put(key, value)
+	return bus.AsNotReady(err)
+}
+
+// CrewMemoryDelete deletes one key of the crew memory bucket and reports every failure.
+// A key that does not exist is not a failure.
+func (p *Publisher) CrewMemoryDelete(key string) error {
+	if p.url == "" {
+		return nil
+	}
+	kv, err := p.crewMemoryBucket()
+	if err != nil {
+		return err
+	}
+	if err := kv.Delete(key); err != nil && !errors.Is(err, nats.ErrKeyNotFound) {
+		return bus.AsNotReady(err)
+	}
+	return nil
+}
+
 // OpenConversationExport returns a builder of conversation exports over this publisher's
 // NATS connection: it reads the conversation history, the discussion stream and the
 // workspace, and the crew memory for the facts learned in the conversation. It reports
