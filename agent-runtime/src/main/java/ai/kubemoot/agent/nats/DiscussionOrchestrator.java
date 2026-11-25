@@ -81,6 +81,12 @@ public class DiscussionOrchestrator {
     private static final String FIELD_TIMESTAMP = "timestamp";
     private static final String FIELD_METADATA = "metadata";
     private static final String FIELD_OUTCOME = "outcome";
+    /** The answer's metadata naming the infrastructure cause no agent could answer for (see {@link FailureCause}). */
+    static final String FIELD_FAILURE_CAUSE = "failureCause";
+    /** The outcome of a thread closed because every agent failed for the same infrastructure cause. */
+    static final String OUTCOME_INFRASTRUCTURE = "infrastructure";
+    /** The outcome of a thread closed with the fallback answer, because synthesis failed or nobody contributed. */
+    static final String OUTCOME_FALLBACK = "fallback";
 
     // Message type constants
     static final String MSG_ADVISORY = "advisory";
@@ -2502,6 +2508,16 @@ public class DiscussionOrchestrator {
         long toolerAgrees = state.agreeSignals.keySet().stream()
                 .filter(name -> !state.researcherAgents.contains(name)).count();
 
+        var unanimous = unanimousCause(state);
+        if (unanimous.isPresent()) {
+            // Every agent failed the same way: nothing to review, and waiting out the review's
+            // deadlines would only delay the answer that names the cause.
+            log.info("Thread {} - every agent failed with {}, skipping review -> synthesis",
+                    state.threadId, unanimous.get().id());
+            transitionToSynthesis(state, "infrastructure_failure");
+            return;
+        }
+
         if (shouldSkipReview(toolerAgrees, state.concernSignals.size(),
                 state.blockSignals.size(), hasAnalysts)) {
             // Single agree, no dissent, no analysts — skip review but go through
@@ -2686,7 +2702,7 @@ public class DiscussionOrchestrator {
      * that entered SYNTHESIZING and has no answer in its log yet.
      */
     void beginSynthesis(ThreadState state, Instant synthesisStart) {
-        if (closeForCapacity(state, synthesisStart)) {
+        if (closeForCapacity(state, synthesisStart) || closeForInfrastructure(state, synthesisStart)) {
             return;
         }
         submitLlm(() -> runSynthesis(state, synthesisStart));
@@ -2743,7 +2759,7 @@ public class DiscussionOrchestrator {
 
         } catch (Exception e) {
             log.warn("Synthesis failed for thread {}: {}", state.threadId, LogContent.reason(e));
-            closeThread(state, resolveChannel(state), fallbackAfterSynthesisFailure(state, e), "fallback");
+            closeThread(state, resolveChannel(state), fallbackAfterSynthesisFailure(state, e), OUTCOME_FALLBACK);
         }
     }
 
@@ -3079,7 +3095,7 @@ public class DiscussionOrchestrator {
      */
     private void handleEmptySynthesisResponse(ThreadState state) {
         log.warn("Empty LLM response for thread {} synthesis", state.threadId);
-        closeThread(state, resolveChannel(state), buildFallbackResponse(state), "fallback");
+        closeThread(state, resolveChannel(state), buildFallbackResponse(state), OUTCOME_FALLBACK);
     }
 
     /**
@@ -3392,6 +3408,11 @@ public class DiscussionOrchestrator {
         if (state.synthesisPromptTooLarge) {
             return PROMPT_TOO_LARGE_MESSAGE;
         }
+        var cause = noContributionCause(state);
+        if (cause.isPresent()) {
+            state.failureCause = cause.get();
+            return cause.get().answer();
+        }
         return "No agent contributed an answer and the coordinator could not "
                 + "synthesize a response. The crew's agents may not cover this "
                 + "topic, or may lack the tools to answer it. Try rephrasing, or add an "
@@ -3457,6 +3478,51 @@ public class DiscussionOrchestrator {
     private static String tooLargeMessage(Set<String> models) {
         String named = models.isEmpty() ? "the model" : "the model " + String.join(", ", new java.util.TreeSet<>(models));
         return "No accelerator in this cluster can hold " + named + " the agents need; add a smaller Model or a larger accelerator.";
+    }
+
+    /**
+     * The infrastructure cause most failed agents name, when no agent agreed, raised a concern
+     * or blocked: the answer then says why nobody could answer. Empty when anyone contributed,
+     * nobody failed, or no failure names a cause.
+     */
+    // Visible for testing
+    static Optional<FailureCause> noContributionCause(ThreadState state) {
+        if (!hasNoContribution(state)) {
+            return Optional.empty();
+        }
+        return FailureCause.dominant(state.failureSignals.values());
+    }
+
+    /**
+     * The infrastructure cause every failed agent names, when no agent contributed: the
+     * moot cannot go on (every model call fails the same way), so it ends at once.
+     */
+    // Visible for testing
+    static Optional<FailureCause> unanimousCause(ThreadState state) {
+        if (!hasNoContribution(state)) {
+            return Optional.empty();
+        }
+        return FailureCause.unanimous(state.failureSignals.values());
+    }
+
+    private static boolean hasNoContribution(ThreadState state) {
+        return state.agreeSignals.isEmpty() && state.concernSignals.isEmpty() && state.blockSignals.isEmpty()
+                && !state.failureSignals.isEmpty();
+    }
+
+    /**
+     * Close the thread with the cause as the answer, without the synthesis call, when every
+     * agent failed for the same infrastructure reason: the coordinator's own model call would
+     * fail the same way. Returns true when it closed the thread.
+     */
+    private boolean closeForInfrastructure(ThreadState state, Instant synthesisStart) {
+        var cause = unanimousCause(state);
+        if (cause.isEmpty()) {
+            return false;
+        }
+        log.info("Thread {} - every agent failed with {}; answering with the cause", state.threadId, cause.get().id());
+        state.failureCause = cause.get();
+        return closeWith(state, synthesisStart, cause.get().answer(), OUTCOME_INFRASTRUCTURE);
     }
 
     /**
@@ -4885,9 +4951,18 @@ public class DiscussionOrchestrator {
         return state.ratify.active() ? Map.of("ratification", state.ratify.metadata()) : Map.of();
     }
 
-    /** The metadata of the answer: how the table ratified it, or, for a stopped turn, that a person stopped it. */
+    /**
+     * The metadata of the answer: how the table ratified it; for a stopped turn, that a person stopped it;
+     * for an answer written because no agent could contribute, the infrastructure cause.
+     */
     private Map<String, Object> synthesisMetadata(ThreadState state, String outcome) {
-        return OUTCOME_STOPPED.equals(outcome) ? Map.of(FIELD_OUTCOME, OUTCOME_STOPPED) : ratificationMetadata(state);
+        if (OUTCOME_STOPPED.equals(outcome)) {
+            return Map.of(FIELD_OUTCOME, OUTCOME_STOPPED);
+        }
+        // The cause the answer's text names, as decided when the text was written.
+        boolean causeAnswer = OUTCOME_INFRASTRUCTURE.equals(outcome) || OUTCOME_FALLBACK.equals(outcome);
+        FailureCause cause = causeAnswer ? state.failureCause : null;
+        return cause != null ? Map.of(FIELD_FAILURE_CAUSE, cause.id()) : ratificationMetadata(state);
     }
 
     /**
@@ -5336,6 +5411,8 @@ public class DiscussionOrchestrator {
         }
         /** The answer, once the thread has closed with one. */
         volatile String answer;
+        /** The infrastructure cause the answer names when no agent could contribute; null when it names none. */
+        volatile FailureCause failureCause;
 
         // Advisory tracking
         volatile String advisoryContent;

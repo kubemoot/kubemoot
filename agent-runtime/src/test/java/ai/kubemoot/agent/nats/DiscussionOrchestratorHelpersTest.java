@@ -964,6 +964,93 @@ class DiscussionOrchestratorHelpersTest {
         assertTrue(orchestrator.buildFallbackResponse(state).startsWith("No agent contributed an answer"));
     }
 
+    private void failed(DiscussionOrchestrator.ThreadState state, String agent, String content) {
+        orchestrator.handleAgentSignal(state, agent, "failure", content, signal(null, null));
+    }
+
+    private static final String NO_OPERATOR_TEXT = "Triage failed: server vllm-rig0 could not make qwen3:14b ready: "
+            + "no operator is listening for model lifecycle requests";
+
+    @Test
+    void noContribution_becauseNoOperatorListens_isNamedInTheFallbackAnswer() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        failed(state, "k8s-agent", NO_OPERATOR_TEXT);
+        failed(state, "helm-agent", NO_OPERATOR_TEXT);
+
+        assertEquals("No agent could answer: the crew's models could not be made ready (the operator did not respond).",
+                orchestrator.buildFallbackResponse(state));
+    }
+
+    @Test
+    void noContribution_withMixedCauses_namesTheMostCommonOne() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        failed(state, "a", "could not make m ready: the engine refused");
+        failed(state, "b", "could not make m ready: the engine refused");
+        failed(state, "c", NO_OPERATOR_TEXT);
+
+        assertEquals(FailureCause.MODEL_NOT_READY.answer(), orchestrator.buildFallbackResponse(state));
+    }
+
+    @Test
+    void failuresThatNameNoCause_keepTheGenericNoContributionText() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        failed(state, "a", "Mulling failed: the tool returned an error");
+
+        assertTrue(orchestrator.buildFallbackResponse(state).startsWith("No agent contributed an answer"));
+    }
+
+    @Test
+    void anAgentThatAgreed_keepsTheFindingsAsTheFallbackEvenWhenOthersFailedOnTheInfrastructure() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        failed(state, "a", NO_OPERATOR_TEXT);
+        orchestrator.handleAgentSignal(state, "b", "agree", "Rule 7 applies", signal(null, null));
+
+        assertTrue(orchestrator.buildFallbackResponse(state).contains("Rule 7 applies"));
+        assertTrue(DiscussionOrchestrator.noContributionCause(state).isEmpty());
+    }
+
+    @Test
+    void failuresRestoredAfterARestartWithoutTheirText_giveTheGenericFallbackAndNoCause() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.failureSignals.put("a", "");
+        state.failureSignals.put("b", "");
+
+        assertTrue(orchestrator.buildFallbackResponse(state).startsWith("No agent contributed an answer"));
+        assertNull(state.failureCause);
+        assertTrue(DiscussionOrchestrator.unanimousCause(state).isEmpty(), "an unreadable failure never ends a moot early");
+    }
+
+    @Test
+    void theFallbackRecordsTheCauseItNamed_forTheAnswersMetadata() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        failed(state, "a", NO_OPERATOR_TEXT);
+
+        orchestrator.buildFallbackResponse(state);
+
+        assertEquals(FailureCause.OPERATOR_UNREACHABLE, state.failureCause);
+    }
+
+    @Test
+    void agentsThatStoodAsideDoNotStopACauseFromBeingNamed() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        orchestrator.handleAgentSignal(state, "a", "stand_aside", "", signal(null, null));
+        failed(state, "b", NO_OPERATOR_TEXT);
+
+        assertEquals(java.util.Optional.of(FailureCause.OPERATOR_UNREACHABLE), DiscussionOrchestrator.unanimousCause(state));
+    }
+
+    @Test
+    void unanimousCause_needsEveryFailureToNameIt() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        failed(state, "a", NO_OPERATOR_TEXT);
+        assertEquals(java.util.Optional.of(FailureCause.OPERATOR_UNREACHABLE), DiscussionOrchestrator.unanimousCause(state));
+
+        failed(state, "b", "Mulling failed: the tool returned an error");
+        assertTrue(DiscussionOrchestrator.unanimousCause(state).isEmpty());
+        assertEquals(java.util.Optional.of(FailureCause.OPERATOR_UNREACHABLE), DiscussionOrchestrator.noContributionCause(state),
+                "the fallback still names the cause most failures name");
+    }
+
     @Test
     void capacityReasonWithAContribution_doesNotReplaceTheAnswer() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
