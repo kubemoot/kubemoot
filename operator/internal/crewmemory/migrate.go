@@ -35,9 +35,11 @@ type KV interface {
 	// CrewMemoryKeys lists the bucket's keys and reports a bus that cannot be reached as
 	// an error (bus.ErrNotReady), never as an empty list.
 	CrewMemoryKeys() ([]string, error)
-	GetKVValue(bucket, key string) ([]byte, error)
-	PutKVValue(bucket, key string, value []byte) error
-	DeleteKVKey(bucket, key string) error
+	// CrewMemoryGet reads one key: not found is (nil, false, nil), an unreachable bus is
+	// bus.ErrNotReady.
+	CrewMemoryGet(key string) ([]byte, bool, error)
+	CrewMemoryPut(key string, value []byte) error
+	CrewMemoryDelete(key string) error
 }
 
 // Migrator renames unscoped crew-memory keys once at operator startup. A key is
@@ -90,7 +92,10 @@ func (m *Migrator) Run(ctx context.Context, log logr.Logger) error {
 	}
 	p := Plan(keys, NewIndex(crews.Items))
 	logLeftUnscoped(log, p)
-	renamed := m.applyRenames(log, p.Renames)
+	renamed, err := m.applyRenames(log, p.Renames)
+	if err != nil {
+		return err
+	}
 	if renamed > 0 || len(p.Ambiguous) > 0 || len(p.Orphaned) > 0 {
 		log.Info("Crew memory key migration done", "renamed", renamed,
 			"ambiguous", len(p.Ambiguous), "orphaned", len(p.Orphaned))
@@ -108,38 +113,57 @@ func logLeftUnscoped(log logr.Logger, p MigrationPlan) {
 	}
 }
 
-// applyRenames performs the renames and returns how many succeeded.
-func (m *Migrator) applyRenames(log logr.Logger, renames []Rename) int {
+// applyRenames performs the renames and returns how many succeeded. It stops at the first
+// bus that cannot be reached and returns that error, so the migration runs again once the
+// bus is back; the keys already renamed are gone from the next key list.
+func (m *Migrator) applyRenames(log logr.Logger, renames []Rename) (int, error) {
 	renamed := 0
 	for _, r := range renames {
-		if m.rename(log, r) {
+		ok, err := m.rename(log, r)
+		if err != nil {
+			return renamed, err
+		}
+		if ok {
 			renamed++
 		}
 	}
-	return renamed
+	return renamed, nil
 }
 
 // rename copies one value to its scoped key and deletes the unscoped key. An
-// existing scoped key wins; the unscoped copy is then only deleted.
-func (m *Migrator) rename(log logr.Logger, r Rename) bool {
-	value, err := m.KV.GetKVValue(memory.Bucket, r.From)
+// existing scoped key wins; the unscoped copy is then only deleted. It returns an error
+// only for a bus that cannot be reached; any other failure leaves the unscoped key in
+// place and is logged.
+func (m *Migrator) rename(log logr.Logger, r Rename) (bool, error) {
+	value, found, err := m.KV.CrewMemoryGet(r.From)
 	if err != nil {
-		log.V(1).Info("Crew memory key not read", "key", r.From, "error", err.Error())
-		return false
+		return false, m.notReadyOrLog(log, "Crew memory key not read", r, err)
 	}
-	if value == nil {
-		return false
+	if !found {
+		return false, nil
 	}
-	if existing, _ := m.KV.GetKVValue(memory.Bucket, r.To); existing == nil {
-		if err := m.KV.PutKVValue(memory.Bucket, r.To, value); err != nil {
-			log.Info("Crew memory key not renamed", "from", r.From, "to", r.To, "error", err.Error())
-			return false
+	_, scoped, err := m.KV.CrewMemoryGet(r.To)
+	if err != nil {
+		return false, m.notReadyOrLog(log, "Crew memory scoped key not read", r, err)
+	}
+	if !scoped {
+		if err := m.KV.CrewMemoryPut(r.To, value); err != nil {
+			return false, m.notReadyOrLog(log, "Crew memory key not renamed", r, err)
 		}
 	}
-	if err := m.KV.DeleteKVKey(memory.Bucket, r.From); err != nil {
-		log.Info("Crew memory key copied but the unscoped key was not deleted", "key", r.From, "error", err.Error())
+	if err := m.KV.CrewMemoryDelete(r.From); err != nil {
+		return false, m.notReadyOrLog(log, "Crew memory key copied but the unscoped key was not deleted", r, err)
 	}
-	return true
+	return true, nil
+}
+
+// notReadyOrLog returns err when the bus is not ready, and otherwise logs it and returns nil.
+func (m *Migrator) notReadyOrLog(log logr.Logger, msg string, r Rename, err error) error {
+	if errors.Is(err, bus.ErrNotReady) {
+		return fmt.Errorf("%s (%s): %w", msg, r.From, err)
+	}
+	log.Info(msg, "from", r.From, "to", r.To, "error", err.Error())
+	return nil
 }
 
 // Index maps each Crew name to the namespaces that hold a Crew of that name.

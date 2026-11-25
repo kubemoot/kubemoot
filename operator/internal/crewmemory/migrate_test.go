@@ -96,9 +96,20 @@ func TestPlanIsIdempotent(t *testing.T) {
 	}
 }
 
+// The operations a fakeKV can be told to fail.
+const (
+	opGet    = "get"
+	opPut    = "put"
+	opDelete = "delete"
+)
+
 type fakeKV struct {
 	data    map[string][]byte
 	failPut bool
+	// failOp names the operation ("get", "put" or "delete") that fails with failErr, as when
+	// the bus drops after the key list was read.
+	failOp  string
+	failErr error
 	// busDown is how many key lists still fail because the bus cannot be reached.
 	busDown int
 	lists   int
@@ -121,15 +132,30 @@ func (f *fakeKV) CrewMemoryKeys() ([]string, error) {
 	}
 	return keys, nil
 }
-func (f *fakeKV) GetKVValue(_, key string) ([]byte, error) { return f.data[key], nil }
-func (f *fakeKV) PutKVValue(_, key string, v []byte) error {
+func (f *fakeKV) CrewMemoryGet(key string) ([]byte, bool, error) {
+	if f.failOp == opGet {
+		return nil, false, f.failErr
+	}
+	v, ok := f.data[key]
+	return v, ok, nil
+}
+func (f *fakeKV) CrewMemoryPut(key string, v []byte) error {
 	if f.failPut {
 		return errors.New("put failed")
+	}
+	if f.failOp == opPut {
+		return f.failErr
 	}
 	f.data[key] = v
 	return nil
 }
-func (f *fakeKV) DeleteKVKey(_, key string) error { delete(f.data, key); return nil }
+func (f *fakeKV) CrewMemoryDelete(key string) error {
+	if f.failOp == opDelete {
+		return f.failErr
+	}
+	delete(f.data, key)
+	return nil
+}
 
 func newReader(t *testing.T, crews ...kubemootv1alpha1.Crew) *Migrator {
 	t.Helper()
@@ -215,6 +241,63 @@ func TestRunReportsAnUnreachableBusInsteadOfFindingNoKeys(t *testing.T) {
 	}
 	if string(kv.data[legacyKey]) != legacyValue || len(kv.data) != 1 {
 		t.Errorf("nothing may be migrated while the bus is down: %v", kv.data)
+	}
+}
+
+func TestRunReportsABusThatDropsAfterTheKeyList(t *testing.T) {
+	for _, op := range []string{opGet, opPut, opDelete} {
+		m := newReader(t, crew(nsA, "pilot"))
+		kv := &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}, failOp: op,
+			failErr: fmt.Errorf("%w: connection closed", bus.ErrNotReady)}
+		m.KV = kv
+		err := m.Run(context.Background(), logr.Discard())
+		if !errors.Is(err, bus.ErrNotReady) {
+			t.Errorf("Run with the bus dropping at %s = %v, want bus.ErrNotReady", op, err)
+		}
+	}
+}
+
+func TestRunDoesNotOverwriteAScopedKeyItCouldNotRead(t *testing.T) {
+	m := newReader(t, crew(nsA, "pilot"))
+	kv := &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}}
+	m.KV = &scopedReadFails{fakeKV: kv}
+	if err := m.Run(context.Background(), logr.Discard()); !errors.Is(err, bus.ErrNotReady) {
+		t.Fatalf("Run = %v, want bus.ErrNotReady", err)
+	}
+	if len(kv.data) != 1 || string(kv.data[legacyKey]) != legacyValue {
+		t.Errorf("nothing may be written when the scoped key could not be read: %v", kv.data)
+	}
+}
+
+// scopedReadFails fails the read of any key other than the legacy one, as a bus that drops
+// between the two reads of a rename.
+type scopedReadFails struct{ *fakeKV }
+
+func (s *scopedReadFails) CrewMemoryGet(key string) ([]byte, bool, error) {
+	if key != legacyKey {
+		return nil, false, fmt.Errorf("%w: connection closed", bus.ErrNotReady)
+	}
+	return s.fakeKV.CrewMemoryGet(key)
+}
+
+func TestStartRetriesUntilARenameCompletesAfterTheBusDrops(t *testing.T) {
+	m := newReader(t, crew(nsA, "pilot"))
+	kv := &fakeKV{data: map[string][]byte{legacyKey: []byte(legacyValue)}, failOp: opPut,
+		failErr: fmt.Errorf("%w: connection closed", bus.ErrNotReady)}
+	m.KV = kv
+	m.Backoff = kubemootnats.Backoff{First: time.Millisecond, Max: time.Millisecond}
+	kv.onList = func() {
+		if kv.lists >= 3 {
+			kv.failOp = ""
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // safety net only
+	defer cancel()
+	if err := m.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := kv.data[legacyKey]; ok || len(kv.data) != 1 {
+		t.Errorf("the rename must complete once the bus is back: %v", kv.data)
 	}
 }
 
