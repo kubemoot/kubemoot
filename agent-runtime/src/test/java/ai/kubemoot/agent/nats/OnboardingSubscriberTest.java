@@ -84,4 +84,21 @@ class OnboardingSubscriberTest {
             subscriber.stopRetrying();
         }
     }
+
+    @Test
+    void aRetryThatSucceeds_keepsItsDispatcher() {
+        var conn = mock(Connection.class);
+        var first = mock(Dispatcher.class);
+        var second = mock(Dispatcher.class);
+        when(conn.createDispatcher()).thenReturn(first, second);
+        when(first.subscribe(anyString(), any(MessageHandler.class))).thenThrow(new IllegalStateException("connection closed"));
+        when(second.subscribe(anyString(), any(MessageHandler.class))).thenReturn(mock(Subscription.class));
+        var subscriber = new OnboardingSubscriber(provider(conn), mock(ChatService.class), properties());
+
+        assertFalse(subscriber.trySubscribe());
+        assertTrue(subscriber.trySubscribe());
+
+        verify(conn).closeDispatcher(first);
+        verify(conn, org.mockito.Mockito.never()).closeDispatcher(second);
+    }
 }

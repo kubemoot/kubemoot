@@ -4,6 +4,9 @@ import ai.kubemoot.agent.logging.LogContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.nats.client.Connection;
+import io.nats.client.Dispatcher;
+
 import java.time.Duration;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -16,7 +19,7 @@ import java.util.function.BooleanSupplier;
  * once, fail, and stay idle for the life of the process. Attempts back off by doubling
  * from {@code first} to {@code max}; an attempt that throws counts as a failed attempt
  * and does not end the retries. The retries end at the first success (the attempt is
- * never run again) or when {@link #stop()} is called.
+ * never run again) or when {@link #stop()} is called; after either, the instance is spent.
  */
 final class SubscribeRetry {
 
@@ -39,6 +42,36 @@ final class SubscribeRetry {
         this.what = what;
         this.first = first.isZero() || first.isNegative() ? FIRST : first;
         this.max = max.compareTo(this.first) < 0 ? this.first : max;
+    }
+
+    /** What a subscribe attempt does on its new dispatcher; it may throw. */
+    @FunctionalInterface
+    interface DispatcherSetup {
+        void run(Dispatcher dispatcher) throws Exception;
+    }
+
+    /**
+     * Creates a dispatcher on {@code conn} and runs {@code setup} on it: the subscriptions and
+     * whatever must start only once they exist. When setup does not finish (it throws, or an
+     * Error escapes it) the dispatcher is closed, so the retry that follows cannot leave a
+     * second set of subscriptions delivering every message twice.
+     *
+     * @return true when setup finished; false when it threw an exception (logged)
+     */
+    static boolean onNewDispatcher(Connection conn, String what, DispatcherSetup setup) {
+        Dispatcher dispatcher = conn.createDispatcher();
+        boolean done = false;
+        try {
+            setup.run(dispatcher);
+            done = true;
+        } catch (Exception e) {
+            log.warn("{} subscribe failed: {}", what, LogContent.reason(e));
+        } finally {
+            if (!done) {
+                conn.closeDispatcher(dispatcher);
+            }
+        }
+        return done;
     }
 
     /** The wait before the first retry. */
