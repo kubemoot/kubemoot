@@ -74,4 +74,5 @@ jobs:
           )
           [ -z "${LICENSE}" ] || args+=(--label "org.opencontainers.image.licenses=${LICENSE}")
           [ -z "${EXTRA_TAG}" ] || args+=(--extra-tag "${EXTRA_TAG}")
-          "${BUILD_IMAGE_DIR}/build-image-buildah.sh" "${args[@]}" "${CONTEXT}" "${REGISTRY}/kubemoot/${NAME}"
+          bash .github/scripts/retry-lost-build-pod.sh -- \
+            "${BUILD_IMAGE_DIR}/build-image-buildah.sh" "${args[@]}" "${CONTEXT}" "${REGISTRY}/kubemoot/${NAME}"

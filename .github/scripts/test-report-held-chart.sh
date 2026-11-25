@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Tests for report-held-chart.sh against a fake gh that serves canned runs per workflow.
+# Usage: bash .github/scripts/test-report-held-chart.sh   (exit 0 = all passed)
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+script="${here}/report-held-chart.sh"
+
+failures=0
+check() {
+  local name="$1" want="$2" got="$3"
+  if [ "$want" = "$got" ]; then
+    echo "ok   ${name}"
+  else
+    echo "FAIL ${name}: want [${want}] got [${got}]"
+    failures=$((failures + 1))
+  fi
+}
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+mkdir -p "${work}/bin" "${work}/state"
+
+# Fake gh: `gh run list --workflow FILE ...` prints state/FILE.statuses (one status per line),
+# or fails with the text of state/FILE.error.
+cat > "${work}/bin/gh" <<EOF2
+#!/usr/bin/env bash
+args="\$*"
+file="\$(sed -E 's|.*--workflow ([^ ]+).*|\1|' <<<"\$args")"
+if [ -f "${work}/state/\${file}.error" ]; then cat "${work}/state/\${file}.error" >&2; exit 1; fi
+cat "${work}/state/\${file}.statuses"
+EOF2
+chmod +x "${work}/bin/gh"
+
+reset() { rm -rf "${work:?}"/state/* "${work}/held.txt"; }
+held_line() {
+  echo "$1 0.1.0-rc.2: 3 commit(s) after abc123 touch its sources; build it: gh workflow run release-$1.yaml -f force_release=true" >> "${work}/held.txt"
+}
+statuses() { printf '%s\n' "${@:2}" > "${work}/state/release-$1.yaml.statuses"; }
+run() { PATH="${work}/bin:${PATH}" GH_REPO=o/r bash "$script" "${work}/held.txt" >"${work}/out" 2>&1 && echo 0 || echo $?; }
+
+reset
+held_line dashboard; statuses dashboard in_progress completed
+check "a component whose release is running is a wait" 0 "$(run)"
+check "the wait is a notice naming the component" 1 "$(grep -c '^::notice title=Operator chart waits for dashboard::' "${work}/out")"
+
+reset
+held_line dashboard; statuses dashboard completed completed
+check "a component with no release running fails the job" 1 "$(run)"
+check "the error names the component" 1 "$(grep -c '^::error title=Operator chart held: dashboard::' "${work}/out")"
+check "the error carries the recovery command" 1 "$(grep -c 'Recover: gh workflow run release-dashboard.yaml -f force_release=true' "${work}/out")"
+
+reset
+held_line dashboard; statuses dashboard queued
+check "a queued release is a wait" 0 "$(run)"
+
+reset
+held_line dashboard; held_line indexer
+statuses dashboard in_progress; statuses indexer completed
+check "one stuck component among waiting ones fails the job" 1 "$(run)"
+check "only the stuck component is an error" 1 "$(grep -c '^::error' "${work}/out")"
+check "the waiting one is a notice" 1 "$(grep -c '^::notice' "${work}/out")"
+
+reset
+held_line dashboard; echo 'HTTP 502: bad gateway' > "${work}/state/release-dashboard.yaml.error"
+check "unreadable runs fail the job" 1 "$(run)"
+check "the error says the runs could not be read" 1 "$(grep -c 'Could not read the runs of release-dashboard.yaml' "${work}/out")"
+
+reset
+echo "dashboard: cannot list the commits" > "${work}/held.txt"
+check "a line that names no workflow fails the job" 1 "$(run)"
+
+reset
+: > "${work}/held.txt"
+check "an empty file is nothing held" 0 "$(run)"
+
+reset
+held_line dashboard; statuses dashboard completed
+summary="${work}/summary.md"
+PATH="${work}/bin:${PATH}" GH_REPO=o/r GITHUB_STEP_SUMMARY="$summary" bash "$script" "${work}/held.txt" >/dev/null 2>&1 || true
+check "the report goes to the step summary as plain markdown" 1 "$(grep -c '^- \*\*Operator chart held: dashboard\*\*: No release-dashboard.yaml run' "$summary")"
+check "the summary holds no workflow command" 0 "$(grep -c '^::' "$summary")"
+
+check "a missing file is a usage error" 64 "$(PATH="${work}/bin:${PATH}" GH_REPO=o/r bash "$script" "${work}/absent" >/dev/null 2>&1 && echo 0 || echo $?)"
+
+[ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
+echo "all passed"

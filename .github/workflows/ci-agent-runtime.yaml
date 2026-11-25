@@ -211,7 +211,8 @@ jobs:
           mkdir -p "${app}"
           cp agent-runtime/build/*-runner "${app}/application"
           cp agent-runtime/src/main/buildpacks/Procfile "${app}/Procfile"
-          "${BUILD_IMAGE_DIR}/build-image-buildpacks.sh" \
+          bash .github/scripts/retry-lost-build-pod.sh -- \
+            "${BUILD_IMAGE_DIR}/build-image-buildpacks.sh" \
             --pod "buildpacks-agent-runtime-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
             --sha "${SHA}" --ref "${GITHUB_REF}" \
             --builder builder-java-tiny --run-image run-tiny \
