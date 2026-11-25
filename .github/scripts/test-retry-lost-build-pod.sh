@@ -26,13 +26,15 @@ cat > "${work}/build" <<EOF2
 #!/usr/bin/env bash
 while [ \$# -gt 0 ]; do [ "\$1" = "--pod" ] && pod="\$2"; shift; done
 echo "[\${pod:-}]" >> "${work}/runs"
+echo "[\${BUILD_NO_CACHE:-}]" >> "${work}/cache"
 n=\$(wc -l < "${work}/runs")
 cat "${work}/out.\${n}" 2>/dev/null || true
 exit "\$(cat "${work}/status.\${n}" 2>/dev/null || echo 0)"
 EOF2
 chmod +x "${work}/build"
 
-reset() { rm -f "${work}"/runs "${work}"/out.* "${work}"/status.*; : > "${work}/runs"; }
+reset() { rm -f "${work}"/runs "${work}"/cache "${work}"/out.* "${work}"/status.*; : > "${work}/runs"; }
+export RETRY_BACKOFF="0 0"
 run() { bash "$script" -- "${work}/build" --pod "p-1" --sha abc >"${work}/log" 2>&1 && echo 0 || echo $?; }
 runs() { wc -l < "${work}/runs" | tr -d ' '; }
 
@@ -135,6 +137,85 @@ reset
 echo 1 > "${work}/status.1"; echo 'custom failure' > "${work}/out.1"
 got=$(LOST_POD_PATTERN='custom failure' bash "$script" -- "${work}/build" --pod p-1 >/dev/null 2>&1 && echo 0 || echo $?)
 check "the signature can be replaced" "0:2" "${got}:$(runs)"
+
+# Registry failures, with lifecycle output as printed (registry host replaced, colour codes kept).
+esc=$'\x1b'
+cache_err="${esc}[31;1mERROR: ${esc}[0mfailed to create image cache: accessing cache image \"registry.example/kubemoot/app-buildcache:main\": GET https://registry.example/v2/kubemoot/app-buildcache/blobs/sha256:8a8fdbc9: UNAUTHORIZED: failed to connect to host=db: dial error (no route to host)"
+access_err="${esc}[31;1mERROR: ${esc}[0mfailed to initialize analyzer: validating registry write access: failed to ensure registry read/write access to registry.example/kubemoot/app-buildcache:main: HEAD https://registry.example/v2/kubemoot/app-buildcache/manifests/main: unexpected status code 401 Unauthorized (HEAD responses have no body, use GET for details)"
+cleanup='pod "buildpacks-app-a0ef4895-23-1" deleted from arc-runners namespace'
+cleanup2='pod arc-runners/buildpacks-app-a0ef4895-23-1 terminated (Error)'
+
+reset
+echo 1 > "${work}/status.1"; printf '%s\n%s\n%s\n' "$cache_err" "$cleanup" "$cleanup2" > "${work}/out.1"
+check "a failed cache image access is retried and the retry's success is returned" 0 "$(run)"
+check "the build ran twice" 2 "$(runs)"
+check "the retry has its own pod name" "[p-1-retry]" "$(sed -n 2p "${work}/runs")"
+check "the retry is a visible warning" 1 "$(grep -c '^::warning title=Build registry error::' "${work}/log")"
+check "the second attempt still has the cache" "[]" "$(sed -n 2p "${work}/cache")"
+
+reset
+echo 1 > "${work}/status.1"; printf '%s\n%s\n' "$access_err" "$cleanup" > "${work}/out.1"
+check "a failed registry write access check is retried" 2 "$(run >/dev/null; runs)"
+
+reset
+for n in 1 2 3; do echo 1 > "${work}/status.${n}"; printf '%s\n' "$cache_err" > "${work}/out.${n}"; done
+check "a registry error that persists returns the last status" 1 "$(run)"
+check "after three runs" 3 "$(runs)"
+check "the third pod name is distinct" "[p-1-retry2]" "$(sed -n 3p "${work}/runs")"
+check "the first two runs keep the cache" "[]:[]" "$(sed -n 1p "${work}/cache"):$(sed -n 2p "${work}/cache")"
+check "the last run drops the cache when the failure named it" "[1]" "$(sed -n 3p "${work}/cache")"
+
+reset
+for n in 1 2 3; do echo 1 > "${work}/status.${n}"; printf '%s\n' "ERROR: failed to export: PUT https://registry.example/v2/kubemoot/app/blobs/uploads/x: unexpected status code 503 Service Unavailable" > "${work}/out.${n}"; done
+check "an HTTP 5xx from the registry is retried to the limit" 3 "$(run >/dev/null; runs)"
+check "the last run keeps the cache when the failure did not name it" "[]" "$(sed -n 3p "${work}/cache")"
+
+reset
+echo 1 > "${work}/status.1"; echo 'ERROR: failed to export: PUT https://registry.example/v2/kubemoot/app/blobs/uploads/x: read tcp 10.0.0.1:5000: connection reset by peer' > "${work}/out.1"
+check "a connection reset from the registry is retried" 2 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; echo 'ERROR: failed to analyze: GET https://registry.example/v2/kubemoot/app/manifests/latest: net/http: TLS handshake timeout' > "${work}/out.1"
+check "a registry timeout is retried" 2 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; printf '%s\n' "${esc}[31;1mERROR: ${esc}[0mfailed to build: exit status 1" "$cleanup" > "${work}/out.1"
+check "a failed buildpack build is not retried" 1 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; echo '::error::bad image name: Bad_Name' > "${work}/out.1"
+check "the bad image name guard is not retried" 1 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; echo 'ERROR: failed to build: GET https://registry.npmjs.org/left-pad: 503 Service Unavailable, timeout' > "${work}/out.1"
+check "a build's own download failure is not a registry failure" 1 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; echo 'test output: failed to create image cache: accessing cache image x' > "${work}/out.1"
+check "the registry words in the build's own output are not retried" 1 "$(run >/dev/null; runs)"
+
+reset
+echo 0 > "${work}/status.1"; printf '%s\n' "$cache_err" > "${work}/out.1"
+check "a registry error in the output of a successful build is not retried" 1 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; printf '%s\n' "$cache_err" > "${work}/out.1"
+check "a registry failure of a command without --pod is not retried" 1 "$(bash "$script" -- "${work}/build" --sha abc >/dev/null 2>&1; runs)"
+
+reset
+echo 1 > "${work}/status.1"; printf '%s\n' "$cache_err" > "${work}/out.1"
+echo 1 > "${work}/status.2"; echo 'Error from server (NotFound): pods "x" not found' > "${work}/out.2"
+check "a lost pod after a registry retry is not retried again" 2 "$(run >/dev/null; runs)"
+
+reset
+echo 1 > "${work}/status.1"; echo 'custom registry failure' > "${work}/out.1"
+got=$(REGISTRY_PATTERN='custom registry' bash "$script" -- "${work}/build" --pod p-1 >/dev/null 2>&1 && echo 0 || echo $?)
+check "the registry signature can be replaced" "0:2" "${got}:$(runs)"
+
+reset
+for n in 1 2 3 4; do echo 1 > "${work}/status.${n}"; printf '%s\n' "$access_err" > "${work}/out.${n}"; done
+RETRY_BACKOFF="0 0 0" bash "$script" -- "${work}/build" --pod p-1 >/dev/null 2>&1 || true
+check "the backoff list sets the number of attempts" "4:[1]" "$(runs):$(sed -n 4p "${work}/cache")"
 
 [ "$failures" -eq 0 ] || { echo "${failures} failed"; exit 1; }
 echo "all passed"
