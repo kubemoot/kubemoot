@@ -37,8 +37,7 @@ import java.util.function.Supplier;
 public class RemoteCallPlanner implements CallPlacement {
 
     private static final Logger log = LoggerFactory.getLogger(RemoteCallPlanner.class);
-    private static final String THREADS_PATH = "/threads/";
-    private static final String API = "/placement/v1";
+    private static final String API = PlacementClient.API_ROOT;
     private static final int REPORT_QUEUE = 2_000;
     private static final long WARN_INTERVAL_MS = 30_000L;
 
@@ -68,6 +67,11 @@ public class RemoteCallPlanner implements CallPlacement {
         this.policy = policy == null ? "" : policy;
         this.mapper = mapper;
         this.registry = registry;
+    }
+
+    /** The path of the per-thread resources; a thread id and an action follow it. */
+    private static String threadPath() {
+        return API + "/threads/";
     }
 
     @Override
@@ -134,7 +138,7 @@ public class RemoteCallPlanner implements CallPlacement {
         candidates.forEach(cands::add);
         try {
             planned.add(threadId);
-            client.post(API + THREADS_PATH + threadId + "/plan", body);
+            client.post(threadPath() + threadId + "/plan", body);
         } catch (PlacementUnavailableException e) {
             // A plan only saves time at the first call; without it the call is placed when it is made.
             planned.remove(threadId);
@@ -148,7 +152,7 @@ public class RemoteCallPlanner implements CallPlacement {
             return Optional.empty();
         }
         try {
-            PlacementClient.Answer answer = client.post(API + THREADS_PATH + threadId + "/take",
+            PlacementClient.Answer answer = client.post(threadPath() + threadId + "/take",
                     PlacementWire.identityJson(mapper, identity));
             return answer.status() == 200 ? Optional.of(placement(answer, "take")) : Optional.empty();
         } catch (PlacementUnavailableException e) {
@@ -163,7 +167,7 @@ public class RemoteCallPlanner implements CallPlacement {
             return;
         }
         planned.remove(threadId);
-        report("release-thread", () -> client.delete(API + THREADS_PATH + threadId + "?namespace="
+        report("release-thread", () -> client.delete(threadPath() + threadId + "?namespace="
                 + enc(identity.namespace()) + "&crew=" + enc(identity.crew()) + "&agent=" + enc(identity.agentName())));
     }
 
@@ -174,7 +178,7 @@ public class RemoteCallPlanner implements CallPlacement {
         ObjectNode body = PlacementWire.identityJson(mapper, identity);
         body.put(WireKeys.MODEL, model == null ? "" : model);
         String thread = threadId == null || threadId.isBlank() ? "-" : threadId;
-        report("call-started", () -> client.post(API + THREADS_PATH + thread + "/call-started", body));
+        report("call-started", () -> client.post(threadPath() + thread + "/call-started", body));
     }
 
     @Override

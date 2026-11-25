@@ -25,6 +25,9 @@ import java.util.function.LongSupplier;
  */
 public final class PlacementClient {
 
+    /** The service's API root, relative to the service's base URL. */
+    public static final String API_ROOT = "placement/v1";
+
     /** How long after a failure the client does not try again. */
     static final Duration BREAKER = Duration.ofSeconds(2);
 
