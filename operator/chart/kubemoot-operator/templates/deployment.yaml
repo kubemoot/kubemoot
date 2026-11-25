@@ -117,6 +117,17 @@ spec:
             # The report Service's name, which its serving certificate names.
             - name: REPORT_SERVICE_NAME
               value: {{ printf "%s-report" (include "kubemoot-operator.fullname" .) | quote }}
+            {{- with .Values.liaison.connectedAccounts.accounts }}
+            {{- range $account, $_ := . }}
+            {{- if not (regexMatch "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$" $account) }}
+            {{- fail (printf "liaison.connectedAccounts.accounts key %q must be a DNS label" $account) }}
+            {{- end }}
+            {{- end }}
+            # The outside accounts this install registered a client for: a Crew that declares any
+            # other name reports ConnectedAccounts=False, reason UnregisteredAccount.
+            - name: KUBEMOOT_CONNECTED_ACCOUNTS
+              value: {{ keys . | sortAlpha | join "," | quote }}
+            {{- end }}
             # The install CA: a Secret the operator makes when it is absent and never replaces, and the
             # ConfigMap its public certificates are published in for the pods that verify with it.
             - name: INSTALL_CA_SECRET

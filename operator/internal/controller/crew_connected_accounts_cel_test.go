@@ -24,7 +24,10 @@ import (
 // The Crew and MCPServer CRDs hold the connected-account rules at the API server, so they
 // hold where the admission webhook is not installed.
 // celAccount is the account name the admission tests use.
-const celAccount = "library"
+const (
+	celAccount = "library"
+	celHost    = "mcp.example.org"
+)
 
 var _ = Describe("Connected account admission validation", func() {
 	createObj := func(obj client.Object) error {
@@ -44,7 +47,7 @@ var _ = Describe("Connected account admission validation", func() {
 			Name: celAccount, DisplayName: "Example Library", Purpose: "Search the library with your own subscription.",
 			Scopes:       []string{"openid", "search"},
 			AuthorizeURL: "https://auth.example.org/oauth2/authorize", TokenURL: "https://auth.example.org/oauth2/token",
-			RevocationURL: "https://auth.example.org/oauth2/revoke", TokenHosts: []string{"mcp.example.org"},
+			RevocationURL: "https://auth.example.org/oauth2/revoke", TokenHosts: []string{celHost},
 		}
 		if mutate != nil {
 			mutate(&a)

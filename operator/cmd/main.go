@@ -537,6 +537,7 @@ func main() {
 		{"Crew", (&controller.CrewReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), ConfigCache: configCache, NATSPublisher: natsPublisher,
 			Recorder: mgr.GetEventRecorder("crew-controller"), NetPol: netPol,
+			RegisteredAccounts: controller.RegisteredAccountsFromEnv(os.Getenv),
 		}).SetupWithManager},
 		{"MCPCatalog", (&controller.MCPCatalogReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
