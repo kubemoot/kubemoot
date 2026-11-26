@@ -34,7 +34,12 @@
         "stopRequested": { "type": "boolean", "description": "True while a stop was sent to a running or paused turn and the coordinator has not closed it yet." },
         "queuePosition": { "type": "integer", "description": "On a queued turn, how many questions are ahead of it in the crew's queue, counting the one being worked: 1 is the next to be taken when the crew is idle." },
         "startedAt": { "type": "string", "description": "When the turn's thread began, RFC 3339 in UTC. Absent while queued." },
-        "endedAt": { "type": "string", "description": "When the turn's thread closed, RFC 3339 in UTC. Absent while it is open." }
+        "endedAt": { "type": "string", "description": "When the turn's thread closed, RFC 3339 in UTC. Absent while it is open." },
+        "needsAccounts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The names of the connected accounts a tool call of this turn was refused for because the asking person has not connected them (or must connect them again). Set on the conversation's latest turn by the crew's gateway when the account lease is refused; a client that can reach the person offers the way to connect. Absent when no call was refused."
+        }
       }
     }
   }

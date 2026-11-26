@@ -55,6 +55,20 @@ func DecodeConversationOwner(value []byte) (owner Principal, ok bool) {
 	return rec.Owner, true
 }
 
+// ConversationNeedsKey is the key of the record of the connected accounts a conversation's
+// latest turn was refused for, in ConversationsBucket: needs.<namespace>.<crew>.<conversationId>.
+// The gateway's delete of a conversation removes it with the history and the owner record.
+func ConversationNeedsKey(namespace, crew, conversationID string) string {
+	return "needs." + namespace + "." + crew + "." + conversationID
+}
+
+// NeedsAccounts is the value of a ConversationNeedsKey record: for each account name, when a
+// tool call was last refused for it, RFC 3339 with fractional seconds in UTC. An account belongs
+// to the turn that was running at that time, so a turn that began later ignores it.
+type NeedsAccounts struct {
+	Refused map[string]string `json:"refused"`
+}
+
 // ConversationHistoryKey is the key of a conversation's history in ConversationsBucket.
 func ConversationHistoryKey(namespace, crew, conversationID string) string {
 	return ConversationHistoryPrefix(namespace, crew) + conversationID
