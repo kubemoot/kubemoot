@@ -227,4 +227,10 @@ sc="$(yq -N 'select(.kind == "Deployment") | .spec.template.spec.containers[] | 
 # The server needs no command or args: the image's launcher starts the Procfile process.
 [ "$(yq -N 'select(.kind == "Deployment") | .spec.template.spec.containers[] | select(.name == "dashboard") | (.command // "none")' <<<"$standalone" | grep .)" = none ] \
   || fail "the dashboard container sets a command; the image entrypoint must start it"
+# With a read-only root, the Buildpacks launcher needs a writable /tmp at start (it links
+# node_modules there); without it the pod crash-loops on "read-only file system".
+tmp_mount="$(yq -N 'select(.kind == "Deployment") | .spec.template.spec.containers[] | select(.name == "dashboard") | .volumeMounts[] | select(.mountPath == "/tmp") | .name' <<<"$standalone" | grep .)"
+[ -n "$tmp_mount" ] || fail "the dashboard container mounts nothing writable at /tmp"
+[ "$(yq -N "select(.kind == \"Deployment\") | .spec.template.spec.volumes[] | select(.name == \"${tmp_mount}\") | has(\"emptyDir\")" <<<"$standalone" | grep .)" = true ] \
+  || fail "the dashboard /tmp volume is not an emptyDir"
 echo "dashboard subchart tests: PASS"

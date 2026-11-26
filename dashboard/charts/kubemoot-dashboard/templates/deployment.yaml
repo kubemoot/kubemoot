@@ -94,8 +94,11 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           {{- $mounts := include "kubemoot-dashboard.natsMounts" . | trim }}
-          {{- if or $mounts (include "kubemoot-dashboard.installCAConfigMap" .) }}
           volumeMounts:
+            # The root filesystem is read-only; the Buildpacks launcher links node_modules
+            # through /tmp at start, so /tmp is a small writable emptyDir.
+            - name: tmp
+              mountPath: /tmp
             {{- with $mounts }}
             {{- . | nindent 12 }}
             {{- end }}
@@ -104,10 +107,11 @@ spec:
               mountPath: /etc/kubemoot/ca
               readOnly: true
             {{- end }}
-          {{- end }}
       {{- $volumes := include "kubemoot-dashboard.natsVolumes" . | trim }}
-      {{- if or $volumes (include "kubemoot-dashboard.installCAConfigMap" .) }}
       volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
         {{- with $volumes }}
         {{- . | nindent 8 }}
         {{- end }}
@@ -119,7 +123,6 @@ spec:
             name: {{ include "kubemoot-dashboard.installCAConfigMap" . }}
             optional: true
         {{- end }}
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
