@@ -6,8 +6,11 @@ on:
     paths:
       - 'fitness-runner/**'
       - '!fitness-runner/**.md'
+      # Operator packages this image is built from (check-release-paths.sh keeps this list whole).
       - 'operator/pkg/fitnessscript/**'
+      - 'operator/pkg/natsconn/**'
       - 'operator/pkg/sse/**'
+      - 'operator/pkg/workspacetools/**'
       - '.github/scripts/retag-image.sh'
       - '.github/scripts/go-build-static.sh'
       - '.github/workflows/build-go-binary-image.yaml'

@@ -8,8 +8,6 @@ on:
       - '!agent-runtime/**.md'
       - 'placement-core/**'
       - '!placement-core/**.md'
-      - 'placement-service/**'
-      - '!placement-service/**.md'
       - '.github/scripts/check-native-libs.sh'
       - '.github/scripts/check-native-target.sh'
       - '.github/actions/build-agent-runtime-native/**'

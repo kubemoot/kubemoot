@@ -6,6 +6,17 @@ on:
     paths:
       - 'discussion-gateway/**'
       - '!discussion-gateway/**.md'
+      # Operator packages this image is built from (check-release-paths.sh keeps this list whole).
+      - 'operator/api/v1alpha1/**'
+      - 'operator/pkg/askerzone/**'
+      - 'operator/pkg/bus/**'
+      - 'operator/pkg/callerline/**'
+      - 'operator/pkg/crewmemory/**'
+      - 'operator/pkg/crewscope/**'
+      - 'operator/pkg/httporigin/**'
+      - 'operator/pkg/identity/**'
+      - 'operator/pkg/mesh/**'
+      - 'operator/pkg/natsconn/**'
       - '.github/scripts/retag-image.sh'
       - '.github/scripts/go-build-static.sh'
       - '.github/workflows/build-go-binary-image.yaml'
