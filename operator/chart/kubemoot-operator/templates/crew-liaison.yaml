@@ -305,6 +305,18 @@ spec:
               value: {{ include "kubemoot-operator.liaisonAccountsJSON" . | quote }}
             - name: LIAISON_INTERNAL_PORT
               value: {{ $acct.brokerPort | quote }}
+            {{- if .Values.discussionGateway.tls.enabled }}
+            # The broker serves TLS with the certificate the operator signs from the install CA.
+            - name: LIAISON_BROKER_TLS_CERT_FILE
+              value: /etc/kubemoot/broker-tls/tls.crt
+            - name: LIAISON_BROKER_TLS_KEY_FILE
+              value: /etc/kubemoot/broker-tls/tls.key
+            {{- else }}
+            # The gateways serve plain http (discussionGateway.tls.enabled is false), so the broker
+            # does too, and the tokens it carries cross the pod network in the clear.
+            - name: LIAISON_ALLOW_INSECURE_BROKER
+              value: "true"
+            {{- end }}
             {{- if not .Values.liaison.auth.serviceTokens }}
             - name: ACCESS_HASH_KEY
               valueFrom:
@@ -353,6 +365,11 @@ spec:
             - name: accounts
               mountPath: /etc/kubemoot/accounts
               readOnly: true
+            {{- if .Values.discussionGateway.tls.enabled }}
+            - name: broker-tls
+              mountPath: /etc/kubemoot/broker-tls
+              readOnly: true
+            {{- end }}
             {{- end }}
             {{- if eq $backend "openbao" }}
             - name: openbao
@@ -425,6 +442,13 @@ spec:
               {{- end }}
               {{- end }}
         {{- end }}
+        {{- if and $accts .Values.discussionGateway.tls.enabled }}
+        # The broker's serving certificate, which the operator signs from the install CA. The pod
+        # waits for the Secret to exist.
+        - name: broker-tls
+          secret:
+            secretName: {{ include "kubemoot-operator.brokerTLSSecret" . }}
+        {{- end }}
         {{- if eq $backend "openbao" }}
         {{- $bao := .Values.liaison.state.openbao }}
         - name: openbao
@@ -472,7 +496,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ $name }}-broker
+  name: {{ include "kubemoot-operator.brokerService" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "kubemoot-operator.labels" . | nindent 4 }}

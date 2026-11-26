@@ -116,6 +116,19 @@ func mustAddInstallCA(mgr ctrl.Manager) *controller.InstallCA {
 	return installCA
 }
 
+// mustAddBrokerCertificate registers the issuer of the liaison's account broker certificate when
+// the chart names the broker, and does nothing otherwise.
+func mustAddBrokerCertificate(mgr ctrl.Manager, installCA *controller.InstallCA) {
+	issuer := controller.BrokerCertificateFromEnv(installCA, os.Getenv)
+	if issuer == nil {
+		return
+	}
+	if err := mgr.Add(issuer); err != nil {
+		setupLog.Error(err, "unable to register the account broker certificate issuer")
+		os.Exit(1)
+	}
+}
+
 // mustAddRunnables registers the operator's non-controller runnables, logging
 // and exiting on any failure.
 func mustAddRunnables(
@@ -488,6 +501,7 @@ func main() {
 	// Signs the discussion gateways' certificates; nil when the install serves them plain. The
 	// network policies admit the gateways' TLS port exactly when it is set.
 	gatewayTLS := controller.GatewayTLSFromEnv(installCA, os.Getenv)
+	mustAddBrokerCertificate(mgr, installCA)
 	netPol.Config.GatewayTLS = gatewayTLS != nil
 
 	// KubemootConfig controller is listed first to populate the cache before others start.

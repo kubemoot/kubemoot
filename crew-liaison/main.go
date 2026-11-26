@@ -131,7 +131,7 @@ func reportExporter(getenv func(string) string) (*liaison.Exporter, error) {
 		return nil, nil
 	}
 	if !strings.HasPrefix(strings.ToLower(reportURL), "https://") {
-		if getenv(envAllowInsecure) != "true" {
+		if getenv(envAllowInsecure) != envTrue {
 			return nil, errors.New(envReportURL + " is not https and would carry a bearer token in the clear; " +
 				"serve the report service over TLS, or set " + envAllowInsecure + "=true to accept it")
 		}
@@ -150,7 +150,7 @@ const envAllowInsecureGateway = "LIAISON_ALLOW_INSECURE_GATEWAY"
 
 // crewGateway builds the client of the crews' discussion gateways.
 func crewGateway(getenv func(string) string) (*liaison.Gateway, error) {
-	if getenv(envAllowInsecureGateway) == "true" {
+	if getenv(envAllowInsecureGateway) == envTrue {
 		return liaison.NewGateway(), nil
 	}
 	file := getenv(envCAFile)
@@ -272,7 +272,13 @@ func startBroker(ctx context.Context, acct *accounts.Service, reader client.Read
 		log.Error(err, "account broker")
 		os.Exit(1)
 	}
-	srv := brokerServer(acct, reviewer, liaison.NewGatewayVerifier(reader), envOr(envInternalPort, defaultInternalPort))
+	tlsConfig, err := brokerTLSConfig(os.Getenv)
+	if err != nil {
+		log.Error(err, "account broker")
+		os.Exit(1)
+	}
+	port := envOr(envInternalPort, defaultInternalPort)
+	srv := brokerServer(acct, reviewer, liaison.NewGatewayVerifier(reader), port, tlsConfig)
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -280,12 +286,20 @@ func startBroker(ctx context.Context, acct *accounts.Service, reader client.Read
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 	go func() {
-		log.Info("account broker listening", "addr", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Info("account broker listening", "addr", srv.Addr, "tls", tlsConfig != nil)
+		if err := serveBroker(srv); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error(err, "account broker")
 			os.Exit(1)
 		}
 	}()
+}
+
+// serveBroker serves the broker over TLS when it has a TLS config, else over plain http.
+func serveBroker(srv *http.Server) error {
+	if srv.TLSConfig != nil {
+		return srv.ListenAndServeTLS("", "")
+	}
+	return srv.ListenAndServe()
 }
 
 // openState connects the backend that holds what the liaison must remember between requests.

@@ -126,8 +126,17 @@ spec:
             {{- if and .Values.liaison.enabled .Values.liaison.connectedAccounts.enabled }}
             # The liaison's account broker, which the gateway of a crew whose askers rule is
             # connectedAccount asks whether a person is connected.
+            # The broker carries tokens, so it serves TLS from the install CA whenever the gateways
+            # do (discussionGateway.tls.enabled); the operator signs its certificate into the Secret
+            # the liaison mounts, and a gateway verifies it against the install CA.
             - name: KUBEMOOT_ACCOUNT_BROKER_URL
-              value: {{ printf "http://%s-liaison-broker.%s.svc:%v" (include "kubemoot-operator.fullname" .) .Release.Namespace .Values.liaison.connectedAccounts.brokerPort | quote }}
+              value: {{ printf "%s://%s.%s.svc:%v" (ternary "https" "http" .Values.discussionGateway.tls.enabled) (include "kubemoot-operator.brokerService" .) .Release.Namespace .Values.liaison.connectedAccounts.brokerPort | quote }}
+            {{- if .Values.discussionGateway.tls.enabled }}
+            - name: ACCOUNT_BROKER_SERVICE_NAME
+              value: {{ include "kubemoot-operator.brokerService" . | quote }}
+            - name: ACCOUNT_BROKER_TLS_SECRET
+              value: {{ include "kubemoot-operator.brokerTLSSecret" . | quote }}
+            {{- end }}
             {{- end }}
             {{- with .Values.liaison.connectedAccounts.accounts }}
             {{- range $account, $_ := . }}

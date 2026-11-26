@@ -85,6 +85,16 @@ gateway serves TLS (`discussionGateway.tls.enabled`, on by default).
   it fails rather than going unverified. The liaison refuses plain http to a gateway unless
   `LIAISON_ALLOW_INSECURE_GATEWAY=true`, which the chart sets only when gateway TLS is off.
 
+## The account broker
+
+When the install keeps connected accounts, each crew's discussion gateway asks the liaison's account broker (port 8081 of `<release>-kubemoot-operator-liaison-broker`) whether a person is connected and for their token. The call carries the gateway's own ServiceAccount token, and the answer carries a person's account token, so the broker serves TLS and nothing else. It follows `discussionGateway.tls.enabled`.
+
+- **Certificate.** The liaison is a separate process that never holds the install CA's key, so the operator signs the broker's certificate for the Service's names with the install CA into a Secret in its namespace (`<release>-kubemoot-operator-liaison-broker-tls`), labelled like the gateways' certificates so the CA bundle keeps the previous CA until it is replaced. It checks the certificate every minute, renews it once a third of its year is left, and issues another when the CA changes. The chart mounts the Secret into the liaison only when connected accounts are on, and the liaison reads the files again when they change (no restart). The liaison pod waits for the Secret to exist.
+- **Callers.** The gateway is given an `https` broker address and `ACCOUNT_BROKER_CA_FILE`, the CA certificate that its own gateway certificate Secret carries. It verifies the broker against that CA, with the Service's DNS name as the server name, and refuses any other certificate before the token is sent. A broker address that is https with no CA file fails closed.
+- **Plain http is refused.** The liaison refuses to start the broker without a certificate unless `LIAISON_ALLOW_INSECURE_BROKER=true`, which the chart sets only when gateway TLS is off. With a certificate the port speaks TLS only, so a plain http request is refused by the handshake.
+- **What stays.** The broker still checks the gateway's ServiceAccount token with a TokenReview, and the NetworkPolicy still admits only the crews' gateway pods to the port. TLS adds to both.
+- **Upgrading.** The operator, liaison and gateways roll together. While they do, a gateway already given the https address may fail to reach a broker that is not yet on TLS, and succeeds once the liaison is ready; a person sees a retryable refusal, never a token sent in the clear.
+
 ### What still uses the plain port
 
 `discussionGateway.tls.plainListener` (default `true`) keeps the gateway's plain listener on port 80 of

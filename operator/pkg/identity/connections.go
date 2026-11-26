@@ -22,6 +22,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/catransport"
 )
 
 // The connectedAccount rule admits a person only while they hold a live connection to the
@@ -34,6 +36,9 @@ const (
 	// EnvAccountBrokerTokenFile is the projected ServiceAccount token (audience
 	// AccountBrokerAudience) the gateway presents. It is read on every call: the kubelet rotates it.
 	EnvAccountBrokerTokenFile = "ACCOUNT_BROKER_TOKEN_FILE"
+	// EnvAccountBrokerCAFile is the install CA's public certificates, which verify the broker's
+	// serving certificate over https. It is read again when it changes.
+	EnvAccountBrokerCAFile = "ACCOUNT_BROKER_CA_FILE"
 
 	// AccountBrokerAudience is the audience of that token.
 	AccountBrokerAudience = "kubemoot-account-broker"
@@ -127,9 +132,29 @@ func readConnected(resp *http.Response) (bool, error) {
 // connectionsFromEnv builds the checker of a gateway whose rule is connectedAccount; nil when
 // no broker is configured.
 func connectionsFromEnv(getenv func(string) string) (ConnectionChecker, error) {
+	broker, err := brokerFromEnv(getenv)
+	if broker == nil {
+		return nil, err
+	}
+	return broker, nil
+}
+
+// brokerFromEnv builds the client of the account broker the environment names, or nil when none
+// is named. An https broker is verified against the CA file in ACCOUNT_BROKER_CA_FILE when set,
+// and otherwise against the system roots, which the install CA is not in, so the call fails closed.
+func brokerFromEnv(getenv func(string) string) (*BrokerConnections, error) {
 	base := strings.TrimSpace(getenv(EnvAccountBrokerURL))
 	if base == "" {
 		return nil, nil
 	}
-	return NewBrokerConnections(base, strings.TrimSpace(getenv(EnvAccountBrokerTokenFile)), nil)
+	var client *http.Client
+	caFile := strings.TrimSpace(getenv(EnvAccountBrokerCAFile))
+	if caFile != "" && strings.HasPrefix(strings.ToLower(base), "https://") {
+		transport, err := catransport.New(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", EnvAccountBrokerCAFile, err)
+		}
+		client = &http.Client{Timeout: connectedTimeout, Transport: transport}
+	}
+	return NewBrokerConnections(base, strings.TrimSpace(getenv(EnvAccountBrokerTokenFile)), client)
 }

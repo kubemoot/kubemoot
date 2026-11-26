@@ -138,9 +138,9 @@ func IsLeaseRefusal(err error) (*LeaseRefusal, bool) {
 // AccountLeaserFromEnv builds the leaser of a gateway that has a broker address; nil when none
 // is configured.
 func AccountLeaserFromEnv(getenv func(string) string) (AccountLeaser, error) {
-	base := strings.TrimSpace(getenv(EnvAccountBrokerURL))
-	if base == "" {
-		return nil, nil
+	broker, err := brokerFromEnv(getenv)
+	if broker == nil {
+		return nil, err
 	}
-	return NewBrokerConnections(base, strings.TrimSpace(getenv(EnvAccountBrokerTokenFile)), nil)
+	return broker, nil
 }
