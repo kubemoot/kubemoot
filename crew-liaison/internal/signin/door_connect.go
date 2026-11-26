@@ -50,6 +50,7 @@ const (
 
 	expiredWords = "It has expired. Ask your chat app again for a new one."
 	changedWords = "Your sign-in changed. Start again from your chat app."
+	usedWords    = "This return was already used. Start again from your chat app."
 )
 
 // connectHandle is what a connect link carries. It grants nothing alone: opening it needs the
@@ -288,6 +289,11 @@ func (d *door) connectCallback(w http.ResponseWriter, r *http.Request, cs connec
 	http.SetCookie(w, &http.Cookie{
 		Name: stateCookieName(state), Path: pathCallback, MaxAge: -1, HttpOnly: true, Secure: d.base.secureCookies(),
 	})
+	if d.replay.Remember("connect-state:"+digest(state), d.now(), time.Unix(cs.Expires, 0)) {
+		d.event("connect callback refused", "reason", "reused")
+		d.notice(w, http.StatusBadRequest, "The connection could not finish", usedWords)
+		return
+	}
 	s, ok := d.session(r)
 	if !ok || d.principalOf(s) != cs.Principal {
 		d.event("connect callback refused", "reason", "person")
