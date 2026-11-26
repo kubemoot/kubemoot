@@ -277,12 +277,7 @@ abstract class CoordinatorThreadTestBase {
     }
 
     protected static void await(BooleanSupplier condition, String failure) throws InterruptedException {
-        Instant deadline = Instant.now().plus(Duration.ofSeconds(20));
-        while (!condition.getAsBoolean()) {
-            if (Instant.now().isAfter(deadline)) {
-                throw new AssertionError(failure);
-            }
-            Thread.sleep(5);
-        }
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(5))
+                .alias(failure).until(condition::getAsBoolean);
     }
 }

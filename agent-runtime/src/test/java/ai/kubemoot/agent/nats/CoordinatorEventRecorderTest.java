@@ -446,11 +446,14 @@ class CoordinatorEventRecorderTest {
 
         var first = java.util.concurrent.CompletableFuture.runAsync(() -> slow.phaseEntered(s, "thread_start"));
         inFirstAppend.await();
-        var second = java.util.concurrent.CompletableFuture.runAsync(() -> slow.settled(s, "quiet"));
-        Thread.sleep(100);
+        var secondWriter = new Thread(() -> slow.settled(s, "quiet"));
+        secondWriter.start();
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).until(() ->
+                secondWriter.getState() == Thread.State.BLOCKED || secondWriter.getState() == Thread.State.WAITING);
         releaseFirst.countDown();
         first.get(5, java.util.concurrent.TimeUnit.SECONDS);
-        second.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        secondWriter.join(5000);
+        assertFalse(secondWriter.isAlive(), "the second writer finished");
 
         assertEquals(1, appends.get(), "the second writer found the thread unlogged and appended nothing");
         assertTrue(slow.unlogged(s));
