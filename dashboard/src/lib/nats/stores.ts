@@ -19,6 +19,8 @@ export interface StoreDefinition {
 	namespaceKey?: string;
 	/** The bootstrap job's size limit in bytes; null when a chart value sets it. */
 	defaultMaxBytes: number | null;
+	/** Who creates the store: absent for the operator chart's bootstrap job, or the crew liaison. */
+	createdBy?: 'liaison';
 }
 
 export const STORES: readonly StoreDefinition[] = definition.stores as StoreDefinition[];
