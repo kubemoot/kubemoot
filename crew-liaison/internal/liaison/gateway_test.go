@@ -26,6 +26,11 @@ type fakeGateway struct {
 	renewals    []string // the Authorization header of each credential renewal, in order
 	renewCode   int
 	renewalPath []string
+	// stateBody is what GET .../state answers, with stateCode; stateCalls counts the requests.
+	stateBody  string
+	stateCode  int
+	stateCalls int
+	stateAuths []string
 }
 
 // Fixture names shared by the liaison tests.
@@ -64,6 +69,19 @@ func newFakeGateway(events ...string) *fakeGateway {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprint(w, `{"conversationId":"conv-42"}`)
+	})
+	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conv}/state", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.stateCalls++
+		f.stateAuths = append(f.stateAuths, r.Header.Get("Authorization"))
+		body, code := f.stateBody, f.stateCode
+		f.mu.Unlock()
+		if code != 0 && code != http.StatusOK {
+			http.Error(w, "no", code)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, body)
 	})
 	mux.HandleFunc("GET /api/v1/discussions/{crew}/{conv}/stream", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

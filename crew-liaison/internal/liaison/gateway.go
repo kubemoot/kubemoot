@@ -163,3 +163,41 @@ func presentCredential(req *http.Request, namespace, crew string) error {
 	}
 	return nil
 }
+
+// NeedsAccounts reads the conversation's state and returns the connected accounts a tool call
+// of its latest turn was refused for, which the crew's gateway puts on the turn. The call is
+// made as the asking person, so the gateway's owner check applies.
+func (g *Gateway) NeedsAccounts(ctx context.Context, namespace, crew, conversation string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.baseURL(namespace, crew)+"/"+conversation+"/state", nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := presentCredential(req, namespace, crew); err != nil {
+		return nil, err
+	}
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("crew %s/%s gateway unreachable: %w", namespace, crew, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("crew %s/%s gateway refused the state: %s", namespace, crew, resp.Status)
+	}
+	var state struct {
+		Turns []struct {
+			ThreadID      string   `json:"threadId"`
+			NeedsAccounts []string `json:"needsAccounts"`
+		} `json:"turns"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&state); err != nil {
+		return nil, fmt.Errorf("crew %s/%s gateway sent a state that cannot be read", namespace, crew)
+	}
+	for i := len(state.Turns) - 1; i >= 0; i-- {
+		if state.Turns[i].ThreadID != "" {
+			return state.Turns[i].NeedsAccounts, nil
+		}
+	}
+	return nil, nil
+}

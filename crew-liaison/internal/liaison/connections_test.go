@@ -37,11 +37,19 @@ type stubAccounts struct {
 	list    []AccountView
 	err     error
 	asked   []string
+	links   []ConnectionView
+	linkErr error
+	linked  []string
 }
 
 func (s *stubAccounts) Pending(_ context.Context, user string, _ Crew) ([]ConnectionView, error) {
 	s.asked = append(s.asked, user)
 	return s.pending, s.err
+}
+
+func (s *stubAccounts) Links(_ context.Context, _ string, _ Crew, names []string) ([]ConnectionView, error) {
+	s.linked = append(s.linked, names...)
+	return s.links, s.linkErr
 }
 
 func (s *stubAccounts) List(context.Context, string) ([]AccountView, error) { return s.list, s.err }
