@@ -150,7 +150,7 @@ func TestLeaseRefusals(t *testing.T) {
 	cases := []struct {
 		name, principal, account, crew, want string
 	}{
-		{"nobody connected", "bob", acctLib, crewA, ReasonNoGrant},
+		{"nobody connected", pBob, acctLib, crewA, ReasonNoGrant},
 		{"account no crew declares", pAlice, "unknown", crewA, ReasonNoGrant},
 		{"the install does not offer it to this crew", pAlice, acctLib, crewB, ReasonNoGrant},
 		{"a crew that does not declare it", pAlice, acctLib, "ns/stranger", ReasonNoGrant},
@@ -403,5 +403,38 @@ func TestRevoke(t *testing.T) {
 	}
 	if err := c.Revoke(context.Background(), Declaration{}, Registration{}, "tok", ""); err == nil {
 		t.Fatal("no endpoint")
+	}
+}
+
+func TestCheckSaysWhyWithoutCallingTheService(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	r.connect(t, pAlice, func(t *Token) { t.AccessExpires = r.clock.now().Add(5 * time.Second) })
+	r.connect(t, "carol", func(t *Token) { t.State = StateNeedsReconnect })
+	r.connect(t, "dave", func(t *Token) { t.KeepUntil = r.clock.now().Add(time.Hour) })
+	r.clock.advance(30 * time.Minute)
+	cases := []struct{ name, principal, account, crew, want string }{
+		{"live even when its access token is about to end", pAlice, acctLib, crewA, ""},
+		{"nobody connected", pBob, acctLib, crewA, ReasonNoGrant},
+		{"a crew that is not offered it", pAlice, acctLib, crewB, ReasonNoGrant},
+		{"an unknown account", pAlice, "unknown", crewA, ReasonNoGrant},
+		{"marked for reconnect", "carol", acctLib, crewA, ReasonNeedsReconnect},
+		{"consent for another crew", pAlice, acctLib, crewA, ""},
+	}
+	for _, c := range cases {
+		got, err := r.broker.Check(ctx, c.principal, c.account, c.crew)
+		if err != nil || got != c.want {
+			t.Errorf("%s: %q %v, want %q", c.name, got, err, c.want)
+		}
+	}
+	if r.svc.calls.Load() != 0 {
+		t.Fatal("a check must not call the service")
+	}
+	if got, _ := r.broker.Check(ctx, "dave", acctLib, crewA); got != "" {
+		t.Errorf("a limit in the future: %q", got)
+	}
+	r.clock.advance(time.Hour)
+	if got, _ := r.broker.Check(ctx, "dave", acctLib, crewA); got != ReasonNoGrant && got != ReasonExpired {
+		t.Errorf("past the limit: %q", got)
 	}
 }
