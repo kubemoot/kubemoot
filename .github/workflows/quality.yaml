@@ -27,19 +27,10 @@ jobs:
 
       # ── Go services ──────────────────────────────────────────────────
       - name: Set up Go
-        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        uses: ./.github/actions/setup-go-cached
         with:
           # Several modules are tested here; the operator's go.mod is the toolchain source (all declare the same go line).
           go-version-file: operator/go.mod
-          cache-dependency-path: |
-            operator/go.sum
-            mcp-bridge/go.sum
-            agent-sidecar/go.sum
-            fitness-runner/go.sum
-            discussion-gateway/go.sum
-            workspace-access/go.sum
-            code-sandbox/go.sum
-            query-service-go/go.sum
 
       - name: Install build tools
         run: |
