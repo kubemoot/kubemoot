@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/kubemoot/kubemoot/crew-liaison/internal/accounts"
-
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,7 +39,7 @@ func newDecls(t *testing.T, crews ...*kubemootv1alpha1.Crew) *crewDeclarations {
 	return &crewDeclarations{reader: b.Build()}
 }
 
-func TestDeclarationsGatherTheCrewsThatDeclareOneName(t *testing.T) {
+func TestDeclarationsGatherCrewsThatDeclareOneService(t *testing.T) {
 	d := newDecls(t,
 		crewWith("b", "two", account("library", "Library", "")),
 		crewWith("a", "one", account("library", "Library", kubemootv1alpha1.ConnectedAccountOptional), account("mail", "Mail", "")),
@@ -52,31 +50,23 @@ func TestDeclarationsGatherTheCrewsThatDeclareOneName(t *testing.T) {
 	if err != nil || len(all) != 2 {
 		t.Fatalf("all: %+v %v", all, err)
 	}
-	lib, found, _ := d.Account(ctx, "library")
-	if !found || len(lib.Crews) != 2 || lib.Crews[0] != "a/one" || lib.Crews[1] != "b/two" {
-		t.Fatalf("library: %+v", lib)
+	if all[0].Name != "library" || len(all[0].Crews) != 2 || all[0].Crews[0] != "a/one" || all[0].Crews[1] != "b/two" {
+		t.Fatalf("library: %+v", all[0])
 	}
-	checkDefaults(t, d, lib)
-	got, _ := d.Declared(ctx, "a/one")
+	if all[0].Required || !all[1].Required || all[1].TokenHosts[0] != apiHost {
+		t.Errorf("the first crew supplies the text, and a default usage is Required: %+v", all)
+	}
+	checkDeclared(t, d)
+}
+
+func checkDeclared(t *testing.T, d *crewDeclarations) {
+	t.Helper()
+	got, _ := d.Declared(context.Background(), "a/one")
 	if len(got) != 2 {
 		t.Errorf("accounts of a/one: %+v", got)
 	}
-	if none, _ := d.Declared(ctx, "c/none"); len(none) != 0 {
+	if none, _ := d.Declared(context.Background(), "c/none"); len(none) != 0 {
 		t.Errorf("accounts of a crew with none: %+v", none)
-	}
-}
-
-func checkDefaults(t *testing.T, d *crewDeclarations, lib accounts.Declaration) {
-	t.Helper()
-	ctx := context.Background()
-	if lib.Required {
-		t.Error("the first crew's declaration (Optional) supplies the text")
-	}
-	if mail, _, _ := d.Account(ctx, "mail"); !mail.Required || mail.TokenHosts[0] != apiHost {
-		t.Errorf("a default usage is Required: %+v", mail)
-	}
-	if _, found, err := d.Account(ctx, "nothing"); found || err != nil {
-		t.Errorf("an account no crew declares: %v %v", found, err)
 	}
 }
 
@@ -85,11 +75,21 @@ func TestDeclarationsReportAListFailure(t *testing.T) {
 	if _, err := d.All(context.Background()); err == nil {
 		t.Fatal("a failing list must be an error")
 	}
-	if _, _, err := d.Account(context.Background(), "x"); err == nil {
-		t.Fatal("Account must pass the error on")
-	}
 	if _, err := d.Declared(context.Background(), "a/b"); err == nil {
 		t.Fatal("Declared must pass the error on")
+	}
+}
+
+func TestCrewsThatDeclareOneNameForDifferentServicesAreKeptApart(t *testing.T) {
+	evil := account("library", "Library", "")
+	evil.TokenURL = "https://evil.example.net/token"
+	d := newDecls(t, crewWith("a", "aaa", evil), crewWith("b", "guide", account("library", "Library", "")))
+	all, err := d.All(context.Background())
+	if err != nil || len(all) != 2 {
+		t.Fatalf("two services under one name must be two entries: %+v %v", all, err)
+	}
+	if all[0].Crews[0] != "a/aaa" || all[0].TokenURL != evil.TokenURL || all[1].Crews[0] != "b/guide" {
+		t.Fatalf("each entry carries its own crews and endpoints: %+v", all)
 	}
 }
 

@@ -1,4 +1,8 @@
-package signin
+// Package netguard keeps the liaison from being used to reach addresses it was never meant to:
+// a name is resolved once, every answer must be a public address, and the connection goes to an
+// address that was checked, so a name that answers differently the second time (DNS rebinding)
+// reaches nothing new.
+package netguard
 
 import (
 	"context"
@@ -7,7 +11,7 @@ import (
 	"net/netip"
 )
 
-var errBlockedAddress = errors.New("the address is not a public one")
+var ErrBlocked = errors.New("the address is not a public one")
 
 // notPublic lists the ranges that are not the public internet and that netip does not already
 // call private, loopback or link-local: shared address space, documentation and benchmarking
@@ -23,9 +27,9 @@ var notPublic = []netip.Prefix{
 	netip.MustParsePrefix("192.88.99.0/24"),
 }
 
-// publicAddr reports whether a is an address on the public internet. An IPv4 address written as
+// PublicAddr reports whether a is an address on the public internet. An IPv4 address written as
 // IPv6 is judged as the IPv4 address it is.
-func publicAddr(a netip.Addr) bool {
+func PublicAddr(a netip.Addr) bool {
 	a = a.Unmap()
 	if !a.IsGlobalUnicast() || a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() {
 		return false
@@ -38,21 +42,21 @@ func publicAddr(a netip.Addr) bool {
 	return true
 }
 
-// guardedDialer resolves a name itself, requires every answer to be allowed, and then dials one
+// Dialer resolves a name itself, requires every answer to be allowed, and then dials one
 // of the checked addresses directly. The check and the connection use the same addresses, so a
 // name that answers differently the second time (DNS rebinding) cannot reach an address that
 // was not checked.
-type guardedDialer struct {
-	lookup func(ctx context.Context, host string) ([]netip.Addr, error)
-	allow  func(netip.Addr) bool
-	dialer net.Dialer
+type Dialer struct {
+	Lookup func(ctx context.Context, host string) ([]netip.Addr, error)
+	Allow  func(netip.Addr) bool
+	Net    net.Dialer
 }
 
-func systemLookup(ctx context.Context, host string) ([]netip.Addr, error) {
+func SystemLookup(ctx context.Context, host string) ([]netip.Addr, error) {
 	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 }
 
-func (g *guardedDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+func (g *Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, err
@@ -62,18 +66,18 @@ func (g *guardedDialer) DialContext(ctx context.Context, network, address string
 		return nil, err
 	}
 	for _, a := range addrs {
-		if !g.allow(a) {
-			return nil, errBlockedAddress
+		if !g.Allow(a) {
+			return nil, ErrBlocked
 		}
 	}
-	return g.dialer.DialContext(ctx, network, net.JoinHostPort(addrs[0].String(), port))
+	return g.Net.DialContext(ctx, network, net.JoinHostPort(addrs[0].String(), port))
 }
 
-func (g *guardedDialer) resolve(ctx context.Context, host string) ([]netip.Addr, error) {
+func (g *Dialer) resolve(ctx context.Context, host string) ([]netip.Addr, error) {
 	if a, err := netip.ParseAddr(host); err == nil {
 		return []netip.Addr{a}, nil
 	}
-	addrs, err := g.lookup(ctx, host)
+	addrs, err := g.Lookup(ctx, host)
 	if err != nil || len(addrs) == 0 {
 		return nil, errors.New("the name did not resolve")
 	}

@@ -133,3 +133,22 @@ func stateOf(t Token) string {
 	}
 	return t.State
 }
+
+// lockPrincipal keys the refresh leases, apart from every person's records.
+const lockPrincipal = "refresh-lease"
+
+// TryLock takes the right to refresh one record for ttl: the one atomic create the store has, so
+// the first of any number of replicas wins. It reports false when another holds it.
+func (v *Vault) TryLock(ctx context.Context, principal, account string, ttl time.Duration) (bool, error) {
+	_, err := v.store.Put(ctx, tokenstore.Record{Principal: lockPrincipal, Account: principal + "|" + account}, ttl,
+		tokenstore.MustNotExist)
+	if errors.Is(err, tokenstore.ErrConflict) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// Unlock gives the right back at once. A failure is left to the time to live.
+func (v *Vault) Unlock(ctx context.Context, principal, account string) {
+	_ = v.store.Delete(ctx, lockPrincipal, principal+"|"+account)
+}

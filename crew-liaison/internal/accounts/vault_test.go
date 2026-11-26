@@ -18,6 +18,11 @@ import (
 
 const (
 	crewGuide    = "guide"
+	apiHostName  = "api.example.org"
+	libraryTitle = "Library"
+	guideFull    = "b/guide"
+	authToken    = "https://auth.example.org/t"
+	invalidGrant = `{"error":"invalid_grant"}`
 	issuerURL    = "https://issuer.example.org"
 	acctLib      = "lib"
 	pAlice       = "alice"

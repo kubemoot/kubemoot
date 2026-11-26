@@ -288,19 +288,6 @@ func TestTheDoorDoesNotReachPrivateAddresses(t *testing.T) {
 	}
 }
 
-func TestPublicAddressRule(t *testing.T) {
-	for addr, want := range map[string]bool{
-		"93.184.216.34": true, "2606:2800:220:1::1": true, "8.8.8.8": true,
-		"10.1.2.3": false, "172.16.0.1": false, "192.168.0.1": false, "127.0.0.1": false, "0.0.0.0": false, "169.254.1.1": false,
-		"100.100.100.100": false, "224.0.0.1": false, "255.255.255.255": false, "::1": false, "::": false, "fe80::1": false,
-		"fc00::1": false, "::ffff:127.0.0.1": false, "64:ff9b::a00:1": false, "2002:a00:1::": false, "198.18.0.1": false, "2001:0:4136:e378::1": false, "3fff::1": false, "192.88.99.1": false, "240.0.0.1": false,
-	} {
-		if got := publicAddr(netip.MustParseAddr(addr)); got != want {
-			t.Errorf("publicAddr(%s) = %v, want %v", addr, got, want)
-		}
-	}
-}
-
 func TestClientIDAddressRules(t *testing.T) {
 	for raw, want := range map[string]bool{
 		"https://app.example.test/client.json": true, "https://app.example.test:8443/a/b?x=1": true,

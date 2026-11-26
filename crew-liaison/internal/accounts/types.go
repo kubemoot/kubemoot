@@ -71,6 +71,10 @@ type Registration struct {
 	// AllowedCrews limits the account to crews ("namespace/name" or "name"); empty is every
 	// crew that declares it.
 	AllowedCrews []string
+	// Hosts pins the service: when set, the authorization, token and revocation endpoints a
+	// crew declares must be on one of these hosts, or the declaration is not offered. It is what
+	// stops a crew from pointing the install's client at a host the install never chose.
+	Hosts []string
 	// Issuer is the service's issuer identifier, which its redirect's "iss" must equal (RFC 9207).
 	// Empty accepts the host of the authorization endpoint.
 	Issuer string

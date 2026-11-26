@@ -56,8 +56,8 @@ func buildAccounts(
 	decls := liaison.NewDeclarations(reader)
 	upstream := accounts.NewClient(nil)
 	return &accounts.Service{
-		People: people, Vault: vault, Decls: decls, Regs: cfg.Registrations, Client: upstream, Now: time.Now,
-		Broker: accounts.NewBroker(vault, decls, cfg.Registrations, upstream, nil),
+		People: people, Vault: vault, Decls: decls, Regs: cfg.Registrations, Client: upstream, Now: time.Now, Log: log,
+		Broker: newBroker(vault, decls, cfg.Registrations, upstream, log),
 	}, nil
 }
 
@@ -94,3 +94,12 @@ func accountReviewer() (identity.Reviewer, error) {
 // errAccountsNeedDoor is the refusal of connected accounts without the door's own sign-in.
 var errAccountsNeedDoor = errors.New(accounts.EnvEnabled + " needs the door's own identity (" + signin.EnvIdentity +
 	"): a connection belongs to the person the door signed in")
+
+func newBroker(
+	vault *accounts.Vault, decls accounts.Declarations, regs map[string]accounts.Registration,
+	upstream *accounts.Client, log logr.Logger,
+) *accounts.Broker {
+	b := accounts.NewBroker(vault, decls, regs, upstream, nil)
+	b.Log = log
+	return b
+}

@@ -3,8 +3,10 @@ package accounts
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -30,6 +32,7 @@ type registered struct {
 	ClientID         string   `json:"clientId"`
 	ClientSecretFile string   `json:"clientSecretFile"`
 	Issuer           string   `json:"issuer"`
+	Hosts            []string `json:"hosts"`
 	AllowedCrews     []string `json:"allowedCrews"`
 	MaxLifetimeHours int      `json:"maxLifetimeHours"`
 }
@@ -88,7 +91,7 @@ func (r registered) build(name string, readFile func(string) ([]byte, error)) (R
 		return Registration{}, fmt.Errorf("%s: account %q has a negative maxLifetimeHours", EnvRegistered, name)
 	}
 	reg := Registration{
-		ClientID: r.ClientID, AllowedCrews: r.AllowedCrews, Issuer: r.Issuer,
+		ClientID: r.ClientID, AllowedCrews: r.AllowedCrews, Issuer: r.Issuer, Hosts: r.Hosts,
 		MaxLifetime: time.Duration(r.MaxLifetimeHours) * time.Hour,
 	}
 	if r.ClientSecretFile != "" {
@@ -113,4 +116,33 @@ func (r Registration) Allows(crew string) bool {
 		}
 	}
 	return false
+}
+
+// PinsAllow reports whether the declaration's endpoints are on the hosts the registration pins.
+// A registration that pins none allows any.
+func (r Registration) PinsAllow(d Declaration) bool {
+	if len(r.Hosts) == 0 {
+		return true
+	}
+	for _, raw := range []string{d.AuthorizeURL, d.TokenURL, d.RevocationURL} {
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || !slices.Contains(r.Hosts, u.Hostname()) {
+			return false
+		}
+	}
+	return true
+}
+
+// AllowedAmong returns the crews the registration allows, in order.
+func (r Registration) AllowedAmong(crews []string) []string {
+	var out []string
+	for _, c := range crews {
+		if r.Allows(c) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
