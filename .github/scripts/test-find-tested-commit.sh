@@ -140,6 +140,14 @@ check "short sha" "exit=64" "$(run abc123 | tail -1)"
 out="$(PATH="${work}/bin:${PATH}" env -u GH_REPO -u GITHUB_REPOSITORY bash "$script" "$SHA" 2>&1 || echo "exit=$?")"
 check "no repository" "exit=64" "$(tail -1 <<<"$out")"
 
+# The default check names are the names the workflows give those checks, so a rename there
+# fails here instead of silently turning the skip off.
+workflows="${here}/../workflows"
+check "operator-test is a job name in ci.yaml" 1 "$(grep -cE '^    name: operator-test$' "${workflows}/ci.yaml")"
+check "all-checks is a job id in pull-request.yaml" 1 "$(grep -cE '^  all-checks:$' "${workflows}/pull-request.yaml")"
+check "the default names those two checks" "operator-test|all-checks / all-checks" \
+  "$(sed -nE 's/^required="\$\{REQUIRED_CHECKS:-(.*)\}"$/\1/p' "$script")"
+
 if [ "$failures" -gt 0 ]; then
   echo "${failures} failure(s)"
   exit 1
