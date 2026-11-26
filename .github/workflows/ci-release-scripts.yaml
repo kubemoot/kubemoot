@@ -1,7 +1,6 @@
 # Tests for the release scripts, the check that no chart or image version
 # is typed in git and no workflow commits one, the test Jobs' single RBAC source and
-# image placeholder, the brand copies, and the advisory ignores. Also checks that no Go
-# module needs a newer Go than the Dockerfile that builds it. Not a release gate.
+# image placeholder, the brand copies, and the advisory ignores. Not a release gate.
 name: CI Release Scripts
 
 on:
@@ -108,8 +107,6 @@ jobs:
         uses: kubemoot/release-actions/setup@899dec57c20fafcccae4120d20bfd88e454f0a0f # v0.12.2
       - name: Shellcheck
         run: shellcheck -x .github/scripts/*.sh harness-shim/*.sh scripts/check-neutral-names.sh scripts/check-neutral-names.test.sh k8s/tests/job/*.sh k8s/tests/lib.test.sh k8s/tests/lib-modelserver.sh k8s/tests/lib-ask.sh k8s/tests/ask.test.sh
-      - name: Check every Go module against its Dockerfile builder
-        run: bash .github/scripts/check-go-builder-version.sh
       # The stub MCP server test runs python3; pin it as the native check job does.
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -151,7 +148,6 @@ jobs:
           bash .github/scripts/test-retry-lost-build-pod.sh
           bash .github/scripts/test-check-native-libs.sh
           bash .github/scripts/test-check-native-target.sh
-          bash .github/scripts/test-check-go-builder-version.sh
           bash .github/scripts/test-check-release-workflow-runs.sh
           bash .github/scripts/test-stub-mcp-server.sh
           bash .github/scripts/test-run-native-check.sh

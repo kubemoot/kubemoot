@@ -6,7 +6,9 @@ on:
     branches: [main]
     paths:
       - 'code-sandbox/**'
-      - '.github/workflows/build-dockerfile-image.yaml'
+      - '.github/workflows/build-paketo-image.yaml'
+      - '.github/scripts/paketo-build-args.sh'
+      - '.github/scripts/go-build-static.sh'
       - '.golangci.yml'
       - '.github/scripts/golangci-lint.sh'
       - 'operator/Makefile'
@@ -46,9 +48,10 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Build
+      # The image packages this tested binary; the build pod does not compile again.
+      - name: Build the static binary
         working-directory: code-sandbox
-        run: CGO_ENABLED=0 go build -ldflags="-s -w" -o code-sandbox ./cmd/code-sandbox/
+        run: ../.github/scripts/go-build-static.sh code-sandbox ./cmd/code-sandbox/
 
       - name: Vet
         working-directory: code-sandbox
@@ -63,11 +66,28 @@ jobs:
         working-directory: code-sandbox
         run: go test ./...
 
+      # The interpreter above is the Python the image pins (code-sandbox/image/buildpacks.env);
+      # the runtime contract tests hold the two to the same minor version.
+      - name: Keep the tested binary for the image build
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: code-sandbox-binary
+          path: code-sandbox/code-sandbox
+          if-no-files-found: error
+          retention-days: 3
+
+  # The image is the tested binary on a Paketo Python image: the Python buildpacks add the
+  # interpreter from code-sandbox/image/, and tini starts the server as the Procfile says.
   build-image:
     name: code-sandbox-build-image
     needs: test
     if: github.event_name != 'pull_request'
-    uses: ./.github/workflows/build-dockerfile-image.yaml
+    uses: ./.github/workflows/build-paketo-image.yaml
     with:
       name: code-sandbox
-      context: code-sandbox
+      context: code-sandbox/image
+      artifact: code-sandbox-binary
+      executables: code-sandbox
+      builder: builder
+      run_image: run-base
