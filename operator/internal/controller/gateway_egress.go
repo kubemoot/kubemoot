@@ -193,7 +193,7 @@ func (s *NetPolicySync) callerCredentialDests(ctx context.Context, gateway *kube
 		dests = append(dests, netpol.DiscussionGatewayLeaseDest(holder.Name))
 	}
 	for i := range servers {
-		if !requiredCallerCredential(&servers[i]) {
+		if !takesPersonsToken(&servers[i]) {
 			continue
 		}
 		found, reasons, err := s.onForbiddenDests(ctx, &servers[i], gateway.Namespace)

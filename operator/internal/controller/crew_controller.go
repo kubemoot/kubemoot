@@ -171,7 +171,7 @@ func (r *CrewReconciler) reconcileNetworkPolicies(ctx context.Context, crew *kub
 		objects = netpol.DiscussionGatewayIngress(r.NetPol.Resolved(), g)
 		// The lease policy exists from the same reconcile that labels the pod, and the network
 		// policies are applied before the Deployment, so the serving port is never closed.
-		if crewKeepsTokens(crew) {
+		if crewLeases(crew) {
 			objects = append(objects, netpol.DiscussionGatewayLeaseIngress(r.NetPol.Resolved(), crew.Name, crew.Namespace)...)
 		}
 	}
@@ -695,7 +695,7 @@ func (r *CrewReconciler) reconcileService(ctx context.Context, crew *kubemootv1a
 				TargetPort: intstr.FromInt32(gatewayTLSPort), Protocol: corev1.ProtocolTCP,
 			})
 		}
-		if crewKeepsTokens(crew) {
+		if crewLeases(crew) {
 			// The lease port, which the network policy keeps to the crew's tool gateway.
 			ports = append(ports, corev1.ServicePort{
 				Name: portNameInternal, Port: netpol.DiscussionGatewayLeasePort,

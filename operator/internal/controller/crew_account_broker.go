@@ -42,16 +42,31 @@ func usesConnectedAccount(crew *kubemootv1alpha1.Crew) bool {
 		len(access.TrustedHops) > 0 && validateTrustedHops(crew, access) == nil
 }
 
-// gatewayAccountBrokerEnv is the broker's address and the token file for a connectedAccount
-// crew's gateway. Nothing when the install has no broker or the crew's rule is another kind.
+// crewLeasesAccounts reports whether the crew declares connected accounts, so its gateway leases
+// a person's token for them to the tool gateway.
+func crewLeasesAccounts(crew *kubemootv1alpha1.Crew) bool {
+	return len(crew.Spec.ConnectedAccounts) > 0 && crew.Spec.Discussion != nil && crew.Spec.Discussion.IsEnabled()
+}
+
+// crewLeases reports whether the crew's gateway answers the tool gateway's lease: it keeps
+// people's tokens for the turn, or declares connected accounts.
+func crewLeases(crew *kubemootv1alpha1.Crew) bool {
+	return crewKeepsTokens(crew) || crewLeasesAccounts(crew)
+}
+
+// gatewayAccountBrokerEnv is the broker's address and the token file for a gateway that asks
+// the broker: a connectedAccount crew's, or one that leases a declared account's token (which
+// is also told its own name, to find a conversation's owner). Nothing when the install has no
+// broker or the crew needs none.
 func gatewayAccountBrokerEnv(crew *kubemootv1alpha1.Crew, brokerURL string) []corev1.EnvVar {
 	brokerURL = strings.TrimSpace(brokerURL)
-	if brokerURL == "" || !usesConnectedAccount(crew) {
+	if brokerURL == "" || (!usesConnectedAccount(crew) && !crewLeasesAccounts(crew)) {
 		return nil
 	}
 	return []corev1.EnvVar{
 		{Name: identity.EnvAccountBrokerURL, Value: brokerURL},
 		{Name: identity.EnvAccountBrokerTokenFile, Value: accountBrokerMountDir + "/" + accountBrokerTokenFile},
+		{Name: identity.EnvAccountCrew, Value: crew.Name},
 	}
 }
 
