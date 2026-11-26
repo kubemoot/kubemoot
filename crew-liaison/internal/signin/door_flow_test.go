@@ -125,7 +125,7 @@ func checkAppRedirect(t *testing.T, back *url.URL) {
 	if back.Scheme+"://"+back.Host+back.Path != appRedirect {
 		t.Errorf("redirected to %s", back)
 	}
-	if back.Query().Get(paramState) != appState || back.Query().Get("iss") != doorPublicURL {
+	if back.Query().Get(paramState) != appState || back.Query().Get(paramIss) != doorPublicURL {
 		t.Errorf("state or issuer missing from %s", back)
 	}
 }
@@ -138,7 +138,7 @@ func TestTheLoginRequestToTheIssuerIsAFreshAuthorizationCodeFlow(t *testing.T) {
 	q := to.Query()
 	for key, want := range map[string]string{
 		"response_type": "code", paramClientID: idpClientID, "redirect_uri": doorPublicURL + pathCallback,
-		"scope": "openid profile", "code_challenge_method": "S256",
+		paramScopeKey: "openid profile", "code_challenge_method": "S256",
 	} {
 		if q.Get(key) != want {
 			t.Errorf("%s = %q, want %q", key, q.Get(key), want)
@@ -223,7 +223,7 @@ func TestSessionCookieAttributesAndLifetimes(t *testing.T) {
 	r.signIn(b, app, challenge, janeClaims)
 	cookie := findCookie(b.last, sessionCookie)
 	checkCookie(t, cookie, cookiePath)
-	if strings.Contains(cookie.Value, "jane") {
+	if strings.Contains(cookie.Value, subJane) {
 		t.Error("the session cookie is readable")
 	}
 	r.advance(sessionIdle - time.Minute) // used within the idle time: it slides
@@ -264,7 +264,7 @@ func TestConsentPageIsEscapedAndNotFrameable(t *testing.T) {
 	}
 	h := page.Header
 	for key, want := range map[string]string{
-		"X-Frame-Options": "DENY", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
+		"X-Frame-Options": "DENY", "Cache-Control": noStore, "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
 	} {
 		if h.Get(key) != want {
 			t.Errorf("%s = %q", key, h.Get(key))
@@ -307,10 +307,10 @@ func TestConsentRefusals(t *testing.T) {
 			return b.postConsent(form, nil)
 		},
 		"a post from another site": func(b *browser, form url.Values) *http.Response {
-			return b.postConsent(form, map[string]string{"Origin": "https://evil.example.test"})
+			return b.postConsent(form, map[string]string{"Origin": evilOrigin})
 		},
 		"a browser that says cross-site": func(b *browser, form url.Values) *http.Response {
-			return b.postConsent(form, map[string]string{"Sec-Fetch-Site": "cross-site"})
+			return b.postConsent(form, map[string]string{fetchSite: crossSite})
 		},
 		"no session": func(b *browser, form url.Values) *http.Response {
 			return newBrowser(t, r.srv.URL).postConsent(form, nil)

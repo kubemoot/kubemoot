@@ -29,6 +29,7 @@ type Config struct {
 type registered struct {
 	ClientID         string   `json:"clientId"`
 	ClientSecretFile string   `json:"clientSecretFile"`
+	Issuer           string   `json:"issuer"`
 	AllowedCrews     []string `json:"allowedCrews"`
 	MaxLifetimeHours int      `json:"maxLifetimeHours"`
 }
@@ -87,7 +88,7 @@ func (r registered) build(name string, readFile func(string) ([]byte, error)) (R
 		return Registration{}, fmt.Errorf("%s: account %q has a negative maxLifetimeHours", EnvRegistered, name)
 	}
 	reg := Registration{
-		ClientID: r.ClientID, AllowedCrews: r.AllowedCrews,
+		ClientID: r.ClientID, AllowedCrews: r.AllowedCrews, Issuer: r.Issuer,
 		MaxLifetime: time.Duration(r.MaxLifetimeHours) * time.Hour,
 	}
 	if r.ClientSecretFile != "" {

@@ -71,6 +71,9 @@ type Registration struct {
 	// AllowedCrews limits the account to crews ("namespace/name" or "name"); empty is every
 	// crew that declares it.
 	AllowedCrews []string
+	// Issuer is the service's issuer identifier, which its redirect's "iss" must equal (RFC 9207).
+	// Empty accepts the host of the authorization endpoint.
+	Issuer string
 	// MaxLifetime is the longest the service lets a connection stand, from the connect. Zero
 	// when the service states it in its answers or does not limit it.
 	MaxLifetime time.Duration

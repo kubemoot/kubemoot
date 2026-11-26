@@ -132,7 +132,7 @@ func (d *door) consent(w http.ResponseWriter, r *http.Request) {
 		d.rememberConsent(w, r, s.Who.User, req)
 		d.issueCode(w, r, req, s)
 	case "deny":
-		d.refuse(w, r, req, "access_denied", "the person did not allow this app")
+		d.refuse(w, r, req, errAccessDenied, "the person did not allow this app")
 	default:
 		http.Error(w, "choose Allow or Deny", http.StatusBadRequest)
 	}

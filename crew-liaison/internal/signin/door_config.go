@@ -68,6 +68,8 @@ type DoorConfig struct {
 	RefreshMaxAge        time.Duration
 	// Replay is the single-use memory; nil keeps it in this process.
 	Replay ReplaySet
+	// Accounts turns on connected accounts: the connect pages and disconnect. Nil keeps none.
+	Accounts ConnectedAccounts
 
 	DisplayName string // what the consent page calls the door; "Kubemoot" by default
 

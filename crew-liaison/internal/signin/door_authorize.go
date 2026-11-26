@@ -25,6 +25,9 @@ type doorState struct {
 	Nonce    string `json:"n"`
 	Verifier string `json:"v"`
 	Expires  int64  `json:"e"`
+	// Return is a page of the door to send the person back to after signing in, for a person
+	// who came from a connect link or the accounts page instead of from a chat app.
+	Return string `json:"b,omitempty"`
 }
 
 const (
@@ -100,23 +103,28 @@ func (d *door) refuse(w http.ResponseWriter, r *http.Request, req authRequest, c
 // startLogin sends the person to the identity provider with a fresh nonce and PKCE pair, and
 // binds the answer to this browser with a cookie.
 func (d *door) startLogin(w http.ResponseWriter, r *http.Request, blob string, req authRequest) {
+	d.beginLogin(w, r, doorState{Request: blob}, func(code, desc string) { d.refuse(w, r, req, code, desc) })
+}
+
+// beginLogin seals st with a nonce and verifier into the provider's state and redirects. fail
+// reports a problem the caller shows its own way.
+func (d *door) beginLogin(w http.ResponseWriter, r *http.Request, st doorState, fail func(code, desc string)) {
 	verifier, err1 := randomString(32)
 	nonce, err2 := randomString(24)
 	if err1 != nil || err2 != nil {
-		d.refuse(w, r, req, "server_error", "")
+		fail("server_error", "")
 		return
 	}
-	state, err := d.sealer.Seal(purposeDoorState, doorState{
-		Request: blob, Nonce: nonce, Verifier: verifier, Expires: d.now().Add(stateLifetime).Unix(),
-	})
+	st.Nonce, st.Verifier, st.Expires = nonce, verifier, d.now().Add(stateLifetime).Unix()
+	state, err := d.sealer.Seal(purposeDoorState, st)
 	if err != nil {
-		d.refuse(w, r, req, "server_error", "")
+		fail("server_error", "")
 		return
 	}
 	to, err := d.idp.loginURL(r.Context(), state, nonce, verifier, d.cfg.PublicURL+pathCallback)
 	if err != nil {
 		d.event("sign-in could not start")
-		d.refuse(w, r, req, "temporarily_unavailable", "the identity provider could not be reached")
+		fail("temporarily_unavailable", "the identity provider could not be reached")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -131,6 +139,11 @@ func (d *door) startLogin(w http.ResponseWriter, r *http.Request, blob string, r
 // callback receives the person back from the identity provider.
 func (d *door) callback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	var cs connectState
+	if d.sealer.Open(purposeConnectState, q.Get(paramState), &cs) == nil {
+		d.connectCallback(w, r, cs)
+		return
+	}
 	var st doorState
 	if d.sealer.Open(purposeDoorState, q.Get(paramState), &st) != nil || d.now().Unix() > st.Expires {
 		http.Error(w, "the sign-in expired or is not valid, start again from the app", http.StatusBadRequest)
@@ -145,6 +158,10 @@ func (d *door) callback(w http.ResponseWriter, r *http.Request) {
 		Name: stateCookieName(q.Get(paramState)), Path: pathCallback, MaxAge: -1,
 		HttpOnly: true, Secure: d.base.secureCookies(),
 	})
+	if st.Return != "" {
+		d.finishReturnLogin(w, r, st)
+		return
+	}
 	var req authRequest
 	if d.sealer.Open(purposeAuthReq, st.Request, &req) != nil {
 		http.Error(w, "the sign-in is not valid, start again from the app", http.StatusBadRequest)
@@ -154,25 +171,33 @@ func (d *door) callback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *door) finishLogin(w http.ResponseWriter, r *http.Request, st doorState, req authRequest) {
-	q := r.URL.Query()
-	if iss := q.Get("iss"); iss != "" && iss != d.cfg.OIDC.Issuer {
-		d.event("callback refused", "reason", "issuer")
-		d.refuse(w, r, req, "access_denied", "the sign-in answered from another issuer")
-		return
-	}
-	if q.Get("error") != "" {
-		d.event("identity provider refused sign-in")
-		d.refuse(w, r, req, "access_denied", "the identity provider did not sign you in")
-		return
-	}
-	who, err := d.idp.finish(r.Context(), q.Get(paramCode), st.Verifier, st.Nonce, d.cfg.PublicURL+pathCallback)
-	if err != nil {
-		d.event("sign-in failed")
-		d.refuse(w, r, req, "access_denied", "the sign-in could not be completed")
+	who, code, desc := d.identify(r, st)
+	if code != "" {
+		d.refuse(w, r, req, code, desc)
 		return
 	}
 	d.event("signed in")
 	d.proceed(w, r, st.Request, req, d.startSession(w, who))
+}
+
+// identify reads the identity provider's answer: the person, or the error code and
+// description the caller shows.
+func (d *door) identify(r *http.Request, st doorState) (person, string, string) {
+	q := r.URL.Query()
+	if iss := q.Get(paramIss); iss != "" && iss != d.cfg.OIDC.Issuer {
+		d.event("callback refused", "reason", "issuer")
+		return person{}, errAccessDenied, "the sign-in answered from another issuer"
+	}
+	if q.Get("error") != "" {
+		d.event("identity provider refused sign-in")
+		return person{}, errAccessDenied, "the identity provider did not sign you in"
+	}
+	who, err := d.idp.finish(r.Context(), q.Get(paramCode), st.Verifier, st.Nonce, d.cfg.PublicURL+pathCallback)
+	if err != nil {
+		d.event("sign-in failed")
+		return person{}, errAccessDenied, "the sign-in could not be completed"
+	}
+	return who, "", ""
 }
 
 // proceed is what follows a signed-in person's request: straight to a code when they have already
@@ -200,7 +225,7 @@ func (d *door) issueCode(w http.ResponseWriter, r *http.Request, req authRequest
 		d.refuse(w, r, req, "server_error", "")
 		return
 	}
-	p := url.Values{paramCode: {code}, "iss": {d.cfg.PublicURL}}
+	p := url.Values{paramCode: {code}, paramIss: {d.cfg.PublicURL}}
 	if req.State != "" {
 		p.Set(paramState, req.State)
 	}

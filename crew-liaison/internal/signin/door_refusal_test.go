@@ -28,7 +28,7 @@ func TestDoorAuthorizeRefusals(t *testing.T) {
 		override url.Values
 		code     string
 	}{
-		"another response type":    {url.Values{paramResponseType: {"token"}}, "unsupported_response_type"},
+		"another response type":    {url.Values{paramResponseType: {formToken}}, "unsupported_response_type"},
 		"no challenge":             {url.Values{paramCodeChallenge: {""}}, "invalid_request"},
 		"a plain challenge method": {url.Values{paramChallengeMethod: {"plain"}}, "invalid_request"},
 		"no resource":              {url.Values{paramResource: {""}}, "invalid_target"},
@@ -37,7 +37,7 @@ func TestDoorAuthorizeRefusals(t *testing.T) {
 	for name, c := range appErrors {
 		back := location(t, newBrowser(t, r.srv.URL).get(r.authorizeQuery(app, challenge, c.override)))
 		q := back.Query()
-		if q.Get("error") != c.code || q.Get(paramState) != appState || q.Get("iss") != doorPublicURL || back.Host != appHost {
+		if q.Get("error") != c.code || q.Get(paramState) != appState || q.Get(paramIss) != doorPublicURL || back.Host != appHost {
 			t.Errorf("%s: redirect %s", name, back)
 		}
 	}
@@ -105,7 +105,7 @@ func TestDoorCallbackPassesAnIssuersRefusalBackToTheApp(t *testing.T) {
 		t.Errorf("redirect %s", back)
 	}
 	b, to = c.start()
-	back = location(t, c.callback(b, to, url.Values{"iss": {"https://evil.example.test"}}))
+	back = location(t, c.callback(b, to, url.Values{paramIss: {evilOrigin}}))
 	if back.Query().Get(paramError) != errDenied || back.Query().Get(paramCode) != "" {
 		t.Errorf("another issuer answered: %s", back)
 	}
@@ -163,9 +163,9 @@ func TestSignInWhenTheIssuerIsDownIsAnErrorToTheAppNotACrash(t *testing.T) {
 func TestPersonFromReadsTheClaims(t *testing.T) {
 	cfg := OIDCConfig{UserPrefix: defaultUserPrefix, GroupsClaim: defaultGroupsClaim}
 	who, err := personFrom(cfg, map[string]any{
-		claimSub: "u1", "preferred_username": "jane", defaultGroupsClaim: []any{"a", "", 7, strings.Repeat("g", 300)},
+		claimSub: "u1", "preferred_username": subJane, defaultGroupsClaim: []any{"a", "", 7, strings.Repeat("g", 300)},
 	})
-	if err != nil || who.User != "oidc:u1" || who.Name != "jane" || len(who.Groups) != 1 || who.Groups[0] != "oidc:a" {
+	if err != nil || who.User != "oidc:u1" || who.Name != subJane || len(who.Groups) != 1 || who.Groups[0] != "oidc:a" {
 		t.Errorf("person = %+v, %v", who, err)
 	}
 	if who, _ := personFrom(cfg, map[string]any{claimSub: "u", defaultGroupsClaim: "solo"}); len(who.Groups) != 1 || who.Groups[0] != "oidc:solo" {
