@@ -199,6 +199,13 @@ create `<your-crew>/` with `Chart.yaml`, `values.yaml`, `templates/`, and a `fit
 directory of scenarios, then add a release workflow modeled on an existing one under
 `.github/workflows/`. A merge to main builds a release candidate and pushes it to the maintainers' registry; the Publish Release workflow runs the quickstart on that candidate, then publishes the final chart to GHCR, creates the GitHub Release, and asks the crews, kmctl and CrewForge to build candidates against the new release (a dry run lists what it would ask and asks nothing). Its run summary lists the release status of the six public repositories, and warns about any that hold unpublished breaking changes until their own Publish Release runs. A daily workflow runs the same check and opens one issue when a public repository has held an unpublished breaking change for more than a day; it closes the issue when none does.
 
+**How CI saves time.** Pull requests run on GitHub-hosted runners and merges to main on the cluster runners. Four rules keep that short:
+
+- The Go Build Cache workflow fills one Go build, module and linter cache on main from a hosted runner; every Go check restores it through `.github/actions/setup-go-cached` and never writes it, so a pull request cannot poison it. It rebuilds when a `go.mod`, `go.sum`, the lint pin in `operator/Makefile` or `.golangci.yml` changes, and weekly.
+- When a push to main has exactly the files of the pull request that merged it, and that pull request's `operator-test` and `all-checks` succeeded, the operator release skips lint, tests and the generated-file check and says in its run summary which pull request it relied on (`.github/scripts/find-tested-commit.sh`). If main moved after the checks, or anything cannot be read, it tests again.
+- Each release workflow's `on.push.paths` lists every directory its image is built from, including the operator packages a Go component imports and the Gradle builds it includes; `.github/scripts/check-release-paths.sh` fails a pull request whose list is too narrow, so a shared change rebuilds exactly the images that contain it.
+- SonarQube analysis does not run for a push that changes only documentation.
+
 **Documentation.** Each component's reference docs live in that component's `docs/`
 directory. The site is built from the `kubemoot-docs` repo with Hugo; `npm install`
 followed by `hugo server` previews it.
