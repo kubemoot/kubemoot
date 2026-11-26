@@ -68,3 +68,13 @@ func credentialFor(ctx context.Context, namespace, crew string) (string, error) 
 	}
 	return token, nil
 }
+
+// doorUserOf is the user name the door signed in for this request, and false for a caller the
+// door did not sign in (a service token, a Kubernetes token): only a door person has accounts.
+func doorUserOf(ctx context.Context) (string, bool) {
+	a, ok := ctx.Value(asserterKey{}).(asserter)
+	if !ok || a.user == "" {
+		return "", false
+	}
+	return a.user, true
+}

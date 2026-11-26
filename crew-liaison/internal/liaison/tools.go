@@ -37,6 +37,7 @@ type Service struct {
 	gateway  *Gateway
 	tickets  *Store
 	exporter *Exporter
+	accounts Accounts
 	title    string
 	inflight chan struct{}
 	now      func() time.Time
@@ -123,6 +124,8 @@ type AskInput struct {
 type AskOutput struct {
 	TicketView
 	Hint string `json:"hint,omitempty"`
+	// Connections lists the accounts to connect when the status is needs_connection.
+	Connections []ConnectionView `json:"connections,omitempty"`
 }
 
 // GetAnswerInput names a ticket from ask. WaitSeconds takes its description from
@@ -195,6 +198,11 @@ func (s *Service) Ask(
 	crew, err := find(crews, in.Crew, in.Namespace)
 	if err != nil {
 		return toolError(err.Error()), AskOutput{}, nil
+	}
+	if in.Ticket == "" {
+		if res, out := s.preflight(ctx, crew); res != nil {
+			return res, out, nil
+		}
 	}
 	ticket, err := s.startOrRejoin(ctx, crew, question, in.Ticket, in.TimeZone)
 	if err != nil {
