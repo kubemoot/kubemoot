@@ -48,6 +48,15 @@ public class McpConfig {
         int maxResponseBytes = properties.maxResponseBytes();
         return WebClient.builder()
             .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(maxResponseBytes))
-            .clientConnector(new ReactorClientHttpConnector(HttpClient.create(mcpConnectionProvider)));
+            .clientConnector(new ReactorClientHttpConnector(httpClient(mcpConnectionProvider)));
+    }
+
+    /**
+     * The HTTP client of every upstream call. Redirects are never followed: a call carries a
+     * person's token, which must go only to the address it was sent to and never to wherever a
+     * server points.
+     */
+    public static HttpClient httpClient(ConnectionProvider provider) {
+        return HttpClient.create(provider).followRedirect(false);
     }
 }

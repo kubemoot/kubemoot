@@ -35,8 +35,8 @@ import java.util.Map;
  * (read from its file on every lease, because the kubelet rotates it). The answer is
  * {@code {token, expiresAt}}, or 404 (no grant), 403 (the principal does not own the grant) or
  * 410 (expired). For a server that takes a connected account the body is {@code {conversationId,
- * account}} only: the crew's gateway names the person from the conversation, never from this
- * caller. The answer then also carries {@code tokenHosts}, the only hosts the token may be sent
+ * principalId, account}}: the crew's gateway finds the conversation's owner and refuses a
+ * principal that is not that owner. The answer then also carries {@code tokenHosts}, the only hosts the token may be sent
  * to, and a refusal is 404 (no grant), 409 (the person must connect again), 410 (ended) or 503
  * (could not answer, retry). Nothing is cached: the caller uses the token once and drops it. The token and
  * the ServiceAccount token never reach a log line, an exception message or a {@code toString}.</p>
@@ -114,16 +114,17 @@ public class CredentialLeaseClient {
     }
 
     /**
-     * The lease request. A connected account names itself and the conversation only; the person
-     * is the one the crew's gateway finds from the conversation, so no principal is sent.
+     * The lease request. A connected account names itself, the conversation and the principal the
+     * runtime says asked; the crew's gateway finds the conversation's owner and refuses a
+     * principal that is not that owner, so knowing a conversation id is not enough.
      */
     private static Map<String, String> body(CallerCredentialConfig config, CallerIdentity who) {
         Map<String, String> body = new LinkedHashMap<>();
         body.put("conversationId", who.conversationId());
+        body.put("principalId", who.principalId());
         if (config.verifier() == null) {
             body.put("account", config.connectedAccount());
         } else {
-            body.put("principalId", who.principalId());
             body.put("verifier", config.verifier());
         }
         return body;
