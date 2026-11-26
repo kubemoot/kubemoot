@@ -278,7 +278,7 @@ additional authenticated data, so a record copied to another person's or account
 | Ends when | How |
 |-----------|-----|
 | The person disconnects | The accounts page asks the service to revoke the token (RFC 7009) when the account declares an endpoint, then deletes the record whether or not the service answered, and tells the person which happened |
-| The person signs out | The door's `/oauth/revoke` (a chat app signing out, RFC 7009) and the Sign out button on the accounts page delete every record the person has |
+| The person signs out | The door's `/oauth/revoke` (a chat app signing out, RFC 7009) and the Sign out button on the accounts page delete every record the person has. If the store cannot delete, the answer is `503` ("not deleted, try again"), the sign-in stays and nothing is reported as signed out |
 | It goes unused for 30 days | Every use writes the record again with a time to live of 30 days; the store drops it when that passes |
 | The service's own lifetime ends | The time to live is never longer than the service's: the lifetime its token answer states for the refresh token, the access token's end when there is no refresh token, or the account's `maxLifetimeHours` from the install |
 | A crew stops declaring the account | The next lease checks the declaration, so the token stops being used at once |
@@ -289,7 +289,7 @@ additional authenticated data, so a record copied to another person's or account
 |------|--------------|
 | `GET /oauth/connect/<account>?c=<handle>` | The link the liaison hands a person who has to connect. The handle is sealed, names the person, the account and the crew, expires in 10 minutes and grants nothing alone. A person with no door session signs in at your issuer and returns here. If the signed-in person is not the one the link names (Alice's link opened by Bob), the page refuses and the refusal is logged without any detail of either. Otherwise it shows what is asked of the service, the crews that will use the account, what is kept and for how long, and a Connect button |
 | `POST /oauth/connect/<account>` | Needs the session, a token made for this person and this handle, and a same-site post. A handle starts one connection. The person is sent to the service's authorization address with the install's client id, PKCE S256, the declared scopes and a sealed state; the `resource` a chat app sent is never passed on |
-| `GET /oauth/callback` | The same address the sign-in uses. The state must be ours, unexpired, tied to this browser by cookie and to the same signed-in person, and an `iss` the service sends (RFC 9207) must be the account's `issuer` or, when the install gave none, an `https` address on the host of the service's authorization endpoint. The code is exchanged at the service's token endpoint; nothing is kept when any step fails. The page that follows says Connected and shows no token |
+| `GET /oauth/callback` | The same address the sign-in uses. The state must be ours, unexpired, tied to this browser by cookie and to the same signed-in person, and an `iss` the service sends (RFC 9207) must be the account's `issuer` or, when the install gave none, an `https` address on the host of the service's authorization endpoint. The code is exchanged at the service's token endpoint; nothing is kept when any step fails. A return works once. The page that follows says Connected and shows no token |
 | `GET /oauth/accounts` | The person's accounts, each with a Disconnect button, a Connect link for those not yet connected, and Sign out |
 | `POST /oauth/accounts/disconnect`, `POST /oauth/signout` | State-changing, so each needs the session and its own token |
 
@@ -301,10 +301,22 @@ door's assertion issuer and the user name. That is why connected accounts need `
 `hashKeySecretRef`), and why they serve crews whose askers rule is not `kubernetesRBAC`: those people are Kubernetes users and carry
 Kubernetes tokens of their own.
 
+**Which service a name means.** Crews declare an account; the install decides who it trusts. The endpoints the install's client secret,
+authorization codes, PKCE verifiers and refresh tokens are sent to come only from crews the registration allows (`allowedCrews`; empty allows every
+crew that declares the account). If those crews declare one name for different services, the account is not offered at all and the liaison logs why;
+the operator's `Conflict` condition on the crews says the same. Set `hosts` on a registration to pin the service: a declaration whose authorization,
+token or revocation endpoint is on another host is not offered. Pin `hosts` and set `allowedCrews` on any install where crews are written by more than one team.
+
+**Calls to the service.** The liaison's own calls (the code exchange, refresh and revocation) go through a guarded client: the endpoint must be `https`,
+the name is resolved once and every address must be on the public internet, the connection goes to an address that was checked (so a name cannot change its answer between
+the check and the connection), no proxy is used and no redirect is followed. A private address or a cluster service as a token endpoint is refused. Only a `400` or `401` answer with
+`invalid_grant` or `invalid_client` ends a connection (the person is told to connect again); a `408`, `429`, any other `4xx` and any `5xx` are the service being unable to answer now, and the
+connection is left as it is. Replicas share one refresh: a short lease in the store makes one replica at a time call the service, and the others wait for its result.
+
 **The broker.** A crew's tools never see the store. The crew's discussion gateway asks the liaison's account broker, on its own
 internal port (`liaison.connectedAccounts.brokerPort`, never behind the route), with a ServiceAccount token made for that broker
 alone and checked with a TokenReview. The crew comes from the caller's ServiceAccount (`<crew>-discussion`), never from the
-request. The broker answers a lease with the token, when it ends and the hosts it may be sent to, or one of three reasons:
+request, and the broker checks that the ServiceAccount is the one the operator made for that crew (it is controlled by the Crew, and the Crew exists), so a ServiceAccount someone created by hand with the same name is refused. The chart limits the broker port, with a NetworkPolicy, to the pods of crews' discussion gateways. The broker answers a lease with the token, when it ends and the hosts it may be sent to, or one of three reasons:
 `NO_GRANT` (not connected, or not offered to this crew), `NEEDS_RECONNECT` (the service no longer honors it, or the person never agreed to
 this crew) and `EXPIRED`. A token about to end is refreshed once however many callers ask, and a rotated refresh token is written with a
 compare-and-swap before the new access token is returned, so a second replica that lost the race uses the winner's record and never a spent token. The service
@@ -324,7 +336,7 @@ the question starts (see [the crew liaison](../crew-liaison/#connecting-outside-
 | `LIAISON_OPENBAO_ADDR`, `_MOUNT`, `_PREFIX`, `_TOKEN_FILE`, `_CA_FILE` | none; mount `secret`; prefix `kubemoot-liaison` | an OpenBao (or compatible) KV version 2 mount. The address must be `https`. The token is read from its file on each call |
 | `LIAISON_ACCOUNTS_ENABLED` | `false` | `true` turns connected accounts on; the liaison stops at start if the door's identity, the hash key or the keys below are missing |
 | `LIAISON_ACCOUNTS_SEAL_KEYS_FILE` | none, required when on | `id:base64key` lines, apart from the door's keys. The first seals; older ones still open |
-| `LIAISON_ACCOUNTS` | empty | JSON object of registrations by account name: `clientId`, `clientSecretFile`, `issuer`, `allowedCrews`, `maxLifetimeHours` |
+| `LIAISON_ACCOUNTS` | empty | JSON object of registrations by account name: `clientId`, `clientSecretFile`, `hosts`, `issuer`, `allowedCrews`, `maxLifetimeHours` |
 | `LIAISON_INTERNAL_PORT` | `8081` | the broker's port |
 | `ACCESS_HASH_KEY` | none, required when on | the install's hash key |
 
@@ -335,7 +347,7 @@ the question starts (see [the crew liaison](../crew-liaison/#connecting-outside-
 | `liaison.connectedAccounts.enabled` | `false` | `LIAISON_ACCOUNTS_ENABLED`. The chart refuses it without the door's identity, `sealKeySecret`, `liaison.auth.hashKeySecret`, a `clientId` for each account, or with more than one replica and the `memory` backend |
 | `liaison.connectedAccounts.sealKeySecret.name`, `key` | empty; `vault-keys` | a Secret you create, mounted read-only |
 | `liaison.connectedAccounts.brokerPort` | `8081` | the broker's port and its Service `<release>-liaison-broker`; the operator hands the address to the gateway of each `connectedAccount` crew with a projected token for the broker alone |
-| `liaison.connectedAccounts.accounts.<name>` | none | `clientId`, an optional `clientSecret` Secret (mounted as a file, never in the environment), `issuer`, `allowedCrews` and `maxLifetimeHours` |
+| `liaison.connectedAccounts.accounts.<name>` | none | `clientId`, an optional `clientSecret` Secret (mounted as a file, never in the environment), `hosts`, `issuer`, `allowedCrews` and `maxLifetimeHours` |
 
 Register `<publicURL>/oauth/callback` as the redirect address of your client at each service. An install that signs people in
 through the same address registers nothing new.
