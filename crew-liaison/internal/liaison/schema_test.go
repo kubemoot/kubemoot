@@ -25,7 +25,7 @@ func TestToolArgumentDescriptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]map[string]string{
-		"ask": {
+		toolAsk: {
 			argNamespace: "namespace of the crew, needed only when the name is not unique",
 			argTicket: "on a retry, the ticket an earlier ask returned for this same question; " +
 				"it rejoins that discussion instead of starting another",

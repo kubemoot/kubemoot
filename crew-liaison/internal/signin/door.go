@@ -35,6 +35,9 @@ type Door interface {
 	// ConnectURL is the link that lets a person connect an outside account for a crew; the
 	// door refuses anyone else who opens it. ErrConnectOff when connected accounts are off.
 	ConnectURL(principal, account, crew string) (string, error)
+	// Sealer seals values only this liaison can open, such as the state a chat app echoes back
+	// when it retries a call after following a connect link.
+	Sealer() *Sealer
 }
 
 type door struct {
@@ -121,6 +124,7 @@ func (d *door) routes() {
 
 func (d *door) Handler() http.Handler          { return d.mux }
 func (d *door) Verifier() identity.Verifier    { return d }
+func (d *door) Sealer() *Sealer                { return d.sealer }
 func (d *door) HopSigner() *identity.HopSigner { return d.hop }
 func (d *door) ResourceMetadataURL() string    { return ResourceMetadataURL(d.cfg.PublicURL) }
 func (d *door) event(name string, kv ...any)   { d.cfg.Logger.Info(name, kv...) }

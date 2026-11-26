@@ -83,6 +83,9 @@ type SignInFront struct {
 	Links LinkMaker
 	// AccountsURL is the page where a person connects and disconnects their accounts.
 	AccountsURL string
+	// Sealer seals the state of an elicitation the client echoes back; nil sends the connect
+	// link in the result to every client.
+	Sealer StateSealer
 	// Hop signs the assertion of a person for a crew's gateway; nil sends none.
 	Hop *identity.HopSigner
 }

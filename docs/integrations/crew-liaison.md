@@ -116,8 +116,12 @@ question that cannot be answered:
 `my_accounts` lists every account the person's crews could use, whether it is connected, the scopes, when it was connected, which crews use it, and the link to connect it, so a person can connect before asking anything.
 It is offered only when the install keeps accounts, and only a person signed in at the door has any.
 
-The link path works in every chat app. The newer URL elicitation of the MCP specification is not used yet; clients that support it
-will be offered it behind capability detection, and the link stays the baseline. A crew's own answer text carries no link.
+The link path works in every chat app and is the baseline. **URL elicitation.** A client on MCP revision 2026-07-28 sends its capabilities with every request; one that declared
+`elicitation.url` gets `ask` answered as `input_required` instead: one url-mode elicitation for each account to connect (the link and a message the liaison writes) and a
+`requestState` only the liaison can open (it names the person, the crew, a digest of the question and a 10 minute life). The client opens the link and retries the same call with the state echoed back; the retry is refused
+when the state is another person's, for another question, expired or changed, and it proceeds, or asks again, by what is connected then. Clients on earlier revisions are never offered this:
+the door serves each request on its own, so what a client declared once at `initialize` is not known on a later call, and the revision 2025-11-25 `-32042` error would go to clients that never
+declared the capability. They, and clients that declared form mode only or nothing, get the link in the result. A crew's own answer text carries no link.
 
 **A need that appears while the crew deliberates.** An account an `Optional` declaration names, or a `Required` connection revoked while the crew works, shows up
 as a tool call the person's account could not serve. The crew's gateway marks the turn with `needsAccounts` (the account names; see
