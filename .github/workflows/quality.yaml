@@ -7,6 +7,10 @@ name: Quality
 on:
   push:
     branches: [main]
+    # A push that changes only documentation has no code for SonarQube to analyse again.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   workflow_dispatch:
 
 env:
