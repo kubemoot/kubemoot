@@ -156,20 +156,17 @@ func (b *OpenBao) Put(
 	if ttl <= 0 {
 		return 0, ErrBadTTL
 	}
-	current, live, err := b.state(ctx, group, name)
+	current, live, keeps, err := b.state(ctx, group, name)
 	if err != nil {
 		return 0, err
 	}
 	if !revisionMatches(ifRevision, current, live) {
 		return 0, ErrConflict
 	}
-	status, _, err := b.call(ctx, http.MethodPost, b.path("metadata", group, name),
-		map[string]any{"delete_version_after": wholeSeconds(ttl).String()})
-	if err != nil {
-		return 0, err
-	}
-	if status/100 != 2 {
-		return 0, baoStatus(status)
+	if want := wholeSeconds(ttl); keeps != want {
+		if err := b.setLife(ctx, group, name, want); err != nil {
+			return 0, err
+		}
 	}
 	payload := map[string]any{"data": map[string]string{"v": base64.StdEncoding.EncodeToString(value)}}
 	if ifRevision != AnyRevision {
@@ -177,6 +174,19 @@ func (b *OpenBao) Put(
 		payload["options"] = map[string]uint64{"cas": current}
 	}
 	return b.write(ctx, group, name, payload)
+}
+
+// setLife sets how long a version written from now on is kept.
+func (b *OpenBao) setLife(ctx context.Context, group, name string, life time.Duration) error {
+	status, _, err := b.call(ctx, http.MethodPost, b.path("metadata", group, name),
+		map[string]any{"delete_version_after": life.String()})
+	if err != nil {
+		return err
+	}
+	if status/100 != 2 {
+		return baoStatus(status)
+	}
+	return nil
 }
 
 // write sends the secret and reads the new version. A refused check-and-set is ErrConflict,
@@ -223,22 +233,26 @@ func isCASError(body []byte) bool {
 // casMessage begins the error KV v2 gives when the cas option does not match the current version.
 const casMessage = "check-and-set parameter did not match the current version"
 
-// state reads the secret's current version and whether that version still holds a value (it
-// does not once it was deleted, which "delete_version_after" does when the time passes).
-func (b *OpenBao) state(ctx context.Context, group, name string) (current uint64, live bool, err error) {
+// state reads the secret's current version, whether that version still holds a value (it does
+// not once it was deleted, which "delete_version_after" does when the time passes) and the
+// "delete_version_after" now set, so the writer sets it only when it differs.
+func (b *OpenBao) state(
+	ctx context.Context, group, name string,
+) (current uint64, live bool, keeps time.Duration, err error) {
 	status, body, err := b.call(ctx, http.MethodGet, b.path("metadata", group, name), nil)
 	if err != nil {
-		return 0, false, err
+		return 0, false, 0, err
 	}
 	if status == http.StatusNotFound {
-		return 0, false, nil
+		return 0, false, 0, nil
 	}
 	if status != http.StatusOK {
-		return 0, false, baoStatus(status)
+		return 0, false, 0, baoStatus(status)
 	}
 	var reply struct {
 		Data struct {
 			Current  uint64 `json:"current_version"`
+			Life     string `json:"delete_version_after"`
 			Versions map[string]struct {
 				DeletionTime string `json:"deletion_time"`
 				Destroyed    bool   `json:"destroyed"`
@@ -246,11 +260,12 @@ func (b *OpenBao) state(ctx context.Context, group, name string) (current uint64
 		} `json:"data"`
 	}
 	if json.Unmarshal(body, &reply) != nil {
-		return 0, false, errors.New("token store: openbao answered something unreadable")
+		return 0, false, 0, errors.New("token store: openbao answered something unreadable")
 	}
 	v := reply.Data.Versions[strconv.FormatUint(reply.Data.Current, 10)]
 	deleted := v.Destroyed || deletedAlready(v.DeletionTime)
-	return reply.Data.Current, reply.Data.Current > 0 && !deleted, nil
+	life, _ := time.ParseDuration(reply.Data.Life)
+	return reply.Data.Current, reply.Data.Current > 0 && !deleted, life, nil
 }
 
 // deletedAlready reports whether a version's deletion time is set and has passed.

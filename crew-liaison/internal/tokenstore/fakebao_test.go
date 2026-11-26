@@ -189,7 +189,7 @@ func (f *fakeBao) state(w http.ResponseWriter, path string) {
 		deleted = "2000-01-01T00:00:00Z"
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
-		"current_version": s.version,
-		"versions":        map[string]any{strconv.FormatUint(s.version, 10): map[string]any{"deletion_time": deleted, "destroyed": false}},
+		"current_version": s.version, "delete_version_after": s.ttl.String(),
+		"versions": map[string]any{strconv.FormatUint(s.version, 10): map[string]any{"deletion_time": deleted, "destroyed": false}},
 	}})
 }
