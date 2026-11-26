@@ -269,7 +269,7 @@ abstract class ResumeRestartHarness extends CoordinatorThreadTestBase {
         eventLog.asMessages().forEach(m -> reader.put(CrewScope.COORDINATOR_STREAM, m));
         bus.forEach(m -> reader.publish(CoordinatorResume.DISCUSS_STREAM, m.subject(), m.json().getBytes()));
         var resume = new CoordinatorResume(true, orchestrator, reader, () -> CrewScope.of("ns", "crew"), MAPPER,
-                resumeMetrics, clock, maxAge);
+                resumeMetrics, new CoordinatorResume.Timing(clock, maxAge, CoordinatorLeases.off()));
         orchestrator.useResume(resume);
         resume.discover();
         beforeLaunch.run();

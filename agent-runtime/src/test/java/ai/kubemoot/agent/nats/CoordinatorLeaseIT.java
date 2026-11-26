@@ -124,25 +124,28 @@ class CoordinatorLeaseIT extends CoordinatorThreadTestBase {
     }
 
     private static void until(Check check, String failure) throws Exception {
-        Instant deadline = Instant.now().plusSeconds(30);
-        while (!check.holds()) {
-            if (Instant.now().isAfter(deadline)) {
-                throw new AssertionError(failure);
-            }
-            Thread.sleep(100);
-        }
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(100))
+                .alias(failure).until(check::holds);
+    }
+
+    /** Waits until the wall clock has moved past {@code instant}, so later writes carry a later timestamp. */
+    private static void untilClockPasses(Instant instant) {
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(10))
+                .until(() -> Instant.now().isAfter(instant));
     }
 
     private static long pollAcquire(LeaseStore store, String key, String holder) throws Exception {
-        Instant deadline = Instant.now().plusSeconds(15);
-        while (Instant.now().isBefore(deadline)) {
-            long revision = store.acquire(key, holder);
-            if (revision != LeaseStore.NOT_HELD) {
-                return revision;
-            }
-            Thread.sleep(200);
+        long[] revision = {LeaseStore.NOT_HELD};
+        try {
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(15)).pollInterval(Duration.ofMillis(200))
+                    .until(() -> {
+                        revision[0] = store.acquire(key, holder);
+                        return revision[0] != LeaseStore.NOT_HELD;
+                    });
+        } catch (org.awaitility.core.ConditionTimeoutException e) {
+            return LeaseStore.NOT_HELD;
         }
-        return LeaseStore.NOT_HELD;
+        return revision[0];
     }
 
     // --- the feed and the reader ---
@@ -175,9 +178,10 @@ class CoordinatorLeaseIT extends CoordinatorThreadTestBase {
             when(natsProvider.getConnection()).thenReturn(c);
             c.publish("kubemoot.discuss.ns.since.broadcast.t1", "before".getBytes());
             c.flush(Duration.ofSeconds(2));
-            Thread.sleep(1200);
+            Instant published = Instant.now();
+            untilClockPasses(published.plusMillis(1200));
             Instant cutoff = Instant.now();
-            Thread.sleep(200);
+            untilClockPasses(cutoff.plusMillis(200));
             c.publish("kubemoot.discuss.ns.since.broadcast.t1", "after".getBytes());
             c.flush(Duration.ofSeconds(2));
 
@@ -207,7 +211,7 @@ class CoordinatorLeaseIT extends CoordinatorThreadTestBase {
         var leases = new CoordinatorLeases(() -> new KvLeaseStore(conn, BUCKET), () -> KEY_PREFIX, pod, System::nanoTime,
                 orch::threadIsOpen, orch::threadLost);
         var resume = new CoordinatorResume(true, orch, new NatsBusReader(natsProvider),
-                () -> CrewScope.of("ns", "crew"), MAPPER, metrics, System::currentTimeMillis, Duration.ZERO, leases);
+                () -> CrewScope.of("ns", "crew"), MAPPER, metrics, new CoordinatorResume.Timing(System::currentTimeMillis, Duration.ZERO, leases));
         orch.useResume(resume);
         resume.discover();
         Dispatcher feed = conn.createDispatcher();

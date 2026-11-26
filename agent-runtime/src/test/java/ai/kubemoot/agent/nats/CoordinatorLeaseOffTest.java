@@ -127,7 +127,7 @@ class CoordinatorLeaseOffTest extends CoordinatorThreadTestBase {
                 orch::threadIsOpen, orch::threadLost);
         orch.useResume(new CoordinatorResume(true, orch, new FakeBusReader(), () -> CrewScope.of("ns", "crew"), MAPPER,
                 new DiscussionMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
-                System::currentTimeMillis, java.time.Duration.ZERO, leases));
+                new CoordinatorResume.Timing(System::currentTimeMillis, java.time.Duration.ZERO, leases)));
         return orch;
     }
 
