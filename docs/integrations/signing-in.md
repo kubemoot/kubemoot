@@ -293,6 +293,8 @@ additional authenticated data, so a record copied to another person's or account
 | `GET /oauth/accounts` | The person's accounts, each with a Disconnect button, a Connect link for those not yet connected, and Sign out |
 | `POST /oauth/accounts/disconnect`, `POST /oauth/signout` | State-changing, so each needs the session and its own token |
 
+**Rate limits.** The connect pages, the accounts page, disconnect, sign-out and `POST /oauth/revoke` are limited per source address, and all but revoke per signed-in person, with a token bucket each (a person: a burst of 20, then one request every 3 seconds; an address: a burst of 60, then 2 a second). A request over the limit gets `429` with `Retry-After` in seconds (the revoke endpoint answers in OAuth form with `temporarily_unavailable`). The source address is the connection's peer address; `X-Forwarded-For` and similar headers are never read, because any caller can write them. Behind a proxy or tunnel every caller shares the proxy's address, so the address limit is generous and the per-person limit is the one that bites; the limit event is logged with the path only, never a person or an address.
+
 No token appears in a page, a redirect, a URL or a log line. The service's authorization address is the only place the person
 leaves the door, and the service's answers are read, bounded and never echoed.
 

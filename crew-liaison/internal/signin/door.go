@@ -47,6 +47,7 @@ type door struct {
 	fetcher *metadataFetcher
 	hop     *identity.HopSigner
 	replay  ReplaySet
+	limits  *accountLimits
 	mux     *http.ServeMux
 }
 
@@ -79,7 +80,7 @@ func newDoor(cfg *DoorConfig, idp identityProvider) (*door, error) {
 	}
 	d := &door{
 		cfg: cfg, base: base, sealer: base.sealer, now: base.now, keys: keys, idp: idp,
-		replay: cfg.Replay, fetcher: newMetadataFetcher(cfg),
+		replay: cfg.Replay, fetcher: newMetadataFetcher(cfg), limits: newAccountLimits(cfg.RateLimits, base.now),
 	}
 	if d.replay == nil {
 		d.replay = newReplayCache()

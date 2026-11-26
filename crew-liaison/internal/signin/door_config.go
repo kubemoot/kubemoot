@@ -70,6 +70,9 @@ type DoorConfig struct {
 	Replay ReplaySet
 	// Accounts turns on connected accounts: the connect pages and disconnect. Nil keeps none.
 	Accounts ConnectedAccounts
+	// RateLimits bound the connect pages and account endpoints per person and per source
+	// address; zero values take the defaults.
+	RateLimits RateLimits
 
 	DisplayName string // what the consent page calls the door; "Kubemoot" by default
 
