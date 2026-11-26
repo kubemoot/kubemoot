@@ -202,3 +202,87 @@ func TestFromEnvGivesAConnectedAccountRuleItsBroker(t *testing.T) {
 		t.Fatal("a broker address with no token file must fail at start")
 	}
 }
+
+const leaseAnswerBody = `{"token":"secret-access-token","expiresAt":"2030-01-01T00:00:00Z","tokenHosts":["api.example.org"]}`
+
+func TestBrokerLeaseAsksForThePersonAndAccountAndReadsTheToken(t *testing.T) {
+	var gotAuth, gotPath string
+	var gotBody map[string]string
+	b, _ := brokerServer(t, func(w http.ResponseWriter, r *http.Request) {
+		gotAuth, gotPath = r.Header.Get("Authorization"), r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_, _ = w.Write([]byte(leaseAnswerBody))
+	})
+	l, err := b.Lease(context.Background(), "person-7", libraryName)
+	if err != nil || l.Token != "secret-access-token" || len(l.TokenHosts) != 1 || l.TokenHosts[0] != "api.example.org" ||
+		gotAuth != "Bearer "+brokerSAToken || gotPath != leasePath || gotBody["principalId"] != "person-7" || gotBody["account"] != libraryName {
+		t.Fatalf("%v %v auth=%q path=%q body=%v", l, err, gotAuth, gotPath, gotBody)
+	}
+	if strings.Contains(l.String(), "secret-access-token") {
+		t.Error("a lease must not print its token")
+	}
+}
+
+func TestBrokerLeaseRefusalsCarryTheirReason(t *testing.T) {
+	for status, want := range map[int]string{
+		http.StatusNotFound: LeaseNoGrant, http.StatusConflict: LeaseNeedsReconnect, http.StatusGone: LeaseExpired,
+	} {
+		b, _ := brokerServer(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) })
+		_, err := b.Lease(context.Background(), "p", libraryName)
+		if r, ok := IsLeaseRefusal(err); !ok || r.Reason != want {
+			t.Errorf("%d: %v", status, err)
+		}
+	}
+}
+
+func TestBrokerLeaseUnclearAnswersAreRetryableNeverALease(t *testing.T) {
+	for name, handler := range map[string]http.HandlerFunc{
+		"unavailable": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) },
+		"forbidden":   func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) },
+		"not json":    func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`ok`)) },
+		"no token": func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"expiresAt":"2030-01-01T00:00:00Z","tokenHosts":["h"]}`))
+		},
+		"no hosts": func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"token":"t","expiresAt":"2030-01-01T00:00:00Z"}`))
+		},
+		"bad end": func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"token":"t","expiresAt":"soon","tokenHosts":["h"]}`))
+		},
+		"redirect": func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/x", http.StatusFound) },
+	} {
+		b, _ := brokerServer(t, handler)
+		l, err := b.Lease(context.Background(), "p", libraryName)
+		if _, refused := IsLeaseRefusal(err); l.Token != "" || refused || !errors.Is(err, ErrConnectionCheck) {
+			t.Errorf("%s: %v %v", name, l, err)
+		}
+	}
+}
+
+func TestBrokerLeaseErrorsNeverCarryTheToken(t *testing.T) {
+	b, file := brokerServer(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) })
+	_, err := b.Lease(context.Background(), "p", libraryName)
+	if err == nil || strings.Contains(err.Error(), brokerSAToken) {
+		t.Fatalf("%v", err)
+	}
+	if err := os.Remove(*file); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Lease(context.Background(), "p", libraryName); !errors.Is(err, ErrConnectionCheck) {
+		t.Fatalf("a missing token file: %v", err)
+	}
+}
+
+func TestAccountLeaserFromEnv(t *testing.T) {
+	get := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	if l, err := AccountLeaserFromEnv(get(nil)); l != nil || err != nil {
+		t.Fatalf("no broker: %v %v", l, err)
+	}
+	if _, err := AccountLeaserFromEnv(get(map[string]string{EnvAccountBrokerURL: liaisonBroker})); err == nil {
+		t.Error("a broker without its token file must be refused")
+	}
+	l, err := AccountLeaserFromEnv(get(map[string]string{EnvAccountBrokerURL: liaisonBroker, EnvAccountBrokerTokenFile: "/t"}))
+	if l == nil || err != nil {
+		t.Fatalf("%v %v", l, err)
+	}
+}
