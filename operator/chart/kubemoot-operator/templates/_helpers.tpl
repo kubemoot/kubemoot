@@ -433,6 +433,7 @@ longest lifetime.
 {{- $_ := set $one "clientSecretFile" (printf "/etc/kubemoot/accounts/%s-client-secret" $name) -}}
 {{- end -}}
 {{- with $reg.issuer -}}{{- $_ := set $one "issuer" . -}}{{- end -}}
+{{- with $reg.hosts -}}{{- $_ := set $one "hosts" . -}}{{- end -}}
 {{- with $reg.allowedCrews -}}{{- $_ := set $one "allowedCrews" . -}}{{- end -}}
 {{- with $reg.maxLifetimeHours -}}{{- $_ := set $one "maxLifetimeHours" . -}}{{- end -}}
 {{- $_ := set $out $name $one -}}

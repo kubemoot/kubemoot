@@ -82,6 +82,13 @@ rules:
     resources: ["tokenreviews"]
     verbs: ["create"]
   {{- end }}
+  {{- if $accts }}
+  # The account broker serves only a ServiceAccount the operator made for a Crew's gateway, and
+  # reads it, and the Crew that controls it, to know.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -468,6 +475,36 @@ spec:
   selector:
     {{- include "kubemoot-operator.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: crew-liaison
+{{- end }}
+{{- if $accts }}
+---
+# Only the crews' discussion gateways reach the broker port; the route's port stays open to all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}-broker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kubemoot-operator.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: crew-liaison
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: discussion-gateway
+              app.kubernetes.io/managed-by: kubemoot-operator
+      ports:
+        - port: broker
+          protocol: TCP
 {{- end }}
 {{- if and .Values.liaison.expose.enabled .Values.gateway.enabled }}
 ---

@@ -15,6 +15,7 @@ import (
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -36,8 +37,8 @@ func main() {
 	maxInflight := envInt("LIAISON_MAX_INFLIGHT", 4)
 	ttl := time.Duration(envInt("LIAISON_TICKET_TTL_MINUTES", 60)) * time.Minute
 
-	scheme := runtime.NewScheme()
-	if err := kubemootv1alpha1.AddToScheme(scheme); err != nil {
+	scheme, err := newScheme()
+	if err != nil {
 		log.Error(err, "scheme")
 		os.Exit(1)
 	}
@@ -94,7 +95,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go sweep(ctx, tickets)
-	startBroker(ctx, acct, log)
+	startBroker(ctx, acct, k8s, log)
 	go func() {
 		log.Info("crew liaison listening",
 			"port", port, "maxInflight", maxInflight, "auth", token != "",
@@ -262,7 +263,7 @@ func attachAccounts(svc *liaison.Service, acct *accounts.Service, front *liaison
 }
 
 // startBroker serves the account broker on its internal port when connected accounts are on.
-func startBroker(ctx context.Context, acct *accounts.Service, log logr.Logger) {
+func startBroker(ctx context.Context, acct *accounts.Service, reader client.Reader, log logr.Logger) {
 	if acct == nil {
 		return
 	}
@@ -271,7 +272,7 @@ func startBroker(ctx context.Context, acct *accounts.Service, log logr.Logger) {
 		log.Error(err, "account broker")
 		os.Exit(1)
 	}
-	srv := brokerServer(acct, reviewer, envOr(envInternalPort, defaultInternalPort))
+	srv := brokerServer(acct, reviewer, liaison.NewGatewayVerifier(reader), envOr(envInternalPort, defaultInternalPort))
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -332,4 +333,13 @@ func doorFront(cfg *signin.DoorConfig) (*liaison.SignInFront, error) {
 		front.Links, front.AccountsURL = door, cfg.PublicURL+"/oauth/accounts"
 	}
 	return front, nil
+}
+
+// newScheme knows the Kubernetes core types (a gateway's ServiceAccount) and the Kubemoot ones.
+func newScheme() (*runtime.Scheme, error) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	return scheme, kubemootv1alpha1.AddToScheme(scheme)
 }

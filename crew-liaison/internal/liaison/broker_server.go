@@ -42,12 +42,22 @@ type brokerReviewer interface {
 type AccountBroker struct {
 	broker   *accounts.Broker
 	reviewer brokerReviewer
+	gateways GatewayVerifier
+}
+
+// GatewayVerifier says whether a ServiceAccount is the one the operator made for a crew's
+// discussion gateway. The name alone proves nothing: anyone who can create a ServiceAccount in a
+// namespace can pick any name in it.
+type GatewayVerifier interface {
+	// Verify reports whether serviceAccount in namespace belongs to the crew's gateway. An error
+	// means it could not be checked, which refuses and is retryable.
+	Verify(ctx context.Context, namespace, serviceAccount, crew string) (bool, error)
 }
 
 // NewAccountBroker returns the internal handler. reviewer must check tokens against
 // AccountBrokerAudience.
-func NewAccountBroker(broker *accounts.Broker, reviewer brokerReviewer) *AccountBroker {
-	return &AccountBroker{broker: broker, reviewer: reviewer}
+func NewAccountBroker(broker *accounts.Broker, reviewer brokerReviewer, gateways GatewayVerifier) *AccountBroker {
+	return &AccountBroker{broker: broker, reviewer: reviewer, gateways: gateways}
 }
 
 // Handler serves the broker's routes.
@@ -157,7 +167,15 @@ func (a *AccountBroker) authenticate(w http.ResponseWriter, r *http.Request) (st
 		return "", false
 	}
 	crew, ok := crewOfGateway(id.Subject)
-	if !ok {
+	if ok {
+		ok, err = a.ownsGateway(ctx, id.Subject, crew)
+	}
+	switch {
+	case err != nil:
+		brokerLog.Info("Could not check the caller's ServiceAccount")
+		http.Error(w, "could not check the caller", http.StatusServiceUnavailable)
+		return "", false
+	case !ok:
 		brokerLog.Info("Refused a caller that is not a crew's discussion gateway")
 		http.Error(w, "this caller may not ask for connected accounts", http.StatusForbidden)
 		return "", false
@@ -184,4 +202,10 @@ func writeBrokerJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// ownsGateway asks the verifier whether the ServiceAccount named by subject is the crew's gateway's.
+func (a *AccountBroker) ownsGateway(ctx context.Context, subject, crew string) (bool, error) {
+	ns, name, _ := strings.Cut(strings.TrimPrefix(subject, serviceAccountPrefix), ":")
+	return a.gateways.Verify(ctx, ns, name, strings.TrimPrefix(crew, ns+"/"))
 }
