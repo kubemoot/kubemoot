@@ -5,6 +5,14 @@ name: CI
 
 on:
   workflow_call:
+    inputs:
+      tested_commit_reason:
+        description: >-
+          Set by Release when the pushed commit has the same files as a pull request head whose
+          checks (operator-test among them) succeeded: the text says which. The tests, lint and
+          generated-file check are then not repeated; the binary is still built and kept.
+        type: string
+        default: ''
   pull_request:
     branches: [main]
     paths:
@@ -32,6 +40,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install build tools
+        if: inputs.tested_commit_reason == ''
         run: |
           sudo apt-get update
           sudo apt-get install -y make
@@ -43,13 +52,15 @@ jobs:
           cache-dependency-path: operator/go.sum
 
       # The operator tests render the chart's use-grant policies with helm.
-      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+      - if: inputs.tested_commit_reason == ''
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
         with:
           # Pinned like every other tool and action: an unpinned setup fetches the newest Helm
           # at run time and, when that fetch fails, falls back to an old one.
           version: 'v4.3.1'
 
       - name: Check go.mod and go.sum are tidy
+        if: inputs.tested_commit_reason == ''
         working-directory: operator
         env:
           GOTOOLCHAIN: local
@@ -57,10 +68,12 @@ jobs:
 
       # golangci-lint at the Makefile pin with the shared root .golangci.yml.
       - name: Lint
+        if: inputs.tested_commit_reason == ''
         working-directory: operator
         run: make lint
 
       - name: Run tests
+        if: inputs.tested_commit_reason == ''
         working-directory: operator
         run: make test
 
@@ -70,6 +83,7 @@ jobs:
       # committed by the developer; CI only checks them and never commits.
       # Runs from the repository root: the paths below are repository-relative.
       - name: Verify generated files are committed
+        if: inputs.tested_commit_reason == ''
         run: |
           GENERATED=(operator/config/crd/bases operator/chart/kubemoot-operator/crds
                      operator/config/rbac/role.yaml operator/chart/kubemoot-operator/templates/rbac.yaml
@@ -86,6 +100,18 @@ jobs:
           echo "${drift}"
           git diff --stat -- "${GENERATED[@]}"
           exit 1
+
+      - name: Say why the tests were not repeated
+        if: inputs.tested_commit_reason != ''
+        env:
+          REASON: ${{ inputs.tested_commit_reason }}
+        run: |
+          echo "::notice title=operator tests not repeated::${REASON}"
+          {
+            echo "### Operator tests not repeated"
+            echo "${REASON}"
+            echo "Lint, tests and the generated-file check ran on the pull request; this run only builds the binary the image packages."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # The image packages this tested binary; the build pod does not compile again.
       - name: Build the static binary
