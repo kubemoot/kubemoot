@@ -189,7 +189,8 @@ How it works is in [Connected accounts](../../integrations/signing-in/#connected
 - **For how long.** Deleted when the person disconnects (the service is asked to revoke the token first, and the record goes whether or not it answers) or signs out of the door; deleted 30 days after it was last used; never kept past the service's own lifetime for the token; and ignored the moment a crew stops declaring the account.
 - **Who can read it.** Only the liaison process, and a crew's gateway through the broker for the crew it serves and the person who owns the conversation, one lease at a time. No chat app, agent, bus subject or log carries it.
 - **Erasure.** Signing out deletes every record of a person. For an erasure request, delete the person's records by their id in the store, or have them sign out.
-- **In transit.** The broker is served on an internal port, plain HTTP inside the cluster, and the lease carries a token: encrypt pod traffic as for [a person's own token](#a-persons-own-token-during-a-turn).
+- **In transit.** The broker is served on an internal port, plain HTTP inside the cluster, and the lease carries a token: encrypt pod traffic as for [a person's own token](#a-persons-own-token-during-a-turn). A NetworkPolicy the chart renders limits the port to the crews' discussion gateways, and the broker serves only a ServiceAccount the operator made for a crew.
+- **Exporting your own conversations.** A person signed in at the door can export the conversations they own with the door's assertion, for as long as the crew trusts the door. The crew's askers rule decides who may ask, not who may take away their own past conversations: a person removed from the rule, or who disconnected an account, can still export what they already asked, and nothing else.
 
 ## Other places data appears
 
