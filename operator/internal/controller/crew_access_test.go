@@ -40,7 +40,7 @@ func TestAnUnconfiguredCrewsGatewayGetsNoAccessSettingsAndNoReviewRights(t *test
 
 func TestAccessBecomesTheGatewaysEnvironmentAndRights(t *testing.T) {
 	access := &kubemootv1alpha1.DiscussionAccess{TokenAudiences: []string{"a", "b"}}
-	env := gatewayEnv("nats://n:4222", access)
+	env := gatewayEnv("nats://n:4222", crewWithAccess(access))
 	for name, want := range map[string]string{
 		identity.EnvEnforce: valueTrue, identity.EnvTokenReview: valueTrue, identity.EnvAllowAnonymous: "false", identity.EnvTokenAudiences: "a,b",
 	} {
@@ -52,7 +52,7 @@ func TestAccessBecomesTheGatewaysEnvironmentAndRights(t *testing.T) {
 		t.Fatalf("a gateway that verifies tokens needs TokenReview and SubjectAccessReview: %v", rules)
 	}
 	off := &kubemootv1alpha1.DiscussionAccess{TokenReview: ptr.To(false), AllowAnonymous: ptr.To(true)}
-	if got, _ := envValue(gatewayEnv("x", off), identity.EnvAllowAnonymous); got != valueTrue {
+	if got, _ := envValue(gatewayEnv("x", crewWithAccess(off)), identity.EnvAllowAnonymous); got != valueTrue {
 		t.Errorf("allowAnonymous = %q", got)
 	}
 	if rules := gatewayAccessRules(off); len(rules) != 0 {
@@ -122,7 +122,7 @@ func TestAuthenticationConditionFollowsWhatTheGatewayDoes(t *testing.T) {
 func TestTheGatewayEnvironmentRoundTripsThroughFromEnv(t *testing.T) {
 	client := func() (kubernetes.Interface, error) { return fake.NewSimpleClientset(), nil }
 	getenv := func(access *kubemootv1alpha1.DiscussionAccess) func(string) string {
-		env := gatewayEnv("nats://n:4222", access)
+		env := gatewayEnv("nats://n:4222", crewWithAccess(access))
 		return func(name string) string { v, _ := envValue(env, name); return v }
 	}
 	open, err := identity.FromEnv(getenv(nil), client)

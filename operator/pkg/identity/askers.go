@@ -108,7 +108,7 @@ func (c *AskersConfig) Validate() error {
 }
 
 func (e *ExternalConfig) validate() error {
-	if !strings.HasPrefix(e.URL, "https://") || len(e.URL) <= len("https://") {
+	if !strings.HasPrefix(e.URL, schemeHTTPS+"://") || len(e.URL) <= len(schemeHTTPS+"://") {
 		return fmt.Errorf("%w: external.url must be https", ErrAskersConfig)
 	}
 	return nil

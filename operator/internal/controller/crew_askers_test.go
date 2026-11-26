@@ -230,11 +230,11 @@ func TestAnExternalRuleWithAnUnlistedHostGetsNoGatewaySettingsAndIsReported(t *t
 	}
 }
 
-func TestAnExternalRuleWithAListedHostReachesTheGatewayWithTheList(t *testing.T) {
+func TestAnExternalRuleWithAListedHostReachesTheGatewayWithItsOwnHostOnly(t *testing.T) {
 	hosts := identity.PolicyHosts{"pdp.example.org", "second.example.org"}
 	crew := crewWithHops(hopAccess(validHopKey(t), externalRule()))
 	env := gatewayTrustedHopEnv(crew, hosts)
-	if got, _ := envValue(env, identity.EnvAskersPolicyHosts); got != "pdp.example.org,second.example.org" {
+	if got, _ := envValue(env, identity.EnvAskersPolicyHosts); got != askersPDPHost {
 		t.Errorf("hosts env %q in %v", got, env)
 	}
 	reconcileAuthentication(crew, hosts)
@@ -266,11 +266,10 @@ func TestServiceTokenVerifiersAreBoundToTheirCrewInTheGatewayEnvironment(t *test
 	crew := crewWithHops(&kubemootv1alpha1.DiscussionAccess{
 		ServiceTokens: []kubemootv1alpha1.ServiceTokenVerifier{{Name: "svc", VerifyURL: "https://svc.example.org", SubjectClaim: "sub"}},
 	})
-	env := gatewayServiceTokenCrewEnv(crew)
-	if len(env) != 1 || env[0].Name != identity.EnvCrew || env[0].Value != askersNS+"/"+askersCrew {
-		t.Errorf("env %v", env)
+	if got, _ := envValue(gatewayEnv("nats://n:4222", crew), identity.EnvCrew); got != askersNS+"/"+askersCrew {
+		t.Errorf("ACCESS_CREW = %q", got)
 	}
-	if env := gatewayServiceTokenCrewEnv(crewWithHops(nil)); len(env) != 0 {
-		t.Errorf("a crew with no verifier got %v", env)
+	if _, found := envValue(gatewayEnv("nats://n:4222", crewWithHops(nil)), identity.EnvCrew); found {
+		t.Error("a crew with no verifier got ACCESS_CREW")
 	}
 }

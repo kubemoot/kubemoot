@@ -167,7 +167,7 @@ func gatewayTrustedHopEnv(crew *kubemootv1alpha1.Crew, hosts identity.PolicyHost
 	}
 	env := []corev1.EnvVar{{Name: identity.EnvTrustedHops, Value: string(hopsJSON)}, {Name: identity.EnvAskers, Value: string(ruleJSON)}}
 	env = append(env, gatewayAskersKeyEnv(access)...)
-	env = append(env, gatewayAskersPolicyHostsEnv(access, hosts)...)
+	env = append(env, gatewayAskersPolicyHostsEnv(access)...)
 	return append(env, gatewayAskersTokenEnv(access)...)
 }
 
@@ -181,13 +181,13 @@ func gatewayAskersKeyEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.Env
 	return []corev1.EnvVar{secretEnv(identity.EnvHashKey, name, key)}
 }
 
-// gatewayAskersPolicyHostsEnv hands the gateway the install's trusted policy decision point
-// hosts, which it checks again before it sends anyone's identity to the rule's host.
-func gatewayAskersPolicyHostsEnv(access *kubemootv1alpha1.DiscussionAccess, hosts identity.PolicyHosts) []corev1.EnvVar {
+// gatewayAskersPolicyHostsEnv hands the gateway the one host its own rule names, which it
+// checks again before it sends anyone's identity there. It gets no other host of the install.
+func gatewayAskersPolicyHostsEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar {
 	if access.Askers.External == nil {
 		return nil
 	}
-	return []corev1.EnvVar{{Name: identity.EnvAskersPolicyHosts, Value: strings.Join(hosts, ",")}}
+	return []corev1.EnvVar{{Name: identity.EnvAskersPolicyHosts, Value: identity.PolicyHostOf(access.Askers.External.URL)}}
 }
 
 // gatewayAskersTokenEnv hands the gateway the token for an external policy decision point.

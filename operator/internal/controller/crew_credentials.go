@@ -80,9 +80,10 @@ func serviceTokenConfigs(access *kubemootv1alpha1.DiscussionAccess) []identity.S
 	return out
 }
 
-// gatewayServiceTokenEnv is the environment of the service token verifiers: the list, and the
-// install's hash key from the Secret the crew names. Nothing for a crew with no verifier.
-func gatewayServiceTokenEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar {
+// gatewayServiceTokenEnv is the environment of the service token verifiers: the list, the crew
+// they belong to (a subscriber is admitted for that crew alone), and the install's hash key from
+// the Secret the crew names. Nothing for a crew with no verifier.
+func gatewayServiceTokenEnv(crew *kubemootv1alpha1.Crew, access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar {
 	configs := serviceTokenConfigs(access)
 	if len(configs) == 0 {
 		return nil
@@ -91,22 +92,16 @@ func gatewayServiceTokenEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.
 	if err != nil { // a list of strings and numbers always marshals
 		return nil
 	}
-	env := []corev1.EnvVar{{Name: identity.EnvServiceTokens, Value: string(raw)}}
+	env := []corev1.EnvVar{
+		{Name: identity.EnvServiceTokens, Value: string(raw)},
+		{Name: identity.EnvCrew, Value: identity.CrewRef{Namespace: crew.Namespace, Name: crew.Name}.String()},
+	}
 	if name, key, ok := hashKeySecret(access); ok {
 		env = append(env, corev1.EnvVar{Name: identity.EnvHashKey, ValueFrom: &corev1.EnvVarSource{
 			SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: name}, Key: key},
 		}})
 	}
 	return env
-}
-
-// gatewayServiceTokenCrewEnv names the crew a gateway's service token verifiers belong to, so a
-// subscriber they accept is admitted for that crew alone. Nothing for a crew with no verifier.
-func gatewayServiceTokenCrewEnv(crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
-	if len(serviceTokenConfigs(discussionAccess(crew))) == 0 {
-		return nil
-	}
-	return []corev1.EnvVar{{Name: identity.EnvCrew, Value: identity.CrewRef{Namespace: crew.Namespace, Name: crew.Name}.String()}}
 }
 
 // hashKeySecret is the Secret and key that hold the crew's hash key, the one place the default

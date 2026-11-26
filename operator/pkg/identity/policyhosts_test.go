@@ -45,7 +45,9 @@ func TestPolicyHostsTrustOnlyHttpsAddressesOnTheList(t *testing.T) {
 	hosts, _ := ParsePolicyHosts("pdp.example.org")
 	for raw, want := range map[string]bool{
 		"https://pdp.example.org/access/v1/evaluation":      true,
-		"https://PDP.example.org:8443/x":                    true,
+		"https://PDP.example.org:443/x":                     true,
+		"https://pdp.example.org:8443/x":                    false,
+		"https://pdp.example.org:80/x":                      false,
 		"http://pdp.example.org/x":                          false,
 		"https://other.example.org/x":                       false,
 		"https://pdp.example.org.evil.example/x":            false,
@@ -98,9 +100,29 @@ func guardFor(srv *httptest.Server, answers func() []netip.Addr, allow func(neti
 	}
 }
 
-func pdpURL(srv *httptest.Server, path string) string {
+// pdpURL is an address on the default port, 443, as a rule must be. The test server listens
+// elsewhere, so servedBy sends the connection there after the guard has checked the address.
+func pdpURL(_ *httptest.Server, path string) string { return "https://" + pdpName + path }
+
+// servedBy makes the client's connections to port 443 reach srv; the guard still resolves and checks first.
+func servedBy(c *AuthZENClient, srv *httptest.Server) *AuthZENClient {
 	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
-	return "https://" + pdpName + ":" + port + path
+	tr := c.client.Transport.(*http.Transport)
+	dial := tr.DialContext
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, _, _ := net.SplitHostPort(addr)
+		return dial(ctx, network, net.JoinHostPort(host, port))
+	}
+	return c
+}
+
+// guardedClient is the guarded client for cfg, with its connections sent to srv.
+func guardedClient(srv *httptest.Server, cfg ExternalConfig, g PolicyGuard) (*AuthZENClient, error) {
+	c, err := NewGuardedAuthZENClient(cfg, "", g)
+	if err != nil {
+		return nil, err
+	}
+	return servedBy(c, srv), nil
 }
 
 func evaluate(c *AuthZENClient) (bool, error) {
@@ -128,7 +150,7 @@ func TestGuardedClientRefusesAHostTheInstallDoesNotList(t *testing.T) {
 func TestGuardedClientCallsAListedHost(t *testing.T) {
 	srv, calls := answeringPDP(t)
 	g := guardFor(srv, loopback, func(netip.Addr) bool { return true })
-	c, err := NewGuardedAuthZENClient(ExternalConfig{URL: pdpURL(srv, "/access/v1/evaluation")}, "", g)
+	c, err := guardedClient(srv, ExternalConfig{URL: pdpURL(srv, "/access/v1/evaluation")}, g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +170,7 @@ func TestGuardedClientNeverConnectsToAPrivateAddress(t *testing.T) {
 		"one bad among good":    {netip.MustParseAddr("93.184.216.34"), netip.MustParseAddr("127.0.0.1")},
 	} {
 		g := guardFor(srv, func() []netip.Addr { return answers }, netguard.PublicAddr)
-		c, err := NewGuardedAuthZENClient(ExternalConfig{URL: pdpURL(srv, "/")}, "", g)
+		c, err := guardedClient(srv, ExternalConfig{URL: pdpURL(srv, "/")}, g)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -174,7 +196,7 @@ func TestGuardedClientIsNotRebound(t *testing.T) {
 	}
 	allowFirstOnly := func(a netip.Addr) bool { return a.IsLoopback() || netguard.PublicAddr(a) }
 	g := guardFor(srv, answers, allowFirstOnly)
-	c, err := NewGuardedAuthZENClient(ExternalConfig{URL: pdpURL(srv, "/")}, "", g)
+	c, err := guardedClient(srv, ExternalConfig{URL: pdpURL(srv, "/")}, g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +214,7 @@ func TestGuardedClientIsNotRebound(t *testing.T) {
 func TestGuardedClientDoesNotFollowARedirect(t *testing.T) {
 	srv, calls := answeringPDP(t)
 	g := guardFor(srv, loopback, func(netip.Addr) bool { return true })
-	c, err := NewGuardedAuthZENClient(ExternalConfig{URL: pdpURL(srv, "/redirect")}, "", g)
+	c, err := guardedClient(srv, ExternalConfig{URL: pdpURL(srv, "/redirect")}, g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,4 +251,15 @@ func mustRule(t *testing.T, raw string) AskersConfig {
 		t.Fatal(err)
 	}
 	return *r
+}
+
+func TestGuardedClientRefusesAListedHostOnAnotherPort(t *testing.T) {
+	srv, calls := answeringPDP(t)
+	g := guardFor(srv, loopback, func(netip.Addr) bool { return true })
+	if _, err := NewGuardedAuthZENClient(ExternalConfig{URL: "https://" + pdpName + ":8443/x"}, "", g); !errors.Is(err, ErrPolicyHostNotTrusted) {
+		t.Fatalf("err = %v, want ErrPolicyHostNotTrusted", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("the policy decision point was called")
+	}
 }

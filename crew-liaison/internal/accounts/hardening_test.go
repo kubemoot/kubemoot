@@ -23,7 +23,7 @@ const (
 
 func decl(crews []string, tokenURL string) Declaration {
 	return Declaration{
-		Name: acctLib, DisplayName: libraryTitle, Crews: crews, AuthorizeURL: "https://auth.example.org/a",
+		Name: acctLib, DisplayName: libraryTitle, Crews: crews, AuthorizeURL: "https://" + authHostName + "/a",
 		TokenURL: tokenURL, TokenHosts: []string{apiHostName},
 	}
 }
@@ -63,7 +63,7 @@ func TestAllowedCrewsThatDisagreeOnTheServiceGetNothing(t *testing.T) {
 
 func TestAPinnedRegistrationDropsADeclarationElsewhere(t *testing.T) {
 	all := []Declaration{decl([]string{evilCrew}, evilTokens), decl([]string{guideFull}, authToken)}
-	pinned := Registration{ClientID: "c", Hosts: []string{"auth.example.org", apiHostName}}
+	pinned := Registration{ClientID: "c", Hosts: []string{authHostName, apiHostName}}
 	o, err := resolve(all, acctLib, pinned)
 	if err != nil || o.Declaration.TokenURL != authToken || len(o.Crews) != 1 {
 		t.Fatalf("pinned: %+v %v", o, err)
@@ -274,7 +274,7 @@ func TestTheRefreshLeaseIsPerRecord(t *testing.T) {
 
 func TestPinnedHostsAlsoLimitWhereTheAccessTokenMayBeSent(t *testing.T) {
 	d := decl([]string{guideFull}, authToken)
-	pinned := Registration{ClientID: "c", Hosts: []string{"auth.example.org", apiHostName}}
+	pinned := Registration{ClientID: "c", Hosts: []string{authHostName, apiHostName}}
 	if !pinned.PinsAllow(d) {
 		t.Fatal("token hosts inside the pinned hosts")
 	}
@@ -287,5 +287,29 @@ func TestPinnedHostsAlsoLimitWhereTheAccessTokenMayBeSent(t *testing.T) {
 	}
 	if !(Registration{ClientID: "c", AllowedCrews: []string{guideFull}}).PinsAllow(d) {
 		t.Fatal("without pinned hosts the token hosts are the crew's")
+	}
+}
+
+func TestPinnedEndpointsUsePort443Only(t *testing.T) {
+	pinned := Registration{ClientID: "c", Hosts: []string{authHostName}}
+	for raw, want := range map[string]bool{
+		"https://" + authHostName + "/token":      true,
+		"https://" + authHostName + ":443/token":  true,
+		"https://" + authHostName + ":8443/token": false,
+		"https://" + authHostName + ":80/token":   false,
+	} {
+		if got := pinned.PinsAllow(Declaration{TokenURL: raw}); got != want {
+			t.Errorf("PinsAllow(%q) = %v, want %v", raw, got, want)
+		}
+	}
+	for _, field := range []Declaration{
+		{AuthorizeURL: "https://" + authHostName + ":9443/a"}, {RevocationURL: "https://" + authHostName + ":9443/r"},
+	} {
+		if pinned.PinsAllow(field) {
+			t.Errorf("%+v was allowed on another port", field)
+		}
+	}
+	if !(Registration{ClientID: "c", AllowedCrews: []string{guideFull}}).PinsAllow(Declaration{TokenURL: "https://x.example:8443/t"}) {
+		t.Error("without pinned hosts no port is checked here")
 	}
 }
