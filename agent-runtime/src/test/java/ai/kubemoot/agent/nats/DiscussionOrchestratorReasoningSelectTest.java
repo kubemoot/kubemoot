@@ -357,8 +357,8 @@ class DiscussionOrchestratorReasoningSelectTest {
 
     @Test
     void runReasoningSelectBrief_briefFieldPresent_isIncludedInResult() {
-        // The brief must be surfaced as-is. The LLM is instructed to be additive;
-        // this test verifies the parse path, not the LLM's prose.
+        // The brief must be surfaced as-is. The LLM is told to be additive, and this test
+        // covers the parse path, not the LLM's prose.
         String expectedBrief =
                 "Check per-namespace usage via pods_top, then review replica headroom in each deployment.";
         String llmResponse = String.format(
