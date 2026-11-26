@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +21,9 @@ type fakeBao struct {
 	now     time.Time
 	secrets map[string]*baoSecret
 	calls   int
+	// casRefusals counts writes the check-and-set refused; ttlSets counts metadata writes.
+	casRefusals int
+	ttlSets     int
 }
 
 type baoSecret struct {
@@ -81,6 +85,8 @@ func (f *fakeBao) route(w http.ResponseWriter, r *http.Request, kind, path strin
 		f.get(w, path)
 	case "POST " + kindData:
 		f.put(w, path, raw)
+	case "GET " + kindMetadata:
+		f.state(w, path)
 	case "POST " + kindMetadata:
 		f.setTTL(w, path, raw)
 	case "DELETE " + kindMetadata:
@@ -116,6 +122,7 @@ func (f *fakeBao) setTTL(w http.ResponseWriter, path string, raw []byte) {
 		http.Error(w, "bad", http.StatusBadRequest)
 		return
 	}
+	f.ttlSets++
 	s := f.secrets[path]
 	if s == nil {
 		s = &baoSecret{}
@@ -141,17 +148,15 @@ func (f *fakeBao) put(w http.ResponseWriter, path string, raw []byte) {
 		s = &baoSecret{}
 		f.secrets[path] = s
 	}
-	current := uint64(0)
-	if s.hasValue {
-		current = s.version
-	}
-	if body.Options != nil && body.Options.CAS != current {
+	// Like KV v2, the check compares with the current version, which an expired one still is.
+	if body.Options != nil && body.Options.CAS != s.version {
+		f.casRefusals++
 		http.Error(w, `{"errors":["check-and-set parameter did not match the current version"]}`, http.StatusBadRequest)
 		return
 	}
 	s.version++
 	s.value, s.written, s.hasValue = body.Data["v"], f.now, true
-	_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"version": s.version}})
+	_ = json.NewEncoder(w).Encode(map[string]any{kindData: map[string]any{"version": s.version}})
 }
 
 func (f *fakeBao) list(w http.ResponseWriter, path string) {
@@ -170,4 +175,21 @@ func (f *fakeBao) list(w http.ResponseWriter, path string) {
 	}
 	sort.Strings(keys)
 	_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"keys": keys}})
+}
+
+// state answers the metadata read: the current version and when it was deleted, if it was.
+func (f *fakeBao) state(w http.ResponseWriter, path string) {
+	s := f.live(path)
+	if s == nil || s.version == 0 {
+		http.Error(w, `{"errors":[]}`, http.StatusNotFound)
+		return
+	}
+	deleted := ""
+	if !s.hasValue {
+		deleted = "2000-01-01T00:00:00Z"
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+		"current_version": s.version,
+		"versions":        map[string]any{strconv.FormatUint(s.version, 10): map[string]any{"deletion_time": deleted, "destroyed": false}},
+	}})
 }

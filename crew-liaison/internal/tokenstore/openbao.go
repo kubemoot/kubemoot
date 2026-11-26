@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -144,12 +145,23 @@ func (b *OpenBao) Get(ctx context.Context, group, name string) (Entry, error) {
 	return Entry{Value: raw, Revision: reply.Data.Metadata.Version}, nil
 }
 
-// Put implements Backend.
+// Put implements Backend. The order keeps a losing writer from changing anything: the secret's
+// current version is read first, and a writer whose precondition fails stops there. The
+// "delete_version_after" must be set before the write because it applies to the version being
+// written, then the write itself carries the compare-and-swap, which settles a race between two
+// writers that both passed the read.
 func (b *OpenBao) Put(
 	ctx context.Context, group, name string, value []byte, ttl time.Duration, ifRevision uint64,
 ) (uint64, error) {
 	if ttl <= 0 {
 		return 0, ErrBadTTL
+	}
+	current, live, err := b.state(ctx, group, name)
+	if err != nil {
+		return 0, err
+	}
+	if !revisionMatches(ifRevision, current, live) {
+		return 0, ErrConflict
 	}
 	status, _, err := b.call(ctx, http.MethodPost, b.path("metadata", group, name),
 		map[string]any{"delete_version_after": wholeSeconds(ttl).String()})
@@ -161,13 +173,20 @@ func (b *OpenBao) Put(
 	}
 	payload := map[string]any{"data": map[string]string{"v": base64.StdEncoding.EncodeToString(value)}}
 	if ifRevision != AnyRevision {
-		payload["options"] = map[string]uint64{"cas": ifRevision}
+		// KV v2 compares with the current version, which a deleted or expired one still is.
+		payload["options"] = map[string]uint64{"cas": current}
 	}
+	return b.write(ctx, group, name, payload)
+}
+
+// write sends the secret and reads the new version. A refused check-and-set is ErrConflict,
+// recognised by its status and its errors array, not by free text anywhere in the body.
+func (b *OpenBao) write(ctx context.Context, group, name string, payload map[string]any) (uint64, error) {
 	status, body, err := b.call(ctx, http.MethodPost, b.path("data", group, name), payload)
 	if err != nil {
 		return 0, err
 	}
-	if status == http.StatusBadRequest && strings.Contains(string(body), "check-and-set") {
+	if status == http.StatusBadRequest && isCASError(body) {
 		return 0, ErrConflict
 	}
 	if status != http.StatusOK {
@@ -182,6 +201,65 @@ func (b *OpenBao) Put(
 		return 0, errors.New("token store: openbao answered something unreadable")
 	}
 	return reply.Data.Version, nil
+}
+
+// isCASError reports whether a 400 body is KV v2's check-and-set refusal: an errors array with
+// the check-and-set message.
+func isCASError(body []byte) bool {
+	var e struct {
+		Errors []string `json:"errors"`
+	}
+	if json.Unmarshal(body, &e) != nil {
+		return false
+	}
+	for _, msg := range e.Errors {
+		if strings.HasPrefix(msg, casMessage) {
+			return true
+		}
+	}
+	return false
+}
+
+// casMessage begins the error KV v2 gives when the cas option does not match the current version.
+const casMessage = "check-and-set parameter did not match the current version"
+
+// state reads the secret's current version and whether that version still holds a value (it
+// does not once it was deleted, which "delete_version_after" does when the time passes).
+func (b *OpenBao) state(ctx context.Context, group, name string) (current uint64, live bool, err error) {
+	status, body, err := b.call(ctx, http.MethodGet, b.path("metadata", group, name), nil)
+	if err != nil {
+		return 0, false, err
+	}
+	if status == http.StatusNotFound {
+		return 0, false, nil
+	}
+	if status != http.StatusOK {
+		return 0, false, baoStatus(status)
+	}
+	var reply struct {
+		Data struct {
+			Current  uint64 `json:"current_version"`
+			Versions map[string]struct {
+				DeletionTime string `json:"deletion_time"`
+				Destroyed    bool   `json:"destroyed"`
+			} `json:"versions"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &reply) != nil {
+		return 0, false, errors.New("token store: openbao answered something unreadable")
+	}
+	v := reply.Data.Versions[strconv.FormatUint(reply.Data.Current, 10)]
+	deleted := v.Destroyed || deletedAlready(v.DeletionTime)
+	return reply.Data.Current, reply.Data.Current > 0 && !deleted, nil
+}
+
+// deletedAlready reports whether a version's deletion time is set and has passed.
+func deletedAlready(at string) bool {
+	if at == "" {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339Nano, at)
+	return err != nil || !time.Now().Before(t)
 }
 
 // Delete implements Backend: every version and the metadata go.
