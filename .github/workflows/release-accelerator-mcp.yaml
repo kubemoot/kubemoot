@@ -11,8 +11,11 @@ on:
       - 'accelerator-mcp/**'
       - '!accelerator-mcp/**.md'
       # It builds against the operator's API types and shared packages: rebuild when they change.
-      - 'operator/api/**'
-      - 'operator/pkg/**'
+      # Operator packages this image is built from (check-release-paths.sh keeps this list whole).
+      - 'operator/api/v1alpha1/**'
+      - 'operator/pkg/bus/**'
+      - 'operator/pkg/natsconn/**'
+      - 'operator/pkg/perf/**'
       - 'operator/go.mod'
       - 'operator/go.sum'
       - '.github/scripts/retag-image.sh'

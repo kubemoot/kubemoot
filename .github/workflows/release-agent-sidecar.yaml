@@ -5,9 +5,13 @@ on:
     branches: [main]
     paths:
       - 'agent-sidecar/**'
-      - 'operator/pkg/bus/**'
-      - 'operator/pkg/mesh/**'
       - '!agent-sidecar/**.md'
+      # Operator packages this image is built from (check-release-paths.sh keeps this list whole).
+      - 'operator/pkg/bus/**'
+      - 'operator/pkg/callerline/**'
+      - 'operator/pkg/mesh/**'
+      - 'operator/pkg/natsconn/**'
+      - 'operator/pkg/secretscreen/**'
       - '.github/scripts/retag-image.sh'
       - '.github/scripts/go-build-static.sh'
       - '.github/workflows/build-go-binary-image.yaml'

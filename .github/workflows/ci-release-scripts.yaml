@@ -29,6 +29,8 @@ on:
       - 'k8s/tests/lib-modelserver.sh'
       - 'k8s/tests/ask.test.sh'
       - '**/go.mod'
+      - '**/*.go'
+      - '**/settings.gradle.kts'
       - '**/Dockerfile*'
       - '**/osv-scanner.toml'
       - 'dashboard/src/lib/server/nats-object-store.ts'
@@ -64,6 +66,8 @@ on:
       - 'k8s/tests/lib-modelserver.sh'
       - 'k8s/tests/ask.test.sh'
       - '**/go.mod'
+      - '**/*.go'
+      - '**/settings.gradle.kts'
       - '**/Dockerfile*'
       - '**/osv-scanner.toml'
       - 'dashboard/src/lib/server/nats-object-store.ts'
@@ -111,6 +115,9 @@ jobs:
         with:
           go-version-file: operator/go.mod
           cache-dependency-path: operator/go.sum
+      # Every release filter covers the operator packages and included builds its image is built from.
+      - name: Check the release path filters
+        run: bash .github/scripts/check-release-paths.sh
       - name: Tests
         run: |
           bash .github/scripts/test-push-token.sh
@@ -131,6 +138,7 @@ jobs:
           bash .github/scripts/test-chart-image-pairing.sh
           bash .github/scripts/test-report-held-chart.sh
           bash .github/scripts/test-find-tested-commit.sh
+          bash .github/scripts/test-check-release-paths.sh
           bash .github/scripts/test-fuzz-targets.sh
           bash .github/scripts/test-retry-lost-build-pod.sh
           bash .github/scripts/test-check-native-libs.sh
