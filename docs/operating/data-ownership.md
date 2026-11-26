@@ -46,6 +46,8 @@ The operator chart's NATS bootstrap job creates the stores below on install and 
 | `kubemoot_server_tickets` | Per-call reservations of accelerator memory | No, system learning | 10 minutes; 4 MiB | The limits are in the bootstrap job |
 | `kubemoot_agent_state` | Agent heartbeats | No | 300 seconds; 8 MiB | The limits are in the bootstrap job |
 | `kubemoot_coordinator_leases` | Which coordinator owns a thread (created only with `coordinator.lease`) | No | 15 seconds; 1 MiB | The limits are in the bootstrap job |
+| `kubemoot_liaison_door` | The door's single-use marks, sealed: which codes and refresh tokens it has seen (created by the liaison, only when `liaison.state.backend` is `nats`) | No: an opaque id and an expiry | Each mark lasts until its code or sign-in would have expired; the bucket's backstop is the longer of a sign-in's absolute life and the 30 day refresh idle life, plus an hour | Chart value `liaison.state.backend`, `liaison.signIn.identity.refreshMaxHours` |
+| `kubemoot_liaison_accounts` | A person's connected accounts, sealed (created by the liaison, only when `liaison.connectedAccounts.enabled` and the `nats` backend) | Yes: a token for a service as that person | 30 days unused; never longer than the service's own lifetime; the bucket's backstop is 30 days and an hour | Chart values `liaison.connectedAccounts.*` |
 | `kubemoot_placement_leader` | The placement service's leader lease | No | `placementService.leaseSeconds` (15 seconds); 1 MiB | Chart value `placementService.leaseSeconds` |
 
 ### Object stores
@@ -174,6 +176,20 @@ A crew can call a service as the person who asked, using that person's own token
 - **Who can read it.** The one ServiceAccount of the crew's MCP gateway, over a separate internal port, for a named conversation and the principal it was started for. Operators who read conversations get no lease.
 - **A memory dump.** Go cannot wipe a string from memory, so the defense is the short life above. Do not enable heap or core dumps on the gateway, and encrypt the traffic between pods (your CNI or a mesh), because the token crosses the cluster network in plain HTTP between the liaison, the gateway and the MCP gateway.
 - **Persistence is yours.** The store is an interface. Kubemoot ships only the in-memory one. A store that survives restarts would hold a refresh token under your key, retention and erasure; it is an opt-in you would install, and nothing in this install keeps one.
+
+## A person's connected accounts
+
+A crew can use an outside service as the person who asked, with a token the person connected themselves. **This keeps no one's data by default.** It is off unless
+`liaison.connectedAccounts.enabled` is `true`, a crew declares the account, and the person presses Connect on a page that says what is kept and for how long.
+How it works is in [Connected accounts](../../integrations/signing-in/#connected-accounts). What is kept, and where:
+
+- **What.** One record per person and account: the service's refresh and access tokens, the scopes, when it was connected and the crews the person agreed to. Never the person's name: it is kept under the opaque id the crews' gateways give the person.
+- **Where.** In the liaison's state backend: a NATS JetStream key-value bucket by default when it is on with several replicas, an OpenBao KV version 2 mount if you want a vault with its own audit log and policies, or the liaison's memory for a single replica. Not in a Kubernetes Secret.
+- **How it is protected.** Each record is sealed with AES-GCM under keys only the liaison mounts, with the person and the account as additional authenticated data, so a value copied to another key does not open. A reader of the bucket or the vault sees ciphertext and hashed key names. Rotate by putting a new key first.
+- **For how long.** Deleted when the person disconnects (the service is asked to revoke the token first, and the record goes whether or not it answers) or signs out of the door; deleted 30 days after it was last used; never kept past the service's own lifetime for the token; and ignored the moment a crew stops declaring the account.
+- **Who can read it.** Only the liaison process, and a crew's gateway through the broker for the crew it serves and the person who owns the conversation, one lease at a time. No chat app, agent, bus subject or log carries it.
+- **Erasure.** Signing out deletes every record of a person. For an erasure request, delete the person's records by their id in the store, or have them sign out.
+- **In transit.** The broker is served on an internal port, plain HTTP inside the cluster, and the lease carries a token: encrypt pod traffic as for [a person's own token](#a-persons-own-token-during-a-turn).
 
 ## Other places data appears
 

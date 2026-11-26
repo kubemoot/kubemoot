@@ -15,6 +15,9 @@ count of contributions so far, so a polling client can tell progress from a stal
 | `ask` | `crew`, `question`, optional `namespace`, optional `waitSeconds` (default and max 45; 0 returns at once) | a ticket, plus the answer if it arrived within the wait |
 | `get_answer` | `ticket`, optional `waitSeconds` (default and max 45) | `pending` (with a count of contributions so far), `answered` with the answer, or `failed` |
 | `export_conversation` | `crew`, `conversationIds` (1 to 50), optional `namespace`, `timeZone` | the conversation's zip as an embedded resource when it is at most 48 KiB, with its manifest; several ids return a zip of zips |
+| `my_accounts` | none | only with connected accounts on: each outside account the person's crews could use, its state, and the link to connect it |
+
+`ask` answers `status: "needs_connection"` (with `connections` and a link written by the liaison) and starts nothing when the crew requires an account the person has not connected.
 
 A crew discussion takes one to several minutes, longer than most MCP clients allow
 a tool call (Claude Code's default is sixty seconds). So no call blocks longer than
@@ -31,6 +34,7 @@ past two minutes into a background task, so the chain of polls runs unattended.
 - `POST /mcp`: MCP over Streamable HTTP, stateless, JSON responses.
 - `GET /health`, `GET /ready`.
 - With sign-in enabled: `GET /.well-known/oauth-protected-resource/mcp`, `GET /.well-known/oauth-authorization-server`, `POST /oauth/register`, `GET /oauth/authorize`, `GET /oauth/callback`, `POST /oauth/token`.
+- With connected accounts on: `GET|POST /oauth/connect/<account>`, `GET /oauth/accounts`, `POST /oauth/accounts/disconnect`, `POST /oauth/signout`, `POST /oauth/revoke`; and on the internal port (`LIAISON_INTERNAL_PORT`, default 8081, never routed) `POST /internal/v1/accounts/lease` and `POST /internal/v1/accounts/connected` for a crew's discussion gateway.
 
 ## Configuration (environment)
 
@@ -44,6 +48,8 @@ past two minutes into a background task, so the chain of polls runs unattended.
 | `LIAISON_ALLOW_INSECURE_REPORT` | `false` | accept a report URL that is not https; the chart never sets it |
 | `LIAISON_ALLOW_INSECURE_GATEWAY` | `false` | call the crews' discussion gateways over plain http. Without it the liaison calls them over https and verifies each against `LIAISON_CA_FILE` (required then); the chart sets it only when `discussionGateway.tls.enabled` is false |
 | `LIAISON_SIGNIN_UPSTREAM` and friends | empty | turns on the stateless OAuth sign-in front (`/.well-known/*`, `/oauth/*`); see "The sign-in front" in `docs/integrations/signing-in.md` for `LIAISON_SIGNIN_UPSTREAM_TOKEN_URL`, `_UPSTREAM_CLIENT_ID`, `_UPSTREAM_SCOPES`, `_PUBLIC_URL`, `_SEAL_KEYS`, `_SEAL_KEYS_FILE`, `_ALLOWED_REDIRECT_HOSTS` |
+| `LIAISON_STATE_BACKEND` | `memory` | where the door keeps its single-use marks and the connected accounts: `memory`, `nats` (the `NATS_*` connection every component reads) or `openbao` (`LIAISON_OPENBAO_ADDR`, `_MOUNT`, `_PREFIX`, `_TOKEN_FILE`, `_CA_FILE`). `nats` and `openbao` share it across replicas |
+| `LIAISON_ACCOUNTS_ENABLED` and friends | `false` | connected accounts, off by default; see "Connected accounts" in `docs/integrations/signing-in.md` for `LIAISON_ACCOUNTS_SEAL_KEYS_FILE`, `LIAISON_ACCOUNTS`, `LIAISON_INTERNAL_PORT` and `ACCESS_HASH_KEY` |
 | `LIAISON_MAX_INFLIGHT` | `4` | discussions in flight at once; every question spends GPU time |
 | `LIAISON_TICKET_TTL_MINUTES` | `60` | how long a settled ticket stays retrievable |
 
@@ -69,4 +75,4 @@ go test -race ./...
 go build .
 ```
 
-Tickets live in memory; a restart forgets them and the client asks again.
+Tickets live in memory; a restart forgets them and the client asks again. The token store behind connected accounts and the door's single-use marks (`internal/tokenstore`) has a NATS key-value backend, an OpenBao backend and a memory one behind one interface; its contract tests run against all three.

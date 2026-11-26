@@ -12,7 +12,7 @@ synthesized answer.
 
 ## What the client sees
 
-Four tools, and nothing about the discussion's substance.
+Four tools, and nothing about the discussion's substance. A fifth, `my_accounts`, appears when the install keeps [connected accounts](#connecting-outside-accounts).
 
 | Tool | What it does |
 |---|---|
@@ -21,7 +21,7 @@ Four tools, and nothing about the discussion's substance.
 | `get_answer` | Reports a ticket: `pending`, `answered` with the answer, or `failed` with the reason. It too waits up to 45 seconds, returning the moment the answer exists. |
 | `export_conversation` | Takes a conversation away as one zip: the turns, receipts, workspace files and the memory facts learned in it, with a manifest of what had expired. |
 
-`export_conversation` takes the crew, `conversationIds` (the `conversationId` that `ask` and `get_answer` return; several ids return a zip of zips with a manifest listing each as included, refused or expired) and an optional `timeZone` for the times in the file. The liaison asks the operator's [conversation export](../../operating/data-ownership/#taking-a-conversation-away) with the caller's own Kubernetes token when it verifies tokens (see below), so the operator's owner check applies to the caller, and otherwise with its own service account, and the zip is built for that call and never stored. The result carries the zip as an embedded resource when it is at most 48 KiB, because a model client reads a tool result as text and caps how much of it it takes in. A larger zip is not returned: the result carries the manifest and a note naming the other ways to take it (`kmctl conversation export`, or the operator endpoint). The chart sets `LIAISON_OPERATOR_REPORT_URL` to the operator's report service, which serves TLS from the install CA; the liaison verifies it against that CA (`LIAISON_CA_FILE`) before it sends the token, and refuses a URL that is not https unless `LIAISON_ALLOW_INSECURE_REPORT=true` accepts it. Without the URL the tool answers that export is not configured. See [encrypted calls that carry credentials](../../operating/encrypted-internal-calls/).
+`export_conversation` takes the crew, `conversationIds` (the `conversationId` that `ask` and `get_answer` return; several ids return a zip of zips with a manifest listing each as included, refused or expired) and an optional `timeZone` for the times in the file. The liaison asks the operator's [conversation export](../../operating/data-ownership/#taking-a-conversation-away) with the caller's own Kubernetes token when it verifies tokens (see below), with the door's assertion of the person for that crew when the person signed in at the door (so the person exports exactly the conversations they own, on a crew whose askers rule is not `kubernetesRBAC`), so the operator's owner check applies to the caller, and otherwise with its own service account, and the zip is built for that call and never stored. The result carries the zip as an embedded resource when it is at most 48 KiB, because a model client reads a tool result as text and caps how much of it it takes in. A larger zip is not returned: the result carries the manifest and a note naming the other ways to take it (`kmctl conversation export`, or the operator endpoint). The chart sets `LIAISON_OPERATOR_REPORT_URL` to the operator's report service, which serves TLS from the install CA; the liaison verifies it against that CA (`LIAISON_CA_FILE`) before it sends the token, and refuses a URL that is not https unless `LIAISON_ALLOW_INSECURE_REPORT=true` accepts it. Without the URL the tool answers that export is not configured. See [encrypted calls that carry credentials](../../operating/encrypted-internal-calls/).
 
 `ask` takes the crew and the question, and these optional arguments: `namespace` (when the crew name is not unique), `waitSeconds`, `ticket` (a retry rejoins its discussion), and `timeZone`, the asker's IANA time zone such as `America/New_York`. The liaison forwards the zone with the question and keeps it nowhere; the crew states the asker's date in it. A zone that is not in the IANA time zone database is dropped, and the crew uses its default zone. A client that knows where its person is (a chat client with the person's locale, a script) should send it.
 
@@ -100,6 +100,26 @@ The liaison is one process for every crew, so its list belongs to the whole liai
 
 The liaison and the gateway are two doors to one crew and share one definition of who is asking (see [Who is asking](../../concepts/who-is-asking/)). Turn on `spec.discussion.access` on the crew as well: a crew that verifies callers refuses the liaison's questions when the liaison sends no token.
 
+## Connecting outside accounts
+
+A crew can need an account of the person at an outside service, such as a library subscription. With
+`liaison.connectedAccounts.enabled` and the door's own sign-in, the liaison checks before a question starts, so no accelerator time is spent on a
+question that cannot be answered:
+
+1. `ask` looks at the accounts the crew declares as `Required` and asks whether the person has each connected for this crew.
+2. When one is missing, `ask` starts no discussion. It answers with `status: "needs_connection"`, a `connections` list in
+   `structuredContent` (each with `account`, `displayName`, `state` of `missing` or `needs_reconnect`, and `connectUrl`), and one line of text the liaison writes itself:
+   `To use this crew, connect your Example Library account: <link>` and then `Then ask again.` The link is in the liaison's own result, so a model never copies it.
+3. The person opens the link, signs in at the door if they have no session, sees what connecting does and presses Connect ([how the pages work](../signing-in/#connected-accounts)). A link made for one person is refused for anyone else.
+4. The person asks again. A question already running is not stopped by a change in a connection.
+
+`my_accounts` lists every account the person's crews could use, whether it is connected, the scopes, when it was connected, which crews use it, and the link to connect it, so a person can connect before asking anything.
+It is offered only when the install keeps accounts, and only a person signed in at the door has any.
+
+The link path works in every chat app. The newer URL elicitation of the MCP specification is not used yet; clients that support it
+will be offered it behind capability detection, and the link stays the baseline. A crew's own answer text carries no link: a need that appears
+while a crew deliberates (a connection revoked mid-turn) is a follow-up.
+
 ## Watching the moot from the dashboard
 
 The client sees only the answer, but the operator's dashboard shows the whole moot
@@ -127,7 +147,8 @@ The liaison ships in the operator chart and is on by default, cluster-internal, 
 the Service `<release>-liaison` on port 80, path `/mcp`. It lists `Crew` resources
 across the cluster with a read-only role and reaches each crew's discussion gateway
 at its in-cluster Service. Tickets live in memory; a restart forgets them and the
-client asks again.
+client asks again. What the door must remember (its single-use marks, and the connected accounts when they are on) is kept
+by `liaison.state.backend`: in the pod, or in NATS or OpenBao so replicas share it ([details](../signing-in/#the-doors-own-sign-in)).
 
 ```yaml
 liaison:

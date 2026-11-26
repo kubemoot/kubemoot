@@ -184,10 +184,15 @@ everyone in the group `team-a` ask such a crew, bind a Role that grants `get` on
 | Access token | 15 minutes | A signed JWT (ES256) with `iss`, `aud` (the `/mcp` resource), `sub`, `iat`, `exp` and a unique `jti`. `/mcp` refuses a token for any other audience, an expired one, one signed by a key the door does not list, and one without the access-token type |
 | Refresh token | 30 days idle, 24 hours at most | A sealed (encrypted) string. Each use returns a new one; showing a used one again, or a used code again, ends that whole sign-in. Rotation never extends the 24 hours (`LIAISON_SIGNIN_REFRESH_MAX_HOURS`), so the person signs in again then |
 
-The door keeps no store. The one thing it remembers is in the process, and a restart empties it: which codes and refresh tokens it has seen, so a
-code works once and a refresh token rotates. After a restart, a code or refresh token that was already used works once more until it expires, and an ended sign-in is not remembered as ended. With more than one liaison replica each has its own memory, so a stolen
-code or refresh token can be used once on each replica until it expires; run one replica where that matters. Signing keys
-and sealing keys are shared, so any replica verifies a token another issued. `/mcp` also still accepts the shared token
+The door keeps no record of a person. The one thing it remembers is which codes and refresh tokens it has seen, so a
+code works once and a refresh token rotates. By default that memory is in the process: a restart empties it, a code or
+refresh token that was already used works once more until it expires, and with more than one liaison replica each has its
+own memory, so a stolen code or refresh token can be used once on each replica until it expires. Set
+`liaison.state.backend` to `nats` (the chart picks it when the door is on and `nats.enabled` is true) and the marks live in a
+NATS JetStream key-value bucket every replica reads, each sealed with the door's own keys and gone when the code or sign-in
+would have expired anyway. A used code or refresh token is then refused on every replica, and a restart forgets nothing. If the
+shared store cannot answer, the door refuses: a doubt never admits a code. Signing keys and sealing keys are shared, so any replica verifies a
+token another issued. `/mcp` also still accepts the shared token
 (`liaison.auth.token`) and Kubernetes tokens when you enable them; it never accepts a service's own token when the
 door's identity is on (the chart refuses `liaison.auth.serviceTokens` beside it), and it is never open: with the door on and no other credential configured, a request with no
 token is refused.
@@ -215,9 +220,10 @@ address:
 An app that fails any check is answered `unknown client` in the browser, with no detail. A redirect address that the
 document does not name is refused the same way. Dynamic registration keeps working beside it.
 
-**Limits today.** The door's identity is OpenID Connect only. `export_conversation` through a person signed in to the
-door is served as the liaison itself, which the operator refuses for a crew that verifies callers. The consent
-cookie is per browser, so the same person at a second browser is asked once more.
+**Limits today.** The door's identity is OpenID Connect only. The consent
+cookie is per browser, so the same person at a second browser is asked once more. A person signed in at the door can export
+their own conversations with `export_conversation` (the operator is shown the same assertion the crew's gateway is shown and
+matches the person to the conversation's owner), on a crew whose askers rule is not `kubernetesRBAC`; they can export nothing else.
 
 ### Configuration of the door's identity
 
@@ -255,6 +261,86 @@ The chart renders these from `liaison.signIn.identity`:
 
 The chart also turns on caller verification for the liaison (`ACCESS_ENFORCE`), with anonymous callers off unless
 `liaison.auth.allowAnonymous` is set.
+
+### Connected accounts
+
+A crew can need an outside service that entitles each person: a library, a document store. The person connects their own
+account once, the door keeps a sealed token for them, and the crew's tools act as that person there. The chat app never
+holds the service's token and never passes it on: it holds a token for the door alone. The declaration a crew makes is in the
+[connected accounts reference](../../reference/connected-accounts/).
+
+**Kubemoot keeps no one's data by default.** Nothing is kept unless the install turns this on
+(`liaison.connectedAccounts.enabled`), a crew declares the account, **and** the person presses Connect. What is kept, per person
+and per account, is one sealed record: the service's refresh and access tokens, the scopes granted, when it was connected and
+which crews the person agreed may use it. It is encrypted (AES-GCM) with keys of its own, with the person and the account as
+additional authenticated data, so a record copied to another person's or account's key fails to open; the store holds ciphertext and hashed key names only.
+
+| Ends when | How |
+|-----------|-----|
+| The person disconnects | The accounts page asks the service to revoke the token (RFC 7009) when the account declares an endpoint, then deletes the record whether or not the service answered, and tells the person which happened |
+| The person signs out | The door's `/oauth/revoke` (a chat app signing out, RFC 7009) and the Sign out button on the accounts page delete every record the person has |
+| It goes unused for 30 days | Every use writes the record again with a time to live of 30 days; the store drops it when that passes |
+| The service's own lifetime ends | The time to live is never longer than the service's: the lifetime its token answer states for the refresh token, the access token's end when there is no refresh token, or the account's `maxLifetimeHours` from the install |
+| A crew stops declaring the account | The next lease checks the declaration, so the token stops being used at once |
+
+**The pages.** All are under `/oauth`, over `https`, never cached, never framed, send no referrer and allow no script.
+
+| Page | What it does |
+|------|--------------|
+| `GET /oauth/connect/<account>?c=<handle>` | The link the liaison hands a person who has to connect. The handle is sealed, names the person, the account and the crew, expires in 10 minutes and grants nothing alone. A person with no door session signs in at your issuer and returns here. If the signed-in person is not the one the link names (Alice's link opened by Bob), the page refuses and the refusal is logged without any detail of either. Otherwise it shows what is asked of the service, the crews that will use the account, what is kept and for how long, and a Connect button |
+| `POST /oauth/connect/<account>` | Needs the session, a token made for this person and this handle, and a same-site post. A handle starts one connection. The person is sent to the service's authorization address with the install's client id, PKCE S256, the declared scopes and a sealed state; the `resource` a chat app sent is never passed on |
+| `GET /oauth/callback` | The same address the sign-in uses. The state must be ours, unexpired, tied to this browser by cookie and to the same signed-in person, and an `iss` the service sends (RFC 9207) must be the account's `issuer` or, when the install gave none, an `https` address on the host of the service's authorization endpoint. The code is exchanged at the service's token endpoint; nothing is kept when any step fails. The page that follows says Connected and shows no token |
+| `GET /oauth/accounts` | The person's accounts, each with a Disconnect button, a Connect link for those not yet connected, and Sign out |
+| `POST /oauth/accounts/disconnect`, `POST /oauth/signout` | State-changing, so each needs the session and its own token |
+
+No token appears in a page, a redirect, a URL or a log line. The service's authorization address is the only place the person
+leaves the door, and the service's answers are read, bounded and never echoed.
+
+**Who a person is.** A connection is kept under the id a crew's gateway gives the person it is asked by: the install's keyed hash of the
+door's assertion issuer and the user name. That is why connected accounts need `liaison.auth.hashKeySecret` (the same value each crew names in
+`hashKeySecretRef`), and why they serve crews whose askers rule is not `kubernetesRBAC`: those people are Kubernetes users and carry
+Kubernetes tokens of their own.
+
+**The broker.** A crew's tools never see the store. The crew's discussion gateway asks the liaison's account broker, on its own
+internal port (`liaison.connectedAccounts.brokerPort`, never behind the route), with a ServiceAccount token made for that broker
+alone and checked with a TokenReview. The crew comes from the caller's ServiceAccount (`<crew>-discussion`), never from the
+request. The broker answers a lease with the token, when it ends and the hosts it may be sent to, or one of three reasons:
+`NO_GRANT` (not connected, or not offered to this crew), `NEEDS_RECONNECT` (the service no longer honors it, or the person never agreed to
+this crew) and `EXPIRED`. A token about to end is refreshed once however many callers ask, and a rotated refresh token is written with a
+compare-and-swap before the new access token is returned, so a second replica that lost the race uses the winner's record and never a spent token. The service
+answering `invalid_grant` marks the connection for reconnecting and the person is sent a link.
+
+**The `connectedAccount` asker rule.** A crew whose askers rule is `connectedAccount` admits a person only while they hold a live
+connection to that account. The gateway asks the broker, by the person's opaque id, whether one exists. A gateway with no broker
+configured, or one the broker does not answer, refuses: no answer is never a yes. The liaison tells the person to connect before
+the question starts (see [the crew liaison](../crew-liaison/#connecting-outside-accounts)); the gateway's refusal is the backstop.
+
+#### Configuration of connected accounts
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LIAISON_STATE_BACKEND` | `memory` | where state is kept: `memory`, `nats` or `openbao`. `nats` and `openbao` share it across replicas |
+| `NATS_URL` and the other `NATS_*` names | none | the connection every Kubemoot component reads ([Connecting to NATS](../../operating/nats-connection/)); needed for `nats`. The liaison keeps its state in the buckets `kubemoot_liaison_door` and `kubemoot_liaison_accounts` |
+| `LIAISON_OPENBAO_ADDR`, `_MOUNT`, `_PREFIX`, `_TOKEN_FILE`, `_CA_FILE` | none; mount `secret`; prefix `kubemoot-liaison` | an OpenBao (or compatible) KV version 2 mount. The address must be `https`. The token is read from its file on each call |
+| `LIAISON_ACCOUNTS_ENABLED` | `false` | `true` turns connected accounts on; the liaison stops at start if the door's identity, the hash key or the keys below are missing |
+| `LIAISON_ACCOUNTS_SEAL_KEYS_FILE` | none, required when on | `id:base64key` lines, apart from the door's keys. The first seals; older ones still open |
+| `LIAISON_ACCOUNTS` | empty | JSON object of registrations by account name: `clientId`, `clientSecretFile`, `issuer`, `allowedCrews`, `maxLifetimeHours` |
+| `LIAISON_INTERNAL_PORT` | `8081` | the broker's port |
+| `ACCESS_HASH_KEY` | none, required when on | the install's hash key |
+
+| Chart value | Default | Becomes |
+|-------------|---------|---------|
+| `liaison.state.backend` | empty | empty picks `nats` when the door is on and `nats.enabled`, else `memory`. The chart refuses an unknown value, `nats` without `nats.enabled`, and `openbao` without an address and token Secret |
+| `liaison.state.openbao.*` | see values | address, mount, prefix, a token Secret and an optional CA Secret, mounted read-only |
+| `liaison.connectedAccounts.enabled` | `false` | `LIAISON_ACCOUNTS_ENABLED`. The chart refuses it without the door's identity, `sealKeySecret`, `liaison.auth.hashKeySecret`, a `clientId` for each account, or with more than one replica and the `memory` backend |
+| `liaison.connectedAccounts.sealKeySecret.name`, `key` | empty; `vault-keys` | a Secret you create, mounted read-only |
+| `liaison.connectedAccounts.brokerPort` | `8081` | the broker's port and its Service `<release>-liaison-broker`; the operator hands the address to the gateway of each `connectedAccount` crew with a projected token for the broker alone |
+| `liaison.connectedAccounts.accounts.<name>` | none | `clientId`, an optional `clientSecret` Secret (mounted as a file, never in the environment), `issuer`, `allowedCrews` and `maxLifetimeHours` |
+
+Register `<publicURL>/oauth/callback` as the redirect address of your client at each service. An install that signs people in
+through the same address registers nothing new.
+
+If a network policy limits egress from a crew's namespace, allow its discussion gateway to reach the broker Service on its port.
 
 ## What a crew's tools sign in to
 

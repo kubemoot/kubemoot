@@ -402,3 +402,23 @@ func TestTheVaultKeepsNothingWhenItsStoreIsAway(t *testing.T) {
 		t.Fatal("a record with no person")
 	}
 }
+
+func TestMetadataAdvertisesRevocationOnlyWhenAccountsAreOn(t *testing.T) {
+	on := newConnectRig(t)
+	off := newDoorRig(t, nil)
+	for name, c := range map[string]struct {
+		srv  string
+		want string
+	}{"on": {on.srv.URL, doorPublicURL + pathRevoke}, "off": {off.srv.URL, ""}} {
+		resp, err := http.Get(c.srv + pathAuthServer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var meta map[string]any
+		decode(t, resp, &meta)
+		got, _ := meta["revocation_endpoint"].(string)
+		if got != c.want {
+			t.Errorf("%s: revocation_endpoint = %q, want %q", name, got, c.want)
+		}
+	}
+}

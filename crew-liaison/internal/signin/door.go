@@ -127,6 +127,10 @@ func (d *door) event(name string, kv ...any)   { d.cfg.Logger.Info(name, kv...) 
 func (d *door) serveMetadata(w http.ResponseWriter, _ *http.Request) {
 	base := d.cfg.PublicURL
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	revocation := ""
+	if d.cfg.Accounts != nil {
+		revocation = base + pathRevoke
+	}
 	writeJSON(w, http.StatusOK, authServerMetadata{
 		Issuer:                        base,
 		AuthorizationEndpoint:         base + pathAuthorize,
@@ -138,5 +142,6 @@ func (d *door) serveMetadata(w http.ResponseWriter, _ *http.Request) {
 		TokenEndpointAuthMethods:      []string{authMethodNone},
 		IssParameterSupported:         true,
 		ClientIDMetadataDocuments:     true,
+		RevocationEndpoint:            revocation,
 	})
 }
