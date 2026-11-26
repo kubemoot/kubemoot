@@ -175,13 +175,40 @@ func newAccountLimits(l RateLimits, now func() time.Time) *accountLimits {
 	}
 }
 
-// peerAddress is the address the connection came from.
+// Bounds of the walk along a forwarded chain: a real chain is a few hops, so a longer or
+// larger one is a caller's attempt to make the walk costly and is not trusted.
+const (
+	maxChainHops  = 64
+	maxChainBytes = 2048
+)
+
+// peerAddress is the address the connection came from, as written.
 func peerAddress(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// limitKey is what an address is limited as: an IPv4 address by itself, an IPv6 address by its
+// /64 prefix, because one subscriber is usually given a whole /64 and can use any address in it.
+func limitKey(addr netip.Addr) string {
+	addr = addr.Unmap().WithZone("")
+	if addr.Is6() {
+		return netip.PrefixFrom(addr, 64).Masked().String()
+	}
+	return addr.String()
+}
+
+// peerKey is the limit key of the connection's own peer; an address that cannot be read is
+// used as written.
+func peerKey(r *http.Request) string {
+	peer := peerAddress(r)
+	if addr, err := netip.ParseAddr(peer); err == nil {
+		return limitKey(addr)
+	}
+	return peer
 }
 
 func (a *accountLimits) trusted(addr netip.Addr) bool {
@@ -193,48 +220,77 @@ func (a *accountLimits) trusted(addr netip.Addr) bool {
 	return false
 }
 
-// clientAddress is the key of the address limit: the connection's peer address, or, when that
-// peer is a trusted proxy and its header names a valid client address, that address. A header
-// from any other peer is ignored, and a header that cannot be read falls back to the peer.
-func (a *accountLimits) clientAddress(r *http.Request) string {
-	peer := peerAddress(r)
-	addr, err := netip.ParseAddr(peer)
-	if err != nil || len(a.proxies) == 0 || !a.trusted(addr) {
-		return peer
-	}
-	values := r.Header.Values(a.header)
-	if len(values) == 0 {
-		return peer
-	}
-	if a.header == headerForwardedFor {
-		if client, ok := a.rightmostUntrusted(strings.Join(values, ",")); ok {
-			return client
+// parseClient reads one forwarded entry: an address, or an address with a port (a bracketed
+// IPv6 address with one), which is stripped. Spaces around it are ignored. An address with a
+// zone is refused, because a zone is local to one host and names nothing across a proxy.
+func parseClient(entry string) (netip.Addr, bool) {
+	entry = strings.TrimSpace(entry)
+	addr, err := netip.ParseAddr(entry)
+	if err != nil {
+		var ap netip.AddrPort
+		if ap, err = netip.ParseAddrPort(entry); err != nil {
+			return netip.Addr{}, false
 		}
-		return peer
+		addr = ap.Addr()
 	}
-	if len(values) == 1 {
-		if client, err := netip.ParseAddr(strings.TrimSpace(values[0])); err == nil {
-			return client.Unmap().String()
-		}
+	if addr.Zone() != "" {
+		return netip.Addr{}, false
 	}
-	return peer
+	return addr.Unmap(), true
 }
 
-// rightmostUntrusted walks the list from the right, past the proxies this install trusts, and
-// returns the first address that is not one of them: the nearest hop an attacker cannot have
-// written. An entry that is not an address ends the walk with no answer.
-func (a *accountLimits) rightmostUntrusted(chain string) (string, bool) {
-	parts := strings.Split(chain, ",")
-	for i := len(parts) - 1; i >= 0; i-- {
-		addr, err := netip.ParseAddr(strings.TrimSpace(parts[i]))
-		if err != nil {
-			return "", false
+// clientAddress is the key of the address limit: the connection's peer, or, when that peer is a
+// trusted proxy and its header names a valid client address, that address. A header from any
+// other peer is ignored, and a header that cannot be read falls back to the peer.
+func (a *accountLimits) clientAddress(r *http.Request) string {
+	peer, err := netip.ParseAddr(peerAddress(r))
+	if err != nil || len(a.proxies) == 0 || !a.trusted(peer) {
+		return peerKey(r)
+	}
+	values := r.Header.Values(a.header)
+	if a.header == headerForwardedFor {
+		if client, ok := a.rightmostUntrusted(values); ok {
+			return limitKey(client)
 		}
-		if !a.trusted(addr) {
-			return addr.Unmap().String(), true
+	} else if len(values) == 1 {
+		if client, ok := parseClient(values[0]); ok {
+			return limitKey(client)
 		}
 	}
-	return "", false
+	return peerKey(r)
+}
+
+// rightmostUntrusted walks the header lines as one comma separated list, from the right and
+// without splitting the whole of it, past the proxies this install trusts, and returns the
+// first address that is not one of them: the nearest hop a caller cannot have written. An empty
+// or unreadable entry, more than maxChainHops entries or more than maxChainBytes of text ends
+// the walk with no answer.
+func (a *accountLimits) rightmostUntrusted(lines []string) (netip.Addr, bool) {
+	hops, size := 0, 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		rest := lines[i]
+		for {
+			cut := strings.LastIndexByte(rest, ',')
+			entry := rest[cut+1:]
+			hops++
+			size += len(entry) + 1
+			if hops > maxChainHops || size > maxChainBytes {
+				return netip.Addr{}, false
+			}
+			addr, ok := parseClient(entry)
+			if !ok {
+				return netip.Addr{}, false
+			}
+			if !a.trusted(addr) {
+				return addr, true
+			}
+			if cut < 0 {
+				break
+			}
+			rest = rest[:cut]
+		}
+	}
+	return netip.Addr{}, false
 }
 
 // limited wraps a connect or account handler. It limits by source address first, then by the

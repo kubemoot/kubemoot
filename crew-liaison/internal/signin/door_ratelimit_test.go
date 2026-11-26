@@ -13,6 +13,7 @@ import (
 const (
 	forwardedFor = "X-Forwarded-For"
 	clientNine   = "203.0.113.9"
+	clientFour   = "1.2.3.4"
 	headerCF     = "CF-Connecting-IP"
 	proxyHost    = "10.0.0.5"
 )
@@ -181,8 +182,8 @@ func TestATrustedProxyNamesTheClientAddress(t *testing.T) {
 		{"forwarded for from a trusted peer", xff, proxy, map[string][]string{forwardedFor: {clientNine}}, clientNine},
 		{"rightmost untrusted of a chain", xff, proxy, map[string][]string{forwardedFor: {"198.51.100.1, 203.0.113.9, 10.1.1.1"}}, clientNine},
 		{"a spoofed leftmost entry is not used", xff, proxy, map[string][]string{forwardedFor: {"1.2.3.4, 203.0.113.9"}}, clientNine},
-		{"several header lines are one list", xff, proxy, map[string][]string{forwardedFor: {"1.2.3.4", clientNine}}, clientNine},
-		{"an IPv6 client", xff, proxy, map[string][]string{forwardedFor: {"2001:db8::7"}}, "2001:db8::7"},
+		{"several header lines are one list", xff, proxy, map[string][]string{forwardedFor: {clientFour, clientNine}}, clientNine},
+		{"an IPv6 client", xff, proxy, map[string][]string{forwardedFor: {"2001:db8::7"}}, "2001:db8::/64"},
 		{"single header", cf, proxy, map[string][]string{headerCF: {clientNine}}, clientNine},
 		{"untrusted peer, header ignored", xff, "198.51.100.77:5000", map[string][]string{forwardedFor: {clientNine}}, "198.51.100.77"},
 		{"untrusted peer, single header ignored", cf, "198.51.100.77:5000", map[string][]string{headerCF: {clientNine}}, "198.51.100.77"},
@@ -252,4 +253,84 @@ func TestRateLimitsFromEnvRefusesWhatItCannotRead(t *testing.T) {
 			t.Errorf("%s: want an error", name)
 		}
 	}
+}
+
+type addrCase struct {
+	name    string
+	limits  *accountLimits
+	peer    string
+	headers map[string][]string
+	want    string
+}
+
+func runAddrCases(t *testing.T, cases []addrCase) {
+	t.Helper()
+	for _, c := range cases {
+		if got := addressFor(c.limits, c.peer, c.headers); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestForwardedEntriesInTheirOddForms(t *testing.T) {
+	xff := limitsOf(t, "10.0.0.0/8, fd00::/8", "")
+	cf := limitsOf(t, "10.0.0.0/8", headerCF)
+	proxy := proxyHost + ":443"
+	one := func(v string) map[string][]string { return map[string][]string{forwardedFor: {v}} }
+	single := func(v string) map[string][]string { return map[string][]string{headerCF: {v}} }
+	runAddrCases(t, []addrCase{
+		{"an entry with a port", xff, proxy, one("1.2.3.4:80"), clientFour},
+		{"a bracketed IPv6 entry with a port", xff, proxy, one("[2001:db8::1]:80"), "2001:db8::/64"},
+		{"a chain whose client has a port", xff, proxy, one("9.9.9.9, 1.2.3.4:80, 10.1.1.1"), clientFour},
+		{"an IPv4 zone", xff, proxy, one("1.2.3.4%x"), proxyHost},
+		{"an IPv6 zone", xff, proxy, one("fd00::1%eth0"), proxyHost},
+		{"a bracketed IPv6 zone with a port", xff, proxy, one("[2001:db8::1%eth0]:80"), proxyHost},
+		{"an IPv4 mapped client", xff, proxy, one("::ffff:1.2.3.4"), clientFour},
+		{"an IPv4 mapped trusted hop is skipped", xff, proxy, one("1.2.3.4, ::ffff:10.1.1.1"), clientFour},
+		{"a trusted IPv4 mapped peer", xff, "[::ffff:10.0.0.1]:443", one(clientFour), clientFour},
+		{"an empty element in the middle", xff, proxy, one("1.2.3.4,,5.6.7.8"), "5.6.7.8"},
+		{"an empty element next to the client", xff, proxy, one("1.2.3.4,,10.1.1.1"), proxyHost},
+		{"a trailing comma", xff, proxy, one("1.2.3.4,"), proxyHost},
+		{"a leading comma", xff, proxy, one(",1.2.3.4"), clientFour},
+		{"spaces around entries", xff, proxy, one("  9.9.9.9 ,\t1.2.3.4  ,  10.1.1.1 "), clientFour},
+		{"two header lines with an empty one", xff, proxy, map[string][]string{forwardedFor: {clientFour, ""}}, proxyHost},
+		{"a single header with a port", cf, proxy, single("1.2.3.4:80"), clientFour},
+		{"a single header holding a list", cf, proxy, single("1.2.3.4, 5.6.7.8"), proxyHost},
+		{"a single header with a zone", cf, proxy, single("fd00::1%eth0"), proxyHost},
+		{"a single header with spaces", cf, proxy, single("  1.2.3.4 "), clientFour},
+		{"an IPv6 peer is keyed on its /64", xff, "[2001:db8:1:2:aaaa::1]:80", nil, "2001:db8:1:2::/64"},
+		{"an IPv6 peer with a zone", xff, "[fe80::1%eth0]:80", nil, "fe80::/64"},
+		{"an IPv4 mapped peer, untrusted", xff, "[::ffff:1.2.3.4]:80", nil, clientFour},
+	})
+}
+
+func TestAnIPv6SubscriberCannotSpreadOverItsPrefix(t *testing.T) {
+	xff := limitsOf(t, "10.0.0.0/8", "")
+	a := addressFor(xff, "[2001:db8:1:2::1]:80", nil)
+	b := addressFor(xff, "[2001:db8:1:2:ffff:ffff:ffff:ffff]:80", nil)
+	c := addressFor(xff, "[2001:db8:1:3::1]:80", nil)
+	if a != b || a == c {
+		t.Fatalf("one /64 is one key, the next is another: %q %q %q", a, b, c)
+	}
+}
+
+func TestALongForwardedChainIsNotTrusted(t *testing.T) {
+	xff := limitsOf(t, "10.0.0.0/8", "")
+	proxy := proxyHost + ":443"
+	hops := func(n int) string { return clientFour + strings.Repeat(", 10.9.9.9", n) }
+	runAddrCases(t, []addrCase{
+		{"a chain within the bound", xff, proxy, map[string][]string{forwardedFor: {hops(maxChainHops - 2)}}, clientFour},
+		{"one hop too many", xff, proxy, map[string][]string{forwardedFor: {hops(maxChainHops)}}, proxyHost},
+		{"a very long header", xff, proxy, map[string][]string{forwardedFor: {strings.Repeat("a", 100000)}}, proxyHost},
+		{"a long header of trusted hops", xff, proxy, map[string][]string{forwardedFor: {hops(5000)}}, proxyHost},
+		{"many header lines", xff, proxy, map[string][]string{forwardedFor: manyLines(100)}, proxyHost},
+	})
+}
+
+func manyLines(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = "10.9.9.9"
+	}
+	return out
 }
