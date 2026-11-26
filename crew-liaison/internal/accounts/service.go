@@ -10,16 +10,32 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
-// PrincipalID is the vault key of a person the door signed in: the id every place that
-// compares a caller with an owner computes, from the user name the door's token carries.
-func PrincipalID(user string) string {
-	return identity.Hasher{}.ID(identity.IssuerKubernetes, user)
+// HopIssuer is the name the door signs a person's assertion under, and so the issuer a crew's
+// gateway attaches to the person it names.
+const HopIssuer = "liaison"
+
+// Principals names the people the door signs in the way a crew's gateway names them: the
+// install's keyed hash of the hop issuer and the user name, so a conversation's owner and a
+// person's connection carry the same id. Without the key nobody can be named.
+type Principals struct{ hasher identity.Hasher }
+
+// NewPrincipals returns the naming for an install's hash key.
+func NewPrincipals(hashKey []byte) Principals {
+	return Principals{hasher: identity.Hasher{Key: hashKey}}
 }
+
+// Keyed reports whether the install has a key.
+func (p Principals) Keyed() bool { return p.hasher.Keyed() }
+
+// ID is the vault key of a person the door signed in, from the user name the door's token
+// carries.
+func (p Principals) ID(user string) string { return p.hasher.ID(HopIssuer, user) }
 
 // Service is what the connect pages and the tools use: what an account is, who may connect
 // it, finishing a connect, and disconnecting. It keeps nothing itself.
 type Service struct {
 	Vault  *Vault
+	People Principals
 	Decls  Declarations
 	Regs   map[string]Registration
 	Client *Client
@@ -27,6 +43,9 @@ type Service struct {
 	// Broker leases tokens to the crews' gateways; nil when only the pages are in use.
 	Broker *Broker
 }
+
+// PrincipalID is the vault key of a person the door signed in.
+func (s *Service) PrincipalID(user string) string { return s.People.ID(user) }
 
 // Offer is an account as one person can connect it: the crew's declaration, the install's
 // registration, and the crews that will use it.
