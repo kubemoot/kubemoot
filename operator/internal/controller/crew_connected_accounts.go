@@ -235,9 +235,42 @@ func (r *CrewReconciler) connectedAccountsWiring(ctx context.Context, crew *kube
 			return metav1.ConditionFalse, reasonNoSingleToolGateway,
 				"The namespace needs exactly one MCPGateway for the servers that take the crew's accounts; it has none or several.", nil
 		}
+		return r.accountLeaseHolder(ctx, crew)
 	}
 	return metav1.ConditionTrue, reasonConnectedAccountsReady,
 		"Every declared account is registered by this install and no other crew uses its name for a different service.", nil
+}
+
+// accountLeaseHolder checks that this is the only crew of the namespace the tool gateway leases
+// from, because the tool gateway has one broker address.
+func (r *CrewReconciler) accountLeaseHolder(ctx context.Context, crew *kubemootv1alpha1.Crew) (metav1.ConditionStatus, string, string, error) {
+	crews := &kubemootv1alpha1.CrewList{}
+	if err := r.List(ctx, crews, client.InNamespace(crew.Namespace)); err != nil {
+		return "", "", "", err
+	}
+	if other := otherLeasingCrew(crews.Items, crew); other != "" {
+		return metav1.ConditionFalse, reasonSeveralTokenCrews, fmt.Sprintf(
+			"Crew %s also keeps tokens or declares accounts; the namespace's tool gateway leases from one crew, "+
+				"so keep them in one crew per namespace.", other), nil
+	}
+	return metav1.ConditionTrue, reasonConnectedAccountsReady,
+		"Every declared account is registered by this install and no other crew uses its name for a different service.", nil
+}
+
+// otherLeasingCrew is the name of the first crew, by name, other than self that answers the tool
+// gateway's lease; "" when none does.
+func otherLeasingCrew(crews []kubemootv1alpha1.Crew, self *kubemootv1alpha1.Crew) string {
+	var found []string
+	for i := range crews {
+		if crews[i].Name != self.Name && crews[i].DeletionTimestamp.IsZero() && crewLeases(&crews[i]) {
+			found = append(found, crews[i].Name)
+		}
+	}
+	sort.Strings(found)
+	if len(found) == 0 {
+		return ""
+	}
+	return found[0]
 }
 
 // serverAccount is the connected account a server takes the person's token from, or "".

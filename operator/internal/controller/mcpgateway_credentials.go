@@ -65,7 +65,7 @@ func relayOnlyPayload(mcp *kubemootv1alpha1.MCPServer) map[string]interface{} {
 // anyCallerCredentialRequired reports whether any of the servers takes the person's own token.
 func anyCallerCredentialRequired(servers []kubemootv1alpha1.MCPServer) bool {
 	for i := range servers {
-		if requiredCallerCredential(&servers[i]) {
+		if takesPersonsToken(&servers[i]) {
 			return true
 		}
 	}
@@ -132,8 +132,8 @@ func (r *MCPGatewayReconciler) tokenCrewBrokerURL(ctx context.Context, namespace
 	return crewBrokerURL(holder), nil
 }
 
-// tokenCrew is the namespace's one crew that keeps people's tokens, the crew a tool gateway
-// leases from. It is nil when there is none or more than one.
+// tokenCrew is the namespace's one crew that keeps people's tokens or declares connected
+// accounts, the crew a tool gateway leases from. It is nil when there is none or more than one.
 func tokenCrew(ctx context.Context, c client.Reader, namespace string) (*kubemootv1alpha1.Crew, error) {
 	crews := &kubemootv1alpha1.CrewList{}
 	if err := c.List(ctx, crews, client.InNamespace(namespace)); err != nil {
@@ -141,7 +141,7 @@ func tokenCrew(ctx context.Context, c client.Reader, namespace string) (*kubemoo
 	}
 	var holder *kubemootv1alpha1.Crew
 	for i := range crews.Items {
-		if !crewKeepsTokens(&crews.Items[i]) {
+		if !crewLeases(&crews.Items[i]) {
 			continue
 		}
 		if holder != nil {

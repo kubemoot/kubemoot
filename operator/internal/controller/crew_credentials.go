@@ -184,12 +184,13 @@ func gatewayFronts(gw *kubemootv1alpha1.MCPGateway, s *kubemootv1alpha1.MCPServe
 	return selectorMatches(gw.Spec.MCPServerSelector, s.Labels, true)
 }
 
-// applyCredentialLease makes the discussion gateway of a token-keeping crew listen for leases:
+// applyCredentialLease makes the discussion gateway of a crew that keeps tokens or declares
+// connected accounts listen for leases:
 // the pod carries the label its network policy keys on, the lease port is declared, and the
 // one ServiceAccount allowed to lease is named. The subject is empty when the namespace has no
-// single tool gateway, which leaves the listener off. A crew that keeps no tokens is untouched.
+// single tool gateway, which leaves the listener off. A crew with nothing to lease is untouched.
 func (r *CrewReconciler) applyCredentialLease(ctx context.Context, crew *kubemootv1alpha1.Crew, d *appsv1.Deployment) error {
-	if !crewKeepsTokens(crew) {
+	if !crewLeases(crew) {
 		return nil
 	}
 	account, err := toolGatewayAccount(ctx, r.Client, crew.Namespace)

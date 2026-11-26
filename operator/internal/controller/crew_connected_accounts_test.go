@@ -365,11 +365,11 @@ var _ = Describe("Connected accounts: the ConnectedAccounts condition and the re
 			Expect(got).NotTo(HaveKey("account"))
 		})
 
-		It("keeps an account server out of the service token wiring", func() {
+		It("wires the tool gateway for an account server, and keeps it out of the verifier condition", func() {
 			server := accountServer("srv", "library")
 			Expect(takesPersonsToken(server)).To(BeTrue())
 			Expect(requiredCallerCredential(server)).To(BeFalse())
-			Expect(anyCallerCredentialRequired([]kubemootv1alpha1.MCPServer{*server})).To(BeFalse())
+			Expect(anyCallerCredentialRequired([]kubemootv1alpha1.MCPServer{*server})).To(BeTrue())
 			Expect(requiredCallerCredential(requiredServer(ns))).To(BeTrue())
 		})
 

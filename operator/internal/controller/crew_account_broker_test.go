@@ -26,8 +26,8 @@ const (
 
 func connectedAccountCrew(t *testing.T) *kubemootv1alpha1.Crew {
 	t.Helper()
-	crew := crewWithHops(hopAccess(validHopKey(t), &kubemootv1alpha1.AskerRule{ConnectedAccount: "library"}))
-	crew.Spec.ConnectedAccounts = []kubemootv1alpha1.ConnectedAccount{{Name: "library"}}
+	crew := crewWithHops(hopAccess(validHopKey(t), &kubemootv1alpha1.AskerRule{ConnectedAccount: celAccount}))
+	crew.Spec.ConnectedAccounts = []kubemootv1alpha1.ConnectedAccount{{Name: celAccount}}
 	return crew
 }
 
@@ -84,5 +84,60 @@ func TestAConnectedAccountCrewWhoseHopsCannotBeAppliedGetsNoBroker(t *testing.T)
 	crew.Spec.ConnectedAccounts = nil // the rule names an account the crew does not declare
 	if usesConnectedAccount(crew) {
 		t.Fatal("an invalid rule must not be applied")
+	}
+}
+
+func accountLeasingCrew(t *testing.T) *kubemootv1alpha1.Crew {
+	t.Helper()
+	crew := crewWithAccess(nil)
+	crew.Name = selCrew
+	crew.Spec.ConnectedAccounts = []kubemootv1alpha1.ConnectedAccount{{Name: celAccount}}
+	return crew
+}
+
+func TestACrewThatDeclaresAnAccountLeasesItsTokenAndKnowsItsOwnName(t *testing.T) {
+	crew := accountLeasingCrew(t)
+	if usesConnectedAccount(crew) || !crewLeasesAccounts(crew) || !crewLeases(crew) || crewKeepsTokens(crew) {
+		t.Fatal("a crew with an account and no connectedAccount rule leases, and keeps no tokens")
+	}
+	pod := gatewayPod()
+	applyAccountBroker(pod, crew, brokerURL)
+	env := pod.Containers[0].Env
+	if v, _ := envValue(env, identity.EnvAccountBrokerURL); v != brokerURL {
+		t.Errorf("broker address: %q", v)
+	}
+	if v, _ := envValue(env, identity.EnvAccountCrew); v != selCrew {
+		t.Errorf("crew name: %q", v)
+	}
+	if len(pod.Volumes) != 1 || pod.Volumes[0].Projected.Sources[0].ServiceAccountToken.Audience != identity.AccountBrokerAudience {
+		t.Errorf("the token must be for the broker alone: %+v", pod.Volumes)
+	}
+}
+
+func TestACrewWithNothingToLeaseOrADisabledGatewayLeasesNothing(t *testing.T) {
+	none := crewWithAccess(nil)
+	off := accountLeasingCrew(t)
+	disabled := false
+	off.Spec.Discussion.Enabled = &disabled
+	for name, crew := range map[string]*kubemootv1alpha1.Crew{"no accounts": none, "gateway off": off} {
+		if crewLeases(crew) {
+			t.Errorf("%s: leases", name)
+		}
+		pod := gatewayPod()
+		applyAccountBroker(pod, crew, brokerURL)
+		if len(pod.Volumes) != 0 || len(pod.Containers[0].Env) != 0 {
+			t.Errorf("%s: the pod was changed: %+v", name, pod)
+		}
+	}
+}
+
+func TestOtherLeasingCrewNamesTheFirstOtherCrewThatLeases(t *testing.T) {
+	mine, other, quiet := accountLeasingCrew(t), accountLeasingCrew(t), crewWithAccess(nil)
+	mine.Name, other.Name, quiet.Name = "a", "b", "c"
+	if got := otherLeasingCrew([]kubemootv1alpha1.Crew{*mine, *other, *quiet}, mine); got != "b" {
+		t.Errorf("got %q", got)
+	}
+	if got := otherLeasingCrew([]kubemootv1alpha1.Crew{*mine, *quiet}, mine); got != "" {
+		t.Errorf("no other crew leases: %q", got)
 	}
 }
