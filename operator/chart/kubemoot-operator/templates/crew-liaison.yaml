@@ -15,6 +15,37 @@
 {{- if and $door .Values.liaison.auth.serviceTokens }}
 {{- fail "liaison.auth.serviceTokens and the door's identity are alternatives: with the door's identity on, /mcp accepts no service's own token" }}
 {{- end }}
+{{- $acct := .Values.liaison.connectedAccounts }}
+{{- $accts := and $door $acct.enabled }}
+{{- if and $acct.enabled (not $door) }}
+{{- fail "liaison.connectedAccounts.enabled needs the door's own identity (liaison.signIn.enabled with liaison.signIn.identity.provider oidc): a connection belongs to the person the door signed in" }}
+{{- end }}
+{{- $backend := .Values.liaison.state.backend | default (ternary "nats" "memory" (and .Values.nats.enabled (not (empty $door)))) }}
+{{- if not (has $backend (list "memory" "nats" "openbao")) }}
+{{- fail (printf "liaison.state.backend must be empty, memory, nats or openbao, got %q" $backend) }}
+{{- end }}
+{{- if and (eq $backend "openbao") (or (not .Values.liaison.state.openbao.address) (not .Values.liaison.state.openbao.tokenSecret.name)) }}
+{{- fail "liaison.state.backend openbao needs liaison.state.openbao.address and liaison.state.openbao.tokenSecret.name" }}
+{{- end }}
+{{- if and (eq $backend "nats") (not .Values.nats.enabled) }}
+{{- fail "liaison.state.backend nats needs nats.enabled" }}
+{{- end }}
+{{- if $accts }}
+{{- if not $acct.sealKeySecret.name }}
+{{- fail "liaison.connectedAccounts.sealKeySecret.name is required when liaison.connectedAccounts.enabled" }}
+{{- end }}
+{{- if not .Values.liaison.auth.hashKeySecret.name }}
+{{- fail "liaison.auth.hashKeySecret.name is required when liaison.connectedAccounts.enabled: a person's connection is kept under the id the crews' gateways give them" }}
+{{- end }}
+{{- if and (gt (int .Values.liaison.replicas) 1) (eq $backend "memory") }}
+{{- fail "liaison.connectedAccounts.enabled with more than one replica needs liaison.state.backend nats or openbao: a connection kept in one pod is invisible to the others" }}
+{{- end }}
+{{- range $name, $reg := $acct.accounts }}
+{{- if not $reg.clientId }}
+{{- fail (printf "liaison.connectedAccounts.accounts.%s.clientId is required" $name) }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if and $door .Values.liaison.expose.enabled (not .Values.liaison.signIn.allowedRedirectHosts) }}
 {{- fail "liaison.signIn.allowedRedirectHosts is required when the door's identity is on and liaison.expose is on: without it any site could ask a person to allow it" }}
 {{- end }}
@@ -45,8 +76,8 @@ rules:
   - apiGroups: ["kubemoot.ai"]
     resources: ["crews"]
     verbs: ["get", "list", "watch"]
-  {{- if .Values.liaison.auth.kubernetesTokens }}
-  # Checking callers' Kubernetes tokens.
+  {{- if or .Values.liaison.auth.kubernetesTokens $accts }}
+  # Checking callers' Kubernetes tokens, and a crew gateway's ServiceAccount token at the account broker.
   - apiGroups: ["authentication.k8s.io"]
     resources: ["tokenreviews"]
     verbs: ["create"]
@@ -119,6 +150,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if $accts }}
+            - name: broker
+              containerPort: {{ $acct.brokerPort }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: PORT
               value: "8080"
@@ -216,6 +252,49 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+            # Where the liaison keeps what it must remember: the door's single-use marks and, when
+            # connected accounts are on, the sealed accounts.
+            - name: LIAISON_STATE_BACKEND
+              value: {{ $backend | quote }}
+            {{- if eq $backend "nats" }}
+            - name: NATS_URL
+              value: {{ .Values.nats.url | quote }}
+            {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnEnv" "ctx" (dict "root" .) "indent" 12) }}
+            {{- end }}
+            {{- if eq $backend "openbao" }}
+            {{- $bao := .Values.liaison.state.openbao }}
+            - name: LIAISON_OPENBAO_ADDR
+              value: {{ $bao.address | quote }}
+            - name: LIAISON_OPENBAO_MOUNT
+              value: {{ $bao.mount | quote }}
+            - name: LIAISON_OPENBAO_PREFIX
+              value: {{ $bao.prefix | quote }}
+            - name: LIAISON_OPENBAO_TOKEN_FILE
+              value: /etc/kubemoot/openbao/token
+            {{- if $bao.caSecret.name }}
+            - name: LIAISON_OPENBAO_CA_FILE
+              value: /etc/kubemoot/openbao/ca.crt
+            {{- end }}
+            {{- end }}
+            {{- if $accts }}
+            # Connected accounts: a person connects an outside account once and a crew's tools act as
+            # them. Nothing is kept until a crew declares the account and the person presses Connect.
+            - name: LIAISON_ACCOUNTS_ENABLED
+              value: "true"
+            - name: LIAISON_ACCOUNTS_SEAL_KEYS_FILE
+              value: /etc/kubemoot/accounts/vault-keys
+            - name: LIAISON_ACCOUNTS
+              value: {{ include "kubemoot-operator.liaisonAccountsJSON" . | quote }}
+            - name: LIAISON_INTERNAL_PORT
+              value: {{ $acct.brokerPort | quote }}
+            {{- if not .Values.liaison.auth.serviceTokens }}
+            - name: ACCESS_HASH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.liaison.auth.hashKeySecret.name }}
+                  key: {{ .Values.liaison.auth.hashKeySecret.key | default "hash-key" }}
+            {{- end }}
+            {{- end }}
             {{- if or .Values.liaison.auth.existingSecret .Values.liaison.auth.token }}
             - name: LIAISON_TOKEN
               valueFrom:
@@ -251,6 +330,19 @@ spec:
             - name: signin-identity
               mountPath: /etc/kubemoot/signin-identity
               readOnly: true
+            {{- end }}
+            {{- if $accts }}
+            - name: accounts
+              mountPath: /etc/kubemoot/accounts
+              readOnly: true
+            {{- end }}
+            {{- if eq $backend "openbao" }}
+            - name: openbao
+              mountPath: /etc/kubemoot/openbao
+              readOnly: true
+            {{- end }}
+            {{- if eq $backend "nats" }}
+            {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnMounts" "ctx" . "indent" 12) }}
             {{- end }}
       volumes:
         # The install CA's public certificates, which the operator publishes. The pod waits for
@@ -292,6 +384,50 @@ spec:
                       path: hop-keys
               {{- end }}
         {{- end }}
+        {{- if $accts }}
+        # The accounts' own secrets: the keys that seal what is kept, and each client's secret.
+        # No pod but the liaison mounts them.
+        - name: accounts
+          projected:
+            sources:
+              - secret:
+                  name: {{ $acct.sealKeySecret.name }}
+                  items:
+                    - key: {{ $acct.sealKeySecret.key | default "vault-keys" }}
+                      path: vault-keys
+              {{- range $name, $reg := $acct.accounts }}
+              {{- if $reg.clientSecret }}
+              {{- if $reg.clientSecret.name }}
+              - secret:
+                  name: {{ $reg.clientSecret.name }}
+                  items:
+                    - key: {{ $reg.clientSecret.key | default "client-secret" }}
+                      path: {{ $name }}-client-secret
+              {{- end }}
+              {{- end }}
+              {{- end }}
+        {{- end }}
+        {{- if eq $backend "openbao" }}
+        {{- $bao := .Values.liaison.state.openbao }}
+        - name: openbao
+          projected:
+            sources:
+              - secret:
+                  name: {{ $bao.tokenSecret.name }}
+                  items:
+                    - key: {{ $bao.tokenSecret.key | default "token" }}
+                      path: token
+              {{- if $bao.caSecret.name }}
+              - secret:
+                  name: {{ $bao.caSecret.name }}
+                  items:
+                    - key: {{ $bao.caSecret.key | default "ca.crt" }}
+                      path: ca.crt
+              {{- end }}
+        {{- end }}
+        {{- if eq $backend "nats" }}
+        {{- include "kubemoot-operator.natsConnBlock" (dict "name" "kubemoot-operator.natsConnVolumes" "ctx" . "indent" 8) }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -310,6 +446,29 @@ spec:
   selector:
     {{- include "kubemoot-operator.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: crew-liaison
+{{- if $accts }}
+---
+# The account broker, which a crew's discussion gateway asks for a person's token and connection
+# state. Cluster-internal: it is never behind the route, and it checks the gateway's own
+# ServiceAccount token.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-broker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubemoot-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crew-liaison
+spec:
+  ports:
+    - name: broker
+      port: {{ $acct.brokerPort }}
+      targetPort: broker
+      protocol: TCP
+  selector:
+    {{- include "kubemoot-operator.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: crew-liaison
+{{- end }}
 {{- if and .Values.liaison.expose.enabled .Values.gateway.enabled }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
