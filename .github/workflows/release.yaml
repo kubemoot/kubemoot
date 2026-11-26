@@ -54,7 +54,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          bash .github/scripts/find-tested-commit.sh "${GITHUB_SHA}" | tee -a "$GITHUB_OUTPUT"
+          # A lookup that fails says so and leaves the output empty, so the tests run.
+          if out="$(bash .github/scripts/find-tested-commit.sh "${GITHUB_SHA}")"; then
+            printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "::warning::the tested-commit lookup failed; running the tests"
+          fi
 
   ci:
     needs: tested
