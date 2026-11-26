@@ -92,6 +92,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go sweep(ctx, tickets)
+	startBroker(ctx, acct, log)
 	go func() {
 		log.Info("crew liaison listening",
 			"port", port, "maxInflight", maxInflight, "auth", token != "",
@@ -249,6 +250,32 @@ func attachExporter(svc *liaison.Service, log logr.Logger) {
 	if exporter != nil {
 		svc.WithExporter(exporter)
 	}
+}
+
+// startBroker serves the account broker on its internal port when connected accounts are on.
+func startBroker(ctx context.Context, acct *accounts.Service, log logr.Logger) {
+	if acct == nil {
+		return
+	}
+	reviewer, err := accountReviewer()
+	if err != nil {
+		log.Error(err, "account broker")
+		os.Exit(1)
+	}
+	srv := brokerServer(acct, reviewer, envOr(envInternalPort, defaultInternalPort))
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+	go func() {
+		log.Info("account broker listening", "addr", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error(err, "account broker")
+			os.Exit(1)
+		}
+	}()
 }
 
 // openState connects the backend that holds what the liaison must remember between requests.

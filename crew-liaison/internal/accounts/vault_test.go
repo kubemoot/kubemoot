@@ -21,6 +21,7 @@ const (
 	issuerURL    = "https://issuer.example.org"
 	acctLib      = "lib"
 	pAlice       = "alice"
+	pBob         = "bob"
 	accessR2     = "access-r2"
 	testClientID = "cid"
 	trueText     = "true"

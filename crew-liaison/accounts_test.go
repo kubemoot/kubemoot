@@ -1,8 +1,11 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -10,8 +13,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/accounts"
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/liaison"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/tokenstore"
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 const (
@@ -74,5 +79,25 @@ func TestAccountsOnBuildsAServiceAndRefusesBadSettings(t *testing.T) {
 func TestAccountsNeedTheDoor(t *testing.T) {
 	if _, err := signInFront(logr.Discard(), memoryState(t), &accounts.Service{}); err == nil {
 		t.Fatal("connected accounts without the door's identity must be refused")
+	}
+}
+
+func TestBrokerServerRefusesACallerWithoutAToken(t *testing.T) {
+	svc := &accounts.Service{Broker: accounts.NewBroker(nil, nil, nil, nil, nil)}
+	srv := brokerServer(svc, identity.Reviewer{Audiences: []string{liaison.AccountBrokerAudience}}, "8081")
+	if srv.Addr != ":8081" || srv.ReadHeaderTimeout == 0 || srv.WriteTimeout == 0 {
+		t.Fatalf("the server: %+v", srv)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/accounts/lease", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("a lease with no ServiceAccount token: %d", rec.Code)
+	}
+	if rec2 := httptest.NewRecorder(); func() bool {
+		srv.Handler.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/health", nil))
+		return rec2.Code == http.StatusNotFound
+	}() == false {
+		t.Fatal("the internal port serves only the broker routes")
 	}
 }

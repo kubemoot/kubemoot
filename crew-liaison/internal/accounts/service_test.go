@@ -65,15 +65,15 @@ func TestCompleteKeepsTheTokensWithTheServicesLimits(t *testing.T) {
 			t.Errorf("the verifier did not reach the service")
 		}
 	}
-	if err := s.Complete(ctx, "alice", o, []string{crewA}, "code", "ver", "https://door/oauth/callback"); err != nil {
+	if err := s.Complete(ctx, pAlice, o, []string{crewA}, "code", "ver", "https://door/oauth/callback"); err != nil {
 		t.Fatal(err)
 	}
-	tok, _, err := s.Vault.Get(ctx, "alice", acctLib)
+	tok, _, err := s.Vault.Get(ctx, pAlice, acctLib)
 	if err != nil || tok.Access == "" || tok.Refresh == "" || tok.State != StateConnected || tok.KeepUntil.IsZero() {
 		t.Fatalf("the kept token: %+v %v", tok, err)
 	}
 	r.svc.status = http.StatusBadRequest
-	if err := s.Complete(ctx, "alice", o, nil, "bad", "ver", "https://door/cb"); !errors.Is(err, ErrRefused) {
+	if err := s.Complete(ctx, pAlice, o, nil, "bad", "ver", "https://door/cb"); !errors.Is(err, ErrRefused) {
 		t.Fatalf("a refused code: %v", err)
 	}
 }
@@ -110,17 +110,17 @@ func TestDisconnectRevokesThenDeletesEvenWhenRevocationFails(t *testing.T) {
 	s.Decls.(fakeDecls)[acctLib] = d
 	s.Client.allowHTTP = true
 
-	r.connect(t, "alice", func(t *Token) { t.Refresh = "r-ok" })
-	out, err := s.Disconnect(ctx, "alice", acctLib)
+	r.connect(t, pAlice, func(t *Token) { t.Refresh = "r-ok" })
+	out, err := s.Disconnect(ctx, pAlice, acctLib)
 	if err != nil || !out.Asked || !out.Revoked || rr.got() != "r-ok/refresh_token" {
 		t.Fatalf("a revoked disconnect: %+v %v %q", out, err, rr.got())
 	}
-	r.connect(t, "bob", func(t *Token) { t.Refresh = "r-fail" })
-	out, err = s.Disconnect(ctx, "bob", acctLib)
+	r.connect(t, pBob, func(t *Token) { t.Refresh = "r-fail" })
+	out, err = s.Disconnect(ctx, pBob, acctLib)
 	if err != nil || !out.Asked || out.Revoked {
 		t.Fatalf("a failed revocation: %+v %v", out, err)
 	}
-	for _, who := range []string{"alice", "bob"} {
+	for _, who := range []string{pAlice, pBob} {
 		if _, _, err := s.Vault.Get(ctx, who, acctLib); !errors.Is(err, ErrNotConnected) {
 			t.Fatalf("%s: the record must be deleted whether or not the service answered", who)
 		}
@@ -143,8 +143,8 @@ func revokesByAccessTokenWhenThereIsNoRefreshToken(t *testing.T, s *Service, r *
 
 func TestDisconnectWithoutARevocationEndpointDoesNotAsk(t *testing.T) {
 	s, r := newService2(t)
-	r.connect(t, "alice", nil)
-	out, err := s.Disconnect(context.Background(), "alice", acctLib)
+	r.connect(t, pAlice, nil)
+	out, err := s.Disconnect(context.Background(), pAlice, acctLib)
 	if err != nil || out.Asked {
 		t.Fatalf("%+v %v", out, err)
 	}
@@ -153,23 +153,23 @@ func TestDisconnectWithoutARevocationEndpointDoesNotAsk(t *testing.T) {
 func TestOverviewShowsConnectedAndMissingAndHidesUnofferedAccounts(t *testing.T) {
 	s, r := newService2(t)
 	ctx := context.Background()
-	r.connect(t, "alice", nil)
+	r.connect(t, pAlice, nil)
 	s.Regs["mail"] = Registration{ClientID: "m"}
 	declared := []Declaration{
 		{Name: acctLib, DisplayName: "Library", Crews: []string{crewA}, Required: true},
 		{Name: "mail", DisplayName: "Mail", Crews: []string{crewA}},
 		{Name: "secret", DisplayName: "Not registered", Crews: []string{crewA}},
 	}
-	got, err := s.overviewOf(ctx, "alice", declared)
+	got, err := s.overviewOf(ctx, pAlice, declared)
 	if err != nil || len(got) != 2 || got[0].State != StateConnected || got[1].State != StateMissing || got[0].DisplayName != "Library" {
 		t.Fatalf("overview: %+v %v", got, err)
 	}
-	other, _ := s.overviewOf(ctx, "bob", declared)
+	other, _ := s.overviewOf(ctx, pBob, declared)
 	if other[0].State != StateMissing {
 		t.Fatalf("another person sees a connection: %+v", other)
 	}
 	s.Regs["mail"] = Registration{ClientID: "m", AllowedCrews: []string{"nobody"}}
-	if got, _ := s.overviewOf(ctx, "alice", declared); len(got) != 1 {
+	if got, _ := s.overviewOf(ctx, pAlice, declared); len(got) != 1 {
 		t.Fatalf("an account no declaring crew may use: %+v", got)
 	}
 }
@@ -207,12 +207,12 @@ func TestScopesOf(t *testing.T) {
 
 func TestOverviewReadsEveryDeclaration(t *testing.T) {
 	s, r := newService2(t)
-	r.connect(t, "alice", nil)
-	got, err := s.Overview(context.Background(), "alice")
+	r.connect(t, pAlice, nil)
+	got, err := s.Overview(context.Background(), pAlice)
 	if err != nil || len(got) != 1 || got[0].Account != acctLib || got[0].State != StateConnected {
 		t.Fatalf("overview: %+v %v", got, err)
 	}
-	if n, err := s.SignOut(context.Background(), "alice"); err != nil || n != 1 {
+	if n, err := s.SignOut(context.Background(), pAlice); err != nil || n != 1 {
 		t.Fatalf("sign out: %d %v", n, err)
 	}
 }

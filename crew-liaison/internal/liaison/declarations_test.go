@@ -24,7 +24,7 @@ func crewWith(ns, name string, accts ...kubemootv1alpha1.ConnectedAccount) *kube
 func account(name, display string, usage kubemootv1alpha1.ConnectedAccountUsage) kubemootv1alpha1.ConnectedAccount {
 	return kubemootv1alpha1.ConnectedAccount{
 		Name: name, DisplayName: display, Usage: usage, AuthorizeURL: "https://auth.example.org/a",
-		TokenURL: "https://auth.example.org/t", TokenHosts: []string{"api.example.org"}, Scopes: []string{"search"},
+		TokenURL: "https://auth.example.org/t", TokenHosts: []string{apiHost}, Scopes: []string{"search"},
 	}
 }
 
@@ -72,7 +72,7 @@ func checkDefaults(t *testing.T, d *crewDeclarations, lib accounts.Declaration) 
 	if lib.Required {
 		t.Error("the first crew's declaration (Optional) supplies the text")
 	}
-	if mail, _, _ := d.Account(ctx, "mail"); !mail.Required || mail.TokenHosts[0] != "api.example.org" {
+	if mail, _, _ := d.Account(ctx, "mail"); !mail.Required || mail.TokenHosts[0] != apiHost {
 		t.Errorf("a default usage is Required: %+v", mail)
 	}
 	if _, found, err := d.Account(ctx, "nothing"); found || err != nil {

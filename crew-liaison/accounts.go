@@ -2,15 +2,19 @@ package main
 
 import (
 	"errors"
+	"net/http"
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/client-go/kubernetes"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/accounts"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/liaison"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/signin"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/tokenstore"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 // buildAccounts turns on connected accounts when the install asked for them
@@ -44,10 +48,42 @@ func buildAccounts(
 		log.Info("connected accounts are kept in this process only: set " + tokenstore.EnvBackend +
 			" to nats or openbao to keep them across restarts and share them between replicas")
 	}
+	decls := liaison.NewDeclarations(reader)
+	upstream := accounts.NewClient(nil)
 	return &accounts.Service{
-		Vault: vault, Decls: liaison.NewDeclarations(reader), Regs: cfg.Registrations,
-		Client: accounts.NewClient(nil), Now: time.Now,
+		Vault: vault, Decls: decls, Regs: cfg.Registrations, Client: upstream, Now: time.Now,
+		Broker: accounts.NewBroker(vault, decls, cfg.Registrations, upstream, nil),
 	}, nil
+}
+
+// The internal listener of the account broker.
+const (
+	envInternalPort     = "LIAISON_INTERNAL_PORT"
+	defaultInternalPort = "8081"
+)
+
+// brokerServer is the internal HTTP server a crew's discussion gateway asks for a person's
+// account token. It is never behind a Service the public reaches. The caller's ServiceAccount
+// token is checked with TokenReview for the broker's audience.
+func brokerServer(svc *accounts.Service, reviewer identity.Reviewer, port string) *http.Server {
+	return &http.Server{
+		Addr: ":" + port, Handler: liaison.NewAccountBroker(svc.Broker, reviewer).Handler(),
+		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 20 * time.Second,
+		IdleTimeout: 120 * time.Second,
+	}
+}
+
+// accountReviewer checks ServiceAccount tokens made for the broker's audience.
+func accountReviewer() (identity.Reviewer, error) {
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return identity.Reviewer{}, err
+	}
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return identity.Reviewer{}, err
+	}
+	return identity.Reviewer{Client: clientset, Audiences: []string{liaison.AccountBrokerAudience}}, nil
 }
 
 // errAccountsNeedDoor is the refusal of connected accounts without the door's own sign-in.

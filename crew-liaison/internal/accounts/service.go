@@ -24,6 +24,8 @@ type Service struct {
 	Regs   map[string]Registration
 	Client *Client
 	Now    func() time.Time
+	// Broker leases tokens to the crews' gateways; nil when only the pages are in use.
+	Broker *Broker
 }
 
 // Offer is an account as one person can connect it: the crew's declaration, the install's

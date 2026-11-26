@@ -103,6 +103,28 @@ func (b *Broker) Lease(ctx context.Context, principal, account, crew string) (Le
 	return b.renew(ctx, principal, account, d, reg)
 }
 
+// Check reports whether the person has a live connection a lease for crew could use, without
+// asking the service or refreshing anything: "" when there is, else the lease reason.
+func (b *Broker) Check(ctx context.Context, principal, account, crew string) (string, error) {
+	if _, _, err := b.offered(ctx, account, crew); err != nil {
+		return ReasonNoGrant, nil
+	}
+	tok, _, err := b.vault.Get(ctx, principal, account)
+	if errors.Is(err, ErrNotConnected) {
+		return ReasonNoGrant, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if reason := b.refusal(tok, crew); reason != "" {
+		return reason, nil
+	}
+	if !tok.KeepUntil.IsZero() && !b.now().Before(tok.KeepUntil) {
+		return ReasonExpired, nil
+	}
+	return "", nil
+}
+
 // offered checks the crew declares the account and the install registered and allows it.
 func (b *Broker) offered(ctx context.Context, account, crew string) (Declaration, Registration, error) {
 	reg, ok := b.regs[account]
