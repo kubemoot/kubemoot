@@ -7,8 +7,7 @@ on:
       - 'dashboard/**'
       - '!dashboard/**.md'
       - '.github/scripts/retag-image.sh'
-      - '.github/workflows/build-paketo-image.yaml'
-      - '.github/scripts/paketo-build-args.sh'
+      - '.github/workflows/build-dockerfile-image.yaml'
   workflow_dispatch:
     inputs:
       force_release:

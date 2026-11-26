@@ -10,8 +10,7 @@ on:
       - 'docs/operating/data-ownership.md'
       - 'operator/chart/kubemoot-operator/templates/nats-streams-job.yaml'
       - 'crew-liaison/internal/tokenstore/**'
-      - '.github/workflows/build-paketo-image.yaml'
-      - '.github/scripts/paketo-build-args.sh'
+      - '.github/workflows/build-dockerfile-image.yaml'
   workflow_dispatch:
 
 env:
@@ -33,58 +32,29 @@ jobs:
       - name: Check the brand copies against brand.lock
         run: dashboard/scripts/brand-sync.sh check && dashboard/scripts/brand-sync.test.sh
 
-  # The quality gates run here, before the image build: the Paketo build compiles the
-  # server and nothing else. Pull requests (including forks) run on GitHub-hosted runners;
-  # the self-hosted cluster runners take push, dispatch, and workflow_call runs from main.
+  # Pull requests (including forks) build the image on a GitHub-hosted runner without
+  # pushing, so the gates inside the Dockerfile still run and no cluster is reached.
   validate:
     name: dashboard-validate
     needs: brand
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: dashboard/.nvmrc
-          cache: 'npm'
-          cache-dependency-path: dashboard/package-lock.json
+      - name: Build dashboard image (no push)
+        run: docker build --file dashboard/Dockerfile dashboard
 
-      # The internal TLS tests make a throwaway CA and certificate with openssl.
-      - name: Make sure openssl is available
-        run: command -v openssl >/dev/null || sudo apt-get install -y --no-install-recommends openssl
-
-      - name: Install dependencies
-        working-directory: dashboard
-        run: npm ci
-
-      - name: Type check
-        working-directory: dashboard
-        run: npm run check
-
-      - name: Lint
-        working-directory: dashboard
-        run: npm run lint
-
-      - name: Run tests
-        working-directory: dashboard
-        run: npm test
-
-      - name: Build the server
-        working-directory: dashboard
-        run: npm run build
-
-  # The image is built from the directory with Paketo Node.js buildpacks: npm ci, then
-  # npm run build, then node build/ as the Procfile process (dashboard/buildpacks.env).
+  # No Node toolchain on the runner: the multistage Dockerfile runs npm ci,
+  # npm run check, npm run lint, npm test, and npm run build inside node:26-alpine,
+  # so the image build is the single source of truth.
   build-image:
     name: dashboard-build-image
-    needs: validate
+    needs: brand
     if: github.event_name != 'pull_request'
-    uses: ./.github/workflows/build-paketo-image.yaml
+    uses: ./.github/workflows/build-dockerfile-image.yaml
     with:
       name: dashboard
       context: dashboard
-      builder: builder
-      run_image: run-base

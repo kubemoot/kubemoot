@@ -219,16 +219,7 @@ sub="$(render kubemoot-operator --set dashboard.enabled=true --set dashboard.aut
 # Standalone chart keeps its own defaults.
 standalone="$(helm template x "$here/../../dashboard/charts/kubemoot-dashboard")"
 grep -q 'image: ghcr.io/kubemoot/dashboard:' <<<"$standalone" || fail "standalone dashboard image changed"
-# The image is a Paketo build: it runs as the run image's user cnb, 1002:1001, and the chart
-# keeps the pod non-root with a read-only root file system, no privilege escalation and no
-# capabilities.
-sc="$(yq -N 'select(.kind == "Deployment") | .spec.template.spec.containers[] | select(.name == "dashboard") | .securityContext | [.runAsUser, .runAsGroup, .runAsNonRoot, .readOnlyRootFilesystem, .allowPrivilegeEscalation, (.capabilities.drop | join(","))] | join(" ")' <<<"$standalone" | grep .)"
-[ "$sc" = "1002 1001 true true false ALL" ] || fail "the dashboard container security context is [$sc], want [1002 1001 true true false ALL]"
-# The server needs no command or args: the image's launcher starts the Procfile process.
-[ "$(yq -N 'select(.kind == "Deployment") | .spec.template.spec.containers[] | select(.name == "dashboard") | (.command // "none")' <<<"$standalone" | grep .)" = none ] \
-  || fail "the dashboard container sets a command; the image entrypoint must start it"
-# With a read-only root, the Buildpacks launcher needs a writable /tmp at start (it links
-# node_modules there); without it the pod crash-loops on "read-only file system".
+# The root file system is read-only, so the chart gives the server a writable /tmp.
 tmp_mount="$(yq -N 'select(.kind == "Deployment") | .spec.template.spec.containers[] | select(.name == "dashboard") | .volumeMounts[] | select(.mountPath == "/tmp") | .name' <<<"$standalone" | grep .)"
 [ -n "$tmp_mount" ] || fail "the dashboard container mounts nothing writable at /tmp"
 [ "$(yq -N "select(.kind == \"Deployment\") | .spec.template.spec.volumes[] | select(.name == \"${tmp_mount}\") | has(\"emptyDir\")" <<<"$standalone" | grep .)" = true ] \

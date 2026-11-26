@@ -95,8 +95,7 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           {{- $mounts := include "kubemoot-dashboard.natsMounts" . | trim }}
           volumeMounts:
-            # The root filesystem is read-only; the Buildpacks launcher links node_modules
-            # through /tmp at start, so /tmp is a small writable emptyDir.
+            # The root filesystem is read-only, so /tmp is a small writable emptyDir.
             - name: tmp
               mountPath: /tmp
             {{- with $mounts }}

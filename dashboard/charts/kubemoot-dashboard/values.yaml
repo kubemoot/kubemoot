@@ -227,9 +227,7 @@ securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
   runAsNonRoot: true
-  # The Paketo run image's user, cnb (1002) in group 1001: the owner of /workspace.
-  runAsUser: 1002
-  runAsGroup: 1001
+  runAsUser: 1001
   capabilities:
     drop:
       - ALL
