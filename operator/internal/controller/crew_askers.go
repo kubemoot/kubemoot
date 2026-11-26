@@ -25,7 +25,33 @@ import (
 
 const (
 	reasonInvalidTrustedHops = "InvalidTrustedHops"
+	// reasonUntrustedPolicyHost is the Authentication reason of a crew whose external askers
+	// rule names a host the install does not list.
+	reasonUntrustedPolicyHost = "UntrustedPolicyHost"
+	// AskerPolicyHostsEnv is the operator's setting: the policy decision point hosts, comma
+	// separated, that crews' external askers rules may use. Empty trusts none.
+	AskerPolicyHostsEnv = "DISCUSSION_GATEWAY_ASKER_POLICY_HOSTS"
 )
+
+// AskerPolicyHostsFromEnv reads AskerPolicyHostsEnv. rejected holds the entries that are not
+// plain host names, which are never trusted.
+func AskerPolicyHostsFromEnv(getenv func(string) string) (hosts identity.PolicyHosts, rejected []string) {
+	return identity.ParsePolicyHosts(getenv(AskerPolicyHostsEnv))
+}
+
+// validateAskerPolicyHost reports why the crew's external askers rule cannot be applied on this
+// install, or nil: its policy decision point's host must be one the install lists, because the
+// gateway sends each asker's identity there and the crew author is not the one who decides where.
+func validateAskerPolicyHost(access *kubemootv1alpha1.DiscussionAccess, hosts identity.PolicyHosts) error {
+	if access == nil || access.Askers == nil || access.Askers.External == nil {
+		return nil
+	}
+	if !hosts.Trusts(access.Askers.External.URL) {
+		return fmt.Errorf("askers.external.url names a host this install does not trust as a policy decision point; "+
+			"ask the install's operator to list it in %s", AskerPolicyHostsEnv)
+	}
+	return nil
+}
 
 // validateTrustedHops reports why the crew's trusted hops and askers rule cannot be applied,
 // or nil. The gateway is then given none of them, so no assertion is accepted: a mistake
@@ -77,12 +103,18 @@ func declaredAccount(crew *kubemootv1alpha1.Crew, rule *kubemootv1alpha1.AskerRu
 
 // invalidTrustedHops records the Authentication condition False when the hops cannot be
 // applied, and reports whether it did.
-func invalidTrustedHops(crew *kubemootv1alpha1.Crew, access *kubemootv1alpha1.DiscussionAccess) bool {
+func invalidTrustedHops(crew *kubemootv1alpha1.Crew, access *kubemootv1alpha1.DiscussionAccess, hosts identity.PolicyHosts) bool {
+	reason := reasonInvalidTrustedHops
 	err := validateTrustedHops(crew, access)
+	if err == nil && access != nil && len(access.TrustedHops) > 0 {
+		if err = validateAskerPolicyHost(access, hosts); err != nil {
+			reason = reasonUntrustedPolicyHost
+		}
+	}
 	if err == nil {
 		return false
 	}
-	setCrewCondition(crew, conditionTypeAuthentication, metav1.ConditionFalse, reasonInvalidTrustedHops,
+	setCrewCondition(crew, conditionTypeAuthentication, metav1.ConditionFalse, reason,
 		"No assertion of who is asking is accepted until this is fixed: "+err.Error()+".")
 	return true
 }
@@ -90,8 +122,8 @@ func invalidTrustedHops(crew *kubemootv1alpha1.Crew, access *kubemootv1alpha1.Di
 // hopsAuthentication records the Authentication condition of a crew whose door people are
 // admitted by a service token or a trusted hop, and reports whether it did. A trusted hop that
 // cannot be applied is reported first, because it closes the door.
-func hopsAuthentication(crew *kubemootv1alpha1.Crew, access *kubemootv1alpha1.DiscussionAccess) bool {
-	return invalidTrustedHops(crew, access) || serviceTokenAuthentication(crew, access) ||
+func hopsAuthentication(crew *kubemootv1alpha1.Crew, access *kubemootv1alpha1.DiscussionAccess, hosts identity.PolicyHosts) bool {
+	return invalidTrustedHops(crew, access, hosts) || serviceTokenAuthentication(crew, access) ||
 		trustedHopAuthentication(crew, access)
 }
 
@@ -114,9 +146,10 @@ func askersConfigOf(rule *kubemootv1alpha1.AskerRule) identity.AskersConfig {
 // the audience of this crew's gateway alone, so an assertion signed for one crew is refused by
 // every other, and the rule that decides who of their people may ask. Nothing for a crew that
 // lists no hop or whose hops cannot be applied.
-func gatewayTrustedHopEnv(crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
+func gatewayTrustedHopEnv(crew *kubemootv1alpha1.Crew, hosts identity.PolicyHosts) []corev1.EnvVar {
 	access := discussionAccess(crew)
-	if access == nil || len(access.TrustedHops) == 0 || validateTrustedHops(crew, access) != nil {
+	if access == nil || len(access.TrustedHops) == 0 || validateTrustedHops(crew, access) != nil ||
+		validateAskerPolicyHost(access, hosts) != nil {
 		return nil
 	}
 	hops := make([]identity.TrustedHopConfig, 0, len(access.TrustedHops))
@@ -134,6 +167,7 @@ func gatewayTrustedHopEnv(crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
 	}
 	env := []corev1.EnvVar{{Name: identity.EnvTrustedHops, Value: string(hopsJSON)}, {Name: identity.EnvAskers, Value: string(ruleJSON)}}
 	env = append(env, gatewayAskersKeyEnv(access)...)
+	env = append(env, gatewayAskersPolicyHostsEnv(access, hosts)...)
 	return append(env, gatewayAskersTokenEnv(access)...)
 }
 
@@ -145,6 +179,15 @@ func gatewayAskersKeyEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.Env
 		return nil
 	}
 	return []corev1.EnvVar{secretEnv(identity.EnvHashKey, name, key)}
+}
+
+// gatewayAskersPolicyHostsEnv hands the gateway the install's trusted policy decision point
+// hosts, which it checks again before it sends anyone's identity to the rule's host.
+func gatewayAskersPolicyHostsEnv(access *kubemootv1alpha1.DiscussionAccess, hosts identity.PolicyHosts) []corev1.EnvVar {
+	if access.Askers.External == nil {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: identity.EnvAskersPolicyHosts, Value: strings.Join(hosts, ",")}}
 }
 
 // gatewayAskersTokenEnv hands the gateway the token for an external policy decision point.

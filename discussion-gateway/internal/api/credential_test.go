@@ -63,7 +63,7 @@ func newGrantRigOn(t *testing.T, nc *natsclient.Client, js jetstream.JetStream, 
 		t.Fatal(err)
 	}
 	rv := identity.Reviewer{Client: cluster()}
-	routed := identity.RoutedAuthorizer{Kubernetes: rv, Subscribers: identity.NewSubscriberAuthorizer(cfgs)}
+	routed := identity.RoutedAuthorizer{Kubernetes: rv, Subscribers: identity.NewSubscriberAuthorizer(cfgs, identity.CrewRef{Namespace: "ns", Name: pilotCrew})}
 	auth := identity.NewAuthenticator(identity.Hasher{Key: []byte(hashKey)}, false, identity.TokenReviewVerifier{Reviewer: rv}, v)
 	store := grants.NewMemory(maxGrants, nil)
 	h := NewHandler(nc, "ns").WithAccess(auth, routed)

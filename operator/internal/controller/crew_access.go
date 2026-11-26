@@ -154,13 +154,13 @@ func serviceTokenAuthentication(crew *kubemootv1alpha1.Crew, access *kubemootv1a
 // Anonymous while the gateway accepts callers it cannot name, so that state is visible,
 // True when it verifies callers' tokens, and False with reason Closed when it accepts no
 // caller at all. It follows what the gateway does, not only what the spec says.
-func reconcileAuthentication(crew *kubemootv1alpha1.Crew) {
+func reconcileAuthentication(crew *kubemootv1alpha1.Crew, hosts identity.PolicyHosts) {
 	if crew.Spec.Discussion != nil && !crew.Spec.Discussion.IsEnabled() {
 		meta.RemoveStatusCondition(&crew.Status.Conditions, conditionTypeAuthentication)
 		return
 	}
 	access := discussionAccess(crew)
-	if hopsAuthentication(crew, access) {
+	if hopsAuthentication(crew, access, hosts) {
 		return
 	}
 	switch {

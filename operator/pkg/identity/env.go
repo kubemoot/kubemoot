@@ -11,6 +11,7 @@ You may obtain a copy of the License at
 package identity
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -53,7 +54,8 @@ type Settings struct {
 // ACCESS_TRUSTED_HOPS (a JSON list, see TrustedHopConfig) adds the verifier of doors that assert who is
 // asking; it is first in the chain. It needs ACCESS_ASKERS (see AskersConfig), the rule that admits
 // those people: only the kubernetesRBAC kind needs the Kubernetes client, and every other kind needs ACCESS_HASH_KEY.
-// ACCESS_SERVICE_TOKENS (a JSON list, see ServiceTokenConfig) adds a verifier per service,
+// ACCESS_SERVICE_TOKENS (a JSON list, see ServiceTokenConfig) adds a verifier per service and
+// ACCESS_CREW names the one crew its subscribers are admitted for,
 // after the Kubernetes one so a Kubernetes token never goes to a service; it needs
 // ACCESS_HASH_KEY, because a subscriber is never named without the install key.
 func FromEnv(getenv func(string) string, newClient func() (kubernetes.Interface, error)) (Settings, error) {
@@ -162,11 +164,17 @@ func askerAuthorizerFromEnv(getenv func(string) string, rule AskersConfig, hashe
 		a.Connections = conns
 	}
 	if rule.External != nil {
-		pdp, err := NewAuthZENClient(*rule.External, getenv(EnvAskersToken), nil)
-		if err != nil {
+		hosts, _ := ParsePolicyHosts(getenv(EnvAskersPolicyHosts))
+		pdp, err := NewGuardedAuthZENClient(*rule.External, getenv(EnvAskersToken), PolicyGuard{Hosts: hosts})
+		switch {
+		case errors.Is(err, ErrPolicyHostNotTrusted):
+			// No evaluator: every person is refused for this rule, the fail-closed answer. The
+			// operator reports the same condition on the Crew.
+		case err != nil:
 			return nil, err
+		default:
+			a.PDP = pdp
 		}
-		a.PDP = pdp
 	}
 	return a, nil
 }
@@ -195,7 +203,7 @@ func serviceTokensFromEnv(getenv func(string) string) (Hasher, []Verifier, Autho
 	if len(key) == 0 {
 		return Hasher{}, nil, nil, fmt.Errorf("%s is set and %s is not: %w", EnvServiceTokens, EnvHashKey, ErrNoHashKey)
 	}
-	chain, err := NewServiceTokenChain(configs, key, nil)
+	chain, err := NewServiceTokenChain(configs, key, nil, ParseCrewRef(getenv(EnvCrew)))
 	if err != nil {
 		return Hasher{}, nil, nil, err
 	}
@@ -213,10 +221,13 @@ type ServiceTokenChain struct {
 // NewServiceTokenChain builds the chain of a crew's service token verifiers. The gateway
 // builds it from its environment and the operator's report service from the Crew, so the
 // two verify, name and authorize a subscriber by the same code. configs are validated as
-// the CRD does. client, nil for the default, is what asks the services. Without the install's
+// the CRD does. client, nil for the default, is what asks the services. crew is the one crew
+// the verifiers belong to: the authorizer admits a subscriber for it alone. Without the install's
 // key it is ErrNoHashKey, because a subscriber is
 // never named, and so never owns or reads anything, without it.
-func NewServiceTokenChain(configs []ServiceTokenConfig, key []byte, client *http.Client) (ServiceTokenChain, error) {
+func NewServiceTokenChain(
+	configs []ServiceTokenConfig, key []byte, client *http.Client, crew CrewRef,
+) (ServiceTokenChain, error) {
 	if len(key) == 0 {
 		return ServiceTokenChain{}, ErrNoHashKey
 	}
@@ -233,7 +244,7 @@ func NewServiceTokenChain(configs []ServiceTokenConfig, key []byte, client *http
 		verifiers = append(verifiers, v)
 	}
 	return ServiceTokenChain{
-		Hasher: Hasher{Key: key}, Verifiers: verifiers, Authorizer: NewSubscriberAuthorizer(list),
+		Hasher: Hasher{Key: key}, Verifiers: verifiers, Authorizer: NewSubscriberAuthorizer(list, crew),
 	}, nil
 }
 

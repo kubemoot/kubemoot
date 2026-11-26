@@ -215,9 +215,11 @@ askers:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `askers.external.url` | required | The decision point's access evaluation endpoint, `https` only (the specification requires a secured connection). The gateway does not discover it |
+| `askers.external.url` | required | The decision point's access evaluation endpoint, `https` only (the specification requires a secured connection). The gateway does not discover it. Its host must be on the install's list (below) |
 | `askers.external.subjectType`, `resourceType`, `action` | `user`, `crew`, `ask` | The names the request carries |
 | `askers.external.tokenSecretRef` | none | A Secret key (`name`, `key` defaulting to `token`) with a bearer token the gateway presents to the decision point |
+
+The gateway sends each asker's identity to this address, so the install decides where it may go, not the crew author. The operator lists the trusted hosts in `discussionGateway.askerPolicyHosts` in the chart (plain host names, for example `pdp.example.org`). A crew whose `external.url` names another host reports `Authentication=False` with reason `UntrustedPolicyHost`, its gateway accepts no assertion of who is asking, and so everyone is refused for that rule; an empty list trusts no host. Every call goes only to a public address: a private, loopback, link-local, shared-address or cluster address is refused after the name is resolved (a name that answers differently the next time reaches nothing new), no proxy is used and a redirect is never followed. A decision point therefore needs a public address; put it behind one rather than listing an in-cluster name.
 
 ### A person's own token from a service
 
@@ -250,7 +252,7 @@ spec:
 | `access.hashKeySecretRef.name` | string | | A Secret in the crew's namespace. Required while `serviceTokens` is set |
 | `access.hashKeySecretRef.key` | string | `hash-key` | The key in that Secret that holds the install's hash key |
 
-The hash key turns a person's account id into the opaque id the bus carries. It must be the same value in every door of the install: the Secret each crew names, and the Secret of `liaison.auth.hashKeySecret` in the operator chart. Create it once, for example `kubectl create secret generic kubemoot-hash-key --from-literal=hash-key="$(openssl rand -base64 32)"` in each namespace. The operator writes the list into the gateway's `ACCESS_SERVICE_TOKENS` and the key into `ACCESS_HASH_KEY` from the Secret; the key is never written into the Deployment.
+The hash key turns a person's account id into the opaque id the bus carries. It must be the same value in every door of the install: the Secret each crew names, and the Secret of `liaison.auth.hashKeySecret` in the operator chart. Create it once, for example `kubectl create secret generic kubemoot-hash-key --from-literal=hash-key="$(openssl rand -base64 32)"` in each namespace. The operator writes the list into the gateway's `ACCESS_SERVICE_TOKENS`, the crew's `<namespace>/<name>` into `ACCESS_CREW` and the key into `ACCESS_HASH_KEY` from the Secret; the key is never written into the Deployment. A person a crew's verifier accepted may use that crew only: another crew that lists the same service accepts them through its own verifier, never through this one.
 
 #### Passing the token to tools
 

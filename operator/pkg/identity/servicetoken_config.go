@@ -26,6 +26,10 @@ import (
 const (
 	EnvServiceTokens = "ACCESS_SERVICE_TOKENS"
 	EnvHashKey       = "ACCESS_HASH_KEY"
+	// EnvCrew is "<namespace>/<name>" of the one crew a gateway guards. The operator sets it
+	// with the service tokens, and a subscriber is admitted for that crew alone. Without it
+	// no subscriber is admitted.
+	EnvCrew = "ACCESS_CREW"
 )
 
 // The values of ServiceTokenConfig.VerifyMethod and .Authorize.
@@ -139,7 +143,7 @@ func (c ServiceTokenConfig) validate() error {
 	switch {
 	case !namePattern.MatchString(c.Name) || c.Name == IssuerKubernetes:
 		return errors.New("name must be a DNS label other than " + IssuerKubernetes)
-	case err != nil || u.Scheme != "https" || u.Host == "":
+	case err != nil || u.Scheme != schemeHTTPS || u.Host == "":
 		return errors.New("verifyURL must be an https URL")
 	case c.VerifyMethod != VerifyMcpInitialize:
 		return fmt.Errorf("verifyMethod %q is not supported", c.VerifyMethod)

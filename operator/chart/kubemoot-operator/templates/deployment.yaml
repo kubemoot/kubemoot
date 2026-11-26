@@ -160,6 +160,12 @@ spec:
             - name: DISCUSSION_GATEWAY_ALLOWED_ORIGINS
               value: {{ join "," . | quote }}
             {{- end }}
+            {{- with .Values.discussionGateway.askerPolicyHosts }}
+            # Policy decision point hosts a crew's external askers rule may use; a crew naming
+            # another host is refused and reported as UntrustedPolicyHost.
+            - name: DISCUSSION_GATEWAY_ASKER_POLICY_HOSTS
+              value: {{ join "," . | quote }}
+            {{- end }}
             {{- with .Values.secretReplication.allowedSourceNamespaces }}
             - name: SECRET_SOURCE_NAMESPACES
               value: {{ join "," . | quote }}

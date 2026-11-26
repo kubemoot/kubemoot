@@ -100,6 +100,15 @@ func gatewayServiceTokenEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.
 	return env
 }
 
+// gatewayServiceTokenCrewEnv names the crew a gateway's service token verifiers belong to, so a
+// subscriber they accept is admitted for that crew alone. Nothing for a crew with no verifier.
+func gatewayServiceTokenCrewEnv(crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
+	if len(serviceTokenConfigs(discussionAccess(crew))) == 0 {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: identity.EnvCrew, Value: identity.CrewRef{Namespace: crew.Namespace, Name: crew.Name}.String()}}
+}
+
 // hashKeySecret is the Secret and key that hold the crew's hash key, the one place the default
 // key name is applied: the gateway reads the key from it and the operator reads the same one.
 func hashKeySecret(access *kubemootv1alpha1.DiscussionAccess) (name, key string, ok bool) {
@@ -229,7 +238,7 @@ func requiredCallerCredential(s *kubemootv1alpha1.MCPServer) bool {
 // whether its tools can act as the asker. They are informational: a failure to read the
 // namespace is logged and leaves the last condition in place, and never fails the reconcile.
 func (r *CrewReconciler) reconcileAccessConditions(ctx context.Context, crew *kubemootv1alpha1.Crew) {
-	reconcileAuthentication(crew)
+	reconcileAuthentication(crew, r.AskerPolicyHosts)
 	if err := r.reconcileCallerCredentials(ctx, crew); err != nil {
 		logf.FromContext(ctx).Error(err, "Failed to check the crew's caller credentials", "crew", crew.Name)
 	}

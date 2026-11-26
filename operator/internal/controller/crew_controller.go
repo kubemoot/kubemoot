@@ -51,6 +51,7 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/crewmemory"
 	"github.com/kubemoot/kubemoot/operator/pkg/crewscope"
 	"github.com/kubemoot/kubemoot/operator/pkg/httporigin"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 // crewMemoryBucket is the NATS KV bucket holding crew working memory; keys are
@@ -79,6 +80,9 @@ type CrewReconciler struct {
 	RegisteredAccounts RegisteredAccounts
 	// GatewayTLS issues the gateways' serving certificates. Nil serves the gateways plain.
 	GatewayTLS *GatewayTLS
+	// AskerPolicyHosts are the policy decision point hosts this install trusts for a crew's
+	// external askers rule. A rule naming any other host is refused and reported on the Crew.
+	AskerPolicyHosts identity.PolicyHosts
 	// AccountBrokerURL is the liaison's account broker, given to the gateway of a crew whose askers
 	// rule is connectedAccount. Empty gives none.
 	AccountBrokerURL string
@@ -628,7 +632,7 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 							Ports: []corev1.ContainerPort{
 								{Name: portNameHTTP, ContainerPort: crewGatewayPort, Protocol: corev1.ProtocolTCP},
 							},
-							Env: gomem.With(append(append(gatewayEnv(natsURL, discussionAccess(crew)), gatewayIdentityEnv(crew)...), gatewayTrustedHopEnv(crew)...), resources),
+							Env: gomem.With(append(append(gatewayEnv(natsURL, discussionAccess(crew)), gatewayIdentityEnv(crew)...), append(gatewayServiceTokenCrewEnv(crew), gatewayTrustedHopEnv(crew, r.AskerPolicyHosts)...)...), resources),
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: &noEscalation,
 								ReadOnlyRootFilesystem:   &nonRoot,
