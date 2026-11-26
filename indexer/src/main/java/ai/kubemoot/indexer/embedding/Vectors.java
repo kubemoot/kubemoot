@@ -18,7 +18,8 @@ public final class Vectors {
      */
     public static float[] l2Normalize(float[] vector) {
         if (vector == null) {
-            return null;
+            // A missing embedding stays missing; an empty array would hide it.
+            return null; // NOSONAR java:S1168
         }
         double sum = 0;
         for (float x : vector) {
