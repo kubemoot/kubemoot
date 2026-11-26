@@ -127,7 +127,7 @@ func (d *subscriberDirectory) chainFor(name types.NamespacedName, configs []iden
 	if c, ok := d.chains[name]; ok && bytes.Equal(c.configs, raw) && bytes.Equal(c.key, key) {
 		return c, nil
 	}
-	chain, err := identity.NewServiceTokenChain(configs, key, d.client)
+	chain, err := identity.NewServiceTokenChain(configs, key, d.client, identity.CrewRef{Namespace: name.Namespace, Name: name.Name})
 	if err != nil {
 		delete(d.chains, name)
 		return nil, err

@@ -22,13 +22,13 @@ func chainConfig(name string) ServiceTokenConfig {
 }
 
 func TestServiceTokenChainNeedsTheKey(t *testing.T) {
-	if _, err := NewServiceTokenChain([]ServiceTokenConfig{chainConfig(testIssuer)}, nil, nil); !errors.Is(err, ErrNoHashKey) {
+	if _, err := NewServiceTokenChain([]ServiceTokenConfig{chainConfig(testIssuer)}, nil, nil, CrewRef{}); !errors.Is(err, ErrNoHashKey) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestServiceTokenChainBuildsOneVerifierPerServiceAndKeysTheHasher(t *testing.T) {
-	chain, err := NewServiceTokenChain([]ServiceTokenConfig{chainConfig(testIssuer)}, testKey, nil)
+	chain, err := NewServiceTokenChain([]ServiceTokenConfig{chainConfig(testIssuer)}, testKey, nil, CrewRef{Namespace: "ns", Name: crewName})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestServiceTokenChainRefusesWhatTheCRDRefuses(t *testing.T) {
 		"the reserved kubernetes name": {chainConfig(IssuerKubernetes)},
 	}
 	for name, configs := range cases {
-		if _, err := NewServiceTokenChain(configs, testKey, nil); !errors.Is(err, ErrServiceTokenConfig) {
+		if _, err := NewServiceTokenChain(configs, testKey, nil, CrewRef{Namespace: "ns", Name: crewName}); !errors.Is(err, ErrServiceTokenConfig) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
@@ -55,7 +55,7 @@ func TestServiceTokenChainRefusesWhatTheCRDRefuses(t *testing.T) {
 
 func TestServiceTokenChainDoesNotChangeTheCallersList(t *testing.T) {
 	configs := []ServiceTokenConfig{chainConfig(testIssuer)}
-	if _, err := NewServiceTokenChain(configs, testKey, nil); err != nil {
+	if _, err := NewServiceTokenChain(configs, testKey, nil, CrewRef{Namespace: "ns", Name: crewName}); err != nil {
 		t.Fatal(err)
 	}
 	if configs[0].Authorize != "" || configs[0].MaxCacheSeconds != 0 {

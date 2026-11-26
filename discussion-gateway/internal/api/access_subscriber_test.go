@@ -67,7 +67,7 @@ func subscriberServerLabelling(t *testing.T, nc *natsclient.Client, svc *personS
 	rv := identity.Reviewer{Client: cluster()}
 	routed := identity.RoutedAuthorizer{Kubernetes: rv}
 	if withPolicy {
-		routed.Subscribers = identity.NewSubscriberAuthorizer(cfgs)
+		routed.Subscribers = identity.NewSubscriberAuthorizer(cfgs, identity.CrewRef{Namespace: "ns", Name: pilotCrew})
 	}
 	auth := identity.NewAuthenticator(identity.Hasher{Key: []byte(hashKey)}, false, identity.TokenReviewVerifier{Reviewer: rv}, v)
 	mux := http.NewServeMux()
@@ -180,5 +180,23 @@ func assertNoTokenOrSubjectStored(t *testing.T, js jetstream.JetStream, kv jetst
 		if strings.Contains(string(e.Value()), subscriberCanary) || strings.Contains(string(e.Value()), "person-1") {
 			t.Fatalf("%s holds the token or the subject: %s", k, e.Value())
 		}
+	}
+}
+
+func TestASubscriberAdmittedByOneCrewsVerifierIsRefusedAtAnotherCrew(t *testing.T) {
+	nc, js := jetStreamServer(t)
+	createConversationsBucket(t, js)
+	svc := newPersonService(t, 200)
+	srv := subscriberServer(t, nc, svc, "", true)
+	token := personToken("acct-42")
+
+	if resp := do(t, http.MethodPost, srv.URL+postPath, token, `{"message":"hi"}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("the crew the verifier belongs to: status %d, want 200", resp.StatusCode)
+	}
+	if resp := do(t, http.MethodGet, srv.URL+"/api/v1/discussions/other", token, ""); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("listing another crew's conversations: status %d, want 403", resp.StatusCode)
+	}
+	if resp := do(t, http.MethodPost, srv.URL+"/api/v1/discussions/other", token, `{"message":"hi"}`); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("another crew's path: status %d, want 403", resp.StatusCode)
 	}
 }

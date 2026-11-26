@@ -24,17 +24,42 @@ import (
 // issuer is configured for it and either accepts every person its service accepted or lists
 // their subject. They may do nothing else: reading other callers' conversations and
 // controlling them stay Kubernetes rights.
+//
+// The authorizer is bound to the one crew whose verifiers it holds: a subscriber that crew's
+// verifier accepted may use that crew and no other, however the request names the crew. A crew
+// that lists the same service has its own verifier and its own authorizer.
 type SubscriberAuthorizer struct {
 	byName map[string]ServiceTokenConfig
+	crew   CrewRef
 }
 
-// NewSubscriberAuthorizer returns the authorizer of the configured verifiers.
-func NewSubscriberAuthorizer(configs []ServiceTokenConfig) SubscriberAuthorizer {
+// CrewRef names a crew.
+type CrewRef struct {
+	Namespace string
+	Name      string
+}
+
+// ParseCrewRef reads "<namespace>/<name>", the value of EnvCrew. Anything else is the zero
+// CrewRef, which no access matches.
+func ParseCrewRef(v string) CrewRef {
+	ns, name, ok := strings.Cut(strings.TrimSpace(v), "/")
+	if !ok || ns == "" || name == "" || strings.Contains(name, "/") {
+		return CrewRef{}
+	}
+	return CrewRef{Namespace: ns, Name: name}
+}
+
+// String is the "<namespace>/<name>" form ParseCrewRef reads.
+func (c CrewRef) String() string { return c.Namespace + "/" + c.Name }
+
+// NewSubscriberAuthorizer returns the authorizer of the configured verifiers of one crew. A
+// zero crew admits no one.
+func NewSubscriberAuthorizer(configs []ServiceTokenConfig, crew CrewRef) SubscriberAuthorizer {
 	m := make(map[string]ServiceTokenConfig, len(configs))
 	for _, c := range configs {
 		m[c.Name] = c
 	}
-	return SubscriberAuthorizer{byName: m}
+	return SubscriberAuthorizer{byName: m, crew: crew}
 }
 
 // Allowed implements Authorizer for a subscriber identity. An issuer with no configured
@@ -42,7 +67,7 @@ func NewSubscriberAuthorizer(configs []ServiceTokenConfig) SubscriberAuthorizer 
 func (a SubscriberAuthorizer) Allowed(
 	_ context.Context, id *Identity, attrs authorizationv1.ResourceAttributes,
 ) (bool, error) {
-	if !isUseAccess(attrs) {
+	if !isUseAccess(attrs) || a.crew.Name == "" || attrs.Namespace != a.crew.Namespace || attrs.Name != a.crew.Name {
 		return false, nil
 	}
 	cfg, ok := a.byName[id.Issuer]

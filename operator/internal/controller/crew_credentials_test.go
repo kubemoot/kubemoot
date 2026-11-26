@@ -215,7 +215,7 @@ var _ = Describe("Each person's own access: operator wiring", func() {
 
 		It("reports the Authentication condition with reason ServiceToken", func() {
 			crew := crewOf("authn", tokenAccess(false))
-			reconcileAuthentication(crew)
+			reconcileAuthentication(crew, nil)
 			c := meta.FindStatusCondition(crew.Status.Conditions, conditionTypeAuthentication)
 			Expect(c).NotTo(BeNil())
 			Expect(c.Status).To(Equal(metav1.ConditionTrue))

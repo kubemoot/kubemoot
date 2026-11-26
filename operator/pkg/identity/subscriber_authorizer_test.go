@@ -31,7 +31,7 @@ func TestSubscriberMayUseTheCrewOnlyThroughAConfiguredVerifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := NewSubscriberAuthorizer(cfgs)
+	a := NewSubscriberAuthorizer(cfgs, CrewRef{Namespace: "ns", Name: crewName})
 	use := UseAccess("ns", "pilot")
 	cases := []struct {
 		name string
@@ -52,7 +52,7 @@ func TestSubscriberMayUseTheCrewOnlyThroughAConfiguredVerifier(t *testing.T) {
 }
 
 func TestSubscriberHasNoOtherAccess(t *testing.T) {
-	a := NewSubscriberAuthorizer([]ServiceTokenConfig{{Name: testIssuer, Authorize: AuthorizeAnyAccepted}})
+	a := NewSubscriberAuthorizer([]ServiceTokenConfig{{Name: testIssuer, Authorize: AuthorizeAnyAccepted}}, CrewRef{Namespace: "ns", Name: crewName})
 	id := &Identity{Issuer: testIssuer, Subject: "x"}
 	for _, attrs := range []authorizationv1.ResourceAttributes{
 		ConversationsAccess("ns", "pilot", "get"),
@@ -61,7 +61,7 @@ func TestSubscriberHasNoOtherAccess(t *testing.T) {
 		ConversationsAccess("ns", "pilot", "delete"),
 		{Verb: "get", Resource: "secrets", Name: "x"},
 		{Verb: "get", Resource: "crews"},
-		{Verb: "delete", Resource: "crews", Name: "pilot"},
+		{Verb: "delete", Resource: "crews", Name: crewName},
 	} {
 		if ok, _ := a.Allowed(context.Background(), id, attrs); ok {
 			t.Errorf("a subscriber was allowed %+v", attrs)
@@ -83,6 +83,43 @@ func TestRoutedAuthorizerSendsEachKindToItsOwnDecider(t *testing.T) {
 	for _, issuer := range []string{IssuerKubernetes, testIssuer} {
 		if ok, err := none.Allowed(context.Background(), &Identity{Issuer: issuer}, use); ok || err != nil {
 			t.Errorf("%s: %v %v", issuer, ok, err)
+		}
+	}
+}
+
+func TestSubscriberIsAdmittedForTheirCrewAndNoOther(t *testing.T) {
+	cfgs := []ServiceTokenConfig{{Name: testIssuer, Authorize: AuthorizeAnyAccepted}}
+	id := &Identity{Issuer: testIssuer, Subject: "x"}
+	crewA := NewSubscriberAuthorizer(cfgs, CrewRef{Namespace: "ns", Name: "a"})
+	crewB := NewSubscriberAuthorizer(cfgs, CrewRef{Namespace: "ns", Name: "b"})
+	if ok, err := crewA.Allowed(context.Background(), id, UseAccess("ns", "a")); err != nil || !ok {
+		t.Fatalf("crew a refused its own subscriber: %v %v", ok, err)
+	}
+	for name, a := range map[string]SubscriberAuthorizer{"verified at a, asked of b": crewA, "verified at b, asked of a": crewB} {
+		attrs := UseAccess("ns", "b")
+		if name == "verified at b, asked of a" {
+			attrs = UseAccess("ns", "a")
+		}
+		if ok, _ := a.Allowed(context.Background(), id, attrs); ok {
+			t.Errorf("%s: admitted", name)
+		}
+	}
+	if ok, _ := crewA.Allowed(context.Background(), id, UseAccess("other", "a")); ok {
+		t.Error("a crew of the same name in another namespace was admitted")
+	}
+	none := NewSubscriberAuthorizer(cfgs, CrewRef{})
+	if ok, _ := none.Allowed(context.Background(), id, UseAccess("", "")); ok {
+		t.Error("an authorizer bound to no crew admitted someone")
+	}
+}
+
+func TestCrewRefParsesOnlyNamespaceSlashName(t *testing.T) {
+	if got := ParseCrewRef("ns/pilot"); got != (CrewRef{Namespace: "ns", Name: crewName}) || got.String() != "ns/pilot" {
+		t.Errorf("got %+v", got)
+	}
+	for _, bad := range []string{"", "pilot", "/pilot", "ns/", "a/b/c"} {
+		if got := ParseCrewRef(bad); got != (CrewRef{}) {
+			t.Errorf("%q parsed as %+v", bad, got)
 		}
 	}
 }

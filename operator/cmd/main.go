@@ -559,6 +559,7 @@ func main() {
 			Recorder: mgr.GetEventRecorder("crew-controller"), NetPol: netPol, GatewayTLS: gatewayTLS,
 			RegisteredAccounts: controller.RegisteredAccountsFromEnv(os.Getenv),
 			AccountBrokerURL:   os.Getenv(controller.AccountBrokerURLEnv),
+			AskerPolicyHosts:   askerPolicyHosts(),
 		}).SetupWithManager},
 		{"MCPCatalog", (&controller.MCPCatalogReconciler{
 			Client: mgr.GetClient(), Scheme: mgr.GetScheme(),
@@ -613,6 +614,17 @@ func main() {
 // newNetPolicySync reads the network policy setting from the environment and returns the
 // applier every controller shares. With the flag off it still removes the policies the
 // operator generated earlier, and creates none.
+// askerPolicyHosts is the policy decision point hosts the install trusts for crews' external
+// askers rules. An entry that is not a plain host name is logged and never trusted.
+func askerPolicyHosts() identity.PolicyHosts {
+	hosts, rejected := controller.AskerPolicyHostsFromEnv(os.Getenv)
+	if len(rejected) > 0 {
+		setupLog.Info("Ignoring asker policy host entries that are not a plain host name",
+			"setting", controller.AskerPolicyHostsEnv, "entries", rejected)
+	}
+	return hosts
+}
+
 func newNetPolicySync(mgr ctrl.Manager) *controller.NetPolicySync {
 	cfg, warnings := netpol.ConfigFromEnv(os.Getenv)
 	for _, w := range warnings {

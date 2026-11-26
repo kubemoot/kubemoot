@@ -11,6 +11,7 @@ You may obtain a copy of the License at
 package identity
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -703,5 +704,30 @@ func TestFromEnvWithoutEnforceIgnoresServiceTokens(t *testing.T) {
 	set, err := FromEnv(get, nil)
 	if err != nil || set.Authenticator.Enforcing() {
 		t.Fatal(err)
+	}
+}
+
+func TestFromEnvAdmitsSubscribersOnlyForTheCrewNamedInEnv(t *testing.T) {
+	env := map[string]string{
+		EnvEnforce: EnvTrue, EnvHashKey: "install-hash-key",
+		EnvServiceTokens: `[{"name":"oreilly","verifyURL":"https://x.example","subjectClaim":"sub"}]`,
+	}
+	id := &Identity{Issuer: "oreilly", Subject: "x"}
+	ask := func(crew string) bool {
+		env[EnvCrew] = crew
+		set, err := FromEnv(func(k string) string { return env[k] }, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ok, _ := set.Authorizer.Allowed(context.Background(), id, UseAccess("ns", "a"))
+		return ok
+	}
+	if !ask("ns/a") {
+		t.Error("the crew named in ACCESS_CREW refused its subscriber")
+	}
+	for _, other := range []string{"ns/b", "other/a", "", "a"} {
+		if ask(other) {
+			t.Errorf("ACCESS_CREW=%q admitted a subscriber for ns/a", other)
+		}
 	}
 }

@@ -81,6 +81,14 @@ discussionGateway:
   # gateway's event streams. Empty, the default, sends no CORS headers, so only same-origin
   # pages and non-browser clients can. The gateway never allows credentials.
   allowedOrigins: []
+  # Policy decision point hosts a crew's external askers rule (spec.discussion.access.askers.external)
+  # may use, as plain host names (pdp.example.org: no scheme, port or path). The gateway sends each
+  # asker's identity to that address, so the install, not the crew author, decides where. A crew
+  # whose external.url names another host reports Authentication=False, reason UntrustedPolicyHost,
+  # and its gateway refuses everyone for that rule. Every call also refuses private, loopback,
+  # link-local and cluster addresses, follows no redirect and uses no proxy, so a policy decision
+  # point must be reachable on a public address. Empty trusts none, so no external rule works.
+  askerPolicyHosts: []
   # TLS for the gateways. A gateway carries callers' bearer tokens (the dashboard's, the
   # liaison's, a person's own), so each crew's gateway serves https on port 443 of its Service
   # with a certificate the operator signs from the install CA (installCA above), and the dashboard

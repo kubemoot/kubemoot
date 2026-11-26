@@ -63,7 +63,10 @@ type AnySignedInAskers struct{}
 // other answer refuses.
 type ExternalAskers struct {
 	// URL is the policy decision point's access evaluation endpoint, such as
-	// https://pdp.example.org/access/v1/evaluation. It must be https.
+	// https://pdp.example.org/access/v1/evaluation. It must be https, and its host must be one
+	// the install lists as a trusted policy decision point (the chart's
+	// discussionGateway.askerPolicyHosts); any other host is refused and reported on the Crew
+	// as Authentication=False, reason UntrustedPolicyHost.
 	// +kubebuilder:validation:MaxLength=512
 	// +kubebuilder:validation:Pattern=`^https://[^/?#\s]+(/[^?#\s]*)?$`
 	URL string `json:"url"`

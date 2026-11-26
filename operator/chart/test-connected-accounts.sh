@@ -32,4 +32,12 @@ done
 if grep -q 'abc' <<<"$(yq -N 'select(.kind == "Deployment" and .metadata.name == "kubemoot-operator") | .spec.template.spec.containers[0].env' <<<"$out")"; then
   fail "an account setting leaked into the operator environment"
 fi
+# The policy decision point hosts a crew's external askers rule may use: none by default, the
+# listed host names comma separated otherwise, passed to the operator for every crew's gateway.
+pdp_hosts() {
+  yq -N 'select(.kind == "Deployment" and .metadata.name == "kubemoot-operator") | .spec.template.spec.containers[0].env[] | select(.name == "DISCUSSION_GATEWAY_ASKER_POLICY_HOSTS") | .value' <<<"$1"
+}
+[ -z "$(pdp_hosts "$(render)")" ] || fail "the default render trusts a policy decision point host"
+out="$(render --set 'discussionGateway.askerPolicyHosts={pdp.example.org,opa.example.org}')"
+[ "$(pdp_hosts "$out")" = "pdp.example.org,opa.example.org" ] || fail "policy hosts are '$(pdp_hosts "$out")'"
 echo "ok: connected accounts render tests"

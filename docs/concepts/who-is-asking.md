@@ -93,7 +93,7 @@ door's key, not the person's token.
 | An operations crew that reads and changes a cluster | `kubernetesRBAC` | Only the cluster's administrators may ask, and the cluster already says who they are |
 | A research crew whose tools use a person's own account at an outside service | `connectedAccount` | Anyone the sign-in provider accepts may ask; the outside service decides what the person's account may do on each call. Today the gateway admits every signed-in person and does not check that they connected the account; connecting and leasing it is a later step |
 | A crew for one team at a company | `issuerGroups` | The provider's groups already say who is on the team |
-| A crew whose policy lives elsewhere | `external` | A policy decision point the install runs (OPA, Cerbos, OpenFGA and others that speak OpenID AuthZEN) decides each request; any error refuses |
+| A crew whose policy lives elsewhere | `external` | A policy decision point the install runs (OPA, Cerbos, OpenFGA and others that speak OpenID AuthZEN) decides each request; any error refuses. The install lists the hosts it trusts for this (`discussionGateway.askerPolicyHosts`), so a crew author cannot send people's identities to an address of their choosing |
 
 - **What a stolen key means.** Whoever holds the door's signing key can say that anyone is asking, except a `system:`
   identity. Keep the key in a Secret only the liaison mounts, and rotate it by listing the new public key on each crew
@@ -115,6 +115,7 @@ The configuration is two environment variables on a crew's discussion gateway an
 | Variable | Value |
 |----------|-------|
 | `ACCESS_SERVICE_TOKENS` | A JSON list, one entry per service. Needs `ACCESS_ENFORCE=true` |
+| `ACCESS_CREW` | `<namespace>/<name>` of the one crew the door guards. The operator sets it with the list. A subscriber a crew's verifier accepted is admitted for that crew alone; without it no subscriber is admitted |
 | `ACCESS_HASH_KEY` | The install's hash key, from a Secret, the same value on every door. Required whenever `ACCESS_SERVICE_TOKENS` is set; a door that has the list and no key does not start |
 
 ```json
@@ -151,7 +152,7 @@ Keep the hash key secret and stable. Changing it changes every subscriber's id, 
 
 ## What a caller may do
 
-A person a trusted door asserts may use the crew when the crew's `askers` rule admits them. A Kubernetes caller needs `get` on the Crew to use it at all, checked with a SubjectAccessReview on every request. A review that cannot be made refuses the request (503) and never allows it. A subscriber may use the crew when a service token verifier named as their issuer is configured for it and either accepts everyone its service accepts or lists their subject. That is all they may do: reading other callers' conversations and controlling them remain Kubernetes rights, so a subscriber sees only their own conversations. Reading other callers' conversations is a separate right, `get` or `list` on the virtual resource `crews/conversations`, which the chart's ClusterRole `kubemoot-conversation-reader` grants and nobody is bound to by default. Stopping, pausing, resuming or deleting another caller's conversation is `update` or `delete` on it, granted by `kubemoot-conversation-controller`; see [who owns a conversation](../conversations-turns-and-threads/#who-owns-a-conversation).
+A person a trusted door asserts may use the crew when the crew's `askers` rule admits them. A Kubernetes caller needs `get` on the Crew to use it at all, checked with a SubjectAccessReview on every request. A review that cannot be made refuses the request (503) and never allows it. A subscriber may use the crew when a service token verifier named as their issuer is configured for it and either accepts everyone its service accepts or lists their subject. They may use that crew only: the verifier belongs to the crew whose gateway holds it, so a person admitted at one crew is refused at another crew that lists the same service, even through the first crew's gateway with the other crew's name in the path. That is all they may do: reading other callers' conversations and controlling them remain Kubernetes rights, so a subscriber sees only their own conversations. Reading other callers' conversations is a separate right, `get` or `list` on the virtual resource `crews/conversations`, which the chart's ClusterRole `kubemoot-conversation-reader` grants and nobody is bound to by default. Stopping, pausing, resuming or deleting another caller's conversation is `update` or `delete` on it, granted by `kubemoot-conversation-controller`; see [who owns a conversation](../conversations-turns-and-threads/#who-owns-a-conversation).
 
 ## The operator's report service
 

@@ -62,13 +62,13 @@ func TestAccessBecomesTheGatewaysEnvironmentAndRights(t *testing.T) {
 
 func TestAuthenticationConditionNamesTheAnonymousState(t *testing.T) {
 	crew := crewWithAccess(nil)
-	reconcileAuthentication(crew)
+	reconcileAuthentication(crew, nil)
 	c := meta.FindStatusCondition(crew.Status.Conditions, conditionTypeAuthentication)
 	if c == nil || c.Status != metav1.ConditionFalse || c.Reason != reasonAnonymous {
 		t.Fatalf("condition %+v", c)
 	}
 	crew = crewWithAccess(&kubemootv1alpha1.DiscussionAccess{})
-	reconcileAuthentication(crew)
+	reconcileAuthentication(crew, nil)
 	if c := meta.FindStatusCondition(crew.Status.Conditions, conditionTypeAuthentication); c.Status != metav1.ConditionTrue || c.Reason != reasonTokenReview {
 		t.Fatalf("condition %+v", c)
 	}
@@ -77,7 +77,7 @@ func TestAuthenticationConditionNamesTheAnonymousState(t *testing.T) {
 func TestNoAuthenticationConditionWithoutAGateway(t *testing.T) {
 	crew := crewWithAccess(nil)
 	crew.Spec.Discussion.Enabled = ptr.To(false)
-	reconcileAuthentication(crew)
+	reconcileAuthentication(crew, nil)
 	if meta.FindStatusCondition(crew.Status.Conditions, conditionTypeAuthentication) != nil {
 		t.Fatal("a crew with no gateway accepts no callers")
 	}
@@ -109,7 +109,7 @@ func TestAuthenticationConditionFollowsWhatTheGatewayDoes(t *testing.T) {
 	}
 	for name, tc := range cases {
 		crew := crewWithAccess(tc.access)
-		reconcileAuthentication(crew)
+		reconcileAuthentication(crew, nil)
 		c := meta.FindStatusCondition(crew.Status.Conditions, conditionTypeAuthentication)
 		if c == nil || c.Status != tc.status || c.Reason != tc.reason {
 			t.Errorf("%s: %+v", name, c)

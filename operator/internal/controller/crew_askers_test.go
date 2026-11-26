@@ -32,7 +32,8 @@ const (
 	askersHash     = "hash"
 	askersNS       = "askers-ns"
 	askersCrew     = "askers-crew"
-	askersPDP      = "https://pdp.example.org/x"
+	askersPDPHost  = "pdp.example.org"
+	askersPDP      = "https://" + askersPDPHost + "/x"
 	askersTokenKey = "pdp-token"
 )
 
@@ -67,7 +68,7 @@ func crewWithHops(access *kubemootv1alpha1.DiscussionAccess) *kubemootv1alpha1.C
 }
 
 func authCondition(crew *kubemootv1alpha1.Crew) *metav1.Condition {
-	reconcileAuthentication(crew)
+	reconcileAuthentication(crew, identity.PolicyHosts{askersPDPHost})
 	return meta.FindStatusCondition(crew.Status.Conditions, conditionTypeAuthentication)
 }
 
@@ -75,7 +76,7 @@ var anySignedIn = &kubemootv1alpha1.AskerRule{AnySignedIn: &kubemootv1alpha1.Any
 
 func TestTrustedHopsAndTheRuleBecomeTheGatewaysEnvironmentForThisCrewAlone(t *testing.T) {
 	crew := crewWithHops(hopAccess(validHopKey(t), anySignedIn))
-	env := gatewayTrustedHopEnv(crew)
+	env := gatewayTrustedHopEnv(crew, nil)
 	raw, ok := envValue(env, identity.EnvTrustedHops)
 	if !ok {
 		t.Fatalf("no hop environment: %v", env)
@@ -87,7 +88,7 @@ func TestTrustedHopsAndTheRuleBecomeTheGatewaysEnvironmentForThisCrewAlone(t *te
 }
 
 func TestTheRuleIsBoundToThisCrewAndCarriesTheHashKey(t *testing.T) {
-	env := gatewayTrustedHopEnv(crewWithHops(hopAccess(validHopKey(t), anySignedIn)))
+	env := gatewayTrustedHopEnv(crewWithHops(hopAccess(validHopKey(t), anySignedIn)), nil)
 	rule, _ := envValue(env, identity.EnvAskers)
 	if parsed, err := identity.ParseAskers(rule); err != nil || parsed.Kind() != "anySignedIn" ||
 		parsed.Namespace != askersNS || parsed.Crew != askersCrew {
@@ -101,22 +102,22 @@ func TestTheRuleIsBoundToThisCrewAndCarriesTheHashKey(t *testing.T) {
 func TestKubernetesRBACNeedsNoHashKeyAndOthersCarryOne(t *testing.T) {
 	rbac := hopAccess(validHopKey(t), &kubemootv1alpha1.AskerRule{KubernetesRBAC: &kubemootv1alpha1.KubernetesRBACAskers{}})
 	rbac.HashKeySecretRef = nil
-	env := gatewayTrustedHopEnv(crewWithHops(rbac))
+	env := gatewayTrustedHopEnv(crewWithHops(rbac), nil)
 	if _, ok := envValue(env, identity.EnvHashKey); ok || len(env) != 2 {
 		t.Errorf("env %v", env)
 	}
 	other := hopAccess(validHopKey(t), anySignedIn)
 	other.HashKeySecretRef = nil
-	if env := gatewayTrustedHopEnv(crewWithHops(other)); env != nil {
+	if env := gatewayTrustedHopEnv(crewWithHops(other), nil); env != nil {
 		t.Errorf("a rule that needs the hash key got env %v", env)
 	}
 }
 
 func TestACrewWithNoTrustedHopsGetsNoHopSettings(t *testing.T) {
-	if env := gatewayTrustedHopEnv(crewWithHops(nil)); len(env) != 0 {
+	if env := gatewayTrustedHopEnv(crewWithHops(nil), nil); len(env) != 0 {
 		t.Errorf("env %v", env)
 	}
-	if env := gatewayTrustedHopEnv(crewWithHops(&kubemootv1alpha1.DiscussionAccess{})); len(env) != 0 {
+	if env := gatewayTrustedHopEnv(crewWithHops(&kubemootv1alpha1.DiscussionAccess{}), nil); len(env) != 0 {
 		t.Errorf("env %v", env)
 	}
 }
@@ -163,7 +164,7 @@ func TestAMalformedTrustedHopKeyIsReportedAndNoAssertionIsAccepted(t *testing.T)
 		!strings.Contains(c.Message, `"liaison"`) || !strings.Contains(c.Message, "publicKeys[0]") {
 		t.Fatalf("condition %+v", c)
 	}
-	if env := gatewayTrustedHopEnv(crew); env != nil {
+	if env := gatewayTrustedHopEnv(crew, nil); env != nil {
 		t.Errorf("a malformed key reached the gateway: %v", env)
 	}
 }
@@ -183,7 +184,7 @@ func TestAnInvalidAskersRuleIsReportedAndRefusesEveryone(t *testing.T) {
 		if c == nil || c.Status != metav1.ConditionFalse || c.Reason != reasonInvalidTrustedHops {
 			t.Errorf("%s: condition %+v", name, c)
 		}
-		if env := gatewayTrustedHopEnv(crew); env != nil {
+		if env := gatewayTrustedHopEnv(crew, nil); env != nil {
 			t.Errorf("%s: env %v", name, env)
 		}
 	}
@@ -201,11 +202,75 @@ func TestExternalDecisionPointTokenComesFromItsSecret(t *testing.T) {
 	rule := &kubemootv1alpha1.AskerRule{External: &kubemootv1alpha1.ExternalAskers{
 		URL: askersPDP, TokenSecretRef: &kubemootv1alpha1.SecretKeyReference{Name: "pdp", Key: askersTokenKey},
 	}}
-	env := gatewayTrustedHopEnv(crewWithHops(hopAccess(validHopKey(t), rule)))
+	env := gatewayTrustedHopEnv(crewWithHops(hopAccess(validHopKey(t), rule)), identity.PolicyHosts{askersPDPHost})
 	for _, e := range env {
 		if e.Name == identity.EnvAskersToken && e.ValueFrom.SecretKeyRef.Name == "pdp" && e.ValueFrom.SecretKeyRef.Key == askersTokenKey {
 			return
 		}
 	}
 	t.Errorf("env %v", env)
+}
+
+func externalRule() *kubemootv1alpha1.AskerRule {
+	return &kubemootv1alpha1.AskerRule{External: &kubemootv1alpha1.ExternalAskers{URL: askersPDP}}
+}
+
+func TestAnExternalRuleWithAnUnlistedHostGetsNoGatewaySettingsAndIsReported(t *testing.T) {
+	for name, hosts := range map[string]identity.PolicyHosts{"none listed": nil, "another host": {"other.example.org"}} {
+		crew := crewWithHops(hopAccess(validHopKey(t), externalRule()))
+		if env := gatewayTrustedHopEnv(crew, hosts); env != nil {
+			t.Errorf("%s: the gateway was given %v, so it would send identities there", name, env)
+		}
+		reconcileAuthentication(crew, hosts)
+		c := meta.FindStatusCondition(crew.Status.Conditions, conditionTypeAuthentication)
+		if c == nil || c.Status != metav1.ConditionFalse || c.Reason != reasonUntrustedPolicyHost ||
+			!strings.Contains(c.Message, AskerPolicyHostsEnv) {
+			t.Errorf("%s: condition %+v", name, c)
+		}
+	}
+}
+
+func TestAnExternalRuleWithAListedHostReachesTheGatewayWithTheList(t *testing.T) {
+	hosts := identity.PolicyHosts{"pdp.example.org", "second.example.org"}
+	crew := crewWithHops(hopAccess(validHopKey(t), externalRule()))
+	env := gatewayTrustedHopEnv(crew, hosts)
+	if got, _ := envValue(env, identity.EnvAskersPolicyHosts); got != "pdp.example.org,second.example.org" {
+		t.Errorf("hosts env %q in %v", got, env)
+	}
+	reconcileAuthentication(crew, hosts)
+	if c := meta.FindStatusCondition(crew.Status.Conditions, conditionTypeAuthentication); c == nil || c.Status != metav1.ConditionTrue {
+		t.Errorf("condition %+v", c)
+	}
+}
+
+func TestTheHostListMattersOnlyToTheExternalKind(t *testing.T) {
+	crew := crewWithHops(hopAccess(validHopKey(t), anySignedIn))
+	env := gatewayTrustedHopEnv(crew, nil)
+	if _, ok := envValue(env, identity.EnvTrustedHops); !ok {
+		t.Fatal("a rule that is not external was refused for want of a host list")
+	}
+	if _, ok := envValue(env, identity.EnvAskersPolicyHosts); ok {
+		t.Error("the host list went to a gateway that has no external rule")
+	}
+}
+
+func TestAskerPolicyHostsFromEnvSkipsWhatIsNotAHostName(t *testing.T) {
+	get := func(string) string { return "pdp.example.org, https://x.example ,opa.example.org" }
+	hosts, rejected := AskerPolicyHostsFromEnv(get)
+	if len(hosts) != 2 || len(rejected) != 1 {
+		t.Errorf("hosts %v rejected %v", hosts, rejected)
+	}
+}
+
+func TestServiceTokenVerifiersAreBoundToTheirCrewInTheGatewayEnvironment(t *testing.T) {
+	crew := crewWithHops(&kubemootv1alpha1.DiscussionAccess{
+		ServiceTokens: []kubemootv1alpha1.ServiceTokenVerifier{{Name: "svc", VerifyURL: "https://svc.example.org", SubjectClaim: "sub"}},
+	})
+	env := gatewayServiceTokenCrewEnv(crew)
+	if len(env) != 1 || env[0].Name != identity.EnvCrew || env[0].Value != askersNS+"/"+askersCrew {
+		t.Errorf("env %v", env)
+	}
+	if env := gatewayServiceTokenCrewEnv(crewWithHops(nil)); len(env) != 0 {
+		t.Errorf("a crew with no verifier got %v", env)
+	}
 }
