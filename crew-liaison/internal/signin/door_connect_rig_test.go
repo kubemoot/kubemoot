@@ -2,12 +2,14 @@ package signin
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,6 +95,20 @@ type connectRig struct {
 	up    *upstreamService
 	vault *accounts.Vault
 	svc   *accounts.Service
+	store *flakyBackend
+}
+
+// flakyBackend is a store that can be made to fail its deletions.
+type flakyBackend struct {
+	tokenstore.Backend
+	failDeletes atomic.Bool
+}
+
+func (f *flakyBackend) Delete(ctx context.Context, group, name string) error {
+	if f.failDeletes.Load() {
+		return errors.New("store away")
+	}
+	return f.Backend.Delete(ctx, group, name)
 }
 
 func newConnectRig(t *testing.T) *connectRig {
@@ -102,7 +118,8 @@ func newConnectRig(t *testing.T) *connectRig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := tokenstore.NewSealed(tokenstore.NewMemory(nil), sealer, 90*24*time.Hour)
+	flaky := &flakyBackend{Backend: tokenstore.NewMemory(nil)}
+	store, err := tokenstore.NewSealed(flaky, sealer, 90*24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +136,7 @@ func newConnectRig(t *testing.T) *connectRig {
 	}}
 	svc := &accounts.Service{People: accounts.NewPrincipals([]byte("install-key")), Vault: vault, Decls: decls, Regs: regs, Client: accounts.NewClient(up.srv.Client()), Now: time.Now}
 	r := newDoorRig(t, func(c *DoorConfig) { c.Accounts = svc })
-	return &connectRig{doorRig: r, up: up, vault: vault, svc: svc}
+	return &connectRig{doorRig: r, up: up, vault: vault, svc: svc, store: flaky}
 }
 
 // linkPath is the connect link the liaison would hand person, as a path.

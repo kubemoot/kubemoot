@@ -361,7 +361,7 @@ func TestSignOutDeletesEveryConnection(t *testing.T) {
 
 func TestAppRevocationEndsTheSignInAndDeletesTheConnections(t *testing.T) {
 	r := newConnectRig(t)
-	_, done := r.connectAs(doorUser, map[string]any{claimSub: subJane, claimNameKey: "Jane"})
+	_, done := r.connectAs(doorUser, janeShort)
 	if done.StatusCode != http.StatusOK {
 		t.Fatal("connect")
 	}
@@ -377,7 +377,7 @@ func TestAppRevocationEndsTheSignInAndDeletesTheConnections(t *testing.T) {
 		t.Fatalf("a revoked sign-in refreshed: %d", again.StatusCode)
 	}
 	// A token that is not valid, or another app's, is answered 200 and changes nothing.
-	_, _ = r.connectAs(doorUser, map[string]any{claimSub: subJane, claimNameKey: "Jane"})
+	_, _ = r.connectAs(doorUser, janeShort)
 	for name, form := range map[string]url.Values{
 		"garbage":     {formToken: {"nope"}, paramClientID: {doorClient}},
 		"another app": {formToken: {refresh}, paramClientID: {"other"}},
@@ -420,5 +420,67 @@ func TestMetadataAdvertisesRevocationOnlyWhenAccountsAreOn(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%s: revocation_endpoint = %q, want %q", name, got, c.want)
 		}
+	}
+}
+
+func TestAFailedDeletionIsNeverReportedAsSignedOut(t *testing.T) {
+	r := newConnectRig(t)
+	b, _ := r.connectAs(userJane, janeClaims)
+	text := body(t, b.get(pathAccounts))
+	r.store.failDeletes.Store(true)
+	resp := b.do(http.MethodPost, pathSignOut, fieldsOfForm(t, text, pathSignOut), nil)
+	if page := body(t, resp); resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(page, "Try again") ||
+		strings.Contains(page, "Signed out") {
+		t.Fatalf("sign out with a failing store: %d %s", resp.StatusCode, page)
+	}
+	if resp := b.get(pathAccounts); resp.StatusCode != http.StatusOK {
+		t.Fatalf("the session must stay so the person can try again: %d", resp.StatusCode)
+	}
+	r.store.failDeletes.Store(false)
+	again := b.do(http.MethodPost, pathSignOut, fieldsOfForm(t, body(t, b.get(pathAccounts)), pathSignOut), nil)
+	if again.StatusCode != http.StatusOK {
+		t.Fatalf("the retry: %d", again.StatusCode)
+	}
+	if _, err := r.kept(userJane); !errors.Is(err, accounts.ErrNotConnected) {
+		t.Fatal("the retry must delete")
+	}
+}
+
+func TestAnAppRevocationThatCannotDeleteIsRetryable(t *testing.T) {
+	r := newConnectRig(t)
+	if done := func() *http.Response {
+		_, d := r.connectAs(doorUser, janeShort)
+		return d
+	}(); done.StatusCode != http.StatusOK {
+		t.Fatal("connect")
+	}
+	_, refresh := r.tokens()
+	r.store.failDeletes.Store(true)
+	resp := r.postRevoke(url.Values{formToken: {refresh}, paramClientID: {doorClient}})
+	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Retry-After") == "" {
+		t.Fatalf("revoke with a failing store: %d", resp.StatusCode)
+	}
+	if again := r.postToken(r.refreshForm(refresh)); again.StatusCode != http.StatusOK {
+		t.Fatalf("a sign-in whose revocation failed is not ended: %d", again.StatusCode)
+	}
+}
+
+var janeShort = map[string]any{claimSub: subJane, claimNameKey: "Jane"}
+
+func TestAConnectReturnWorksOnce(t *testing.T) {
+	r := newConnectRig(t)
+	b := newBrowser(t, r.srv.URL)
+	page := r.openLink(b, r.linkPath(userJane, acctLibrary), janeClaims)
+	to := location(t, r.press(b, body(t, page)))
+	// The binding cookie is cleared by the first return, so keep a copy to replay with.
+	again := newBrowser(t, r.srv.URL)
+	for _, c := range b.cookies {
+		again.cookies[c.Name] = c
+	}
+	if first := r.serviceReturn(b, to, nil); first.StatusCode != http.StatusOK {
+		t.Fatalf("first: %d", first.StatusCode)
+	}
+	if second := r.serviceReturn(again, to, nil); second.StatusCode != http.StatusBadRequest {
+		t.Fatalf("a return used twice: %d", second.StatusCode)
 	}
 }

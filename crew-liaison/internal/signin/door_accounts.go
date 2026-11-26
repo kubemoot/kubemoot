@@ -140,19 +140,29 @@ func (d *door) signOut(w http.ResponseWriter, r *http.Request) {
 		d.notice(w, http.StatusForbidden, "This form is not valid", "Open your accounts page again.")
 		return
 	}
-	d.forgetPerson(r, d.principalOf(s), "signed out")
+	if !d.forgetPerson(r, d.principalOf(s), "signed out") {
+		d.notice(w, http.StatusServiceUnavailable, "Not deleted", notDeletedWords)
+		return
+	}
 	d.setCookie(w, sessionCookie, "", -1)
 	d.notice(w, http.StatusOK, "Signed out", "Kubemoot deleted every account connection it kept for you.")
 }
 
-// forgetPerson deletes everything kept for the person.
-func (d *door) forgetPerson(r *http.Request, principal, reason string) {
+// notDeletedWords is what a person is told when what is kept for them could not be deleted: the
+// sign-in stays, so they can press the button again.
+const notDeletedWords = "What Kubemoot kept for you could not be deleted just now, " +
+	"and you are still signed in. Try again."
+
+// forgetPerson deletes everything kept for the person and reports whether it did. A failure is
+// logged and is never reported as success.
+func (d *door) forgetPerson(r *http.Request, principal, reason string) bool {
 	n, err := d.cfg.Accounts.SignOut(r.Context(), principal)
 	if err != nil {
 		d.event("could not delete a person's connections", "reason", reason)
-		return
+		return false
 	}
 	d.event("connections deleted", "reason", reason, "count", n)
+	return true
 }
 
 // revoke is the door's sign-out for a chat app (RFC 7009): the app presents its refresh token,
@@ -168,8 +178,14 @@ func (d *door) revoke(w http.ResponseWriter, r *http.Request) {
 	var rt doorRefresh
 	known := d.sealer.Open(purposeRefresh, r.PostForm.Get("token"), &rt) == nil
 	if known && rt.ClientID == r.PostForm.Get(paramClientID) && d.now().Unix() <= rt.Abs {
+		if !d.forgetPerson(r, d.cfg.Accounts.PrincipalID(rt.Who.User), "app signed out") {
+			// RFC 7009: the server could not do it now; the app tries again.
+			w.Header().Set("Retry-After", "5")
+			writeOAuthError(w, http.StatusServiceUnavailable, "temporarily_unavailable",
+				"the sign-in could not be ended just now")
+			return
+		}
 		d.revokeFamily(rt.Family, d.now())
-		d.forgetPerson(r, d.cfg.Accounts.PrincipalID(rt.Who.User), "app signed out")
 	}
 	w.WriteHeader(http.StatusOK)
 }
