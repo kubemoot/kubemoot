@@ -4,33 +4,29 @@
 package filereload
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"sync"
-	"time"
 )
 
-// stamp is what identifies a version of a file: when it changed and how large it is.
-type stamp struct {
-	modTime time.Time
-	size    int64
-}
-
-// Loader builds a value from files and rebuilds it when a file's modification time or size changes.
+// Loader builds a value from the contents of files and rebuilds it when any content changes.
+// A change is found by comparing contents, so a rewrite of the same size and time is seen.
 type Loader[T any] struct {
 	files []string
-	build func() (T, error)
+	build func(contents [][]byte) (T, error)
 	// replaced, when set, is called with the value that a new one has replaced.
 	replaced func(old T)
 
 	mu      sync.Mutex
-	stamps  []stamp
+	last    [][]byte
 	current T
 	loaded  bool
 }
 
-// New returns a Loader of the value build makes from files. It reads nothing until Get.
-func New[T any](build func() (T, error), files ...string) *Loader[T] {
+// New returns a Loader of the value build makes from the contents of files, in order. It reads
+// nothing until Get.
+func New[T any](build func(contents [][]byte) (T, error), files ...string) *Loader[T] {
 	return &Loader[T]{files: files, build: build}
 }
 
@@ -43,35 +39,51 @@ func (l *Loader[T]) OnReplace(fn func(old T)) *Loader[T] {
 
 // Get returns the value as the files hold it now. A file that cannot be read, or a build that
 // fails, is an error and never the previous value: a caller that trusts the files fails closed.
+// A build that fails is tried once more on a fresh read, because files that an atomic swap
+// replaces one after the other can be read between the two.
 func (l *Loader[T]) Get() (T, error) {
-	var zero T
-	stamps := make([]stamp, len(l.files))
-	for i, file := range l.files {
-		info, err := os.Stat(file)
-		if err != nil {
-			return zero, fmt.Errorf("%s is not readable: %w", file, err)
-		}
-		stamps[i] = stamp{info.ModTime(), info.Size()}
-	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.loaded && sameStamps(l.stamps, stamps) {
+	contents, err := l.read()
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	if l.loaded && equal(l.last, contents) {
 		return l.current, nil
 	}
-	next, err := l.build()
+	next, err := l.build(contents)
 	if err != nil {
-		return zero, err
+		if contents, err = l.read(); err == nil {
+			next, err = l.build(contents)
+		}
+		if err != nil {
+			var zero T
+			return zero, err
+		}
 	}
 	if l.loaded && l.replaced != nil {
 		l.replaced(l.current)
 	}
-	l.current, l.stamps, l.loaded = next, stamps, true
+	l.current, l.last, l.loaded = next, contents, true
 	return next, nil
 }
 
-func sameStamps(a, b []stamp) bool {
+func (l *Loader[T]) read() ([][]byte, error) {
+	out := make([][]byte, len(l.files))
+	for i, file := range l.files {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("%s is not readable: %w", file, err)
+		}
+		out[i] = b
+	}
+	return out, nil
+}
+
+func equal(a, b [][]byte) bool {
 	for i := range a {
-		if !a[i].modTime.Equal(b[i].modTime) || a[i].size != b[i].size {
+		if !bytes.Equal(a[i], b[i]) {
 			return false
 		}
 	}
