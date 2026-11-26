@@ -19,6 +19,8 @@ const (
 	testMaxTTL = 3 * time.Second
 	accLibrary = "library"
 	pAlice     = "alice"
+	pBob       = "bob"
+	accMail    = "mail"
 )
 
 func testSealer(t testing.TB, ids ...string) *signin.Sealer {
@@ -111,6 +113,7 @@ func TestStoreContract(t *testing.T) {
 		"a copied value does not open": contractCopiedValue,
 		"the backend holds ciphertext": contractCiphertext,
 		"bad inputs are refused":       contractBadInputs,
+		"refs list by account":         contractRefs,
 	}
 	for bname, maker := range backends() {
 		for cname, run := range cases {
@@ -204,7 +207,7 @@ func contractDelete(t *testing.T, r rig) {
 
 func contractByPrincipal(t *testing.T, r rig) {
 	ctx := context.Background()
-	for _, x := range [][2]string{{pAlice, accLibrary}, {pAlice, "mail"}, {"bob", accLibrary}} {
+	for _, x := range [][2]string{{pAlice, accLibrary}, {pAlice, accMail}, {pBob, accLibrary}} {
 		if _, err := r.store.Put(ctx, rec(x[0], x[1], "v-"+x[0]+x[1]), time.Hour, tokenstore.AnyRevision); err != nil {
 			t.Fatal(err)
 		}
@@ -230,10 +233,10 @@ func contractDeleteByPrincipal(t *testing.T, r rig) {
 	if err != nil || n != 2 {
 		t.Fatalf("delete by principal: %d %v", n, err)
 	}
-	if _, err := r.store.Get(ctx, pAlice, "mail"); !errors.Is(err, tokenstore.ErrNotFound) {
+	if _, err := r.store.Get(ctx, pAlice, accMail); !errors.Is(err, tokenstore.ErrNotFound) {
 		t.Fatalf("alice's record after sign-out: %v", err)
 	}
-	if _, err := r.store.Get(ctx, "bob", accLibrary); err != nil {
+	if _, err := r.store.Get(ctx, pBob, accLibrary); err != nil {
 		t.Fatalf("bob's record must stay: %v", err)
 	}
 	if n, err := r.store.DeleteByPrincipal(ctx, pAlice); err != nil || n != 0 {
@@ -282,11 +285,11 @@ func contractCopiedValue(t *testing.T, r rig) {
 		t.Fatal(err)
 	}
 	// Copy Alice's sealed value to Bob's key, and to another account of Alice's.
-	bg, bn := tokenstore.KeyOf("bob", accLibrary)
+	bg, bn := tokenstore.KeyOf(pBob, accLibrary)
 	if _, err := r.backend.Put(ctx, bg, bn, e.Value, time.Hour, tokenstore.AnyRevision); err != nil {
 		t.Fatal(err)
 	}
-	ag, an := tokenstore.KeyOf(pAlice, "mail")
+	ag, an := tokenstore.KeyOf(pAlice, accMail)
 	if _, err := r.backend.Put(ctx, ag, an, e.Value, time.Hour, tokenstore.AnyRevision); err != nil {
 		t.Fatal(err)
 	}
@@ -295,13 +298,13 @@ func contractCopiedValue(t *testing.T, r rig) {
 
 func copiedValuesDoNotOpen(t *testing.T, r rig) {
 	ctx := context.Background()
-	for _, who := range [][2]string{{"bob", accLibrary}, {pAlice, "mail"}} {
+	for _, who := range [][2]string{{pBob, accLibrary}, {pAlice, accMail}} {
 		got, err := r.store.Get(ctx, who[0], who[1])
 		if err == nil || errors.Is(err, tokenstore.ErrNotFound) || strings.Contains(string(got.Value), "alice-token") {
 			t.Fatalf("a copied value for %v opened: %+v %v", who, got, err)
 		}
 	}
-	if list, _ := r.store.ListByPrincipal(ctx, "bob"); len(list) != 0 {
+	if list, _ := r.store.ListByPrincipal(ctx, pBob); len(list) != 0 {
 		t.Fatalf("a copied value is listed for bob: %v", list)
 	}
 	if list, _ := r.store.ListByPrincipal(ctx, pAlice); len(list) != 1 || list[0].Account != accLibrary {
@@ -382,5 +385,49 @@ func TestNewSealedRefusals(t *testing.T) {
 	}
 	if _, err := tokenstore.NewSealed(mem, testSealer(t, "k"), 0); !errors.Is(err, tokenstore.ErrBadTTL) {
 		t.Fatalf("no longest life: %v", err)
+	}
+}
+
+func putAll(t *testing.T, r rig, pairs [][2]string) {
+	t.Helper()
+	for _, x := range pairs {
+		if _, err := r.store.Put(context.Background(), rec(x[0], x[1], "v"), time.Hour, tokenstore.AnyRevision); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func deleteAccount(t *testing.T, s *tokenstore.Sealed, refs []tokenstore.Ref, account string) {
+	t.Helper()
+	for _, ref := range refs {
+		if ref.Account != account {
+			continue
+		}
+		if err := s.DeleteRef(context.Background(), ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func contractRefs(t *testing.T, r rig) {
+	ctx := context.Background()
+	sealed, ok := r.store.(*tokenstore.Sealed)
+	if !ok {
+		t.Fatal("the rig's store is not sealed")
+	}
+	putAll(t, r, [][2]string{{pAlice, accLibrary}, {pBob, accLibrary}, {pAlice, accMail}, {"lock", "held"}})
+	refs, err := sealed.Refs(ctx, "lock")
+	if err != nil || len(refs) != 3 {
+		t.Fatalf("refs without the skipped principal: %v %v", refs, err)
+	}
+	deleteAccount(t, sealed, refs, accLibrary)
+	for _, who := range []string{pAlice, pBob} {
+		if _, err := r.store.Get(ctx, who, accLibrary); !errors.Is(err, tokenstore.ErrNotFound) {
+			t.Fatalf("%s's deleted record: %v", who, err)
+		}
+	}
+	left, err := sealed.Refs(ctx, "lock")
+	if err != nil || len(left) != 1 || left[0].Account != accMail {
+		t.Fatalf("refs after the delete: %v %v", left, err)
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"net/http"
@@ -108,4 +109,27 @@ func newBroker(
 	b := accounts.NewBroker(vault, decls, regs, upstream, nil)
 	b.Log = log
 	return b
+}
+
+// startPurge runs the sweep of records no crew declares any more, once an hour, while
+// connected accounts are on.
+func startPurge(ctx context.Context, acct *accounts.Service, log logr.Logger) {
+	if acct == nil {
+		return
+	}
+	purger := acct.Purger()
+	go func() {
+		t := time.NewTicker(accounts.PurgeEvery)
+		defer t.Stop()
+		for {
+			if _, err := purger.Run(ctx); err != nil && ctx.Err() == nil {
+				log.Error(err, "the sweep of undeclared accounts failed; it runs again next hour")
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
 }

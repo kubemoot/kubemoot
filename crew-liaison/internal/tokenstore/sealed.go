@@ -167,6 +167,66 @@ func splitValue(v []byte) (account, blob string, ok bool) {
 	return string(raw), blob, true
 }
 
+// Ref names one kept record without opening it: where it sits and which account it holds.
+type Ref struct {
+	Group   string
+	Name    string
+	Account string
+}
+
+// Refs lists every record in the backend by the account its plain prefix names, without
+// opening a value, so no key is needed and nothing personal is read. Groups of the principals
+// in skip (the store's own bookkeeping records) are left out, and so is a value whose prefix
+// does not match its key.
+func (s *Sealed) Refs(ctx context.Context, skip ...string) ([]Ref, error) {
+	groups, err := s.backend.Groups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	skipped := map[string]bool{}
+	for _, p := range skip {
+		skipped[groupOf(p)] = true
+	}
+	var out []Ref
+	for _, g := range groups {
+		if skipped[g] {
+			continue
+		}
+		refs, err := s.groupRefs(ctx, g)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, refs...)
+	}
+	return out, nil
+}
+
+func (s *Sealed) groupRefs(ctx context.Context, group string) ([]Ref, error) {
+	names, err := s.backend.Names(ctx, group)
+	if err != nil {
+		return nil, err
+	}
+	var out []Ref
+	for _, name := range names {
+		e, err := s.backend.Get(ctx, group, name)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if account, _, ok := splitValue(e.Value); ok && nameOf(account) == name {
+			out = append(out, Ref{Group: group, Name: name, Account: account})
+		}
+	}
+	return out, nil
+}
+
+// DeleteRef removes the record a Ref names.
+func (s *Sealed) DeleteRef(ctx context.Context, ref Ref) error {
+	return s.backend.Delete(ctx, ref.Group, ref.Name)
+}
+
 // DeleteByPrincipal implements Store.
 func (s *Sealed) DeleteByPrincipal(ctx context.Context, principal string) (int, error) {
 	if principal == "" {

@@ -112,6 +112,25 @@ func (m *Memory) Names(_ context.Context, group string) ([]string, error) {
 	return out, nil
 }
 
+// Groups implements Backend.
+func (m *Memory) Groups(_ context.Context) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{}
+	for key := range m.values {
+		if _, ok := m.live(key); ok {
+			g, _ := splitMemKey(key)
+			seen[g] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for g := range seen {
+		out = append(out, g)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 func splitMemKey(key string) (group, name string) {
 	for i := 0; i < len(key); i++ {
 		if key[i] == '/' {
