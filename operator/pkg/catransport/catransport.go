@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/filereload"
 )
@@ -25,7 +24,7 @@ type Transport struct {
 
 // New reads the CA file. An unreadable file or one with no certificate is an error.
 func New(file string) (*Transport, error) {
-	t := &Transport{current: filereload.New(func() (*http.Transport, error) { return build(file) }, file).
+	t := &Transport{current: filereload.New(build, file).
 		OnReplace(func(old *http.Transport) { old.CloseIdleConnections() })}
 	if _, err := t.get(); err != nil {
 		return nil, err
@@ -33,14 +32,10 @@ func New(file string) (*Transport, error) {
 	return t, nil
 }
 
-// build makes the transport that trusts the certificates in file.
-func build(file string) (*http.Transport, error) {
-	pem, err := os.ReadFile(file)
-	if err != nil {
-		return nil, fmt.Errorf("the CA file is not readable: %w", err)
-	}
+// build makes the transport that trusts the certificates in the CA file's contents.
+func build(contents [][]byte) (*http.Transport, error) {
 	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(pem) {
+	if !pool.AppendCertsFromPEM(contents[0]) {
 		return nil, errors.New("the CA file holds no certificate")
 	}
 	return &http.Transport{

@@ -41,8 +41,8 @@ func brokerTLSConfig(getenv func(string) string) (*tls.Config, error) {
 	}
 	// The certificate and key are read again when either file changes, so a renewal is served
 	// without a restart; an unreadable or mismatched pair fails the handshake.
-	keys := filereload.New(func() (*tls.Certificate, error) {
-		pair, err := tls.LoadX509KeyPair(certFile, keyFile)
+	keys := filereload.New(func(contents [][]byte) (*tls.Certificate, error) {
+		pair, err := tls.X509KeyPair(contents[0], contents[1])
 		if err != nil {
 			return nil, fmt.Errorf("the broker's certificate and key do not load: %w", err)
 		}
