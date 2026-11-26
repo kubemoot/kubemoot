@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/kubemoot/kubemoot/operator/pkg/catransport"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -67,7 +68,7 @@ func NewExporter(baseURL string) *Exporter {
 // NewExporterWithCA returns an exporter of the operator report service at baseURL (https) that
 // verifies the service's certificate against the CA bundle in caFile, read again when it changes.
 func NewExporterWithCA(baseURL, caFile string) (*Exporter, error) {
-	transport, err := newCATransport(caFile)
+	transport, err := catransport.New(caFile)
 	if err != nil {
 		return nil, err
 	}

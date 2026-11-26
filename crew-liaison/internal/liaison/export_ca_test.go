@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/catransport/catest"
 )
 
 func exporterService(t *testing.T, url, caFile string) *Service {
@@ -28,13 +30,13 @@ func TestTheExportOverTLSPresentsTheTokenOnlyToAServerItVerifies(t *testing.T) {
 	defer srv.Close()
 	in := ExportConversationInput{Crew: testCrew, ConversationIDs: []string{convID}}
 
-	_, out, err := exporterService(t, srv.URL, writeCA(t, srv)).ExportConversation(withCredential(context.Background(), "alice-token"), nil, in)
+	_, out, err := exporterService(t, srv.URL, catest.WriteCA(t, srv)).ExportConversation(withCredential(context.Background(), "alice-token"), nil, in)
 	if err != nil || !out.Delivered || auth != "Bearer alice-token" {
 		t.Fatalf("trusted server: %v %+v %q", err, out, auth)
 	}
 
 	auth = ""
-	res, _, _ := exporterService(t, srv.URL, unrelatedCA(t)).ExportConversation(withCredential(context.Background(), "alice-token"), nil, in)
+	res, _, _ := exporterService(t, srv.URL, catest.UnrelatedCA(t)).ExportConversation(withCredential(context.Background(), "alice-token"), nil, in)
 	if res == nil || !res.IsError {
 		t.Fatalf("an untrusted certificate was accepted: %+v", res)
 	}
