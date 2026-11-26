@@ -33,8 +33,34 @@ permissions:
   contents: read
 
 jobs:
+  # The operator's lint and tests already ran on the pull request that merged this commit. When
+  # that pull request's head has exactly the files pushed here and its checks succeeded, CI does
+  # not repeat them and says which pull request it relied on; in every other case (main moved,
+  # no pull request, a check missing or failed, an API error) the release tests as before.
+  tested:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    outputs:
+      reason: ${{ steps.find.outputs.tested == 'true' && steps.find.outputs.reason || '' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Find the pull request that tested this commit
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/find-tested-commit.sh "${GITHUB_SHA}" | tee -a "$GITHUB_OUTPUT"
+
   ci:
+    needs: tested
     uses: ./.github/workflows/ci.yaml
+    with:
+      tested_commit_reason: ${{ needs.tested.outputs.reason }}
     secrets: inherit
 
   release:
