@@ -281,3 +281,31 @@ func (h *Handler) listVisibility(
 	}
 	return visible, func() error { cancel(); return first }, true
 }
+
+// ConversationOwners is the reader of the owner records of the conversations of crew, which
+// the lease for a connected account resolves its person from.
+func (h *Handler) ConversationOwners(crew string) (OwnerReader, error) {
+	scope, err := crewscope.New(h.namespace, crew)
+	if err != nil {
+		return nil, err
+	}
+	return handlerOwners{h: h, scope: scope}, nil
+}
+
+type handlerOwners struct {
+	h     *Handler
+	scope crewscope.Scope
+}
+
+// Owner implements OwnerReader over the conversations bucket.
+func (o handlerOwners) Owner(ctx context.Context, conversationID string) (bus.Principal, bool, error) {
+	js, err := o.h.natsClient.JetStream()
+	if err != nil {
+		return bus.Principal{}, false, err
+	}
+	kv, err := js.KeyValue(ctx, bus.ConversationsBucket)
+	if err != nil {
+		return bus.Principal{}, false, err
+	}
+	return ownerStore{kv: kv}.get(ctx, o.scope, conversationID)
+}
