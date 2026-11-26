@@ -43,6 +43,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+      actions: read # the merge queue's workflow runs on the pushed commit
     outputs:
       reason: ${{ steps.find.outputs.tested == 'true' && steps.find.outputs.reason || '' }}
     steps:

@@ -134,6 +134,49 @@ check "checks unreadable" "false" "$(field tested "$(run "$SHA")")"
 reset; pulls "$SHA"; trees "$TREE" "$TREE"; put "repos/o/r/commits/${HEAD}/check-runs" 'not json'
 check "checks unparsable" "false" "$(field tested "$(run "$SHA")")"
 
+# Merge queue: a merge_group run exists for the pushed commit and its own required checks
+# (on the commit itself, no pull request lookup needed) succeeded: tested by the queue.
+queue() { put "repos/o/r/actions/runs" "{\"total_count\":$1,\"workflow_runs\":$2}"; }
+queue_checks() {
+  put "repos/o/r/commits/${SHA}/check-runs" \
+    "[{\"check_runs\":[
+      {\"name\":\"operator-test\",\"conclusion\":\"$1\",\"completed_at\":\"2026-11-26T00:10:00Z\",\"app\":{\"slug\":\"$3\"}},
+      {\"name\":\"all-checks / all-checks\",\"conclusion\":\"$2\",\"completed_at\":\"2026-11-26T00:20:00Z\",\"app\":{\"slug\":\"$3\"}}]}]"
+}
+reset; queue 1 '[{"id":1}]'; queue_checks success success github-actions
+out="$(run "$SHA")"
+check "queue tested" "true" "$(field tested "$out")"
+check "queue names the commit" "$SHA" "$(field queue "$out")"
+
+# The queue ran but a required check failed or was skipped: not tested, and the pull request
+# rule does not get a second chance to say yes.
+reset; queue 1 '[{"id":1}]'; queue_checks failure success github-actions
+out="$(run "$SHA")"
+check "queue check failed" "false" "$(field tested "$out")"
+check "queue check failed reason" "1" "$(grep -c 'merge queue ran on .*operator-test' <<<"$out")"
+reset; queue 1 '[{"id":1}]'; queue_checks success skipped github-actions; pulls "$SHA"; trees "$TREE" "$TREE"; checks success success github-actions
+check "queue check skipped" "false" "$(field tested "$(run "$SHA")")"
+
+# A required check from another app on the queue commit does not count.
+reset; queue 1 '[{"id":1}]'; queue_checks success success some-other-app
+check "queue foreign app" "false" "$(field tested "$(run "$SHA")")"
+
+# The queue's check runs cannot be read: fail closed.
+reset; queue 1 '[{"id":1}]'
+check "queue checks unreadable" "false" "$(field tested "$(run "$SHA")")"
+
+# No merge_group run on this commit (a normal push, a direct push): the pull request rule decides.
+reset; queue 0 '[]'; pulls "$SHA"; trees "$TREE" "$TREE"; checks success success github-actions
+out="$(run "$SHA")"
+check "no queue run, pull request rule" "true" "$(field tested "$out")"
+check "no queue run names the pull request" "7" "$(field pr "$out")"
+reset; queue 0 '[]'; put "repos/o/r/commits/${SHA}/pulls" '[]'
+check "no queue run, no pull request" "false" "$(field tested "$(run "$SHA")")"
+
+# The runs list unreadable: the pull request rule decides, and still fails closed.
+reset; put "repos/o/r/actions/runs" 'not json'; pulls "$SHA"; trees "$TREE" "$TREE"; checks success failure github-actions
+check "runs unparsable, checks failed" "false" "$(field tested "$(run "$SHA")")"
+
 # Usage errors.
 check "no sha" "exit=64" "$(run | tail -1)"
 check "short sha" "exit=64" "$(run abc123 | tail -1)"
