@@ -166,6 +166,11 @@ func (s *ReportServer) gateWith(
 // only from a verified token: no request header names an identity.
 func (s *ReportServer) authorizeCaller(r *http.Request, attrs authorizationv1.ResourceAttributes, subscribers bool) (*identity.Identity, error) {
 	id, err := s.Auth.Authorize(r.Context(), identity.BearerToken(r), attrs)
+	if errors.Is(err, errUnauthenticated) && subscribers && s.Hops != nil {
+		if hopID, hopErr := s.Hops.Authorize(r, attrs); !errors.Is(hopErr, errUnauthenticated) {
+			return hopID, hopErr
+		}
+	}
 	if errors.Is(err, errUnauthenticated) && subscribers && s.Subscribers != nil {
 		return s.Subscribers.Authorize(r, attrs)
 	}

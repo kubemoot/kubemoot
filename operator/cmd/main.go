@@ -137,7 +137,9 @@ func mustAddRunnables(
 		Auth: controller.NewReviewAuthorizer(kube),
 		// A crew's subscriber exports their own conversation with their own token.
 		Subscribers: controller.NewSubscriberDirectory(mgr.GetClient()),
-		Addr:        ":8082",
+		// A person signed in at the liaison's door exports their own conversation with the door's assertion.
+		Hops: controller.NewHopDirectory(mgr.GetClient()),
+		Addr: ":8082",
 		// The service carries callers' bearer tokens, so it serves TLS from the install CA.
 		Certificate:   controller.ReportCertificate(installCA, os.Getenv),
 		AllowInsecure: os.Getenv(controller.EnvReportAllowInsecure) == "true",
