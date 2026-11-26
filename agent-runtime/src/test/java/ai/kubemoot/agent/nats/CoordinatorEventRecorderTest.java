@@ -446,7 +446,9 @@ class CoordinatorEventRecorderTest {
 
         var first = java.util.concurrent.CompletableFuture.runAsync(() -> slow.phaseEntered(s, "thread_start"));
         inFirstAppend.await();
+        var secondFailure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
         var secondWriter = new Thread(() -> slow.settled(s, "quiet"));
+        secondWriter.setUncaughtExceptionHandler((t, e) -> secondFailure.set(e));
         secondWriter.start();
         org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).until(() ->
                 secondWriter.getState() == Thread.State.BLOCKED || secondWriter.getState() == Thread.State.WAITING);
@@ -454,6 +456,7 @@ class CoordinatorEventRecorderTest {
         first.get(5, java.util.concurrent.TimeUnit.SECONDS);
         secondWriter.join(5000);
         assertFalse(secondWriter.isAlive(), "the second writer finished");
+        assertNull(secondFailure.get(), "the second writer threw nothing");
 
         assertEquals(1, appends.get(), "the second writer found the thread unlogged and appended nothing");
         assertTrue(slow.unlogged(s));
