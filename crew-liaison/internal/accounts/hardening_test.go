@@ -45,7 +45,7 @@ func TestAllowedCrewsThatDisagreeOnTheServiceGetNothing(t *testing.T) {
 	all := []Declaration{decl([]string{evilCrew}, evilTokens), decl([]string{guideFull}, authToken)}
 	for name, reg := range map[string]Registration{
 		"every crew allowed": {ClientID: "c"},
-		"both named":         {ClientID: "c", AllowedCrews: []string{"aaa", "guide"}},
+		"both named":         {ClientID: "c", AllowedCrews: []string{evilCrew, guideFull}},
 	} {
 		if _, err := resolve(all, acctLib, reg); !errors.Is(err, ErrConflict) {
 			t.Errorf("%s: %v", name, err)
@@ -63,7 +63,7 @@ func TestAllowedCrewsThatDisagreeOnTheServiceGetNothing(t *testing.T) {
 
 func TestAPinnedRegistrationDropsADeclarationElsewhere(t *testing.T) {
 	all := []Declaration{decl([]string{evilCrew}, evilTokens), decl([]string{guideFull}, authToken)}
-	pinned := Registration{ClientID: "c", Hosts: []string{"auth.example.org"}}
+	pinned := Registration{ClientID: "c", Hosts: []string{"auth.example.org", apiHostName}}
 	o, err := resolve(all, acctLib, pinned)
 	if err != nil || o.Declaration.TokenURL != authToken || len(o.Crews) != 1 {
 		t.Fatalf("pinned: %+v %v", o, err)
@@ -269,5 +269,23 @@ func TestTheRefreshLeaseIsPerRecord(t *testing.T) {
 	r.vault.Unlock(ctx, pAlice, acctLib)
 	if ok, _ := r.vault.TryLock(ctx, pAlice, acctLib, time.Minute); !ok {
 		t.Fatal("after unlock")
+	}
+}
+
+func TestPinnedHostsAlsoLimitWhereTheAccessTokenMayBeSent(t *testing.T) {
+	d := decl([]string{guideFull}, authToken)
+	pinned := Registration{ClientID: "c", Hosts: []string{"auth.example.org", apiHostName}}
+	if !pinned.PinsAllow(d) {
+		t.Fatal("token hosts inside the pinned hosts")
+	}
+	d.TokenHosts = []string{apiHostName, "evil.example.net"}
+	if pinned.PinsAllow(d) {
+		t.Fatal("a token host outside the pinned hosts must not be offered")
+	}
+	if _, err := resolve([]Declaration{d}, acctLib, pinned); !errors.Is(err, ErrNotAllowed) {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !(Registration{ClientID: "c", AllowedCrews: []string{guideFull}}).PinsAllow(d) {
+		t.Fatal("without pinned hosts the token hosts are the crew's")
 	}
 }

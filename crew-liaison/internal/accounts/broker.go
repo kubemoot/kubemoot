@@ -24,10 +24,13 @@ type Declarations interface {
 
 const (
 	// refreshLeaseLife is how long a replica holds the right to refresh one record; it is gone
-	// sooner when the refresh finishes, and a replica that dies holds it for no longer.
-	refreshLeaseLife = 15 * time.Second
-	refreshWait      = 10 * time.Second
-	refreshPoll      = 100 * time.Millisecond
+	// sooner when the refresh finishes, and a replica that dies holds it for no longer. It is
+	// well over twice the longest a call to the service may take (serviceWait), so the lease
+	// cannot end while the call is still running and let a second replica spend the same token.
+	refreshLeaseLife = 3 * serviceWait
+	// refreshWait is how long a replica that lost waits for the winner; shorter than the lease.
+	refreshWait = 10 * time.Second
+	refreshPoll = 100 * time.Millisecond
 )
 
 // Lease is what the broker hands a caller for one use: the token, when it ends, and the hosts
