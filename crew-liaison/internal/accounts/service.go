@@ -10,9 +10,8 @@ import (
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
-// HopIssuer is the name the door signs a person's assertion under, and so the issuer a crew's
-// gateway attaches to the person it names.
-const HopIssuer = "liaison"
+// HopName is the name the door signs a person's assertion under; a crew lists it in trustedHops.
+const HopName = "liaison"
 
 // Principals names the people the door signs in the way a crew's gateway names them: the
 // install's keyed hash of the hop issuer and the user name, so a conversation's owner and a
@@ -29,7 +28,9 @@ func (p Principals) Keyed() bool { return p.hasher.Keyed() }
 
 // ID is the vault key of a person the door signed in, from the user name the door's token
 // carries.
-func (p Principals) ID(user string) string { return p.hasher.ID(HopIssuer, user) }
+func (p Principals) ID(user string) string {
+	return p.hasher.ID(identity.HopIssuerPrefix+HopName, user)
+}
 
 // Service is what the connect pages and the tools use: what an account is, who may connect
 // it, finishing a connect, and disconnecting. It keeps nothing itself.

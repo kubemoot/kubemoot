@@ -33,7 +33,7 @@ func TestPrincipalIDIsStableAndPerPerson(t *testing.T) {
 		t.Fatal("no key is not keyed")
 	}
 	// The id is the one a crew's gateway computes for the person the hop asserts.
-	if want := (identity.Hasher{Key: []byte("install-key")}).ID("liaison", "oidc:alice"); a != want {
+	if want := (identity.Hasher{Key: []byte("install-key")}).ID("hop:liaison", "oidc:alice"); a != want {
 		t.Fatalf("id %q is not the gateway's %q", a, want)
 	}
 }
