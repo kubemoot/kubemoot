@@ -82,6 +82,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	attachAccounts(svc, acct, front)
+
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           liaison.NewHandlerWithFront(svc, token, auth, front),
@@ -252,6 +254,13 @@ func attachExporter(svc *liaison.Service, log logr.Logger) {
 	}
 }
 
+// attachAccounts gives the tools their view of connected accounts when the door keeps them.
+func attachAccounts(svc *liaison.Service, acct *accounts.Service, front *liaison.SignInFront) {
+	if acct != nil && front != nil && front.Links != nil {
+		svc.WithAccounts(liaison.NewAccounts(acct, front.Links, front.AccountsURL))
+	}
+}
+
 // startBroker serves the account broker on its internal port when connected accounts are on.
 func startBroker(ctx context.Context, acct *accounts.Service, log logr.Logger) {
 	if acct == nil {
@@ -315,8 +324,12 @@ func doorFront(cfg *signin.DoorConfig) (*liaison.SignInFront, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &liaison.SignInFront{
+	front := &liaison.SignInFront{
 		Handler: door.Handler(), ResourceMetadataURL: door.ResourceMetadataURL(),
 		Verifier: door.Verifier(), Hop: door.HopSigner(),
-	}, nil
+	}
+	if cfg.Accounts != nil {
+		front.Links, front.AccountsURL = door, cfg.PublicURL+"/oauth/accounts"
+	}
+	return front, nil
 }

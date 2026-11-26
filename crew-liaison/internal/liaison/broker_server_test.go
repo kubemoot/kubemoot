@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -77,9 +78,26 @@ func (f fakeAccountDecls) Account(_ context.Context, n string) (accounts.Declara
 	d, ok := f[n]
 	return d, ok, nil
 }
-func (f fakeAccountDecls) All(context.Context) ([]accounts.Declaration, error) { return nil, nil }
-func (f fakeAccountDecls) Declared(context.Context, string) ([]accounts.Declaration, error) {
-	return nil, nil
+func (f fakeAccountDecls) All(context.Context) ([]accounts.Declaration, error) {
+	out := make([]accounts.Declaration, 0, len(f))
+	for _, d := range f {
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (f fakeAccountDecls) Declared(ctx context.Context, crew string) ([]accounts.Declaration, error) {
+	all, _ := f.All(ctx)
+	var out []accounts.Declaration
+	for _, d := range all {
+		for _, c := range d.Crews {
+			if c == crew {
+				out = append(out, d)
+			}
+		}
+	}
+	return out, nil
 }
 
 func (r *brokerRig) call(path, token, body string) *httptest.ResponseRecorder {

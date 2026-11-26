@@ -17,7 +17,8 @@ var Version = "dev"
 // DefaultDisplayName is the door's title when the install sets none.
 const DefaultDisplayName = "Kubemoot"
 
-// NewMCPServer registers the four tools on a fresh MCP server.
+// NewMCPServer registers the tools on a fresh MCP server: four always, and my_accounts when
+// the install keeps connected accounts.
 func NewMCPServer(svc *Service) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name: "kubemoot-crew-liaison", Title: svc.displayName(), Version: Version,
@@ -49,6 +50,14 @@ func NewMCPServer(svc *Service) *mcp.Server {
 			"tool result is not returned; the manifest says so and names the other ways to take it.",
 		InputSchema: exportInputSchema(),
 	}, svc.ExportConversation)
+	if svc.accounts != nil {
+		mcp.AddTool(server, &mcp.Tool{
+			Name: "my_accounts",
+			Description: "List the outside accounts the crews you can ask may use on your behalf, whether each is " +
+				"connected, and the link to connect or manage them. Connect before asking, or when ask says you need to.",
+			InputSchema: myAccountsSchema(),
+		}, svc.MyAccounts)
+	}
 	return server
 }
 
@@ -70,6 +79,10 @@ type SignInFront struct {
 	ResourceMetadataURL string
 	// Verifier checks the door's own access tokens on /mcp; nil for a front that issues none.
 	Verifier identity.Verifier
+	// Links makes the connect links of connected accounts; nil when the door keeps none.
+	Links LinkMaker
+	// AccountsURL is the page where a person connects and disconnects their accounts.
+	AccountsURL string
 	// Hop signs the assertion of a person for a crew's gateway; nil sends none.
 	Hop *identity.HopSigner
 }
