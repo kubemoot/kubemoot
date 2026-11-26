@@ -302,10 +302,9 @@ door's assertion issuer and the user name. That is why connected accounts need `
 Kubernetes tokens of their own.
 
 **Which service a name means.** Crews declare an account; the install decides who it trusts. The endpoints the install's client secret,
-authorization codes, PKCE verifiers and refresh tokens are sent to come only from crews the registration allows (`allowedCrews`; empty allows every
-crew that declares the account). If those crews declare one name for different services, the account is not offered at all and the liaison logs why;
-the operator's `Conflict` condition on the crews says the same. Set `hosts` on a registration to pin the service: a declaration whose authorization,
-token or revocation endpoint is on another host is not offered. Pin `hosts` and set `allowedCrews` on any install where crews are written by more than one team.
+authorization codes, PKCE verifiers and refresh tokens are sent to come only from crews the registration allows (`allowedCrews`, each `namespace/name`;
+an empty list is refused unless `hosts` is set). If those crews declare one name for different services, the account is not offered at all and the liaison logs why;
+the operator's `Conflict` condition on the crews says the same. Every registration must set `allowedCrews` (each `namespace/name`) or `hosts`, and one with a client secret must set `hosts`; the chart and the liaison refuse the rest ([why](../../reference/connected-accounts/#what-the-install-registers)). `hosts` pins the service: a declaration whose authorization, token or revocation endpoint, or any of whose token hosts (where the access token may be sent), is on another host is not offered.
 
 **Calls to the service.** The liaison's own calls (the code exchange, refresh and revocation) go through a guarded client: the endpoint must be `https`,
 the name is resolved once and every address must be on the public internet, the connection goes to an address that was checked (so a name cannot change its answer between

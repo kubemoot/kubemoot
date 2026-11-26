@@ -647,9 +647,10 @@ liaison:
     #   library:
     #     clientId: "<the id registered at the service for <signIn.publicURL>/oauth/callback>"
     #     clientSecret: {name: "", key: client-secret}   # optional; a public client uses PKCE alone
-    #     hosts: []                 # pin the service: the endpoints a crew declares must be on these hosts
+    #     hosts: []                 # pin the service: the endpoints and token hosts a crew declares must be on these
+    #                               # hosts. Required with clientSecret; needed unless allowedCrews is set
     #     issuer: ""                # the service's issuer (RFC 9207); empty accepts its endpoint's host
-    #     allowedCrews: []          # empty: every crew that declares it; else names or namespace/name
+    #     allowedCrews: []          # namespace/name of each crew that may use it; set this or hosts (the chart refuses neither)
     #     maxLifetimeHours: 0       # the longest the service lets a connection stand; 0 for no limit
   # Public route through the Gateway API listener configured under `gateway` above.
   # The route carries exactly /mcp, plus /oauth and /.well-known when signIn is on, and nothing

@@ -88,7 +88,7 @@ liaison:
         clientSecret: {name: library-client-secret}   # optional; a public client uses PKCE alone
         hosts: []             # pin the service: declared endpoints must be on these hosts
         issuer: ""            # the service's issuer (RFC 9207); empty accepts the host of its authorization endpoint
-        allowedCrews: []      # empty: every crew that declares it; else names or namespace/name
+        allowedCrews: []      # namespace/name of each crew that may use it
         maxLifetimeHours: 0   # the longest the service lets a connection stand; 0 for none known
 ```
 
@@ -99,11 +99,13 @@ liaison:
 | `liaison.connectedAccounts.brokerPort` | `8081` | The internal port of the account broker and its Service |
 | `liaison.connectedAccounts.accounts.<name>.clientId` | required | The install's client id at the service |
 | `liaison.connectedAccounts.accounts.<name>.clientSecret` | none | A Secret (`name`, `key` default `client-secret`) mounted as a file. Never in the environment |
-| `liaison.connectedAccounts.accounts.<name>.hosts` | `[]` | Hosts the declared authorization, token and revocation endpoints must be on. A declaration elsewhere is not offered. Set it, with `allowedCrews`, so no crew can point the install's client at a host the install did not choose |
+| `liaison.connectedAccounts.accounts.<name>.hosts` | `[]` | Hosts the declared authorization, token and revocation endpoints must be on. A declaration elsewhere is not offered. The declared token hosts, the hosts the access token may be sent to, must be on it too |
 | `liaison.connectedAccounts.accounts.<name>.issuer` | empty | What the `iss` of the service's redirect must equal |
-| `liaison.connectedAccounts.accounts.<name>.allowedCrews` | `[]` | Limits the account to crews, by name or `namespace/name` |
+| `liaison.connectedAccounts.accounts.<name>.allowedCrews` | `[]` | The crews that may use the account, each `namespace/name`. A bare name is refused, because it would match that name in every namespace |
 | `liaison.connectedAccounts.accounts.<name>.maxLifetimeHours` | `0` | The longest a connection is kept from the day it was made, for a service that limits it without saying so in its token answer |
 | `liaison.state.backend` | empty | Where the liaison keeps state: `memory`, `nats` or `openbao`; empty picks `nats` with the door on |
+
+**Every registration must name who it trusts.** A crew declares the endpoints, so a registration with neither `allowedCrews` nor `hosts` would let any crew author send the install's client to an address of their choosing and receive the authorization code, the PKCE verifier and the refresh tokens; the chart and the liaison refuse it. A registration with a `clientSecret` must set `hosts`: the secret goes to the token endpoint, and a pinned host is what keeps an allowed crew, or a compromised one in the same namespace, from pointing it elsewhere. A registration with no secret needs `allowedCrews` or `hosts`; `hosts` alone is the stronger choice when crews are written by several teams.
 
 A crew that declares a name missing from this list reports `UnregisteredAccount`. Only crews the registration allows supply the endpoints the install's client is used against, and allowed crews that declare one name for different services get no offer ([details](../../integrations/signing-in/#connected-accounts)). The retention rules, the pages and the store are described in [Connected accounts](../../integrations/signing-in/#connected-accounts) and [Data ownership](../../operating/data-ownership/#a-persons-connected-accounts).
 
