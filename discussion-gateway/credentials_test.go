@@ -9,7 +9,11 @@ import (
 
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
-const brokerSubject = "system:serviceaccount:ns:gw"
+const (
+	brokerSubject    = "system:serviceaccount:ns:gw"
+	liaisonBrokerURL = "http://liaison:8081"
+	pilotCrew        = "pilot"
+)
 
 const twoServices = `[{"name":"oreilly","verifyURL":"https://a.example/mcp","subjectClaim":"sub","audiences":["a"],"passToTools":true},` +
 	`{"name":"plain","verifyURL":"https://b.example/mcp","subjectClaim":"sub","audiences":["b"]}]`
@@ -65,5 +69,31 @@ func TestTheLeaseListenerNeedsTheNamedServiceAccount(t *testing.T) {
 func TestAnInvalidServiceTokenListStopsTheSetup(t *testing.T) {
 	if _, err := credentialConfigFromEnv(envOf(map[string]string{identity.EnvServiceTokens: `not json`})); err == nil {
 		t.Fatal("an invalid list was accepted")
+	}
+}
+
+func TestTheLeaseListenerRunsForConnectedAccountsWithNoKeptTokens(t *testing.T) {
+	c, err := credentialConfigFromEnv(envOf(map[string]string{
+		envBrokerSubject: brokerSubject, identity.EnvAccountCrew: pilotCrew, identity.EnvAccountBrokerURL: liaisonBrokerURL,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.keepsTokens() || !c.leasesAccounts() || !c.leases() || c.crew != pilotCrew {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestConnectedAccountLeasesNeedTheCrewTheBrokerAndTheNamedServiceAccount(t *testing.T) {
+	for name, env := range map[string]map[string]string{
+		"no crew":            {envBrokerSubject: brokerSubject, identity.EnvAccountBrokerURL: liaisonBrokerURL},
+		"no broker":          {envBrokerSubject: brokerSubject, identity.EnvAccountCrew: pilotCrew},
+		"no ServiceAccount":  {identity.EnvAccountCrew: pilotCrew, identity.EnvAccountBrokerURL: liaisonBrokerURL},
+		"nothing configured": {},
+	} {
+		c, err := credentialConfigFromEnv(envOf(env))
+		if err != nil || c.leases() {
+			t.Errorf("%s: %+v %v", name, c, err)
+		}
 	}
 }

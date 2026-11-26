@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
@@ -37,6 +38,10 @@ type credentialConfig struct {
 	brokerSubject string
 	internalPort  string
 	maxGrants     int
+	// crew and accountBroker are set when the gateway may lease a person's connected account
+	// token: the crew it serves, and the address of the liaison's account broker.
+	crew          string
+	accountBroker string
 }
 
 // credentialConfigFromEnv reads the settings. An error means the service token list is invalid
@@ -46,7 +51,11 @@ func credentialConfigFromEnv(getenv func(string) string) (credentialConfig, erro
 	if err != nil {
 		return credentialConfig{}, err
 	}
-	c := credentialConfig{brokerSubject: getenv(envBrokerSubject), internalPort: getenv(envInternalPort)}
+	c := credentialConfig{
+		brokerSubject: getenv(envBrokerSubject), internalPort: getenv(envInternalPort),
+		crew:          strings.TrimSpace(getenv(identity.EnvAccountCrew)),
+		accountBroker: strings.TrimSpace(getenv(identity.EnvAccountBrokerURL)),
+	}
 	for _, cfg := range configs {
 		if cfg.PassToTools {
 			c.issuers = append(c.issuers, cfg.Name)
@@ -64,14 +73,23 @@ func credentialConfigFromEnv(getenv func(string) string) (credentialConfig, erro
 // keepsTokens reports whether any caller's token is kept.
 func (c credentialConfig) keepsTokens() bool { return len(c.issuers) > 0 }
 
-// leases reports whether the lease listener is to run.
-func (c credentialConfig) leases() bool { return c.keepsTokens() && c.brokerSubject != "" }
+// leasesAccounts reports whether the gateway may lease a connected account's token: it knows
+// its crew and the broker that holds the tokens.
+func (c credentialConfig) leasesAccounts() bool { return c.crew != "" && c.accountBroker != "" }
 
-// leaseServer is the internal HTTP server of the lease route.
-func (c credentialConfig) leaseServer(store grants.Store, client kubernetes.Interface) *http.Server {
+// leases reports whether the lease listener is to run: the ServiceAccount allowed to lease is
+// named, and there are tokens to lease, kept for the turn or connected accounts'.
+func (c credentialConfig) leases() bool {
+	return c.brokerSubject != "" && (c.keepsTokens() || c.leasesAccounts())
+}
+
+// leaseServer is the internal HTTP server of the lease route. accounts and owners are nil
+// unless the gateway leases connected accounts.
+func (c credentialConfig) leaseServer(store grants.Store, client kubernetes.Interface,
+	accounts identity.AccountLeaser, owners api.OwnerReader) *http.Server {
 	reviewer := identity.Reviewer{Client: client, Audiences: []string{api.BrokerAudience}}
 	mux := http.NewServeMux()
-	api.NewLeaseServer(store, reviewer, c.brokerSubject).RegisterRoutes(mux)
+	api.NewLeaseServer(store, reviewer, c.brokerSubject).WithAccounts(accounts, owners).RegisterRoutes(mux)
 	return &http.Server{
 		Addr: ":" + c.internalPort, Handler: mux,
 		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 120 * time.Second,

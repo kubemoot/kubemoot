@@ -104,22 +104,31 @@ func startCredentials(ctx context.Context, handler *api.Handler, log logr.Logger
 		log.Error(err, "Cannot read the credential settings")
 		os.Exit(1)
 	}
-	if !cfg.keepsTokens() {
+	if !cfg.keepsTokens() && !cfg.leases() {
 		return nil
 	}
 	store := grants.NewMemory(cfg.maxGrants, nil)
 	go store.Run(ctx.Done(), sweepInterval)
-	handler.WithGrants(store, cfg.issuers)
+	if cfg.keepsTokens() {
+		handler.WithGrants(store, cfg.issuers)
+	}
 	if !cfg.leases() {
 		log.Info("Keeping callers' tokens for the turn, with no lease listener: " + envBrokerSubject + " is not set")
 		return nil
 	}
+	return serveLeases(cfg, store, handler, log)
+}
+
+// serveLeases starts the lease listener, with the connected account lease when the gateway has
+// a broker for it. A setting that cannot be used stops the gateway.
+func serveLeases(cfg credentialConfig, store grants.Store, handler *api.Handler, log logr.Logger) *http.Server {
 	client, err := leaseClient()
 	if err != nil {
 		log.Error(err, "Cannot set up the lease listener")
 		os.Exit(1)
 	}
-	srv := cfg.leaseServer(store, client)
+	accounts, owners := accountLeases(cfg, handler, log)
+	srv := cfg.leaseServer(store, client, accounts, owners)
 	go func() {
 		log.Info("Starting the credential lease listener", "port", cfg.internalPort)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -128,6 +137,25 @@ func startCredentials(ctx context.Context, handler *api.Handler, log logr.Logger
 		}
 	}()
 	return srv
+}
+
+// accountLeases is the broker client and the owner reader of the connected account lease; nil
+// for a gateway that has no broker.
+func accountLeases(cfg credentialConfig, handler *api.Handler, log logr.Logger) (
+	identity.AccountLeaser, api.OwnerReader) {
+	if !cfg.leasesAccounts() {
+		return nil, nil
+	}
+	leaser, err := identity.AccountLeaserFromEnv(os.Getenv)
+	if err == nil && leaser != nil {
+		var owners api.OwnerReader
+		if owners, err = handler.ConversationOwners(cfg.crew); err == nil {
+			return leaser, owners
+		}
+	}
+	log.Error(err, "Cannot set up the connected account lease")
+	os.Exit(1)
+	return nil, nil
 }
 
 // shutdownLease stops the lease listener, when there is one.

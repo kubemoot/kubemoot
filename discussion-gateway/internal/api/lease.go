@@ -42,6 +42,10 @@ type LeaseServer struct {
 	// subject is the full user name of the ServiceAccount allowed to lease, such as
 	// system:serviceaccount:<namespace>:<name>.
 	subject string
+	// accounts and owners answer a lease for a connected account; both nil leaves that kind
+	// of lease unavailable.
+	accounts identity.AccountLeaser
+	owners   OwnerReader
 }
 
 // NewLeaseServer returns a lease server over store. reviewer must check tokens against
@@ -58,14 +62,20 @@ func (l *LeaseServer) RegisterRoutes(mux *http.ServeMux) {
 // leaseRequest names the turn the token is for.
 type leaseRequest struct {
 	ConversationID string `json:"conversationId"`
-	PrincipalID    string `json:"principalId"`
-	Verifier       string `json:"verifier"`
+	// PrincipalID and Verifier name a token the gateway kept for the turn. A lease for a
+	// connected account names Account instead and no principal: the gateway resolves the person
+	// from the conversation.
+	PrincipalID string `json:"principalId"`
+	Verifier    string `json:"verifier"`
+	Account     string `json:"account"`
 }
 
 // leaseResponse is the one response that carries a token.
 type leaseResponse struct {
 	Token     string `json:"token"`
 	ExpiresAt string `json:"expiresAt"`
+	// TokenHosts are the only hosts a connected account's token may be sent to.
+	TokenHosts []string `json:"tokenHosts,omitempty"`
 }
 
 func (l *LeaseServer) lease(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +85,10 @@ func (l *LeaseServer) lease(w http.ResponseWriter, r *http.Request) {
 	}
 	req, ok := readLeaseRequest(w, r)
 	if !ok {
+		return
+	}
+	if req.Account != "" {
+		l.accountLease(w, r, req)
 		return
 	}
 	g, err := l.store.Get(req.ConversationID)
@@ -128,10 +142,21 @@ func readLeaseRequest(w http.ResponseWriter, r *http.Request) (leaseRequest, boo
 	var req leaseRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLeaseRequestBytes))
 	dec.DisallowUnknownFields()
-	err := dec.Decode(&req)
-	if err != nil || req.PrincipalID == "" || req.Verifier == "" || !validConversationID(req.ConversationID) {
-		httpError(w, http.StatusBadRequest, "conversationId, principalId and verifier are required")
+	if err := dec.Decode(&req); err != nil || !validLeaseRequest(req) {
+		httpError(w, http.StatusBadRequest, "conversationId and either principalId with verifier, or account, are required")
 		return req, false
 	}
 	return req, true
+}
+
+// validLeaseRequest reports whether the request names a conversation and exactly one kind of
+// token: a kept one (principal and verifier) or a connected account's.
+func validLeaseRequest(req leaseRequest) bool {
+	if !validConversationID(req.ConversationID) {
+		return false
+	}
+	if req.Account != "" {
+		return req.PrincipalID == "" && req.Verifier == "" && validAccountName(req.Account)
+	}
+	return req.PrincipalID != "" && req.Verifier != ""
 }
