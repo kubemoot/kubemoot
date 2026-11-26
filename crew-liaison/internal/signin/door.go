@@ -32,6 +32,9 @@ type Door interface {
 	HopSigner() *identity.HopSigner
 	// ResourceMetadataURL is the address the 401 on /mcp names.
 	ResourceMetadataURL() string
+	// ConnectURL is the link that lets a person connect an outside account for a crew; the
+	// door refuses anyone else who opens it. ErrConnectOff when connected accounts are off.
+	ConnectURL(principal, account, crew string) (string, error)
 }
 
 type door struct {
@@ -112,6 +115,7 @@ func (d *door) routes() {
 	d.mux.HandleFunc("GET "+pathCallback, d.callback)
 	d.mux.HandleFunc("POST "+pathConsent, d.consent)
 	d.mux.HandleFunc("POST "+pathToken, d.token)
+	d.connectRoutes()
 }
 
 func (d *door) Handler() http.Handler          { return d.mux }

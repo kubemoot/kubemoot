@@ -15,6 +15,8 @@ type Declarations interface {
 	// Account returns the account's declaration and the crews that declare it; false when no
 	// crew does.
 	Account(ctx context.Context, name string) (Declaration, bool, error)
+	// All returns every account any crew declares, with the crews that declare each.
+	All(ctx context.Context) ([]Declaration, error)
 	// Declared returns every account a crew declares.
 	Declared(ctx context.Context, crew string) ([]Declaration, error)
 }

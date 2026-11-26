@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,8 +28,17 @@ func (f fakeDecls) Account(_ context.Context, name string) (Declaration, bool, e
 	return d, ok, nil
 }
 
+func (f fakeDecls) All(context.Context) ([]Declaration, error) {
+	out := make([]Declaration, 0, len(f))
+	for _, d := range f {
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
 func (f fakeDecls) Declared(_ context.Context, crew string) ([]Declaration, error) {
-	var out []Declaration
+	out := make([]Declaration, 0, len(f))
 	for _, d := range f {
 		if contains(d.Crews, crew) {
 			out = append(out, d)
@@ -90,7 +100,7 @@ type rig struct {
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	svc := newService(t)
-	regs := map[string]Registration{acctLib: {ClientID: testClientID, ClientSecret: "csecret", AllowedCrews: []string{"guide"}}}
+	regs := map[string]Registration{acctLib: {ClientID: testClientID, ClientSecret: "csecret", AllowedCrews: []string{crewGuide}}}
 	v, c := newTestVault(t, regs)
 	decls := fakeDecls{acctLib: {
 		Name: acctLib, TokenURL: svc.srv.URL + "/token", TokenHosts: []string{"api.example.org"}, Crews: []string{crewA, crewB},

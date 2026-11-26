@@ -11,3 +11,15 @@ const (
 	groupTeamA       = "oidc:team-a"
 	userJane         = "oidc:jane-1"
 )
+
+// Names the tests share.
+const (
+	noStore    = "no-store"
+	fetchSite  = "Sec-Fetch-Site"
+	evilOrigin = "https://evil.example.test"
+	formToken  = "token"
+	subJane    = "jane"
+	crossSite  = "cross-site"
+
+	paramScopeKey = "scope"
+)

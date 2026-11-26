@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/go-logr/logr"
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/accounts"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/liaison"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/signin"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/tokenstore"
@@ -69,7 +70,13 @@ func main() {
 	}
 	defer state.Close()
 
-	front, err := signInFront(log, state)
+	acct, err := buildAccounts(os.Getenv, state, k8s, log.WithName("accounts"))
+	if err != nil {
+		log.Error(err, "connected accounts")
+		os.Exit(1)
+	}
+
+	front, err := signInFront(log, state, acct)
 	if err != nil {
 		log.Error(err, "sign-in front")
 		os.Exit(1)
@@ -195,7 +202,7 @@ func callerAuthenticator() (*identity.Authenticator, error) {
 // when LIAISON_SIGNIN_IDENTITY is set, else the front that relays one service's sign-in when
 // LIAISON_SIGNIN_UPSTREAM is set. It returns nil when neither is, which leaves the liaison
 // without a sign-in.
-func signInFront(log logr.Logger, state *tokenstore.Opener) (*liaison.SignInFront, error) {
+func signInFront(log logr.Logger, state *tokenstore.Opener, acct *accounts.Service) (*liaison.SignInFront, error) {
 	doorCfg, err := signin.DoorConfigFromEnv(os.Getenv, nil)
 	if err != nil {
 		return nil, err
@@ -206,11 +213,20 @@ func signInFront(log logr.Logger, state *tokenstore.Opener) (*liaison.SignInFron
 		if err := shareReplay(doorCfg, state, log); err != nil {
 			return nil, err
 		}
+		if acct != nil {
+			doorCfg.Accounts = acct
+		}
 		return doorFront(doorCfg)
 	}
 	cfg, err := signin.ConfigFromEnv(os.Getenv, nil)
-	if err != nil || cfg == nil {
+	if err != nil {
 		return nil, err
+	}
+	if acct != nil {
+		return nil, errAccountsNeedDoor
+	}
+	if cfg == nil {
+		return nil, nil
 	}
 	cfg.Logger = log.WithName("signin")
 	front, err := signin.New(cfg)

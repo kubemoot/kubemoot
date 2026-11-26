@@ -18,7 +18,7 @@ import (
 
 const (
 	appHost          = "app.example.test"
-	errDenied        = "access_denied"
+	errDenied        = errAccessDenied
 	appState         = "app-state"
 	appCallback      = "https://app.example.test/cb"
 	upstreamClientID = "front-upstream-client"

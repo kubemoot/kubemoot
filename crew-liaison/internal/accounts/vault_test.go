@@ -2,7 +2,10 @@ package accounts
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,17 +13,51 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubemoot/kubemoot/crew-liaison/internal/signin"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/tokenstore"
 )
 
 const (
+	crewGuide    = "guide"
+	issuerURL    = "https://issuer.example.org"
 	acctLib      = "lib"
 	pAlice       = "alice"
 	accessR2     = "access-r2"
 	testClientID = "cid"
 	trueText     = "true"
 )
+
+// testSealer is AES-GCM under a fixed key with the purpose as additional data, like the
+// liaison's real sealer, so a value moved to another purpose fails to open.
+type testSealer struct{}
+
+func (testSealer) aead() cipher.AEAD {
+	block, _ := aes.NewCipher(make([]byte, 32))
+	a, _ := cipher.NewGCM(block)
+	return a
+}
+
+func (s testSealer) Seal(purpose string, v any) (string, error) {
+	plain, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	a := s.aead()
+	nonce := make([]byte, a.NonceSize())
+	return base64.RawURLEncoding.EncodeToString(a.Seal(nonce, nonce, plain, []byte(purpose))), nil
+}
+
+func (s testSealer) Open(purpose, blob string, v any) error {
+	raw, err := base64.RawURLEncoding.DecodeString(blob)
+	a := s.aead()
+	if err != nil || len(raw) < a.NonceSize() {
+		return errors.New("bad")
+	}
+	plain, err := a.Open(nil, raw[:a.NonceSize()], raw[a.NonceSize():], []byte(purpose))
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(plain, v)
+}
 
 type clock struct{ t time.Time }
 
@@ -30,11 +67,7 @@ func (c *clock) advance(d time.Duration) { c.t = c.t.Add(d) }
 func newTestVault(t *testing.T, regs map[string]Registration) (*Vault, *clock) {
 	t.Helper()
 	c := &clock{t: time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)}
-	sealer, err := signin.ParseKeys("k1:" + base64.StdEncoding.EncodeToString(make([]byte, 32)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	store, err := tokenstore.NewSealed(tokenstore.NewMemory(c.now), sealer, 90*24*time.Hour)
+	store, err := tokenstore.NewSealed(tokenstore.NewMemory(c.now), testSealer{}, 90*24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +296,7 @@ func TestRegistrationAllows(t *testing.T) {
 	if !open.Allows("ns/any") {
 		t.Error("no list allows every crew")
 	}
-	r := Registration{AllowedCrews: []string{"guide", "other/special"}}
+	r := Registration{AllowedCrews: []string{crewGuide, "other/special"}}
 	for crew, want := range map[string]bool{"ns/guide": true, "other/special": true, "ns/special": false, "ns/else": false, "": false} {
 		if r.Allows(crew) != want {
 			t.Errorf("%q: want %v", crew, want)

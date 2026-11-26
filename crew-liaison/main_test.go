@@ -48,7 +48,7 @@ func TestReportExporterConfiguration(t *testing.T) {
 	}{
 		{"nothing set", map[string]string{}, true, ""},
 		{"a plain http URL is refused", map[string]string{envReportURL: plainReportURL}, false, "not https"},
-		{"a plain http URL with the opt-in", map[string]string{envReportURL: plainReportURL, envAllowInsecure: "true"}, false, ""},
+		{"a plain http URL with the opt-in", map[string]string{envReportURL: plainReportURL, envAllowInsecure: trueValue}, false, ""},
 		{"https with the CA file", map[string]string{envReportURL: httpsReportURL, envCAFile: ca}, false, ""},
 		{"https with no CA file uses the system roots", map[string]string{envReportURL: httpsReportURL}, false, ""},
 		{"https with an unreadable CA file", map[string]string{envReportURL: httpsReportURL, envCAFile: "/nonexistent/ca.crt"}, false, "CA file"},
@@ -100,7 +100,7 @@ func TestCrewGatewayIsHTTPSUnlessPlainHTTPIsAccepted(t *testing.T) {
 	if _, err := crewGateway(envMap(map[string]string{envCAFile: "/nonexistent/ca.crt"})); err == nil {
 		t.Fatal("an unreadable CA file was accepted")
 	}
-	if g, err := crewGateway(envMap(map[string]string{envAllowInsecureGateway: "true"})); err != nil || g == nil {
+	if g, err := crewGateway(envMap(map[string]string{envAllowInsecureGateway: trueValue})); err != nil || g == nil {
 		t.Fatalf("with the opt-in: %v", err)
 	}
 }

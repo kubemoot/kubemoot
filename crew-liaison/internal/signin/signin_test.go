@@ -37,7 +37,7 @@ func TestFullFlow(t *testing.T) {
 	if tok["access_token"] != accessToken || tok[grantRefresh] != refreshToken || tok["expires_in"] != float64(900) {
 		t.Errorf("the token was not relayed as received: %v", tok)
 	}
-	if resp.Header.Get("Cache-Control") != "no-store" {
+	if resp.Header.Get("Cache-Control") != noStore {
 		t.Error("token response must be no-store")
 	}
 	checkUpstreamTokenCall(t, r)
@@ -60,7 +60,7 @@ func checkUpstreamAuthorize(t *testing.T, r *rig, up *url.URL, appChallenge stri
 	}
 	for k, want := range map[string]string{
 		paramClientID: upstreamClientID, paramRedirect: r.srv.URL + pathCallback, paramResponseType: responseCode,
-		paramChallengeMethod: methodS256, "scope": "openid offline_access",
+		paramChallengeMethod: methodS256, paramScopeKey: "openid offline_access",
 	} {
 		if uq.Get(k) != want {
 			t.Errorf("upstream %s = %q, want %q", k, uq.Get(k), want)
@@ -140,7 +140,7 @@ func TestAuthorizeRefusals(t *testing.T) {
 		"no challenge":    r.authorizeQuery(clientID, "", nil),
 		"plain challenge": r.authorizeQuery(clientID, challenge, url.Values{paramChallengeMethod: {"plain"}}),
 		"short challenge": r.authorizeQuery(clientID, "abc", nil),
-		"token flow":      r.authorizeQuery(clientID, challenge, url.Values{paramResponseType: {"token"}}),
+		"token flow":      r.authorizeQuery(clientID, challenge, url.Values{paramResponseType: {formToken}}),
 	} {
 		loc := location(t, r.get(q))
 		if loc.Host != appHost || loc.Query().Get("error") == "" || loc.Query().Get(paramState) != appState {

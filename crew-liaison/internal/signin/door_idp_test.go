@@ -119,7 +119,7 @@ func (f *fakeIDP) idToken(g *idpGrant) string {
 		nonce = f.nonce
 	}
 	claims := map[string]any{
-		"iss": f.srv.URL, "aud": aud, "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(), "nonce": nonce,
+		paramIss: f.srv.URL, "aud": aud, "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(), "nonce": nonce,
 	}
 	for k, v := range g.claims {
 		claims[k] = v

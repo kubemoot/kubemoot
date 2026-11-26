@@ -43,7 +43,7 @@ func checkAccessClaims(t *testing.T, access string) {
 	if err := parsed.UnsafeClaimsWithoutVerification(&claims); err != nil {
 		t.Fatal(err)
 	}
-	if claims["iss"] != doorPublicURL || claims["aud"] != doorPublicURL+"/mcp" || claims["sub"] != doorUser || claims["jti"] == "" {
+	if claims[paramIss] != doorPublicURL || claims["aud"] != doorPublicURL+"/mcp" || claims["sub"] != doorUser || claims["jti"] == "" {
 		t.Errorf("claims = %v", claims)
 	}
 	if exp, iat := claims["exp"].(float64), claims["iat"].(float64); exp-iat != accessTokenLifetime.Seconds() {
