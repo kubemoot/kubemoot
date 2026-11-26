@@ -3,6 +3,8 @@ package tokenstore_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -126,5 +128,93 @@ func TestMemorySweep(t *testing.T) {
 	m.Sweep()
 	if names, _ := m.Names(ctx, "g"); len(names) != 0 {
 		t.Fatalf("after the sweep: %v", names)
+	}
+}
+
+func newBaoBackend(t *testing.T) (*tokenstore.OpenBao, *fakeBao) {
+	t.Helper()
+	fake, srv := newFakeBao(t, "tok")
+	be, err := tokenstore.NewOpenBao(tokenstore.OpenBaoConfig{
+		Address: srv.URL, AllowInsecure: true, Token: func() (string, error) { return "tok", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return be, fake
+}
+
+func TestOpenBaoALosingWriterChangesNothing(t *testing.T) {
+	be, fake := newBaoBackend(t)
+	ctx := context.Background()
+	rev, err := be.Put(ctx, "g", "n", []byte("one"), time.Hour, tokenstore.MustNotExist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	sets, refusals := fake.ttlSets, fake.casRefusals
+	fake.mu.Unlock()
+	if _, err := be.Put(ctx, "g", "n", []byte("stale"), time.Minute, rev+5); !errors.Is(err, tokenstore.ErrConflict) {
+		t.Fatalf("a stale revision: %v", err)
+	}
+	if _, err := be.Put(ctx, "g", "n", []byte("again"), time.Minute, tokenstore.MustNotExist); !errors.Is(err, tokenstore.ErrConflict) {
+		t.Fatalf("create over a live secret: %v", err)
+	}
+	fake.mu.Lock()
+	changed := fake.ttlSets != sets || fake.casRefusals != refusals
+	fake.mu.Unlock()
+	if changed {
+		t.Fatal("a writer whose precondition fails must not touch the secret's time to live or write")
+	}
+	if got, _ := be.Get(ctx, "g", "n"); string(got.Value) != "one" || got.Revision != rev {
+		t.Fatalf("the value changed: %+v", got)
+	}
+}
+
+func TestOpenBaoAnExpiredSecretCanBeCreatedAgain(t *testing.T) {
+	be, fake := newBaoBackend(t)
+	ctx := context.Background()
+	if _, err := be.Put(ctx, "g", "n", []byte("one"), 2*time.Second, tokenstore.MustNotExist); err != nil {
+		t.Fatal(err)
+	}
+	fake.advance(5 * time.Second)
+	if _, err := be.Get(ctx, "g", "n"); !errors.Is(err, tokenstore.ErrNotFound) {
+		t.Fatalf("expired: %v", err)
+	}
+	// KV v2 keeps the deleted version's number, so the next write must carry it.
+	rev, err := be.Put(ctx, "g", "n", []byte("two"), time.Hour, tokenstore.MustNotExist)
+	if err != nil || rev < 2 {
+		t.Fatalf("create after expiry: %d %v", rev, err)
+	}
+	if _, err := be.Put(ctx, "g", "n", []byte("three"), time.Hour, 1); !errors.Is(err, tokenstore.ErrConflict) {
+		t.Fatalf("a swap against the expired version: %v", err)
+	}
+}
+
+func TestOpenBaoOnlyTheCheckAndSetErrorIsAConflict(t *testing.T) {
+	var data int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/metadata/") && r.Method == http.MethodGet:
+			http.NotFound(w, r)
+		case strings.Contains(r.URL.Path, "/metadata/"):
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			data++
+			w.WriteHeader(http.StatusBadRequest)
+			if data == 1 {
+				_, _ = w.Write([]byte(`{"errors":["check-and-set parameter did not match the current version"]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"errors":["invalid path"],"note":"check-and-set parameter did not match the current version"}`))
+		}
+	}))
+	defer srv.Close()
+	be, _ := tokenstore.NewOpenBao(tokenstore.OpenBaoConfig{Address: srv.URL, AllowInsecure: true,
+		Token: func() (string, error) { return "t", nil }})
+	if _, err := be.Put(context.Background(), "g", "n", []byte("v"), time.Hour, tokenstore.MustNotExist); !errors.Is(err, tokenstore.ErrConflict) {
+		t.Fatalf("the check-and-set error: %v", err)
+	}
+	if _, err := be.Put(context.Background(), "g", "n", []byte("v"), time.Hour, tokenstore.MustNotExist); err == nil || errors.Is(err, tokenstore.ErrConflict) {
+		t.Fatalf("another 400 must not read as a lost race: %v", err)
 	}
 }

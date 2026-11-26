@@ -26,7 +26,10 @@ type sealedRecord struct {
 
 // Sealed is a Store over a Backend that encrypts every value. The principal and account are
 // additional authenticated data, so a value copied to another person's or account's key
-// fails to open. The key names are hashes, so the backend learns neither.
+// fails to open. The key names hash the person and the account, and the person never appears
+// in the value. The value starts with the account's name in hex so a listing can name the
+// records, so a backend learns which accounts a key holds (a name a crew declares, such as
+// "library") but never whose they are.
 type Sealed struct {
 	backend Backend
 	sealer  Sealer
