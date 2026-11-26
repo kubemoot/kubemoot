@@ -19,6 +19,7 @@ on:
       - 'operator/pkg/natsconn/**'
       - 'operator/pkg/filereload/**'
       - 'operator/pkg/catransport/**'
+      - 'operator/pkg/netguard/**'
       - 'operator/go.mod'
       - 'operator/go.sum'
       - '.github/scripts/retag-image.sh'
