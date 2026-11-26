@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -20,10 +21,11 @@ func TestAccountsSinceKeepsOnlyRefusalsFromTheTurnOn(t *testing.T) {
 	rec, _ := json.Marshal(bus.NeedsAccounts{Refused: map[string]string{
 		"before": "2026-11-26T09:59:59.9Z",
 		"same":   "2026-11-26T10:00:00Z",
+		"sameS":  "2026-11-26T10:00:00.7Z",
 		"after":  "2026-11-26T10:05:00.5Z",
 		"junk":   "not a time",
 	}})
-	if got := accountsSince(rec, startedStamp); !reflect.DeepEqual(got, []string{"after", "same"}) {
+	if got := accountsSince(rec, startedStamp); !reflect.DeepEqual(got, []string{"after", "same", "sameS"}) {
 		t.Fatalf("accounts: %v", got)
 	}
 	for name, c := range map[string]struct {
@@ -160,5 +162,30 @@ func TestANoteThatFailsDoesNotChangeTheRefusal(t *testing.T) {
 	resp, body := leaseAccount(t, srv, saGood, accountBody)
 	if resp.StatusCode != http.StatusNotFound || !strings.Contains(body, "NO_GRANT") {
 		t.Fatalf("%d %s", resp.StatusCode, body)
+	}
+}
+
+func TestTheNoteKeepsAtMostSixteenAccountsAndDropsTheOldest(t *testing.T) {
+	c := newControlSetup(t)
+	c.seedAnswered(t, true)
+	base := time.Now()
+	for i := 0; i < maxNotedAccounts+4; i++ {
+		c.noteAs(t, fmt.Sprintf("acct-%02d", i), base.Add(time.Duration(i)*time.Second))
+	}
+	entry, err := c.kv.Get(context.Background(), bus.ConversationNeedsKey("ns", "pilot", convCtl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec bus.NeedsAccounts
+	if err := json.Unmarshal(entry.Value(), &rec); err != nil || len(rec.Refused) != maxNotedAccounts {
+		t.Fatalf("kept %d: %v", len(rec.Refused), err)
+	}
+	for _, gone := range []string{"acct-00", "acct-03"} {
+		if _, kept := rec.Refused[gone]; kept {
+			t.Errorf("%s is among the oldest and must go", gone)
+		}
+	}
+	if _, kept := rec.Refused["acct-19"]; !kept {
+		t.Error("the newest must stay")
 	}
 }
