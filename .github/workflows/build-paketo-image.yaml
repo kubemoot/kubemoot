@@ -1,0 +1,135 @@
+# Builds an image with Paketo buildpacks in the cluster and pushes it to Harbor. The job
+# stages an application directory and hands it to build-image-buildpacks.sh from
+# kubemoot/release-actions (its setup action exports BUILD_IMAGE_DIR), which runs the
+# lifecycle in a non-root build pod.
+#
+# The application directory is the repository directory `context` with, when `artifact` is
+# set, the files of that workflow artifact laid over it. The buildpacks variables of the
+# image are in <context>/buildpacks.env (KEY=VALUE per line; paketo-build-args.sh reads it).
+# The image starts the Procfile process of the application directory, directly with no
+# shell, through the launcher at /cnb/process/web. It runs from /workspace as the run
+# image's user, 1002:1001, unless the pod sets one.
+#
+# main pushes :<sha>, which the release retags, and :latest; any other ref pushes only
+# :branch-<sha> (build-image-buildpacks.sh decides the tags per ref).
+name: Build Paketo Image
+
+on:
+  workflow_call:
+    inputs:
+      name:
+        description: 'The image name under kubemoot/, also the build pod name prefix'
+        required: true
+        type: string
+      context:
+        description: 'The repository directory holding the application files and buildpacks.env'
+        required: true
+        type: string
+      artifact:
+        description: 'A workflow artifact whose files are laid over the context; empty for none'
+        required: false
+        default: ''
+        type: string
+      executables:
+        description: 'Space-separated paths in the application directory to make executable (artifacts lose file modes)'
+        required: false
+        default: ''
+        type: string
+      builder:
+        description: 'The builder entry of build-image/buildpacks/images.yaml'
+        required: false
+        default: 'builder'
+        type: string
+      run_image:
+        description: 'The run image entry of build-image/buildpacks/images.yaml'
+        required: false
+        default: 'run-base'
+        type: string
+      buildpacks:
+        description: 'Space-separated buildpack ids that replace the builder detection order; empty keeps it'
+        required: false
+        default: ''
+        type: string
+      license:
+        description: 'The license written to the image label'
+        required: false
+        default: 'Apache-2.0'
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ${{ vars.REGISTRY }}
+  IMAGE_NAME: kubemoot/${{ inputs.name }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-image:
+    runs-on: homelab-runners
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install kubectl
+        uses: ./.github/actions/install-kubectl
+
+      - name: Set up the build helpers
+        uses: kubemoot/release-actions/setup@899dec57c20fafcccae4120d20bfd88e454f0a0f # v0.12.2
+
+      - name: Check the inputs
+        env:
+          NAME: ${{ inputs.name }}
+          CONTEXT: ${{ inputs.context }}
+          EXECUTABLES: ${{ inputs.executables }}
+          BUILDPACKS: ${{ inputs.buildpacks }}
+        run: |
+          [[ "${NAME}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "::error::bad image name: ${NAME}"; exit 1; }
+          [[ "${CONTEXT}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "::error::bad context: ${CONTEXT}"; exit 1; }
+          [ -f "${CONTEXT}/buildpacks.env" ] || { echo "::error::${CONTEXT}/buildpacks.env not found"; exit 1; }
+          [[ "${EXECUTABLES}" =~ ^[A-Za-z0-9._/\ -]*$ ]] || { echo "::error::bad executables: ${EXECUTABLES}"; exit 1; }
+          [[ "${BUILDPACKS}" =~ ^[A-Za-z0-9._/\ -]*$ ]] || { echo "::error::bad buildpacks: ${BUILDPACKS}"; exit 1; }
+
+      - name: Stage the application directory
+        env:
+          CONTEXT: ${{ inputs.context }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/app"
+          cp -a "${CONTEXT}/." "${RUNNER_TEMP}/app/"
+
+      - name: Fetch the tested files
+        if: inputs.artifact != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.artifact }}
+          path: ${{ runner.temp }}/app
+
+      - name: Build and push with Paketo buildpacks
+        env:
+          REGISTRY_HOST_IP: ${{ vars.REGISTRY_HOST_IP }}
+          SHA: ${{ github.sha }}
+          NAME: ${{ inputs.name }}
+          EXECUTABLES: ${{ inputs.executables }}
+          BUILDER: ${{ inputs.builder }}
+          RUN_IMAGE: ${{ inputs.run_image }}
+          BUILDPACKS: ${{ inputs.buildpacks }}
+          LICENSE: ${{ inputs.license }}
+        run: |
+          app="${RUNNER_TEMP}/app"
+          for path in ${EXECUTABLES}; do
+            [ -f "${app}/${path}" ] || { echo "::error::no file to make executable: ${path}"; exit 1; }
+            chmod 0755 "${app}/${path}"
+          done
+          mapfile -t args < <(bash .github/scripts/paketo-build-args.sh "${app}/buildpacks.env")
+          for id in ${BUILDPACKS}; do args+=(--buildpack "${id}"); done
+          bash .github/scripts/retry-lost-build-pod.sh -- \
+            "${BUILD_IMAGE_DIR}/build-image-buildpacks.sh" \
+            --pod "buildpacks-${NAME}-${SHA:0:8}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
+            --sha "${SHA}" --ref "${GITHUB_REF}" \
+            --builder "${BUILDER}" --run-image "${RUN_IMAGE}" \
+            "${args[@]}" \
+            --env BP_OCI_SOURCE=https://github.com/kubemoot/kubemoot \
+            --env "BP_OCI_LICENSES=${LICENSE}" \
+            --env "BP_OCI_REVISION=${SHA}" \
+            "${app}" "${REGISTRY}/${IMAGE_NAME}"

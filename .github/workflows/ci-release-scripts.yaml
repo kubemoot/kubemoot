@@ -32,6 +32,8 @@ on:
       - '**/*.go'
       - '**/settings.gradle.kts'
       - '**/Dockerfile*'
+      - '**/buildpacks.env'
+      - 'dashboard/.nvmrc'
       - '**/osv-scanner.toml'
       - 'dashboard/src/lib/server/nats-object-store.ts'
       - 'agent-runtime/src/main/java/ai/kubemoot/agent/nats/DiscussionArtifacts.java'
@@ -69,6 +71,8 @@ on:
       - '**/*.go'
       - '**/settings.gradle.kts'
       - '**/Dockerfile*'
+      - '**/buildpacks.env'
+      - 'dashboard/.nvmrc'
       - '**/osv-scanner.toml'
       - 'dashboard/src/lib/server/nats-object-store.ts'
       - 'agent-runtime/src/main/java/ai/kubemoot/agent/nats/DiscussionArtifacts.java'
@@ -127,6 +131,7 @@ jobs:
           bash .github/scripts/test-wait-for-operator-chart.sh
           bash .github/scripts/test-release-vllm-chart.sh
           bash .github/scripts/test-go-build-static.sh
+          bash .github/scripts/test-paketo-build-args.sh
           bash .github/scripts/test-retag-image.sh
           bash .github/scripts/test-release-status.sh
           bash .github/scripts/test-dispatch-clients.sh
