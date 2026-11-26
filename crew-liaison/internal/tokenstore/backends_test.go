@@ -218,3 +218,27 @@ func TestOpenBaoOnlyTheCheckAndSetErrorIsAConflict(t *testing.T) {
 		t.Fatalf("another 400 must not read as a lost race: %v", err)
 	}
 }
+
+func TestOpenBaoSetsTheLifeOnlyWhenItDiffers(t *testing.T) {
+	be, fake := newBaoBackend(t)
+	ctx := context.Background()
+	rev, _ := be.Put(ctx, "g", "n", []byte("one"), time.Hour, tokenstore.MustNotExist)
+	fake.mu.Lock()
+	sets := fake.ttlSets
+	fake.mu.Unlock()
+	rev, _ = be.Put(ctx, "g", "n", []byte("two"), time.Hour, rev)
+	fake.mu.Lock()
+	same := fake.ttlSets
+	fake.mu.Unlock()
+	if same != sets {
+		t.Fatalf("a write with the same life set it again: %d -> %d", sets, same)
+	}
+	if _, err := be.Put(ctx, "g", "n", []byte("three"), 2*time.Hour, rev); err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.ttlSets != sets+1 {
+		t.Fatalf("a different life must be set once: %d -> %d", sets, fake.ttlSets)
+	}
+}
