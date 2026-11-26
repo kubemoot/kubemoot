@@ -89,6 +89,21 @@ type exportError struct {
 
 func (e *exportError) Error() string { return e.message }
 
+// bearer is the credential the operator is shown: the door's assertion of a person it signed in,
+// else the caller's own Kubernetes token, else (a caller with neither, such as the shared token or
+// no verification) the liaison's own, which the operator refuses on a crew that verifies callers
+// and the liaison does not own the conversation of.
+func (e *Exporter) bearer(ctx context.Context, crew Crew) (string, error) {
+	token, err := credentialFor(ctx, crew.Namespace, crew.Name)
+	if err != nil || token != "" {
+		return token, err
+	}
+	if token, err = e.token(); err != nil {
+		return "", fmt.Errorf("the liaison has no service account token: %w", err)
+	}
+	return token, nil
+}
+
 // fetch asks the operator for the export of ids in a crew, as the zip or, with report, its
 // manifest. It reads at most limit bytes and reports whether there was more.
 func (e *Exporter) fetch(
@@ -107,15 +122,9 @@ func (e *Exporter) fetch(
 	if err != nil {
 		return nil, false, err
 	}
-	token := credentialFrom(ctx)
-	if token == "" {
-		// A caller with no Kubernetes token of its own (the shared token, or no verification)
-		// is served as the liaison itself, which the operator refuses on a crew that verifies
-		// callers and the liaison does not own the conversation of.
-		var err error
-		if token, err = e.token(); err != nil {
-			return nil, false, fmt.Errorf("the liaison has no service account token: %w", err)
-		}
+	token, err := e.bearer(ctx, crew)
+	if err != nil {
+		return nil, false, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := e.client.Do(req)

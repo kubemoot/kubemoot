@@ -4,6 +4,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +18,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 // fakeOperator imitates the operator's conversation-export endpoint.
@@ -282,5 +289,66 @@ func TestTheExportPresentsTheCallersOwnTokenWhenTheyHaveOne(t *testing.T) {
 	_, _, _ = svc.ExportConversation(context.Background(), nil, in)
 	if len(seen) != 2 || seen[0] != "Bearer alice-token" || seen[1] != "Bearer "+saToken {
 		t.Fatalf("operator saw %v", seen)
+	}
+}
+
+// assertionFor is a door's signer and the verifier a crew's side would hold for audience.
+func assertionFor(t *testing.T, audience string) (*identity.HopSigner, *identity.HopVerifier) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, _ := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	signer, err := identity.NewHopSigner(key, "liaison", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := identity.NewHopVerifier([]identity.TrustedHopConfig{{
+		Name: "liaison", Audience: audience, PublicKeys: []string{string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer, verifier
+}
+
+func TestAPersonSignedInAtTheDoorExportsWithTheAssertionForThatCrew(t *testing.T) {
+	f := newFakeOperator(oneReport, zipOf(oneReport))
+	defer f.srv.Close()
+	signer, verifier := assertionFor(t, identity.HopAudience("ns", testCrew))
+	ctx := withAsserter(context.Background(), signer, &identity.Identity{Issuer: identity.IssuerKubernetes, Subject: janeUser})
+	res, _, err := exportService(t, f).ExportConversation(ctx, nil, ExportConversationInput{Crew: testCrew, ConversationIDs: []string{convID}})
+	if err != nil || res == nil || res.IsError {
+		t.Fatalf("export: %+v %v", res, err)
+	}
+	if len(f.tokens) == 0 {
+		t.Fatal("the operator was not called")
+	}
+	for _, header := range f.tokens {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", header)
+		id, err := verifier.Verify(req)
+		if err != nil || id.Subject != janeUser {
+			t.Fatalf("the operator was shown %q, which is not the door's assertion of the person: %v", header, err)
+		}
+		if strings.Contains(header, saToken) {
+			t.Fatal("the liaison's own token must not be used for a person it signed in")
+		}
+	}
+}
+
+func TestADoorPersonWhoCannotBeAssertedExportsNothing(t *testing.T) {
+	f := newFakeOperator(oneReport, zipOf(oneReport))
+	defer f.srv.Close()
+	signer, _ := assertionFor(t, "unused")
+	// A name the gateway would refuse cannot be asserted; the request is not sent as the liaison.
+	ctx := withAsserter(context.Background(), signer, &identity.Identity{Issuer: identity.IssuerKubernetes, Subject: "system:masters"})
+	res, _, _ := exportService(t, f).ExportConversation(ctx, nil, ExportConversationInput{Crew: testCrew, ConversationIDs: []string{convID}})
+	if res == nil || !res.IsError {
+		t.Fatalf("export: %+v", res)
+	}
+	if len(f.tokens) != 0 {
+		t.Fatal("the operator must not be called for a person who cannot be asserted")
 	}
 }

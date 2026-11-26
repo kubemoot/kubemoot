@@ -394,7 +394,10 @@ type ReportServer struct {
 	// Subscribers identifies the callers of a crew that accepts a service's token, for the
 	// routes that admit them; nil means only Kubernetes callers.
 	Subscribers *subscriberDirectory
-	Addr        string
+	// Hops identifies the people a crew's trusted hop asserted (signed in at the liaison's door), for
+	// the routes that narrow a caller to what they own. Nil admits none.
+	Hops *hopDirectory
+	Addr string
 	// Certificate is the serving certificate source. The service carries callers' bearer tokens,
 	// so it serves TLS, and Start refuses to run without one unless AllowInsecure says otherwise.
 	Certificate func(*tls.ClientHelloInfo) (*tls.Certificate, error)
