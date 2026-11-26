@@ -72,16 +72,45 @@ The tool gateway receives the account name in the server's registration.
 
 ## What the install registers
 
-The install lists the account names it has registered a client for under `liaison.connectedAccounts.accounts` in the operator chart. Each name must be a DNS label, or the chart refuses to render. The operator reads the names.
+The install registers a client at each service under `liaison.connectedAccounts.accounts` in the operator chart, and turns
+the feature on. It is off by default and nothing is kept when it is off. Each name must be a DNS label, or the chart refuses to render. The operator reads the names.
 
 ```yaml
 liaison:
+  auth:
+    hashKeySecret: {name: install-hash-key}
   connectedAccounts:
+    enabled: true
+    sealKeySecret: {name: liaison-vault-keys}
     accounts:
-      library: {}
+      library:
+        clientId: "<the id registered at the service for <publicURL>/oauth/callback>"
+        clientSecret: {name: library-client-secret}   # optional; a public client uses PKCE alone
+        issuer: ""            # the service's issuer (RFC 9207); empty accepts the host of its authorization endpoint
+        allowedCrews: []      # empty: every crew that declares it; else names or namespace/name
+        maxLifetimeHours: 0   # the longest the service lets a connection stand; 0 for none known
 ```
 
-A crew that declares a name missing from this list reports `UnregisteredAccount`.
+| Value | Default | Description |
+|-------|---------|-------------|
+| `liaison.connectedAccounts.enabled` | `false` | Turns on the connect pages, the account store and the broker. Needs the door's own identity, `sealKeySecret`, `liaison.auth.hashKeySecret`, and `liaison.state.backend` `nats` or `openbao` with more than one replica |
+| `liaison.connectedAccounts.sealKeySecret` | required when enabled | A Secret you create with `id:base64key` lines (32 random bytes each) that seal what is kept; apart from the door's own keys |
+| `liaison.connectedAccounts.brokerPort` | `8081` | The internal port of the account broker and its Service |
+| `liaison.connectedAccounts.accounts.<name>.clientId` | required | The install's client id at the service |
+| `liaison.connectedAccounts.accounts.<name>.clientSecret` | none | A Secret (`name`, `key` default `client-secret`) mounted as a file. Never in the environment |
+| `liaison.connectedAccounts.accounts.<name>.issuer` | empty | What the `iss` of the service's redirect must equal |
+| `liaison.connectedAccounts.accounts.<name>.allowedCrews` | `[]` | Limits the account to crews, by name or `namespace/name` |
+| `liaison.connectedAccounts.accounts.<name>.maxLifetimeHours` | `0` | The longest a connection is kept from the day it was made, for a service that limits it without saying so in its token answer |
+| `liaison.state.backend` | empty | Where the liaison keeps state: `memory`, `nats` or `openbao`; empty picks `nats` with the door on |
+
+A crew that declares a name missing from this list reports `UnregisteredAccount`. The retention rules, the pages and the store are described in [Connected accounts](../../integrations/signing-in/#connected-accounts) and [Data ownership](../../operating/data-ownership/#a-persons-connected-accounts).
+
+## Who may ask: the `connectedAccount` rule
+
+A crew whose `spec.discussion.access.askers` is `connectedAccount: <name>` admits a person only while they hold a live connection to that
+account for this crew. The crew's gateway asks the liaison's account broker, which the operator configures (the broker's address, and a
+projected ServiceAccount token made for the broker alone) when the install has connected accounts on. A gateway with no broker, and a broker that does not
+answer, refuse. The rule needs `hashKeySecretRef` and a trusted hop, like every askers rule other than `kubernetesRBAC`.
 
 ## The ConnectedAccounts condition
 
