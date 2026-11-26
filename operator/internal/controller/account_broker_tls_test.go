@@ -26,7 +26,7 @@ const (
 	brokerTestService = "kubemoot-liaison-broker"
 	brokerTestSecret  = "kubemoot-liaison-broker-tls"
 	brokerHTTPSURL    = "https://kubemoot-liaison-broker.kubemoot.svc:8081"
-	brokerCAPath      = "/etc/kubemoot/gateway-tls/ca.crt"
+	brokerCAPath      = "/etc/kubemoot/gateway-tls/ca-bundle.crt"
 )
 
 func brokerFixture(t *testing.T) (*caFixture, *BrokerCertificate) {
@@ -146,5 +146,59 @@ func TestTheBrokerCAFileIsTheGatewayCertificatesCAOnlyWithGatewayTLS(t *testing.
 	r.GatewayTLS = &GatewayTLS{}
 	if got := r.brokerCAFile(); got != brokerCAPath {
 		t.Errorf("with gateway TLS: %q", got)
+	}
+}
+
+// bundleOf is the CA bundle the gateway-side leaf Secret carries.
+func bundleOf(t *testing.T, f *caFixture) []*x509.Certificate {
+	t.Helper()
+	s, _ := f.leaf(t)
+	return certificatesIn(s.Data[secretKeyCABundle])
+}
+
+func TestAGatewayTrustsTheBrokerThroughACARotation(t *testing.T) {
+	f, b := brokerFixture(t)
+	ctx := context.Background()
+	ensureGateway := func() {
+		t.Helper()
+		if _, err := f.ca.EnsureLeaf(ctx, leafKey(), []string{caTestHost}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ensureGateway()
+	if n := len(bundleOf(t, f)); n != 1 {
+		t.Fatalf("before a rotation the bundle holds %d certificates", n)
+	}
+	_, oldBroker := brokerLeaf(t, f)
+
+	// The CA changes and the gateway's certificate is issued first: the broker still serves a
+	// certificate the previous CA signed, so the bundle keeps that CA.
+	f.rotate(t)
+	ensureGateway()
+	pool := x509.NewCertPool()
+	for _, c := range bundleOf(t, f) {
+		pool.AddCert(c)
+	}
+	if _, err := oldBroker.Verify(x509.VerifyOptions{
+		Roots: pool, DNSName: brokerTestService + "." + caTestNS + ".svc", CurrentTime: f.now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}); err != nil {
+		t.Fatalf("the gateway cannot verify the broker's previous certificate in the rotation window: %v", err)
+	}
+
+	// The broker is re-issued; the next check of the gateway's Secret drops the previous CA, with
+	// no new certificate for the gateway.
+	if err := b.Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_, before := f.leaf(t)
+	ensureGateway()
+	if _, after := f.leaf(t); before.SerialNumber.Cmp(after.SerialNumber) != 0 {
+		t.Error("the gateway's certificate was replaced only to refresh the bundle")
+	}
+	if n := len(bundleOf(t, f)); n != 1 {
+		t.Fatalf("after the broker is re-issued the bundle holds %d certificates", n)
 	}
 }

@@ -60,6 +60,9 @@ const (
 
 	// secretKeyCACert is the CA certificate's key in the CA Secret and the published ConfigMap.
 	secretKeyCACert = "ca.crt"
+	// secretKeyCABundle is the key in a leaf Secret of the CA certificates a client of that
+	// leaf's service trusts: the current CA and the previous ones a certificate still depends on.
+	secretKeyCABundle = "ca-bundle.crt"
 	// pemCertificate is the PEM block type of a certificate.
 	pemCertificate = "CERTIFICATE"
 
@@ -316,7 +319,8 @@ func serviceDNSNames(service, namespace string) []string {
 // one from the install CA on the first handshake, keeps it in memory (no Secret, no key on
 // disk), and issues another when it is no longer fresh, which includes a new CA. When the CA
 // cannot be read or signs nothing, the certificate it has is served while it is valid, so a short
-// API server outage does not stop the service.
+// API server outage does not stop the service. A service whose certificate must be a Secret in
+// another process's pod uses EnsureLeaf instead.
 func (c *InstallCA) ServingCertificate(dnsNames []string) func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	s := &servingCert{ca: c, names: dnsNames}
 	return func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return s.get() }
@@ -536,7 +540,7 @@ func (c *InstallCA) staleLeafCAs(ctx context.Context, current *authority) (stale
 
 // EnsureLeaf makes sure the Secret at key holds a current serving certificate for dnsNames signed by
 // the install CA, issuing one when it is absent or no longer fresh. The Secret is labelled
-// LabelInstallCALeaf and carries the signing CA in ca.crt; own, when set, makes the Secret owned (for
+// LabelInstallCALeaf and carries the signing CA in ca.crt and the CAs to trust in ca-bundle.crt; own, when set, makes the Secret owned (for
 // garbage collection). It returns when the certificate ends.
 func (c *InstallCA) EnsureLeaf(
 	ctx context.Context, key client.ObjectKey, dnsNames []string, own func(*corev1.Secret) error,
@@ -550,8 +554,12 @@ func (c *InstallCA) EnsureLeaf(
 	if err != nil && !apierrors.IsNotFound(err) {
 		return time.Time{}, err
 	}
+	bundle, berr := c.bundle(ctx, ca, "")
+	if berr != nil {
+		return time.Time{}, berr
+	}
 	if err == nil && ca.fresh(secret.Data, dnsNames, c.Now()) {
-		return notAfterOf(secret.Data), nil
+		return notAfterOf(secret.Data), c.refreshBundle(ctx, secret, bundle)
 	}
 	certPEM, keyPEM, err := ca.issue(dnsNames, c.Now())
 	if err != nil {
@@ -563,13 +571,26 @@ func (c *InstallCA) EnsureLeaf(
 			secret.Labels = map[string]string{}
 		}
 		secret.Labels[LabelInstallCALeaf] = valueTrue
-		secret.Data = map[string][]byte{corev1.TLSCertKey: certPEM, corev1.TLSPrivateKeyKey: keyPEM, secretKeyCACert: ca.pem}
+		secret.Data = map[string][]byte{
+			corev1.TLSCertKey: certPEM, corev1.TLSPrivateKeyKey: keyPEM, secretKeyCACert: ca.pem, secretKeyCABundle: []byte(bundle),
+		}
 		if own != nil {
 			return own(secret)
 		}
 		return nil
 	})
 	return notAfterOf(secret.Data), err
+}
+
+// refreshBundle rewrites the CA bundle of a leaf Secret that is still fresh when the CAs clients
+// should trust have changed, so a client of the leaf's service trusts the new CA and the previous
+// one through a rotation without waiting for the certificate to be replaced.
+func (c *InstallCA) refreshBundle(ctx context.Context, secret *corev1.Secret, bundle string) error {
+	if string(secret.Data[secretKeyCABundle]) == bundle {
+		return nil
+	}
+	secret.Data[secretKeyCABundle] = []byte(bundle)
+	return c.Client.Update(ctx, secret)
 }
 
 // notAfterOf is when the certificate in secret data ends; the zero time when it cannot be read.

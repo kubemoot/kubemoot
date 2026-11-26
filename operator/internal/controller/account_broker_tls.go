@@ -73,12 +73,13 @@ func (b *BrokerCertificate) Start(ctx context.Context) error {
 // NeedLeaderElection is true: one operator replica issues the certificate.
 func (b *BrokerCertificate) NeedLeaderElection() bool { return true }
 
-// brokerCAFile is the CA file a crew's gateway verifies the broker against: the CA certificate
-// its own gateway certificate Secret carries. Empty when gateways serve no TLS, so the pod has
+// brokerCAFile is the CA file a crew's gateway verifies the broker against: the CA bundle its own
+// gateway certificate Secret carries, which keeps the previous CA through a rotation so the
+// broker verifies before and after it re-issues its certificate. Empty when gateways serve no TLS, so the pod has
 // no such mount.
 func (r *CrewReconciler) brokerCAFile() string {
 	if r.GatewayTLS == nil {
 		return ""
 	}
-	return gatewayTLSMount + "/" + secretKeyCACert
+	return gatewayTLSMount + "/" + secretKeyCABundle
 }
