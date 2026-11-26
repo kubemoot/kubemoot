@@ -68,8 +68,8 @@ type Declaration struct {
 type Registration struct {
 	ClientID     string
 	ClientSecret string
-	// AllowedCrews limits the account to crews ("namespace/name" or "name"); empty is every
-	// crew that declares it.
+	// AllowedCrews limits the account to crews, each "namespace/name". A registration has this or
+	// Hosts (see checkTrust), so an empty list never means every crew in a configured install.
 	AllowedCrews []string
 	// Hosts pins the service: when set, the authorization, token and revocation endpoints a
 	// crew declares must be on one of these hosts, or the declaration is not offered. It is what

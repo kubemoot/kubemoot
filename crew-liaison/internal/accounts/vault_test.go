@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	crewGuide    = "guide"
+	crewGuide    = "ns/guide"
 	apiHostName  = "api.example.org"
 	libraryTitle = "Library"
 	guideFull    = "b/guide"
@@ -243,7 +243,7 @@ func TestConfigFromEnv(t *testing.T) {
 	offUnlessTrue(t, get, keys)
 	ok := map[string]string{
 		EnvEnabled: trueText, EnvSealKeysFile: keys,
-		EnvRegistered: `{"library":{"clientId":"cid","clientSecretFile":"` + secret + `","allowedCrews":["ns/a"],"maxLifetimeHours":48}}`,
+		EnvRegistered: `{"library":{"clientId":"cid","clientSecretFile":"` + secret + `","hosts":["auth.example.org"],"allowedCrews":["ns/a"],"maxLifetimeHours":48}}`,
 	}
 	cfg, err := ConfigFromEnv(get(ok), nil)
 	reg := cfg.Registrations["library"]
@@ -271,9 +271,9 @@ func rejectsBadConfig(t *testing.T, get func(map[string]string) func(string) str
 		"missing keys":   {EnvEnabled: trueText, EnvSealKeysFile: filepath.Join(dir, "nope")},
 		"not json":       {EnvEnabled: trueText, EnvSealKeysFile: keys, EnvRegistered: "[1]"},
 		"bad name":       {EnvEnabled: trueText, EnvSealKeysFile: keys, EnvRegistered: `{"Bad_Name":{"clientId":"c"}}`},
-		"no client id":   {EnvEnabled: trueText, EnvSealKeysFile: keys, EnvRegistered: `{"lib":{}}`},
-		"negative life":  {EnvEnabled: trueText, EnvSealKeysFile: keys, EnvRegistered: `{"lib":{"clientId":"c","maxLifetimeHours":-1}}`},
-		"missing secret": {EnvEnabled: trueText, EnvSealKeysFile: keys, EnvRegistered: `{"lib":{"clientId":"c","clientSecretFile":"` + filepath.Join(dir, "nope") + `"}}`},
+		"no client id":   {EnvEnabled: trueText, EnvSealKeysFile: keys, EnvRegistered: `{"lib":{"hosts":["h"]}}`},
+		"negative life":  {EnvEnabled: trueText, EnvSealKeysFile: keys, EnvRegistered: `{"lib":{"clientId":"c","hosts":["h"],"maxLifetimeHours":-1}}`},
+		"missing secret": {EnvEnabled: trueText, EnvSealKeysFile: keys, EnvRegistered: `{"lib":{"clientId":"c","hosts":["h"],"clientSecretFile":"` + filepath.Join(dir, "nope") + `"}}`},
 	}
 	for name, env := range bad {
 		if _, err := ConfigFromEnv(get(env), nil); err == nil {
@@ -289,7 +289,7 @@ func TestConfigErrorsCarryNoSecret(t *testing.T) {
 	_ = os.WriteFile(empty, []byte(" "), 0o600)
 	env := map[string]string{
 		EnvEnabled: trueText, EnvSealKeysFile: keys,
-		EnvRegistered: `{"lib":{"clientId":"c","clientSecretFile":"` + empty + `"}}`,
+		EnvRegistered: `{"lib":{"clientId":"c","hosts":["h"],"clientSecretFile":"` + empty + `"}}`,
 	}
 	_, err := ConfigFromEnv(func(k string) string { return env[k] }, nil)
 	if err == nil || strings.Contains(err.Error(), "s3cret") {
@@ -303,9 +303,52 @@ func TestRegistrationAllows(t *testing.T) {
 		t.Error("no list allows every crew")
 	}
 	r := Registration{AllowedCrews: []string{crewGuide, "other/special"}}
-	for crew, want := range map[string]bool{"ns/guide": true, "other/special": true, "ns/special": false, "ns/else": false, "": false} {
+	// A bare name matches nothing: it would otherwise match that name in every namespace.
+	for crew, want := range map[string]bool{"ns/guide": true, "other/special": true, "ns/special": false, "ns/else": false, "": false, "guide": false, "elsewhere/guide": false} {
 		if r.Allows(crew) != want {
 			t.Errorf("%q: want %v", crew, want)
 		}
+	}
+}
+
+func TestAnUnpinnedRegistrationIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	keys, secret := filepath.Join(dir, "keys"), filepath.Join(dir, "secret")
+	_ = os.WriteFile(keys, []byte("k1:abc"), 0o600)
+	_ = os.WriteFile(secret, []byte("s"), 0o600)
+	cases := map[string]string{
+		"neither allowedCrews nor hosts":   `{"lib":{"clientId":"c"}}`,
+		"empty lists":                      `{"lib":{"clientId":"c","allowedCrews":[],"hosts":[]}}`,
+		"a secret with crews but no hosts": `{"lib":{"clientId":"c","clientSecretFile":"` + secret + `","allowedCrews":["ns/a"]}}`,
+		"a bare crew name":                 `{"lib":{"clientId":"c","allowedCrews":["guide"]}}`,
+		"an empty namespace":               `{"lib":{"clientId":"c","allowedCrews":["/guide"]}}`,
+		"an empty name":                    `{"lib":{"clientId":"c","allowedCrews":["ns/"]}}`,
+		"too many parts":                   `{"lib":{"clientId":"c","allowedCrews":["a/b/c"]}}`,
+	}
+	for name, reg := range cases {
+		env := map[string]string{EnvEnabled: trueText, EnvSealKeysFile: keys, EnvRegistered: reg}
+		if _, err := ConfigFromEnv(func(k string) string { return env[k] }, nil); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	ok := map[string]string{
+		"crews alone, no secret": `{"lib":{"clientId":"c","allowedCrews":["ns/a"]}}`,
+		"hosts alone, no secret": `{"lib":{"clientId":"c","hosts":["auth.example.org"]}}`,
+		"secret with hosts":      `{"lib":{"clientId":"c","clientSecretFile":"` + secret + `","hosts":["auth.example.org"]}}`,
+	}
+	for name, reg := range ok {
+		env := map[string]string{EnvEnabled: trueText, EnvSealKeysFile: keys, EnvRegistered: reg}
+		if _, err := ConfigFromEnv(func(k string) string { return env[k] }, nil); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestRefreshLeaseOutlivesACallToTheService(t *testing.T) {
+	if refreshLeaseLife < 2*serviceWait {
+		t.Fatalf("the lease (%v) can end while a call (up to %v) is running", refreshLeaseLife, serviceWait)
+	}
+	if refreshWait >= refreshLeaseLife {
+		t.Fatalf("a loser waits %v, which is not less than the lease %v", refreshWait, refreshLeaseLife)
 	}
 }

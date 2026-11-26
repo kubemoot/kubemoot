@@ -61,7 +61,7 @@ func TestAccountsOnBuildsAServiceAndRefusesBadSettings(t *testing.T) {
 	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
 	on := map[string]string{
 		envAccountsOn: trueValue, envSealKeysFile: keys,
-		"LIAISON_ACCOUNTS": `{"library":{"clientId":"cid"}}`, "ACCESS_HASH_KEY": "install-key",
+		"LIAISON_ACCOUNTS": `{"library":{"clientId":"cid","allowedCrews":["ns/guide"]}}`, "ACCESS_HASH_KEY": "install-key",
 	}
 	svc, err := buildAccounts(envMap(on), memoryState(t), reader, logr.Discard())
 	if err != nil || svc == nil || svc.Regs["library"].ClientID != "cid" {

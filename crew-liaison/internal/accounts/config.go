@@ -90,6 +90,9 @@ func (r registered) build(name string, readFile func(string) ([]byte, error)) (R
 	if r.MaxLifetimeHours < 0 {
 		return Registration{}, fmt.Errorf("%s: account %q has a negative maxLifetimeHours", EnvRegistered, name)
 	}
+	if err := r.checkTrust(name); err != nil {
+		return Registration{}, err
+	}
 	reg := Registration{
 		ClientID: r.ClientID, AllowedCrews: r.AllowedCrews, Issuer: r.Issuer, Hosts: r.Hosts,
 		MaxLifetime: time.Duration(r.MaxLifetimeHours) * time.Hour,
@@ -104,18 +107,35 @@ func (r registered) build(name string, readFile func(string) ([]byte, error)) (R
 	return reg, nil
 }
 
+// checkTrust refuses a registration that would send the install's client to an address a crew
+// author chooses. A crew declares the endpoints, so something must say which crews and which
+// hosts the install trusts: at least one of allowedCrews and hosts, and, when the registration
+// holds a client secret, hosts. The secret goes to the token endpoint, and only a pinned host
+// stops an allowed crew (or a compromised one in the same namespace) from pointing it elsewhere.
+// Crews are named namespace/name: a bare name would match that name in every namespace.
+func (r registered) checkTrust(name string) error {
+	if len(r.AllowedCrews) == 0 && len(r.Hosts) == 0 {
+		return fmt.Errorf("%s: account %q needs allowedCrews or hosts: without either, any crew author could send "+
+			"the install's client to an address of their choosing", EnvRegistered, name)
+	}
+	if r.ClientSecretFile != "" && len(r.Hosts) == 0 {
+		return fmt.Errorf("%s: account %q holds a client secret, so it needs hosts: the secret goes to the token endpoint",
+			EnvRegistered, name)
+	}
+	for _, crew := range r.AllowedCrews {
+		if ns, n, ok := strings.Cut(crew, "/"); !ok || ns == "" || n == "" || strings.Contains(n, "/") {
+			return fmt.Errorf("%s: account %q: allowedCrews entry %q must be namespace/name", EnvRegistered, name, crew)
+		}
+	}
+	return nil
+}
+
 // Allows reports whether the install offers the account to the crew ("namespace/name").
 func (r Registration) Allows(crew string) bool {
 	if len(r.AllowedCrews) == 0 {
 		return true
 	}
-	_, name, _ := strings.Cut(crew, "/")
-	for _, allowed := range r.AllowedCrews {
-		if allowed == crew || allowed == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(r.AllowedCrews, crew)
 }
 
 // PinsAllow reports whether the declaration's endpoints are on the hosts the registration pins.
@@ -123,6 +143,12 @@ func (r Registration) Allows(crew string) bool {
 func (r Registration) PinsAllow(d Declaration) bool {
 	if len(r.Hosts) == 0 {
 		return true
+	}
+	// The hosts the access token may be sent to are pinned too, not only the endpoints.
+	for _, h := range d.TokenHosts {
+		if !slices.Contains(r.Hosts, h) {
+			return false
+		}
 	}
 	for _, raw := range []string{d.AuthorizeURL, d.TokenURL, d.RevocationURL} {
 		if raw == "" {
