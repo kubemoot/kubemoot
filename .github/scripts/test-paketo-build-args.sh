@@ -56,6 +56,14 @@ nvmrc="$(tr -d '[:space:]' <"${root}/dashboard/.nvmrc")"
 check "the dashboard builds on the Node.js major of .nvmrc" "BP_NODE_VERSION=${nvmrc#v}.*" \
   "$(grep '^BP_NODE_VERSION=' "${root}/dashboard/buildpacks.env")"
 
+# The Procfile command and the package.json start script agree: the start script makes the
+# buildpacks keep node and node_modules in the image, the Procfile starts the server.
+procfile_cmd="$(sed -n 's/^web: //p' "${root}/dashboard/Procfile")"
+start_script="$(grep -o '"start": "[^"]*"' "${root}/dashboard/package.json" | sed 's/^"start": "//; s/"$//')"
+check "the dashboard start script is the Procfile command" "node build" "${start_script}"
+check "the dashboard Procfile starts the server" "node build" "${procfile_cmd}"
+check "the dashboard states NODE_ENV for the image" 1 "$(grep -c '^BPE_NODE_ENV=production$' "${root}/dashboard/buildpacks.env")"
+
 if [ "$failures" -gt 0 ]; then
   echo "${failures} check(s) failed"
   exit 1
