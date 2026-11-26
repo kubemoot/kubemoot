@@ -41,6 +41,7 @@ final class FakePlacementServer implements AutoCloseable {
     }
 
     private final HttpServer server;
+    private final CountDownLatch released = new CountDownLatch(1);
     final List<Seen> requests = new CopyOnWriteArrayList<>();
     private final Map<String, Function<Seen, Reply>> routes = new ConcurrentHashMap<>();
     private volatile CountDownLatch arrivals = new CountDownLatch(0);
@@ -98,7 +99,8 @@ final class FakePlacementServer implements AutoCloseable {
         Reply reply = route == null ? Reply.json(404, "{\"code\":\"unknown\"}") : route.apply(seen);
         try {
             if (reply.holdMs() > 0) {
-                Thread.sleep(reply.holdMs());
+                // Held open until the delay passes or the server closes; nothing counts it down earlier.
+                released.await(reply.holdMs(), TimeUnit.MILLISECONDS);
             }
             byte[] out = reply.json().getBytes(StandardCharsets.UTF_8);
             ex.getResponseHeaders().add("Content-Type", "application/json");
@@ -116,6 +118,7 @@ final class FakePlacementServer implements AutoCloseable {
 
     @Override
     public void close() {
+        released.countDown();
         server.stop(0);
     }
 

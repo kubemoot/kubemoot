@@ -29,6 +29,7 @@ class StreamedChatTest {
 
     @AfterEach
     void stop() {
+        released.countDown();
         if (server != null) {
             server.stop(0);
         }
@@ -51,16 +52,19 @@ class StreamedChatTest {
                 + "\"delta\":{\"content\":\"" + content + "\"},\"finish_reason\":null}]}";
     }
 
-    private static void pause(long ms) {
+    /** Held for a slow server's pauses; counted down when the test ends so a long pause stops at once. */
+    private final java.util.concurrent.CountDownLatch released = new java.util.concurrent.CountDownLatch(1);
+
+    private void pause(long ms) {
         try {
-            Thread.sleep(ms);
+            released.await(ms, java.util.concurrent.TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
 
     /** Streams "OK." after a pause, then more text after another, then usage and [DONE]. */
-    private static void streamReply(HttpExchange exchange, AtomicReference<String> body) throws IOException {
+    private void streamReply(HttpExchange exchange, AtomicReference<String> body) throws IOException {
         body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
         exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
         exchange.sendResponseHeaders(200, 0);
