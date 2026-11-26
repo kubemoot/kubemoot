@@ -77,29 +77,18 @@ func (c *connections) ManageURL() string { return c.manageURL }
 func crewKeyOf(crew Crew) string { return crew.Namespace + "/" + crew.Name }
 
 func (c *connections) Pending(ctx context.Context, user string, crew Crew) ([]ConnectionView, error) {
-	key := crewKeyOf(crew)
-	declared, err := c.svc.Decls.Declared(ctx, key)
-	if err != nil {
-		return nil, err
-	}
-	principal := c.svc.PrincipalID(user)
-	var out []ConnectionView
-	for _, d := range declared {
-		if !d.Required {
-			continue
-		}
-		view, needed, err := c.need(ctx, principal, d, key)
-		if err != nil {
-			return nil, err
-		}
-		if needed {
-			out = append(out, view)
-		}
-	}
-	return out, nil
+	return c.needed(ctx, user, crew, func(d accounts.Declaration) bool { return d.Required })
 }
 
 func (c *connections) Links(ctx context.Context, user string, crew Crew, names []string) ([]ConnectionView, error) {
+	return c.needed(ctx, user, crew, func(d accounts.Declaration) bool { return slices.Contains(names, d.Name) })
+}
+
+// needed returns, for the crew's declared accounts that keep selects, the ones the person must
+// connect (or connect again), each with a link.
+func (c *connections) needed(
+	ctx context.Context, user string, crew Crew, keep func(accounts.Declaration) bool,
+) ([]ConnectionView, error) {
 	key := crewKeyOf(crew)
 	declared, err := c.svc.Decls.Declared(ctx, key)
 	if err != nil {
@@ -108,7 +97,7 @@ func (c *connections) Links(ctx context.Context, user string, crew Crew, names [
 	principal := c.svc.PrincipalID(user)
 	var out []ConnectionView
 	for _, d := range declared {
-		if !slices.Contains(names, d.Name) {
+		if !keep(d) {
 			continue
 		}
 		view, needed, err := c.need(ctx, principal, d, key)
@@ -167,33 +156,38 @@ func (c *connections) List(ctx context.Context, user string) ([]AccountView, err
 	return out, nil
 }
 
-// connectLine is the sentence the liaison writes for a person who has to connect accounts. It
-// is built here, from the links the liaison made, so a model never has to copy a link.
-func connectLine(views []ConnectionView) string {
-	parts := make([]string, 0, len(views))
-	for _, v := range views {
-		verb := "connect"
-		if v.State == accounts.StateNeedsReconnect {
-			verb = "connect again"
-		}
-		parts = append(parts, fmt.Sprintf("%s your %s account: %s", verb, v.DisplayName, v.ConnectURL))
+// connectVerb is how the liaison words the step for one account: connect it, or connect it
+// again when a past connection no longer works.
+func connectVerb(v ConnectionView) string {
+	if v.State == accounts.StateNeedsReconnect {
+		return "connect again"
 	}
-	return "To use this crew, " + strings.Join(parts, "\nand ") + "\nThen ask again."
+	return "connect"
 }
 
-// midwayLine is the sentence the liaison writes when a running discussion was refused for an
-// account. Like connectLine it is built from the links the liaison made, never from model text.
-func midwayLine(views []ConnectionView) string {
+// connectPhrase is one account's step with its link, as the liaison writes it.
+func connectPhrase(v ConnectionView) string {
+	return fmt.Sprintf("%s your %s account: %s", connectVerb(v), v.DisplayName, v.ConnectURL)
+}
+
+// connectSentence is the sentence the liaison writes for a person who has to connect accounts,
+// built from the links the liaison made so a model never has to copy a link. prefix leads it.
+func connectSentence(prefix string, views []ConnectionView) string {
 	parts := make([]string, 0, len(views))
 	for _, v := range views {
-		verb := "connect"
-		if v.State == accounts.StateNeedsReconnect {
-			verb = "connect again"
-		}
-		parts = append(parts, fmt.Sprintf("%s your %s account: %s", verb, v.DisplayName, v.ConnectURL))
+		parts = append(parts, connectPhrase(v))
 	}
-	return "The crew could not use an account of yours for this question. To get a complete answer, " +
-		strings.Join(parts, "\nand ") + "\nThen ask again."
+	return prefix + strings.Join(parts, "\nand ") + "\nThen ask again."
+}
+
+// connectLine is the sentence for a question that cannot start until the accounts are connected.
+func connectLine(views []ConnectionView) string { return connectSentence("To use this crew, ", views) }
+
+// midwayLine is the sentence for a running discussion that was refused an account.
+const midwayOpening = "The crew could not use an account of yours for this question. To get a complete answer, "
+
+func midwayLine(views []ConnectionView) string {
+	return connectSentence(midwayOpening, views)
 }
 
 // midway returns the links for the accounts a running or finished discussion was refused for,

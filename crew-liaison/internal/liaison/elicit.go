@@ -115,11 +115,9 @@ func (s *Service) elicitResult(
 
 // elicitMessage is the sentence the client shows beside the link, written here.
 func elicitMessage(v ConnectionView) string {
-	verb := "Connect"
-	if strings.Contains(v.State, "reconnect") {
-		verb = "Connect again"
-	}
-	return fmt.Sprintf("%s your %s account so the crew can use it for your question.", verb, v.DisplayName)
+	verb := connectVerb(v)
+	return fmt.Sprintf("%s%s your %s account so the crew can use it for your question.",
+		strings.ToUpper(verb[:1]), verb[1:], v.DisplayName)
 }
 
 // retriesCalls reports whether the client is on a revision whose clients retry an
