@@ -117,7 +117,7 @@ func newConnectRig(t *testing.T) *connectRig {
 		AuthorizeURL: up.srv.URL + "/authorize", TokenURL: up.srv.URL + "/token", RevocationURL: up.srv.URL + "/revoke",
 		TokenHosts: []string{"api.example.org"},
 	}}
-	svc := &accounts.Service{Vault: vault, Decls: decls, Regs: regs, Client: accounts.NewClient(up.srv.Client()), Now: time.Now}
+	svc := &accounts.Service{People: accounts.NewPrincipals([]byte("install-key")), Vault: vault, Decls: decls, Regs: regs, Client: accounts.NewClient(up.srv.Client()), Now: time.Now}
 	r := newDoorRig(t, func(c *DoorConfig) { c.Accounts = svc })
 	return &connectRig{doorRig: r, up: up, vault: vault, svc: svc}
 }
@@ -125,7 +125,7 @@ func newConnectRig(t *testing.T) *connectRig {
 // linkPath is the connect link the liaison would hand person, as a path.
 func (r *connectRig) linkPath(user, account string) string {
 	r.t.Helper()
-	link, err := r.door.ConnectURL(accounts.PrincipalID(user), account, libraryCrew)
+	link, err := r.door.ConnectURL(r.svc.PrincipalID(user), account, libraryCrew)
 	if err != nil {
 		r.t.Fatal(err)
 	}

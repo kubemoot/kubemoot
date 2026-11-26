@@ -13,7 +13,7 @@ func (d *door) accountsPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	entries, err := d.cfg.Accounts.Overview(r.Context(), principalOf(s))
+	entries, err := d.cfg.Accounts.Overview(r.Context(), d.principalOf(s))
 	if err != nil {
 		d.notice(w, http.StatusBadGateway, "Your accounts could not be listed", "Try again in a moment.")
 		return
@@ -59,7 +59,7 @@ func (d *door) connectLinkFor(s session, e accounts.Entry) string {
 	if len(e.Crews) > 0 {
 		crew = e.Crews[0]
 	}
-	link, err := d.ConnectURL(principalOf(s), e.Account, crew)
+	link, err := d.ConnectURL(d.principalOf(s), e.Account, crew)
 	if err != nil {
 		return ""
 	}
@@ -89,7 +89,7 @@ func (d *door) disconnect(w http.ResponseWriter, r *http.Request) {
 		d.notice(w, http.StatusForbidden, "This form is not valid", "Open your accounts page again.")
 		return
 	}
-	out, err := d.cfg.Accounts.Disconnect(r.Context(), principalOf(s), account)
+	out, err := d.cfg.Accounts.Disconnect(r.Context(), d.principalOf(s), account)
 	if err != nil {
 		d.notice(w, http.StatusBadGateway, "Not disconnected", "The record could not be deleted. Try again.")
 		return
@@ -140,7 +140,7 @@ func (d *door) signOut(w http.ResponseWriter, r *http.Request) {
 		d.notice(w, http.StatusForbidden, "This form is not valid", "Open your accounts page again.")
 		return
 	}
-	d.forgetPerson(r, principalOf(s), "signed out")
+	d.forgetPerson(r, d.principalOf(s), "signed out")
 	d.setCookie(w, sessionCookie, "", -1)
 	d.notice(w, http.StatusOK, "Signed out", "Kubemoot deleted every account connection it kept for you.")
 }
@@ -169,7 +169,7 @@ func (d *door) revoke(w http.ResponseWriter, r *http.Request) {
 	known := d.sealer.Open(purposeRefresh, r.PostForm.Get("token"), &rt) == nil
 	if known && rt.ClientID == r.PostForm.Get(paramClientID) && d.now().Unix() <= rt.Abs {
 		d.revokeFamily(rt.Family, d.now())
-		d.forgetPerson(r, accounts.PrincipalID(rt.Who.User), "app signed out")
+		d.forgetPerson(r, d.cfg.Accounts.PrincipalID(rt.Who.User), "app signed out")
 	}
 	w.WriteHeader(http.StatusOK)
 }

@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 func newService2(t *testing.T) (*Service, *rig) {
@@ -19,9 +21,20 @@ func newService2(t *testing.T) (*Service, *rig) {
 }
 
 func TestPrincipalIDIsStableAndPerPerson(t *testing.T) {
-	a, b := PrincipalID("oidc:alice"), PrincipalID("oidc:bob")
-	if a == b || a != PrincipalID("oidc:alice") || len(a) != 32 {
+	p := NewPrincipals([]byte("install-key"))
+	a, b := p.ID("oidc:alice"), p.ID("oidc:bob")
+	if a == b || a != p.ID("oidc:alice") || len(a) != 32 || !p.Keyed() {
 		t.Fatalf("ids: %q %q", a, b)
+	}
+	if other := NewPrincipals([]byte("another-install")); other.ID("oidc:alice") == a {
+		t.Fatal("two installs must not name a person alike")
+	}
+	if NewPrincipals(nil).Keyed() {
+		t.Fatal("no key is not keyed")
+	}
+	// The id is the one a crew's gateway computes for the person the hop asserts.
+	if want := (identity.Hasher{Key: []byte("install-key")}).ID("liaison", "oidc:alice"); a != want {
+		t.Fatalf("id %q is not the gateway's %q", a, want)
 	}
 }
 

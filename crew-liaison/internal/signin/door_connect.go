@@ -26,6 +26,8 @@ type ConnectedAccounts interface {
 	Overview(ctx context.Context, principal string) ([]accounts.Entry, error)
 	// SignOut deletes every connection the person has.
 	SignOut(ctx context.Context, principal string) (int, error)
+	// PrincipalID is the id the person is kept under: the one the crews' gateways name them by.
+	PrincipalID(user string) string
 }
 
 // ErrConnectOff is the answer of a door that keeps no connected accounts.
@@ -100,7 +102,7 @@ func (d *door) connectRoutes() {
 	d.mux.HandleFunc("POST "+pathRevoke, d.revoke)
 }
 
-func principalOf(s session) string { return accounts.PrincipalID(s.Who.User) }
+func (d *door) principalOf(s session) string { return d.cfg.Accounts.PrincipalID(s.Who.User) }
 
 // signedIn returns the browser's person. With none, a page is sent to the identity provider
 // and back (a form post is refused), and false is returned.
@@ -168,7 +170,7 @@ func (d *door) connectPage(w http.ResponseWriter, r *http.Request) {
 		d.notice(w, http.StatusBadRequest, "This link is not valid", expiredWords)
 		return
 	}
-	if h.Principal != principalOf(s) {
+	if h.Principal != d.principalOf(s) {
 		d.event("connect refused", "reason", "another person")
 		d.notice(w, http.StatusForbidden, "This link was made for another person",
 			"You are signed in as someone else. Ask in your own chat app for your own link.")
@@ -202,7 +204,7 @@ func (d *door) connectStart(w http.ResponseWriter, r *http.Request) {
 	}
 	verifier, err1 := randomString(32)
 	state, err2 := d.sealer.Seal(purposeConnectState, connectState{
-		Principal: principalOf(s), Account: h.Account, Crews: offer.Crews, Verifier: verifier,
+		Principal: d.principalOf(s), Account: h.Account, Crews: offer.Crews, Verifier: verifier,
 		Expires: d.now().Add(stateLifetime).Unix(),
 	})
 	if err1 != nil || err2 != nil {
@@ -240,7 +242,7 @@ func (d *door) checkConnectPost(w http.ResponseWriter, r *http.Request) (session
 		blob = r.PostForm.Get("req")
 	}
 	h, ok := d.openHandle(blob, r.PathValue("account"))
-	if !ok || h.Principal != principalOf(s) || !d.validCSRF(r.PostForm.Get("csrf"), s.Who.User, blob) {
+	if !ok || h.Principal != d.principalOf(s) || !d.validCSRF(r.PostForm.Get("csrf"), s.Who.User, blob) {
 		d.event("connect refused", "reason", "token")
 		d.notice(w, http.StatusForbidden, "This form is not valid", "It has expired. Ask your chat app again for a new link.")
 		return session{}, connectHandle{}, none, false
@@ -287,7 +289,7 @@ func (d *door) connectCallback(w http.ResponseWriter, r *http.Request, cs connec
 		Name: stateCookieName(state), Path: pathCallback, MaxAge: -1, HttpOnly: true, Secure: d.base.secureCookies(),
 	})
 	s, ok := d.session(r)
-	if !ok || principalOf(s) != cs.Principal {
+	if !ok || d.principalOf(s) != cs.Principal {
 		d.event("connect callback refused", "reason", "person")
 		d.notice(w, http.StatusForbidden, "The connection could not finish", changedWords)
 		return

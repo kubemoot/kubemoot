@@ -14,7 +14,7 @@ import (
 )
 
 func (r *connectRig) kept(user string) (accounts.Token, error) {
-	tok, _, err := r.vault.Get(context.Background(), accounts.PrincipalID(user), acctLibrary)
+	tok, _, err := r.vault.Get(context.Background(), r.svc.PrincipalID(user), acctLibrary)
 	return tok, err
 }
 

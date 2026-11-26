@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	envAccountsOn = "LIAISON_ACCOUNTS_ENABLED"
-	trueValue     = "true"
+	envAccountsOn   = "LIAISON_ACCOUNTS_ENABLED"
+	trueValue       = "true"
+	envSealKeysFile = "LIAISON_ACCOUNTS_SEAL_KEYS_FILE"
 )
 
 func memoryState(t *testing.T) *tokenstore.Opener {
@@ -58,18 +59,24 @@ func TestAccountsOnBuildsAServiceAndRefusesBadSettings(t *testing.T) {
 	_ = kubemootv1alpha1.AddToScheme(scheme)
 	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
 	on := map[string]string{
-		envAccountsOn: trueValue, "LIAISON_ACCOUNTS_SEAL_KEYS_FILE": keys,
-		"LIAISON_ACCOUNTS": `{"library":{"clientId":"cid"}}`,
+		envAccountsOn: trueValue, envSealKeysFile: keys,
+		"LIAISON_ACCOUNTS": `{"library":{"clientId":"cid"}}`, "ACCESS_HASH_KEY": "install-key",
 	}
 	svc, err := buildAccounts(envMap(on), memoryState(t), reader, logr.Discard())
 	if err != nil || svc == nil || svc.Regs["library"].ClientID != "cid" {
 		t.Fatalf("on: %v %v", svc, err)
 	}
+	noHashKey := map[string]string{
+		envAccountsOn: trueValue, envSealKeysFile: keys,
+	}
+	if _, err := buildAccounts(envMap(noHashKey), memoryState(t), reader, logr.Discard()); err == nil {
+		t.Fatal("enabled without the install's hash key")
+	}
 	noKeys := map[string]string{envAccountsOn: trueValue}
 	if _, err := buildAccounts(envMap(noKeys), memoryState(t), reader, logr.Discard()); err == nil {
 		t.Fatal("enabled without seal keys")
 	}
-	bad := map[string]string{envAccountsOn: trueValue, "LIAISON_ACCOUNTS_SEAL_KEYS_FILE": keys}
+	bad := map[string]string{envAccountsOn: trueValue, envSealKeysFile: keys, "ACCESS_HASH_KEY": "k"}
 	_ = os.WriteFile(keys, []byte("not a key"), 0o600)
 	if _, err := buildAccounts(envMap(bad), memoryState(t), reader, logr.Discard()); err == nil {
 		t.Fatal("a malformed seal key")

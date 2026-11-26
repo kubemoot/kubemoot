@@ -28,6 +28,11 @@ func buildAccounts(
 	if err != nil || !cfg.Enabled {
 		return nil, err
 	}
+	people := accounts.NewPrincipals([]byte(getenv(identity.EnvHashKey)))
+	if !people.Keyed() {
+		return nil, errors.New(accounts.EnvEnabled + " needs " + identity.EnvHashKey +
+			": a person's connection is kept under the id the crews' gateways name them by")
+	}
 	backend, err := state.Backend("accounts", accounts.IdleLife+time.Hour)
 	if err != nil {
 		return nil, err
@@ -51,7 +56,7 @@ func buildAccounts(
 	decls := liaison.NewDeclarations(reader)
 	upstream := accounts.NewClient(nil)
 	return &accounts.Service{
-		Vault: vault, Decls: decls, Regs: cfg.Registrations, Client: upstream, Now: time.Now,
+		People: people, Vault: vault, Decls: decls, Regs: cfg.Registrations, Client: upstream, Now: time.Now,
 		Broker: accounts.NewBroker(vault, decls, cfg.Registrations, upstream, nil),
 	}, nil
 }
