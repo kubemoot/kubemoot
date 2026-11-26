@@ -235,6 +235,23 @@ func TestBrokerLeaseRefusalsCarryTheirReason(t *testing.T) {
 	}
 }
 
+func TestLeaseStatusAndReasonPairUpAndUnknownReasonsAreRetryable(t *testing.T) {
+	for _, reason := range []string{LeaseNoGrant, LeaseNeedsReconnect, LeaseExpired} {
+		got, ok := LeaseReasonFor(LeaseStatusFor(reason))
+		if !ok || got != reason {
+			t.Errorf("%s: %q %v", reason, got, ok)
+		}
+	}
+	if LeaseStatusFor("SOMETHING_NEW") != http.StatusServiceUnavailable || LeaseStatusFor("") != http.StatusServiceUnavailable {
+		t.Error("an unknown reason must be a retryable 503, not a refusal")
+	}
+	for _, status := range []int{http.StatusOK, http.StatusForbidden, http.StatusServiceUnavailable, http.StatusBadGateway} {
+		if reason, ok := LeaseReasonFor(status); ok {
+			t.Errorf("%d must carry no reason, got %q", status, reason)
+		}
+	}
+}
+
 func TestBrokerLeaseUnclearAnswersAreRetryableNeverALease(t *testing.T) {
 	for name, handler := range map[string]http.HandlerFunc{
 		"unavailable": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) },

@@ -103,6 +103,9 @@ func (r *CrewReconciler) reconcileConnectedAccounts(ctx context.Context, crew *k
 	return nil
 }
 
+// connectedAccountsReadyMessage is the message of a crew whose accounts are ready.
+const connectedAccountsReadyMessage = "Every declared account is registered by this install and no other crew uses its name for a different service."
+
 // connectedAccountsState judges one check at a time, most basic first: a name that means two
 // services, a name the install has not registered, a server's account no crew declares, then the wiring that carries the token.
 func (r *CrewReconciler) connectedAccountsState(ctx context.Context, crew *kubemootv1alpha1.Crew, unknown []string) (metav1.ConditionStatus, string, string, error) {
@@ -238,7 +241,7 @@ func (r *CrewReconciler) connectedAccountsWiring(ctx context.Context, crew *kube
 		return r.accountLeaseHolder(ctx, crew)
 	}
 	return metav1.ConditionTrue, reasonConnectedAccountsReady,
-		"Every declared account is registered by this install and no other crew uses its name for a different service.", nil
+		connectedAccountsReadyMessage, nil
 }
 
 // accountLeaseHolder checks that this is the only crew of the namespace the tool gateway leases
@@ -254,7 +257,7 @@ func (r *CrewReconciler) accountLeaseHolder(ctx context.Context, crew *kubemootv
 				"so keep them in one crew per namespace.", other), nil
 	}
 	return metav1.ConditionTrue, reasonConnectedAccountsReady,
-		"Every declared account is registered by this install and no other crew uses its name for a different service.", nil
+		connectedAccountsReadyMessage, nil
 }
 
 // otherLeasingCrew is the name of the first crew, by name, other than self that answers the tool
