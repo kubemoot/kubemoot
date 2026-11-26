@@ -57,7 +57,7 @@ func TestBrokerCertificateNeedsACAAndTheChartsNames(t *testing.T) {
 		t.Error("an issuer with no CA")
 	}
 	for name, m := range map[string]map[string]string{
-		"no names": nil, "no service": {envBrokerTLSSecret: "s"}, "no secret": {envBrokerService: "s"},
+		"no names": nil, "no service": {envBrokerTLSSecret: "s"}, "no secret name": {envBrokerService: "s"},
 	} {
 		if BrokerCertificateFromEnv(f.ca, env(m)) != nil {
 			t.Errorf("%s: an issuer", name)
