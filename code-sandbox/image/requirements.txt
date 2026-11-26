@@ -1,0 +1,2 @@
+# The sandbox's Python has the standard library only: nothing is installed, so a program
+# an agent writes can import the standard library and nothing else.

@@ -58,10 +58,13 @@ so the model looks to other agents for it.
 - A program that fails is a normal result with its exit code; only an unknown
   language or a program that cannot start is a tool error.
 
-The image is `python:3.14-slim` plus this binary and `tini`: Python with the
-standard library only, and bash. The server runs under `tini -s`, which reaps
-the processes a killed program leaves behind; start it the same way when you
-give it an explicit command (`/usr/bin/tini -s -- /usr/local/bin/code-sandbox`).
+The image is built with Paketo buildpacks (`image/`): the tested binary on Paketo Python 3.14
+(`BP_CPYTHON_VERSION` in `image/buildpacks.env`) with `tini`. Sandboxed programs find Python with
+the standard library only, bash, and GNU date with the zone database; `internal/runner/runtime_contract_test.go`
+states that. The server runs under `tini -s`, which reaps the processes a killed program leaves
+behind. The image's launcher starts it: leave the pod's `command` unset. A `stdio` server that the
+bridge starts names the launcher, `/cnb/process/web`. The image runs as the run image's user,
+1002:1001, from `/workspace`; the operator's strict security mode runs it as 1000:1000 instead.
 
 ## Config (env)
 

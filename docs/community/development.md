@@ -91,12 +91,27 @@ Every Go module, the operator included, lints with the shared `.golangci.yml` at
 repository root (cyclomatic complexity <= 10, duplication, and the rest) at the
 `GOLANGCI_LINT_VERSION` pinned in `operator/Makefile`.
 
-A module's `go` directive must not be newer than the `golang:` builder in the Dockerfile that
-compiles it, because the image builds with `GOTOOLCHAIN=local`. CI runs
-`.github/scripts/check-go-builder-version.sh` on every pull request that changes a `go.mod` or
-a Dockerfile, so a Dependabot bump of one without the other fails the pull request instead of the
-release workflow. The daily Release Status workflow also fails, and lists the workflow, when the
-latest run on main of any component release workflow failed.
+The daily Release Status workflow fails, and lists the workflow, when the latest run on main of any
+component release workflow failed.
+
+**Container images** are built with [Paketo buildpacks](https://paketo.io), not Dockerfiles. A Go
+component's CI job builds a static binary with the Go toolchain of its `go.mod`, tests it, and the
+image build packages that same binary. The image's directory (`image/`, or the component directory
+for the dashboard) holds a `Procfile` that starts the process and a `buildpacks.env` of build-time
+variables (`KEY=VALUE` lines; `pack build --env-file` takes it too). `build-paketo-image.yaml` builds
+the image in the cluster and pushes it to Harbor. Images run as the run image's user, 1002:1001, from
+`/workspace`, started by the launcher at `/cnb/process/web`.
+
+- `dashboard/` runs Paketo Node.js on the Node.js major of `.nvmrc`. Its type check, lint, tests and
+  build run in the CI `validate` job before the image build.
+- `harness-shim/` packages the shim with goose. `harness-shim/fetch-goose.sh` holds the goose version
+  and its sha256, and `harness-shim/stage-image.sh` prepares the files.
+- `code-sandbox/` runs the Go server on Paketo Python with tini. `BP_CPYTHON_VERSION` in
+  `code-sandbox/image/buildpacks.env` sets the Python minor version, and
+  `code-sandbox/internal/runner/runtime_contract_test.go` states what sandboxed programs find there.
+
+Three Dockerfiles remain, for images a buildpack cannot make: `arc-runner-image/` extends GitHub's
+runner image, `k8s/tests/` is test tooling, and `query-service/` is retired with the Go query service.
 
 **Native image check** (agent-runtime): the native binary is built and run without a cluster. The
 CI job `native-check` starts `.github/scripts/stub-mcp-server.py` (two tools over the HTTP+SSE
