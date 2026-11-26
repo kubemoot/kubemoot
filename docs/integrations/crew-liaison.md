@@ -117,8 +117,14 @@ question that cannot be answered:
 It is offered only when the install keeps accounts, and only a person signed in at the door has any.
 
 The link path works in every chat app. The newer URL elicitation of the MCP specification is not used yet; clients that support it
-will be offered it behind capability detection, and the link stays the baseline. A crew's own answer text carries no link: a need that appears
-while a crew deliberates (a connection revoked mid-turn) is a follow-up.
+will be offered it behind capability detection, and the link stays the baseline. A crew's own answer text carries no link.
+
+**A need that appears while the crew deliberates.** An account an `Optional` declaration names, or a `Required` connection revoked while the crew works, shows up
+as a tool call the person's account could not serve. The crew's gateway marks the turn with `needsAccounts` (the account names; see
+[conversations, turns and threads](../../concepts/conversations-turns-and-threads/)), and `ask` and `get_answer` read it. When it names an account the person has not connected
+(or must connect again), the result gets a `connections` list and a second text block the liaison writes itself: `The crew could not use an account of yours for this question. To get a
+complete answer, connect your Example Library account: <link>` and `Then ask again.` The crew's answer text and the `answer` field are unchanged, so the link is
+never model text. An account the person has connected since is left out, and a failure to read the turn's status leaves the result as it was.
 
 ### The account broker
 

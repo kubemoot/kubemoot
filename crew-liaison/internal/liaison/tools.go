@@ -169,6 +169,9 @@ func inputSchema[T any](descriptions map[string]string) *jsonschema.Schema {
 type GetAnswerOutput struct {
 	TicketView
 	Hint string `json:"hint,omitempty"`
+	// Connections lists the accounts to connect when the crew's tool calls were refused for them,
+	// each with a link the liaison made; the crew's answer is unchanged.
+	Connections []ConnectionView `json:"connections,omitempty"`
 }
 
 // ListCrews returns the crews with a discussion gateway.
@@ -209,7 +212,12 @@ func (s *Service) Ask(
 		return toolError(err.Error()), AskOutput{}, nil
 	}
 	s.wait(ctx, ticket, waitFor(in.WaitSeconds))
-	return nil, AskOutput{TicketView: ticket.Snapshot(), Hint: hintFor(ticket)}, nil
+	out := AskOutput{TicketView: ticket.Snapshot(), Hint: hintFor(ticket)}
+	if views := s.midway(ctx, ticket); len(views) > 0 {
+		out.Connections = views
+		return withLinks(out, views), out, nil
+	}
+	return nil, out, nil
 }
 
 // GetAnswer reports a ticket's state, waiting up to the requested time for it to
@@ -223,7 +231,12 @@ func (s *Service) GetAnswer(
 	}
 	s.renew(ctx, ticket)
 	s.wait(ctx, ticket, waitFor(in.WaitSeconds))
-	return nil, GetAnswerOutput{TicketView: ticket.Snapshot(), Hint: hintFor(ticket)}, nil
+	out := GetAnswerOutput{TicketView: ticket.Snapshot(), Hint: hintFor(ticket)}
+	if views := s.midway(ctx, ticket); len(views) > 0 {
+		out.Connections = views
+		return withLinks(out, views), out, nil
+	}
+	return nil, out, nil
 }
 
 // startOrRejoin reuses the caller's pending ticket when it presents its id with the same

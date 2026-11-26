@@ -2,8 +2,10 @@ package liaison
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,6 +34,9 @@ type Accounts interface {
 	// Pending lists the accounts the crew requires that the person has not connected, each
 	// with a link. Empty when they are all connected.
 	Pending(ctx context.Context, user string, crew Crew) ([]ConnectionView, error)
+	// Links returns, for the named accounts the crew declares, the ones the person still has to
+	// connect (or connect again), each with a link. An account they have connected since is left out.
+	Links(ctx context.Context, user string, crew Crew, names []string) ([]ConnectionView, error)
 	// List returns every account the person's crews could use, with their state.
 	List(ctx context.Context, user string) ([]AccountView, error)
 	// ManageURL is the person's accounts page, where they connect and disconnect.
@@ -81,6 +86,29 @@ func (c *connections) Pending(ctx context.Context, user string, crew Crew) ([]Co
 	var out []ConnectionView
 	for _, d := range declared {
 		if !d.Required {
+			continue
+		}
+		view, needed, err := c.need(ctx, principal, d, key)
+		if err != nil {
+			return nil, err
+		}
+		if needed {
+			out = append(out, view)
+		}
+	}
+	return out, nil
+}
+
+func (c *connections) Links(ctx context.Context, user string, crew Crew, names []string) ([]ConnectionView, error) {
+	key := crewKeyOf(crew)
+	declared, err := c.svc.Decls.Declared(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	principal := c.svc.PrincipalID(user)
+	var out []ConnectionView
+	for _, d := range declared {
+		if !slices.Contains(names, d.Name) {
 			continue
 		}
 		view, needed, err := c.need(ctx, principal, d, key)
@@ -151,6 +179,57 @@ func connectLine(views []ConnectionView) string {
 		parts = append(parts, fmt.Sprintf("%s your %s account: %s", verb, v.DisplayName, v.ConnectURL))
 	}
 	return "To use this crew, " + strings.Join(parts, "\nand ") + "\nThen ask again."
+}
+
+// midwayLine is the sentence the liaison writes when a running discussion was refused for an
+// account. Like connectLine it is built from the links the liaison made, never from model text.
+func midwayLine(views []ConnectionView) string {
+	parts := make([]string, 0, len(views))
+	for _, v := range views {
+		verb := "connect"
+		if v.State == accounts.StateNeedsReconnect {
+			verb = "connect again"
+		}
+		parts = append(parts, fmt.Sprintf("%s your %s account: %s", verb, v.DisplayName, v.ConnectURL))
+	}
+	return "The crew could not use an account of yours for this question. To get a complete answer, " +
+		strings.Join(parts, "\nand ") + "\nThen ask again."
+}
+
+// midway returns the links for the accounts a running or finished discussion was refused for,
+// from the crew's gateway turn status. It returns none when connected accounts are off, the
+// caller is not signed in at the door, or the gateway cannot say.
+func (s *Service) midway(ctx context.Context, ticket *Ticket) []ConnectionView {
+	user, ok := doorUserOf(ctx)
+	if s.accounts == nil || !ok || ticket.Conversation == "" {
+		return nil
+	}
+	names, err := s.gateway.NeedsAccounts(ctx, ticket.Namespace, ticket.Crew, ticket.Conversation)
+	if err != nil || len(names) == 0 {
+		if err != nil {
+			log.Info("the accounts a discussion needs could not be read", "crew", ticket.Crew)
+		}
+		return nil
+	}
+	views, err := s.accounts.Links(ctx, user, Crew{Name: ticket.Crew, Namespace: ticket.Namespace}, names)
+	if err != nil {
+		log.Info("connect links could not be made", "crew", ticket.Crew)
+		return nil
+	}
+	return views
+}
+
+// withLinks returns the tool result for out with the liaison's own connect line after the
+// output's JSON, so a chat app shows the link whatever it does with structured content. The
+// crew's answer is in out, unchanged.
+func withLinks(out any, views []ConnectionView) *mcp.CallToolResult {
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return nil
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{
+		&mcp.TextContent{Text: string(raw)}, &mcp.TextContent{Text: midwayLine(views)},
+	}}
 }
 
 // WithAccounts lets the tools check connected accounts before a question starts, and returns
