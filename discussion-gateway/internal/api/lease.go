@@ -46,6 +46,8 @@ type LeaseServer struct {
 	// of lease unavailable.
 	accounts identity.AccountLeaser
 	owners   OwnerReader
+	// notes records an account a call was refused for; nil when the owner reader cannot.
+	notes AccountNoter
 }
 
 // NewLeaseServer returns a lease server over store. reviewer must check tokens against
