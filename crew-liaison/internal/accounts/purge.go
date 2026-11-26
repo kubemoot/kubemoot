@@ -56,7 +56,7 @@ func (p *Purger) Run(ctx context.Context) (int, error) {
 	live := map[string]bool{}
 	for _, name := range declaredNames(declared) {
 		live[name] = true
-		if err := p.Vault.store.Delete(ctx, orphanPrincipal, name); err != nil {
+		if err := p.clearMark(ctx, name); err != nil {
 			return 0, err
 		}
 	}
@@ -103,21 +103,43 @@ func (p *Purger) purgeIfDue(
 	return len(refs), nil
 }
 
+// clearMark forgets the clock of an account a crew declares, when it has one: a later
+// disappearance starts a new one.
+func (p *Purger) clearMark(ctx context.Context, account string) error {
+	if _, err := p.Vault.store.Get(ctx, orphanPrincipal, account); err != nil {
+		if errors.Is(err, tokenstore.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	return p.Vault.store.Delete(ctx, orphanPrincipal, account)
+}
+
 // markedSince returns when the account was first seen undeclared, writing the mark now when
-// there is none. A lost race reads the winner's mark.
+// there is none or the one kept cannot be read (it is repaired, so the clock does not wait for
+// a broken value to expire). A lost race reads the winner's mark.
 func (p *Purger) markedSince(ctx context.Context, account string) (time.Time, error) {
 	rec, err := p.Vault.store.Get(ctx, orphanPrincipal, account)
-	var mark orphanMark
-	if err == nil && json.Unmarshal(rec.Value, &mark) == nil && !mark.Since.IsZero() {
-		return mark.Since, nil
-	}
 	if err != nil && !errors.Is(err, tokenstore.ErrNotFound) {
 		return time.Time{}, err
 	}
+	var mark orphanMark
+	if err == nil {
+		if json.Unmarshal(rec.Value, &mark) == nil && !mark.Since.IsZero() {
+			return mark.Since, nil
+		}
+		return p.writeMark(ctx, account, tokenstore.AnyRevision)
+	}
+	return p.writeMark(ctx, account, tokenstore.MustNotExist)
+}
+
+// writeMark starts the account's clock now. When another replica created the mark first, that
+// replica's mark is as good, so the conflict is not an error.
+func (p *Purger) writeMark(ctx context.Context, account string, ifRevision uint64) (time.Time, error) {
 	now := p.Now()
 	raw, _ := json.Marshal(orphanMark{Since: now})
-	_, err = p.Vault.store.Put(ctx, tokenstore.Record{Principal: orphanPrincipal, Account: account, Value: raw},
-		2*Grace, tokenstore.MustNotExist)
+	_, err := p.Vault.store.Put(ctx, tokenstore.Record{Principal: orphanPrincipal, Account: account, Value: raw},
+		2*Grace, ifRevision)
 	if errors.Is(err, tokenstore.ErrConflict) {
 		return now, nil
 	}
