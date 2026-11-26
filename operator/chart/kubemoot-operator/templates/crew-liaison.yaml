@@ -20,6 +20,9 @@
 {{- if and $acct.enabled (not $door) }}
 {{- fail "liaison.connectedAccounts.enabled needs the door's own identity (liaison.signIn.enabled with liaison.signIn.identity.provider oidc): a connection belongs to the person the door signed in" }}
 {{- end }}
+{{- if and $acct.trustedProxy.header (not $acct.trustedProxy.cidrs) }}
+{{- fail "liaison.connectedAccounts.trustedProxy.header needs trustedProxy.cidrs: a header is read only from a trusted proxy" }}
+{{- end }}
 {{- $backend := .Values.liaison.state.backend | default (ternary "nats" "memory" (and .Values.nats.enabled (not (empty $door)))) }}
 {{- if not (has $backend (list "memory" "nats" "openbao")) }}
 {{- fail (printf "liaison.state.backend must be empty, memory, nats or openbao, got %q" $backend) }}
@@ -305,6 +308,22 @@ spec:
               value: {{ include "kubemoot-operator.liaisonAccountsJSON" . | quote }}
             - name: LIAISON_INTERNAL_PORT
               value: {{ $acct.brokerPort | quote }}
+            - name: LIAISON_RATE_PERSON_PER_MINUTE
+              value: {{ $acct.rateLimits.personPerMinute | quote }}
+            - name: LIAISON_RATE_PERSON_BURST
+              value: {{ $acct.rateLimits.personBurst | quote }}
+            - name: LIAISON_RATE_ADDRESS_PER_MINUTE
+              value: {{ $acct.rateLimits.addressPerMinute | quote }}
+            - name: LIAISON_RATE_ADDRESS_BURST
+              value: {{ $acct.rateLimits.addressBurst | quote }}
+            {{- with $acct.trustedProxy.cidrs }}
+            - name: LIAISON_TRUSTED_PROXY_CIDRS
+              value: {{ join "," . | quote }}
+            {{- with $acct.trustedProxy.header }}
+            - name: LIAISON_TRUSTED_PROXY_HEADER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.discussionGateway.tls.enabled }}
             # The broker serves TLS with the certificate the operator signs from the install CA.
             - name: LIAISON_BROKER_TLS_CERT_FILE

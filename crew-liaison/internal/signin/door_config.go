@@ -132,6 +132,10 @@ func DoorConfigFromEnv(getenv func(string) string, readFile func(string) ([]byte
 	if err := cfg.readRefreshAge(getenv(EnvRefreshMaxHours)); err != nil {
 		return nil, err
 	}
+	var err error
+	if cfg.RateLimits, err = RateLimitsFromEnv(getenv); err != nil {
+		return nil, err
+	}
 	return cfg, cfg.validate()
 }
 
