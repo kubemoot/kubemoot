@@ -125,29 +125,35 @@ final class CoordinatorResume {
     CoordinatorResume(boolean enabled, DiscussionOrchestrator orchestrator, BusReader reader,
                       Supplier<CrewScope> scope, ObjectMapper mapper, DiscussionMetrics metrics,
                       LongSupplier clock) {
-        this(enabled, orchestrator, reader, scope, mapper, metrics, clock, Duration.ZERO);
+        this(enabled, orchestrator, reader, scope, mapper, metrics, Timing.of(clock));
     }
 
-    /** @param maxAge how old a thread's last event may be for it to be resumed; zero for no limit */
-    CoordinatorResume(boolean enabled, DiscussionOrchestrator orchestrator, BusReader reader,
-                      Supplier<CrewScope> scope, ObjectMapper mapper, DiscussionMetrics metrics,
-                      LongSupplier clock, Duration maxAge) {
-        this(enabled, orchestrator, reader, scope, mapper, metrics, clock, maxAge, CoordinatorLeases.off());
+    /**
+     * The time-related settings of a resume.
+     *
+     * @param clock the time source
+     * @param maxAge how old a thread's last event may be for it to be resumed; zero for no limit
+     * @param leases who may take a thread over; {@link CoordinatorLeases#off()} for a single replica
+     */
+    record Timing(LongSupplier clock, Duration maxAge, CoordinatorLeases leases) {
+        /** No age limit and no leases. */
+        static Timing of(LongSupplier clock) {
+            return new Timing(clock, Duration.ZERO, CoordinatorLeases.off());
+        }
     }
 
-    /** @param leases who may take a thread over; {@link CoordinatorLeases#off()} for a single replica */
     CoordinatorResume(boolean enabled, DiscussionOrchestrator orchestrator, BusReader reader,
                       Supplier<CrewScope> scope, ObjectMapper mapper, DiscussionMetrics metrics,
-                      LongSupplier clock, Duration maxAge, CoordinatorLeases leases) {
-        this.leases = leases;
-        this.maxAge = maxAge;
+                      Timing timing) {
+        this.leases = timing.leases();
+        this.maxAge = timing.maxAge();
         this.enabled = enabled;
         this.orchestrator = orchestrator;
         this.reader = reader;
         this.scope = scope;
         this.mapper = mapper;
         this.metrics = metrics;
-        this.clock = clock;
+        this.clock = timing.clock();
     }
 
     /** Resume switched off: every method returns at once and nothing is held back. */
@@ -178,7 +184,7 @@ final class CoordinatorResume {
                 ? CoordinatorLeases.forRuntime(natsProvider, orchestrator::threadIsOpen, orchestrator::threadLost)
                 : CoordinatorLeases.off();
         return new CoordinatorResume(true, orchestrator, new NatsBusReader(natsProvider), natsProvider::scope, mapper,
-                metrics, System::currentTimeMillis, maxAge, leases);
+                metrics, new Timing(System::currentTimeMillis, maxAge, leases));
     }
 
     /** The age limit from {@link #MAX_AGE_KEY}: the default when unset, the default with a warning when not a duration. */

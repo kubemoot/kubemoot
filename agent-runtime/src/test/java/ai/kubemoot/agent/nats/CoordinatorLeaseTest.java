@@ -85,7 +85,7 @@ class CoordinatorLeaseTest extends CoordinatorThreadTestBase {
         var leases = new CoordinatorLeases(bucket::storeFor, () -> KEY_PREFIX, pod, nanos::get, orch::threadIsOpen,
                 orch::threadLost);
         var resume = new CoordinatorResume(true, orch, liveReader(), () -> CrewScope.of("ns", "crew"), MAPPER,
-                new DiscussionMetrics(new SimpleMeterRegistry()), System::currentTimeMillis, Duration.ZERO, leases);
+                new DiscussionMetrics(new SimpleMeterRegistry()), new CoordinatorResume.Timing(System::currentTimeMillis, Duration.ZERO, leases));
         orch.useResume(resume);
         resume.discover();
         return new Replica(pod, orch, leases, resume);
