@@ -46,7 +46,7 @@ check "a key that starts with a digit fails" 2 "$(status '1A=1\n')"
 check "a missing file fails" 2 "$(bash "$script" "${work}/none" >/dev/null 2>&1 && echo 0 || echo $?)"
 check "no argument fails" 2 "$(bash "$script" >/dev/null 2>&1 && echo 0 || echo $?)"
 
-images=(dashboard)
+images=(dashboard harness-shim/image)
 for f in "${images[@]}"; do
   check "${f}/buildpacks.env parses" 0 "$(if bash "$script" "${root}/${f}/buildpacks.env" >/dev/null 2>&1; then echo 0; else echo 1; fi)"
 done

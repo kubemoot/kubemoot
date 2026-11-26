@@ -33,6 +33,7 @@ on:
       - '**/settings.gradle.kts'
       - '**/Dockerfile*'
       - '**/buildpacks.env'
+      - 'harness-shim/*.sh'
       - 'dashboard/.nvmrc'
       - '**/osv-scanner.toml'
       - 'dashboard/src/lib/server/nats-object-store.ts'
@@ -72,6 +73,7 @@ on:
       - '**/settings.gradle.kts'
       - '**/Dockerfile*'
       - '**/buildpacks.env'
+      - 'harness-shim/*.sh'
       - 'dashboard/.nvmrc'
       - '**/osv-scanner.toml'
       - 'dashboard/src/lib/server/nats-object-store.ts'
@@ -105,7 +107,7 @@ jobs:
       - name: Set up the release helpers
         uses: kubemoot/release-actions/setup@899dec57c20fafcccae4120d20bfd88e454f0a0f # v0.12.2
       - name: Shellcheck
-        run: shellcheck -x .github/scripts/*.sh scripts/check-neutral-names.sh scripts/check-neutral-names.test.sh k8s/tests/job/*.sh k8s/tests/lib.test.sh k8s/tests/lib-modelserver.sh k8s/tests/lib-ask.sh k8s/tests/ask.test.sh
+        run: shellcheck -x .github/scripts/*.sh harness-shim/*.sh scripts/check-neutral-names.sh scripts/check-neutral-names.test.sh k8s/tests/job/*.sh k8s/tests/lib.test.sh k8s/tests/lib-modelserver.sh k8s/tests/lib-ask.sh k8s/tests/ask.test.sh
       - name: Check every Go module against its Dockerfile builder
         run: bash .github/scripts/check-go-builder-version.sh
       # The stub MCP server test runs python3; pin it as the native check job does.
@@ -132,6 +134,7 @@ jobs:
           bash .github/scripts/test-release-vllm-chart.sh
           bash .github/scripts/test-go-build-static.sh
           bash .github/scripts/test-paketo-build-args.sh
+          bash harness-shim/test-fetch-goose.sh
           bash .github/scripts/test-retag-image.sh
           bash .github/scripts/test-release-status.sh
           bash .github/scripts/test-dispatch-clients.sh

@@ -1,0 +1,1 @@
+web: /workspace/harness-shim -config /workspace/goose.json
