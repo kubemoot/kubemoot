@@ -1,5 +1,5 @@
 {
-  "version": "2.10.0",
+  "version": "2.11.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -373,6 +373,12 @@
       "type": "object"
     },
     "conversation-state.json#/definitions/TurnStatus/endedAt": {
+      "type": "string"
+    },
+    "conversation-state.json#/definitions/TurnStatus/needsAccounts": {
+      "type": "array"
+    },
+    "conversation-state.json#/definitions/TurnStatus/needsAccounts[]": {
       "type": "string"
     },
     "conversation-state.json#/definitions/TurnStatus/question": {
