@@ -1,4 +1,7 @@
-package liaison
+// Package catransport is the one HTTP transport that verifies a service against the install CA's
+// public certificates. The crew liaison uses it for the gateways and the report service, and a
+// crew's gateway uses it for the account broker.
+package catransport
 
 import (
 	"crypto/tls"
@@ -11,12 +14,12 @@ import (
 	"time"
 )
 
-// caTransport sends requests over TLS verified against the certificates in a file, and reads the
+// Transport sends requests over TLS verified against the certificates in a file, and reads the
 // file again when it changes, so a CA bundle the operator republishes (a rotation adds the new
 // CA beside the old) is trusted without a restart. Only those certificates are trusted: the
 // services it talks to are signed by the install CA and by nothing public. It is the one TLS
-// transport of the liaison, used for every call that carries a token.
-type caTransport struct {
+// transport for calls that carry a token to a service the install CA signed.
+type Transport struct {
 	file string
 
 	mu      sync.Mutex
@@ -25,9 +28,9 @@ type caTransport struct {
 	current *http.Transport
 }
 
-// newCATransport reads the CA file. An unreadable file or one with no certificate is an error.
-func newCATransport(file string) (*caTransport, error) {
-	t := &caTransport{file: file}
+// New reads the CA file. An unreadable file or one with no certificate is an error.
+func New(file string) (*Transport, error) {
+	t := &Transport{file: file}
 	if _, err := t.transport(); err != nil {
 		return nil, err
 	}
@@ -35,7 +38,7 @@ func newCATransport(file string) (*caTransport, error) {
 }
 
 // transport returns the transport for the CA file as it is now.
-func (t *caTransport) transport() (*http.Transport, error) {
+func (t *Transport) transport() (*http.Transport, error) {
 	info, err := os.Stat(t.file)
 	if err != nil {
 		return nil, fmt.Errorf("the CA file is not readable: %w", err)
@@ -65,7 +68,7 @@ func (t *caTransport) transport() (*http.Transport, error) {
 }
 
 // RoundTrip implements http.RoundTripper.
-func (t *caTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	tr, err := t.transport()
 	if err != nil {
 		return nil, err

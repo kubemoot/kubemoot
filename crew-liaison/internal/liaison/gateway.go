@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kubemoot/kubemoot/operator/pkg/askerzone"
+	"github.com/kubemoot/kubemoot/operator/pkg/catransport"
 	"github.com/kubemoot/kubemoot/operator/pkg/sse"
 )
 
@@ -51,7 +52,7 @@ func NewGateway() *Gateway {
 // (<crew>-discussion.<namespace>.svc, port 443), verifying the certificate against the CA bundle in
 // caFile, which it reads again when it changes. The call carries the caller's bearer token.
 func NewGatewayWithCA(caFile string) (*Gateway, error) {
-	transport, err := newCATransport(caFile)
+	transport, err := catransport.New(caFile)
 	if err != nil {
 		return nil, err
 	}

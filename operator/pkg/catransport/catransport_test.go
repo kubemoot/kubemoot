@@ -1,4 +1,4 @@
-package liaison
+package catransport
 
 import (
 	"context"
@@ -18,85 +18,40 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/catransport/catest"
 )
 
-// pemCertBlock is the PEM block type of a certificate.
 const pemCertBlock = "CERTIFICATE"
-
-// serverCertPEM is the PEM of a test server's own certificate, which stands as its CA.
-func serverCertPEM(srv *httptest.Server) []byte {
-	return pem.EncodeToMemory(&pem.Block{Type: pemCertBlock, Bytes: srv.Certificate().Raw})
-}
-
-func writeCA(t *testing.T, srv *httptest.Server) string {
-	t.Helper()
-	file := filepath.Join(t.TempDir(), "ca.crt")
-	if err := os.WriteFile(file, serverCertPEM(srv), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return file
-}
-
-// unrelatedCA writes a CA file holding a certificate that signed nothing the test serves.
-func unrelatedCA(t *testing.T) string {
-	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tpl := &x509.Certificate{SerialNumber: big.NewInt(7), Subject: pkix.Name{CommonName: "unrelated"},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true,
-		BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
-	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join(t.TempDir(), "unrelated.crt")
-	if err := os.WriteFile(file, pem.EncodeToMemory(&pem.Block{Type: pemCertBlock, Bytes: der}), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return file
-}
-
-func getVia(t *testing.T, tr http.RoundTripper, url string) (int, error) {
-	t.Helper()
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
-	resp, err := (&http.Client{Transport: tr}).Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode, nil
-}
 
 func TestTheCATransportTrustsOnlyTheCAFile(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()
-	trusting, err := newCATransport(writeCA(t, srv))
+	trusting, err := New(catest.WriteCA(t, srv))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code, err := getVia(t, trusting, srv.URL); err != nil || code != http.StatusOK {
+	if code, err := catest.Get(t, trusting, srv.URL); err != nil || code != http.StatusOK {
 		t.Fatalf("a server signed by the trusted CA: %d %v", code, err)
 	}
-	untrusting, err := newCATransport(unrelatedCA(t))
+	untrusting, err := New(catest.UnrelatedCA(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code, err := getVia(t, untrusting, srv.URL); err == nil {
+	if code, err := catest.Get(t, untrusting, srv.URL); err == nil {
 		t.Fatalf("an untrusted certificate was accepted (status %d)", code)
 	}
 }
 
 func TestTheCATransportRefusesAMissingOrEmptyCAFile(t *testing.T) {
-	if _, err := newCATransport(filepath.Join(t.TempDir(), "none")); err == nil {
+	if _, err := New(filepath.Join(t.TempDir(), "none")); err == nil {
 		t.Fatal("a missing CA file was accepted")
 	}
 	empty := filepath.Join(t.TempDir(), "empty")
 	if err := os.WriteFile(empty, []byte("nothing here"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newCATransport(empty); err == nil || !strings.Contains(err.Error(), "no certificate") {
+	if _, err := New(empty); err == nil || !strings.Contains(err.Error(), "no certificate") {
 		t.Fatalf("an empty CA file: %v", err)
 	}
 }
@@ -104,20 +59,20 @@ func TestTheCATransportRefusesAMissingOrEmptyCAFile(t *testing.T) {
 func TestARepublishedCABundleIsTrustedWithoutARestart(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()
-	file := unrelatedCA(t)
-	tr, err := newCATransport(file)
+	file := catest.UnrelatedCA(t)
+	tr, err := New(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := getVia(t, tr, srv.URL); err == nil {
+	if _, err := catest.Get(t, tr, srv.URL); err == nil {
 		t.Fatal("served before the CA was published")
 	}
 	// A rotation publishes the new CA beside the old one, in one bundle.
 	old, _ := os.ReadFile(file)
-	if err := os.WriteFile(file, append(old, serverCertPEM(srv)...), 0o600); err != nil {
+	if err := os.WriteFile(file, append(old, catest.CertPEM(srv)...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, err := getVia(t, tr, srv.URL); err != nil || code != http.StatusOK {
+	if code, err := catest.Get(t, tr, srv.URL); err != nil || code != http.StatusOK {
 		t.Fatalf("after the bundle changed: %d %v", code, err)
 	}
 }
@@ -125,12 +80,12 @@ func TestARepublishedCABundleIsTrustedWithoutARestart(t *testing.T) {
 func TestTheCATransportFailsClosedWhenTheFileGoesAway(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer srv.Close()
-	file := writeCA(t, srv)
-	tr, _ := newCATransport(file)
+	file := catest.WriteCA(t, srv)
+	tr, _ := New(file)
 	if err := os.Remove(file); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := getVia(t, tr, srv.URL); err == nil {
+	if _, err := catest.Get(t, tr, srv.URL); err == nil {
 		t.Fatal("a call went out with no CA file to verify against")
 	}
 }
@@ -176,7 +131,7 @@ func expiredServer(t *testing.T, handler http.Handler) (*httptest.Server, string
 func TestAnExpiredServerCertificateFailsAndTheTokenIsNotSent(t *testing.T) {
 	reached := false
 	srv, caFile := expiredServer(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
-	tr, err := newCATransport(caFile)
+	tr, err := New(caFile)
 	if err != nil {
 		t.Fatal(err)
 	}
