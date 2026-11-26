@@ -650,6 +650,23 @@ liaison:
     # The port a crew's discussion gateway asks for a person's token and connection state. It
     # is served inside the cluster only and checks the gateway's own ServiceAccount token.
     brokerPort: 8081
+    # Limits on the connect pages, the accounts page, disconnect and sign-out: a token bucket
+    # per signed-in person and per source address. A request over the limit gets 429 with
+    # Retry-After. A person gets the burst at once, then the per-minute rate.
+    rateLimits:
+      personPerMinute: 20
+      personBurst: 20
+      addressPerMinute: 120
+      addressBurst: 60
+    # Proxies, tunnels and gateways in front of the liaison. Behind one, every request comes
+    # from the proxy's address, so without this the whole install shares one address allowance.
+    # A connection from one of these networks (CIDRs) may name the client's address in `header`;
+    # any other connection is keyed on its own address and its header is ignored. Off by default.
+    trustedProxy:
+      cidrs: []
+      # "X-Forwarded-For" (the rightmost address outside cidrs is the client; the default when
+      # cidrs is set) or a header holding the client address alone, such as "CF-Connecting-IP".
+      header: ""
     # Account name (a DNS label) to the install's client at that service.
     accounts: {}
     #   library:
