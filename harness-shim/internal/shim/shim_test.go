@@ -25,7 +25,7 @@ const (
 	modeAll     = "all"
 	keyDeadline = "deadlineSeconds"
 	promptTag   = "{{promptFile}}"
-	gooseCmd    = "/usr/local/bin/goose"
+	gooseCmd    = "/workspace/goose"
 	subRun      = "run"
 )
 
