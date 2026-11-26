@@ -24,6 +24,10 @@ on:
       - '.github/workflows/ci.yaml'
       - '.github/workflows/fuzz.yaml'
       - '.github/actions/setup-go-cached/**'
+  # The merge queue runs the operator tests on the exact result that will land on main; the
+  # release then skips them. A merge_group run has no path filter, so this job runs for every
+  # queued merge (the component CI workflows are not part of the queue).
+  merge_group:
   workflow_dispatch:
 
 env:
@@ -35,9 +39,9 @@ permissions:
 jobs:
   test:
     name: operator-test
-    # Pull requests (including forks) run on GitHub-hosted runners; the self-hosted
-    # cluster runners take push, dispatch, and workflow_call runs from main only.
-    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'homelab-runners' }}
+    # Pull requests (including forks) and the merge queue run on GitHub-hosted runners; the
+    # self-hosted cluster runners take push, dispatch, and workflow_call runs from main only.
+    runs-on: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'ubuntu-latest' || 'homelab-runners' }}
 
     steps:
       - name: Checkout repository
@@ -122,7 +126,7 @@ jobs:
         run: ../.github/scripts/go-build-static.sh manager ./cmd/
 
       - name: Keep the tested binary for the image build
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: kubemoot-operator-binary
@@ -142,7 +146,7 @@ jobs:
   build-image:
     name: operator-build-image
     needs: test
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     uses: ./.github/workflows/build-go-binary-image.yaml
     with:
       name: kubemoot-operator

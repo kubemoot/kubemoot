@@ -2,9 +2,12 @@ name: DCO
 
 # Every commit in a pull request must carry a Developer Certificate of Origin
 # sign-off (git commit -s) matching its author. https://developercertificate.org/
+# merge_group: the queue requires the dco check on its commit too. Sign-offs were checked on
+# the pull request, and the queue only rebases those commits, so the queue run passes.
 on:
   pull_request:
     branches: [main]
+  merge_group:
 
 permissions:
   contents: read
@@ -12,14 +15,19 @@ permissions:
 jobs:
   dco:
     # A bot cannot certify origin; a maintainer reviews every Dependabot pull request.
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    if: github.event_name == 'merge_group' || github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Sign-offs were checked on the pull request
+        if: github.event_name == 'merge_group'
+        run: echo "Merge queue: every commit was checked for a sign-off on its pull request."
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Check sign-off on every commit
+        if: github.event_name == 'pull_request'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}

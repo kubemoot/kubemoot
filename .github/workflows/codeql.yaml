@@ -1,0 +1,97 @@
+# CodeQL code scanning, advanced setup. It analyzes the languages GitHub's default setup
+# analyzed (actions, go, java-kotlin, javascript-typescript, python) with the same default
+# query suite, and adds what default setup cannot: Go builds every module itself with the Go
+# module cache restored, and the workflow answers the merge queue (merge_group).
+#
+# Default setup must be switched off for this repository (kubemoot/infra code_scanning.tf
+# excludes it); with both on, the upload of one of them is refused.
+#
+# Go has no no-build mode, so it uses build-mode manual: `go build ./...` in every module.
+# CodeQL cannot analyze only the changed paths of a Go build, so every run analyzes all of Go.
+# The module cache comes from the codeql-action's dependency caching. Only a push to main or
+# the weekly run saves it; pull requests and the merge queue only restore it, so a change
+# under review cannot write a cache that a later run trusts. The shared compiled Go build
+# cache (setup-go-cached) is deliberately not used: the Go extractor observes the build, and
+# a cache hit would skip the compiles it observes.
+name: CodeQL
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  merge_group:
+  schedule:
+    - cron: '23 6 * * 2'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    # The check run names match the ones default setup produced ("Analyze (go)").
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: go
+            build-mode: manual
+          - language: java-kotlin
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: python
+            build-mode: none
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Each module's go.mod may ask for a newer toolchain; the Go command fetches it.
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: operator/go.mod
+          cache: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # No queries input: the default query suite, as default setup ran it.
+          # Pull requests and the merge queue only restore the module cache.
+          dependency-caching: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'restore' || 'true' }}
+
+      # Every Go module in the repository, found from the tracked go.mod files so a new
+      # module is analyzed without a workflow change.
+      - name: Build every Go module
+        if: matrix.language == 'go'
+        run: |
+          set -euo pipefail
+          while IFS= read -r gomod; do
+            echo "::group::${gomod}"
+            (cd "$(dirname "${gomod}")" && go build ./...)
+            echo "::endgroup::"
+          done < <(git ls-files -- '*go.mod')
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          category: /language:${{ matrix.language }}

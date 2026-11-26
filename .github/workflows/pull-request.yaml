@@ -3,8 +3,11 @@
 # waits on it. The shared definition lives in kubemoot/release-actions.
 name: Pull Request
 
+# merge_group: the merge queue asks for this check on the queue's commit, the exact result
+# that will land on main.
 on:
   pull_request:
+  merge_group:
 
 permissions:
   checks: read
