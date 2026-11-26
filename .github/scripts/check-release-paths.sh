@@ -3,7 +3,8 @@
 # directory the component is built from, so a change to a shared package rebuilds the image
 # (and the chart pairing sees the image as behind) instead of leaving it stale:
 #   - a Go module that replaces the operator module (replace ... => ../operator): every
-#     operator package the module imports, directly or not (go list -deps);
+#     operator package the module imports, directly or not (go list -deps), and the
+#     operator's go.mod and go.sum, whose dependencies the module builds with;
 #   - a Gradle build that includes another (includeBuild("../NAME")): NAME's sources.
 # The filter is the workflow's on.push.paths, read the way chart-image-pairing.sh reads it.
 # It does not flag a filter that is broader than needed; it fails on one that is too narrow.
@@ -44,6 +45,9 @@ filter_of() {
 check_go_module() {
   local module="$1" patterns dir files file rel
   patterns="$(filter_of "$module")" || { missing=$((missing + 1)); return; }
+  for file in operator/go.mod operator/go.sum; do
+    covered "$patterns" "$file" || report "$module" "$file"
+  done
   while IFS=$'\t' read -r dir files; do
     for file in $files; do
       rel="${dir#"${root}"/}/${file}"
