@@ -11,9 +11,9 @@ import (
 )
 
 // A lease for a connected account answers with the token the person connected at an outside
-// service. The person is the owner the conversation records, never anything the caller claims;
-// the owner's id is already the install's keyed hash of the hop issuer and user name, which is
-// the id the liaison keeps the person's connections under. The liaison's account broker
+// service. The person is the owner the conversation records; the caller's claim of who asked
+// must equal it and is never used in its place. The owner's id is already the install's keyed
+// hash of the hop issuer and user name, which is the id the liaison keeps the person's connections under. The liaison's account broker
 // decides the rest (the crew declares the account, the person consented to the crew).
 
 // accountNamePattern is a DNS label, which is what a Crew's connected account name is.
@@ -68,7 +68,7 @@ func (l *LeaseServer) accountLease(w http.ResponseWriter, r *http.Request, req l
 	lease, err := l.accounts.Lease(ctx, person, req.Account)
 	if refusal, refused := identity.IsLeaseRefusal(err); refused {
 		leaseLog.Info("Refused an account lease", "account", req.Account, "reason", refusal.Reason)
-		refuseLease(w, refusalStatus(refusal.Reason), refusal.Reason, req.Account)
+		refuseLease(w, identity.LeaseStatusFor(refusal.Reason), refusal.Reason, req.Account)
 		return
 	}
 	if err != nil {
@@ -80,15 +80,18 @@ func (l *LeaseServer) accountLease(w http.ResponseWriter, r *http.Request, req l
 		refuseLease(w, http.StatusGone, identity.LeaseExpired, req.Account)
 		return
 	}
-	leaseLog.Info("Served an account lease", "conversationId", req.ConversationID, "account", req.Account)
+	leaseLog.V(1).Info("Served an account lease", "account", req.Account)
 	writeJSON(w, http.StatusOK, leaseResponse{
 		Token: lease.Token, ExpiresAt: lease.ExpiresAt.UTC().Format(time.RFC3339), TokenHosts: lease.TokenHosts,
 	})
 }
 
-// leasePerson is the id the conversation's owner is connected under. It answers the refusal
-// itself when there is none: a conversation with no owner, or one whose owner is not a person
-// the door signed in (an anonymous caller or a Kubernetes user has no connected accounts).
+// leasePerson is the id the conversation's owner is connected under. The id the caller
+// names (the principal the agent runtime put in the call's _meta, the same keyed hash the
+// owner record holds) must be the owner's: a caller that knows only a conversation id gets
+// nothing. It answers the refusal itself when there is none: a conversation with no owner, one
+// whose owner is not a person the door signed in (an anonymous caller or a Kubernetes user has
+// no connected accounts), or one owned by someone else.
 func (l *LeaseServer) leasePerson(ctx context.Context, w http.ResponseWriter, req leaseRequest) (string, bool) {
 	owner, found, err := l.owners.Owner(ctx, req.ConversationID)
 	if err != nil {
@@ -96,22 +99,12 @@ func (l *LeaseServer) leasePerson(ctx context.Context, w http.ResponseWriter, re
 		refuseLease(w, http.StatusServiceUnavailable, reasonUnavailable, req.Account)
 		return "", false
 	}
-	if !found || owner.Kind != bus.PrincipalKindSubscriber || owner.ID == "" {
-		refuseLease(w, http.StatusNotFound, identity.LeaseNoGrant, req.Account)
+	if !found || owner.Kind != bus.PrincipalKindSubscriber || owner.ID == "" || owner.ID != req.PrincipalID {
+		leaseLog.Info("Refused an account lease: the conversation is not the principal's", "account", req.Account)
+		refuseLease(w, identity.LeaseStatusFor(identity.LeaseNoGrant), identity.LeaseNoGrant, req.Account)
 		return "", false
 	}
 	return owner.ID, true
-}
-
-// refusalStatus is the status of a refusal, the same the broker answers with.
-func refusalStatus(reason string) int {
-	switch reason {
-	case identity.LeaseNeedsReconnect:
-		return http.StatusConflict
-	case identity.LeaseExpired:
-		return http.StatusGone
-	}
-	return http.StatusNotFound
 }
 
 func refuseLease(w http.ResponseWriter, status int, reason, account string) {
