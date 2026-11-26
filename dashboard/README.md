@@ -72,10 +72,15 @@ helm install kubemoot-dashboard ./charts/kubemoot-dashboard \
   --create-namespace
 ```
 
-### Docker
+### Image
+
+The image is built with Paketo buildpacks, not a Dockerfile. The variables the buildpacks read are in
+`buildpacks.env`; the `Procfile` starts the server. To build and run it locally with
+[`pack`](https://buildpacks.io/docs/tools/pack/):
 
 ```bash
-docker build -t kubemoot-dashboard .
+pack build kubemoot-dashboard --builder paketobuildpacks/ubuntu-noble-builder \
+  --run-image paketobuildpacks/ubuntu-noble-run --env-file buildpacks.env
 docker run -p 3000:3000 kubemoot-dashboard
 ```
 
