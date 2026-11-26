@@ -22,6 +22,10 @@ import (
 // maxNoteTries bounds the compare-and-swap loop of one note.
 const maxNoteTries = 3
 
+// maxNotedAccounts bounds the names one conversation's note keeps. A crew declares a few
+// accounts, so a note that grows past this holds names nobody declared; the oldest go first.
+const maxNotedAccounts = 16
+
 // AccountNoter records on a conversation that a tool call was refused for an account.
 type AccountNoter interface {
 	NeedsAccount(ctx context.Context, conversationID, account string) error
@@ -64,6 +68,7 @@ func noteAccount(
 		cur.Refused = map[string]string{}
 	}
 	cur.Refused[account] = now.UTC().Format(time.RFC3339Nano)
+	dropOldest(cur.Refused, maxNotedAccounts)
 	raw, err := json.Marshal(cur)
 	if err != nil {
 		return false, err
@@ -74,6 +79,21 @@ func noteAccount(
 		_, err = kv.Update(ctx, key, raw, entry.Revision())
 	}
 	return lostRace(err), err
+}
+
+// dropOldest removes the entries with the oldest times until at most limit remain. A time that
+// cannot be read counts as the oldest.
+func dropOldest(refused map[string]string, limit int) {
+	for len(refused) > limit {
+		oldest, oldestAt := "", time.Time{}
+		for name, at := range refused {
+			t, _ := time.Parse(time.RFC3339Nano, at)
+			if oldest == "" || t.Before(oldestAt) {
+				oldest, oldestAt = name, t
+			}
+		}
+		delete(refused, oldest)
+	}
 }
 
 // lostRace reports whether a create or update failed because another writer got there first.
@@ -119,7 +139,9 @@ func latestStartedTurn(turns []bus.TurnStatus) int {
 }
 
 // accountsSince lists, sorted, the accounts the record says were refused at or after the turn's
-// start. A record that cannot be read names none.
+// start. The turn's start has whole-second precision (the stream's message time), so a refusal
+// is compared at whole seconds too: one in the same second as the start belongs to the turn. A
+// record that cannot be read names none.
 func accountsSince(value []byte, startedAt string) []string {
 	var rec bus.NeedsAccounts
 	started, err := time.Parse(time.RFC3339, startedAt)
@@ -128,7 +150,7 @@ func accountsSince(value []byte, startedAt string) []string {
 	}
 	var out []string
 	for account, at := range rec.Refused {
-		if t, err := time.Parse(time.RFC3339Nano, at); err == nil && !t.Before(started) {
+		if t, err := time.Parse(time.RFC3339Nano, at); err == nil && !t.Truncate(time.Second).Before(started) {
 			out = append(out, account)
 		}
 	}
