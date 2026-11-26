@@ -56,24 +56,30 @@ func crewLeases(crew *kubemootv1alpha1.Crew) bool {
 
 // gatewayAccountBrokerEnv is the broker's address and the token file for a gateway that asks
 // the broker: a connectedAccount crew's, or one that leases a declared account's token (which
-// is also told its own name, to find a conversation's owner). Nothing when the install has no
-// broker or the crew needs none.
-func gatewayAccountBrokerEnv(crew *kubemootv1alpha1.Crew, brokerURL string) []corev1.EnvVar {
+// is also told its own name, to find a conversation's owner). An https broker comes with the CA
+// file that verifies it. Nothing when the install has no broker or the crew needs none.
+func gatewayAccountBrokerEnv(crew *kubemootv1alpha1.Crew, brokerURL, caFile string) []corev1.EnvVar {
 	brokerURL = strings.TrimSpace(brokerURL)
 	if brokerURL == "" || (!usesConnectedAccount(crew) && !crewLeasesAccounts(crew)) {
 		return nil
 	}
-	return []corev1.EnvVar{
+	env := []corev1.EnvVar{
 		{Name: identity.EnvAccountBrokerURL, Value: brokerURL},
 		{Name: identity.EnvAccountBrokerTokenFile, Value: accountBrokerMountDir + "/" + accountBrokerTokenFile},
 		{Name: identity.EnvAccountCrew, Value: crew.Name},
 	}
+	if caFile != "" && strings.HasPrefix(strings.ToLower(brokerURL), "https://") {
+		env = append(env, corev1.EnvVar{Name: identity.EnvAccountBrokerCAFile, Value: caFile})
+	}
+	return env
 }
 
 // applyAccountBroker projects the broker-audience token into the gateway's pod and mounts it
 // read-only into the gateway container. It changes nothing for a crew that needs no broker.
-func applyAccountBroker(podSpec *corev1.PodSpec, crew *kubemootv1alpha1.Crew, brokerURL string) {
-	if len(gatewayAccountBrokerEnv(crew, brokerURL)) == 0 || len(podSpec.Containers) == 0 {
+// caFile is the CA file in the pod that verifies an https broker.
+func applyAccountBroker(podSpec *corev1.PodSpec, crew *kubemootv1alpha1.Crew, brokerURL, caFile string) {
+	env := gatewayAccountBrokerEnv(crew, brokerURL, caFile)
+	if len(env) == 0 || len(podSpec.Containers) == 0 {
 		return
 	}
 	seconds := accountBrokerTokenSeconds
@@ -89,5 +95,5 @@ func applyAccountBroker(podSpec *corev1.PodSpec, crew *kubemootv1alpha1.Crew, br
 	c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{
 		Name: accountBrokerVolume, MountPath: accountBrokerMountDir, ReadOnly: true,
 	})
-	c.Env = append(c.Env, gatewayAccountBrokerEnv(crew, brokerURL)...)
+	c.Env = append(c.Env, env...)
 }

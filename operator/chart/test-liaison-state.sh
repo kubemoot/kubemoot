@@ -50,7 +50,7 @@ json="$(env_of "$out" LIAISON_ACCOUNTS)"
 [ "$(env_of "$out" ACCESS_HASH_KEY)" = "set" ] || fail "the hash key is not given to the liaison"
 [ -n "$(has_service "$out")" ] || fail "no broker Service"
 [ "$(reviews "$out")" = "create" ] || fail "the liaison cannot review a gateway's token"
-[ "$(operator_env "$out")" = "http://km-kubemoot-operator-liaison-broker.km.svc:8081" ] || fail "the operator's broker address is '$(operator_env "$out")'"
+[ "$(operator_env "$out")" = "https://km-kubemoot-operator-liaison-broker.km.svc:8081" ] || fail "the operator's broker address is '$(operator_env "$out")'"
 [ "$(liaison "$out" | yq -N '.spec.template.spec.volumes[] | select(.name == "accounts") | .projected.sources | length')" = "2" ] || fail "the accounts volume lacks the keys or the client secret"
 [ "$(liaison "$out" | yq -N '.spec.template.spec.containers[0].volumeMounts[] | select(.name == "accounts") | .readOnly')" = "true" ] || fail "the accounts mount is writable"
 if grep -q 'lib-secret-value' <<<"$out"; then fail "a secret value is in the render"; fi

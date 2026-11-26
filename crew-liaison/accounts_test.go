@@ -92,7 +92,7 @@ func TestAccountsNeedTheDoor(t *testing.T) {
 
 func TestBrokerServerRefusesACallerWithoutAToken(t *testing.T) {
 	svc := &accounts.Service{Broker: accounts.NewBroker(nil, nil, nil, nil, nil)}
-	srv := brokerServer(svc, identity.Reviewer{Audiences: []string{liaison.AccountBrokerAudience}}, nil, "8081")
+	srv := brokerServer(svc, identity.Reviewer{Audiences: []string{liaison.AccountBrokerAudience}}, nil, "8081", nil)
 	if srv.Addr != ":8081" || srv.ReadHeaderTimeout == 0 || srv.WriteTimeout == 0 {
 		t.Fatalf("the server: %+v", srv)
 	}

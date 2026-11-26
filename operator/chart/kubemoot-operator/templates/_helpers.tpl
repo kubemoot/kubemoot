@@ -440,3 +440,14 @@ longest lifetime.
 {{- end -}}
 {{- toJson $out -}}
 {{- end }}
+
+{{/*
+The liaison's account broker Service, and the Secret the operator puts its serving certificate in.
+*/}}
+{{- define "kubemoot-operator.brokerService" -}}
+{{- printf "%s-liaison-broker" (include "kubemoot-operator.fullname" .) -}}
+{{- end }}
+
+{{- define "kubemoot-operator.brokerTLSSecret" -}}
+{{- printf "%s-tls" (include "kubemoot-operator.brokerService" .) -}}
+{{- end }}

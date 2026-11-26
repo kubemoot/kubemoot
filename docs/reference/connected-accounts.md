@@ -40,7 +40,7 @@ spec:
 | `connectedAccounts[].authorizeURL` | string | required | The service's OAuth authorization endpoint. `https` with a host |
 | `connectedAccounts[].tokenURL` | string | required | The service's OAuth token endpoint. `https` with a host |
 | `connectedAccounts[].revocationURL` | string | | The service's [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009) revocation endpoint. `https` with a host |
-| `connectedAccounts[].tokenHosts` | []string | required | The hosts the account's token may be sent to, as bare lower-case host names without scheme, port or path. At least one. The tool gateway sends the token only to an `https` address on exactly one of these hosts, and refuses any other address, including plain `http` |
+| `connectedAccounts[].tokenHosts` | []string | required | The hosts the account's token may be sent to, as bare lower-case host names without scheme, port or path. At least one. The tool gateway sends the token only to an `https` address on exactly one of these hosts, and only to port 443: the field takes no port, so a service on another port needs a name on 443 in front of it. Any other address is refused, including plain `http` |
 
 The API server refuses a declaration whose name is not a DNS label, whose endpoints are not `https` with a host, or that has no `tokenHosts`.
 
@@ -127,5 +127,6 @@ A Crew carries a `ConnectedAccounts` condition when it declares at least one acc
 | `False`, `UnregisteredAccount` | The install has not registered a name the crew declares. The message lists the missing names |
 | `False`, `UnknownAccount` | A server in the namespace takes an account that no Crew of the namespace declares. The message lists each server and account. Every Crew of the namespace reports it |
 | `False`, `NoSingleToolGateway` | A server in the crew's namespace takes one of the crew's accounts, and the namespace has no MCPGateway or several |
+| `False`, `SeveralCrewsPassTokens` | Another crew of the namespace also declares accounts or keeps people's tokens. A namespace is the isolation unit and its tool gateway leases for one crew, so only one crew per namespace may declare connected accounts. Each crew that declares accounts reports it |
 
-The reasons are checked in this order: `Conflict`, `UnregisteredAccount`, `UnknownAccount`, `NoSingleToolGateway`.
+The reasons are checked in this order: `Conflict`, `UnregisteredAccount`, `UnknownAccount`, `NoSingleToolGateway`, `SeveralCrewsPassTokens`.

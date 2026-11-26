@@ -120,6 +120,22 @@ The link path works in every chat app. The newer URL elicitation of the MCP spec
 will be offered it behind capability detection, and the link stays the baseline. A crew's own answer text carries no link: a need that appears
 while a crew deliberates (a connection revoked mid-turn) is a follow-up.
 
+### The account broker
+
+A crew's discussion gateway asks the liaison's account broker whether a person has connected an account, and for the account's token. The broker is the liaison's second port (`liaison.connectedAccounts.brokerPort`, default 8081), reached at the Service `<release>-kubemoot-operator-liaison-broker`. It is never behind the route, and it is on only when connected accounts are.
+
+- **Who may ask.** Only a crew's own discussion gateway. The caller presents a ServiceAccount token projected for the broker's audience alone. The broker checks it with a TokenReview, reads the crew from the ServiceAccount (never from the request), and confirms that the ServiceAccount is the one the operator made for that crew's gateway. A NetworkPolicy admits only the gateways' pods to the port.
+- **TLS.** The broker carries a person's token and a gateway's ServiceAccount token, so it serves TLS and nothing else, from a certificate signed by the install CA, the same CA that signs the report service and the crew gateways ([encrypted calls that carry credentials](../../operating/encrypted-internal-calls/#the-account-broker)). A gateway verifies the certificate against the install CA, using the Service's DNS name, before it sends its token. A plain http request to the port is refused. When `discussionGateway.tls.enabled` is false, the broker serves plain http, the chart says so with `LIAISON_ALLOW_INSECURE_BROKER=true`, and the tokens cross the pod network in the clear.
+- **The certificate.** It comes from the operator, as a Secret in the operator's namespace named `<release>-kubemoot-operator-liaison-broker-tls`. The liaison pod waits for it at start, reads it again when it is renewed, and never holds the CA's key.
+
+### One crew per namespace
+
+Only one crew of a namespace may declare connected accounts. A namespace is the isolation unit, and the namespace's tool gateway leases a person's token from one crew's gateway, at one address. A second crew that declares accounts, or that passes people's tokens to tools, makes the `ConnectedAccounts` condition `False` with the reason `SeveralCrewsPassTokens` on each crew that declares accounts, until each namespace has one. Give a second crew its own namespace.
+
+### Where a token may go
+
+Each account's `tokenHosts` entry is a bare host name, with no scheme, port or path. The tool gateway sends the token only to an `https` address on exactly one of those hosts, and only to port 443: the CRD takes no port, so there is no way to declare another. A service that answers on another port needs a name on port 443 in front of it. See [Connected accounts](../../reference/connected-accounts/).
+
 ## Watching the moot from the dashboard
 
 The client sees only the answer, but the operator's dashboard shows the whole moot

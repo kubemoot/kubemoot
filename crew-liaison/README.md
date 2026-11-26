@@ -50,6 +50,7 @@ past two minutes into a background task, so the chain of polls runs unattended.
 | `LIAISON_SIGNIN_UPSTREAM` and friends | empty | turns on the stateless OAuth sign-in front (`/.well-known/*`, `/oauth/*`); see "The sign-in front" in `docs/integrations/signing-in.md` for `LIAISON_SIGNIN_UPSTREAM_TOKEN_URL`, `_UPSTREAM_CLIENT_ID`, `_UPSTREAM_SCOPES`, `_PUBLIC_URL`, `_SEAL_KEYS`, `_SEAL_KEYS_FILE`, `_ALLOWED_REDIRECT_HOSTS` |
 | `LIAISON_STATE_BACKEND` | `memory` | where the door keeps its single-use marks and the connected accounts: `memory`, `nats` (the `NATS_*` connection every component reads) or `openbao` (`LIAISON_OPENBAO_ADDR`, `_MOUNT`, `_PREFIX`, `_TOKEN_FILE`, `_CA_FILE`). `nats` and `openbao` share it across replicas |
 | `LIAISON_ACCOUNTS_ENABLED` and friends | `false` | connected accounts, off by default; see "Connected accounts" in `docs/integrations/signing-in.md` for `LIAISON_ACCOUNTS_SEAL_KEYS_FILE`, `LIAISON_ACCOUNTS`, `LIAISON_INTERNAL_PORT` and `ACCESS_HASH_KEY` |
+| `LIAISON_BROKER_TLS_CERT_FILE`, `LIAISON_BROKER_TLS_KEY_FILE` | none | the account broker's serving certificate and key, which the operator signs from the install CA; the port then speaks TLS only and is read again when the files change. Without them the broker refuses to start unless `LIAISON_ALLOW_INSECURE_BROKER=true` (the chart sets it only when `discussionGateway.tls.enabled` is false) |
 | `LIAISON_MAX_INFLIGHT` | `4` | discussions in flight at once; every question spends GPU time |
 | `LIAISON_TICKET_TTL_MINUTES` | `60` | how long a settled ticket stays retrievable |
 

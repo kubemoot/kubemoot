@@ -516,7 +516,7 @@ func (r *CrewReconciler) reconcileDeployment(ctx context.Context, crew *kubemoot
 
 	desired := r.buildDeployment(crew)
 	r.GatewayTLS.apply(&desired.Spec.Template.Spec, name)
-	applyAccountBroker(&desired.Spec.Template.Spec, crew, r.AccountBrokerURL)
+	applyAccountBroker(&desired.Spec.Template.Spec, crew, r.AccountBrokerURL, r.brokerCAFile())
 	if err := r.applyCredentialLease(ctx, crew, desired); err != nil {
 		return nil, err
 	}

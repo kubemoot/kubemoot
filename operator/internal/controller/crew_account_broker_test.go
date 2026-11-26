@@ -38,7 +38,7 @@ func gatewayPod() *corev1.PodSpec {
 func TestAConnectedAccountCrewsGatewayGetsTheBrokerAndAScopedToken(t *testing.T) {
 	crew := connectedAccountCrew(t)
 	pod := gatewayPod()
-	applyAccountBroker(pod, crew, brokerURL)
+	applyAccountBroker(pod, crew, brokerURL, "")
 	env := pod.Containers[0].Env
 	if v, _ := envValue(env, identity.EnvAccountBrokerURL); v != brokerURL {
 		t.Errorf("broker address: %q", v)
@@ -71,12 +71,12 @@ func TestOtherCrewsAndInstallsWithoutABrokerGetNothing(t *testing.T) {
 	}
 	for name, c := range cases {
 		pod := gatewayPod()
-		applyAccountBroker(pod, c.crew, c.url)
+		applyAccountBroker(pod, c.crew, c.url, "")
 		if len(pod.Volumes) != 0 || len(pod.Containers[0].Env) != 0 || len(pod.Containers[0].VolumeMounts) != 0 {
 			t.Errorf("%s: the pod was changed: %+v", name, pod)
 		}
 	}
-	applyAccountBroker(&corev1.PodSpec{}, connectedAccountCrew(t), brokerURL) // no container: no panic
+	applyAccountBroker(&corev1.PodSpec{}, connectedAccountCrew(t), brokerURL, "") // no container: no panic
 }
 
 func TestAConnectedAccountCrewWhoseHopsCannotBeAppliedGetsNoBroker(t *testing.T) {
@@ -101,7 +101,7 @@ func TestACrewThatDeclaresAnAccountLeasesItsTokenAndKnowsItsOwnName(t *testing.T
 		t.Fatal("a crew with an account and no connectedAccount rule leases, and keeps no tokens")
 	}
 	pod := gatewayPod()
-	applyAccountBroker(pod, crew, brokerURL)
+	applyAccountBroker(pod, crew, brokerURL, "")
 	env := pod.Containers[0].Env
 	if v, _ := envValue(env, identity.EnvAccountBrokerURL); v != brokerURL {
 		t.Errorf("broker address: %q", v)
@@ -124,7 +124,7 @@ func TestACrewWithNothingToLeaseOrADisabledGatewayLeasesNothing(t *testing.T) {
 			t.Errorf("%s: leases", name)
 		}
 		pod := gatewayPod()
-		applyAccountBroker(pod, crew, brokerURL)
+		applyAccountBroker(pod, crew, brokerURL, "")
 		if len(pod.Volumes) != 0 || len(pod.Containers[0].Env) != 0 {
 			t.Errorf("%s: the pod was changed: %+v", name, pod)
 		}
