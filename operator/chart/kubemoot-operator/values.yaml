@@ -511,10 +511,14 @@ liaison:
     hashKeySecret:
       name: ""
       key: hash-key
-  # The OAuth sign-in front a chat app signs in through, so it holds a person's own token for
-  # a service in serviceTokens. Stateless: it keeps no token, no session and no client record,
-  # only the sealing keys below. Off by default. Needs liaison.expose so the chat app and the
-  # person's browser can reach /oauth and /.well-known on the hostname.
+  # The OAuth sign-in front a chat app signs in through. The person signs in at the upstream
+  # service; the chat app gets the liaison's own token for /mcp, and the token the service
+  # issued for the person stays in the liaison, sealed with the keys below, for at most 30
+  # days without use and never past the service's own limit. Signing out deletes it at once.
+  # Off by default. Needs liaison.auth.serviceTokens (the verifier that names the person),
+  # one liaison replica (what it keeps is in its own memory, so a restart asks people to sign
+  # in again), and liaison.expose so the chat app and the person's browser can reach /oauth
+  # and /.well-known on the hostname.
   signIn:
     enabled: false
     # The liaison's public base URL as the chat app and the browser reach it.
@@ -526,6 +530,12 @@ liaison:
       tokenURL: ""
       clientId: ""
       scopes: "openid offline_access"
+      # The name the person's account at this service is kept under (a DNS label).
+      name: upstream
+      # The longest the service lets one sign-in last, as a Go duration such as 720h, counted
+      # from the sign-in. A person's token is never kept past it. Empty: the service's own
+      # answer decides, and a token it stops accepting is deleted when that is found.
+      tokenLifetime: ""
     # A Secret you create in this namespace: a key holding one or more "id:base64key" lines,
     # each key 32 random bytes in base64. The first seals new codes; older ones still open.
     sealKeySecret:

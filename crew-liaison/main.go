@@ -21,6 +21,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/liaison"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/signin"
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/tokenstore"
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
@@ -56,7 +57,8 @@ func main() {
 		svc.WithExporter(liaison.NewExporter(reportURL))
 	}
 
-	front, err := signInFront(log)
+	kept := tokenstore.NewMemory(nil)
+	front, err := signInFront(log, auth, kept)
 	if err != nil {
 		log.Error(err, "sign-in front")
 		os.Exit(1)
@@ -71,7 +73,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go sweep(ctx, tickets)
+	go everyMinute(ctx, func() { tickets.Sweep() })
+	go everyMinute(ctx, kept.Sweep)
 	go func() {
 		log.Info("crew liaison listening",
 			"port", port, "maxInflight", maxInflight, "auth", token != "",
@@ -89,8 +92,9 @@ func main() {
 	_ = srv.Shutdown(shutdownCtx)
 }
 
-// sweep expires old tickets once a minute.
-func sweep(ctx context.Context, tickets *liaison.Store) {
+// everyMinute runs sweep once a minute until ctx is done: old tickets, and kept values
+// whose time is over, leave memory even when nobody asks for them again.
+func everyMinute(ctx context.Context, sweep func()) {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
 	for {
@@ -98,7 +102,7 @@ func sweep(ctx context.Context, tickets *liaison.Store) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			tickets.Sweep()
+			sweep()
 		}
 	}
 }
@@ -130,19 +134,31 @@ func callerAuthenticator() (*identity.Authenticator, error) {
 	return settings.Authenticator, err
 }
 
+// errSignInNeedsVerifier stops a liaison whose sign-in could not say who signed in.
+var errSignInNeedsVerifier = errors.New(
+	"sign-in is enabled but no verifier names the person: set ACCESS_SERVICE_TOKENS (liaison.auth.serviceTokens)")
+
 // signInFront builds the OAuth sign-in front from LIAISON_SIGNIN_* settings. It returns nil
-// when LIAISON_SIGNIN_UPSTREAM is not set, which leaves the liaison without a sign-in.
-func signInFront(log logr.Logger) (*liaison.SignInFront, error) {
+// when LIAISON_SIGNIN_UPSTREAM is not set, which leaves the liaison without a sign-in. The
+// front names the person who signed in with the door's own verifiers, so it needs them,
+// and keeps each person's token from the upstream in store.
+func signInFront(log logr.Logger, auth *identity.Authenticator, store tokenstore.Store) (*liaison.SignInFront, error) {
 	cfg, err := signin.ConfigFromEnv(os.Getenv, nil)
 	if err != nil || cfg == nil {
 		return nil, err
 	}
+	if auth == nil || !auth.Enforcing() {
+		return nil, errSignInNeedsVerifier
+	}
 	cfg.Logger = log.WithName("signin")
+	cfg.Identify = liaison.PersonFrom(auth)
+	cfg.Store = store
 	front, err := signin.New(cfg)
 	if err != nil {
 		return nil, err
 	}
 	return &liaison.SignInFront{
 		Handler: front.Handler(), ResourceMetadataURL: signin.ResourceMetadataURL(cfg.PublicURL),
+		Tokens: front.Resolve,
 	}, nil
 }

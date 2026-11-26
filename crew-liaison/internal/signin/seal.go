@@ -15,9 +15,14 @@ import (
 // Purposes bind a sealed blob to the one place it may be opened, so a client id cannot be
 // presented as a code or a state.
 const (
-	purposeClient = "client"
-	purposeState  = "state"
-	purposeCode   = "code"
+	purposeClient  = "client"
+	purposeState   = "state"
+	purposeCode    = "code"
+	purposeDoor    = "door"
+	purposeRefresh = "refresh"
+	// purposeStored is the prefix of the purpose of a value kept in the token store; the
+	// store key follows it, so a value copied under another person's key does not open.
+	purposeStored = "stored:"
 )
 
 const sealVersion byte = 1

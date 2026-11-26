@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -79,25 +80,56 @@ func personAuth(t *testing.T, p *personService, allowAnonymous bool) *identity.A
 		identity.TokenReviewVerifier{Reviewer: identity.Reviewer{Client: c}}, verifier)
 }
 
-func personDoor(t *testing.T, f *fakeGateway, auth *identity.Authenticator) (*Service, *httptest.Server) {
+func personDoor(t *testing.T, f *fakeGateway, auth *identity.Authenticator) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(NewHandlerWithFront(newTestService(t, f, 4), "", auth, frontStub()))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// doorTokensFor stands in for the sign-in front: each door token names the service token the
+// liaison keeps for one person, who is named with the door's own verifiers.
+func doorTokensFor(auth *identity.Authenticator, kept map[string]string) DoorTokens {
+	return func(r *http.Request, bearer string) (identity.Caller, string, error) {
+		token, ok := kept[bearer]
+		if !ok {
+			return identity.Caller{}, "", identity.ErrNoCredential
+		}
+		caller, err := PersonFrom(auth)(r, token)
+		if err != nil {
+			return identity.Caller{}, "", err
+		}
+		return caller, token, nil
+	}
+}
+
+// signedInDoor is a door with a sign-in front whose door tokens are the keys of kept.
+func signedInDoor(t *testing.T, f *fakeGateway, auth *identity.Authenticator, kept map[string]string) (*Service, *httptest.Server) {
 	t.Helper()
 	svc := newTestService(t, f, 4)
-	srv := httptest.NewServer(NewHandlerWithFront(svc, "", auth, frontStub()))
+	front := frontStub()
+	front.Tokens = doorTokensFor(auth, kept)
+	srv := httptest.NewServer(NewHandlerWithFront(svc, "", auth, front))
 	t.Cleanup(srv.Close)
 	return svc, srv
 }
 
-func TestAServiceTokenCallerIsAcceptedAndOwnsItsTicket(t *testing.T) {
+const (
+	doorAnn = "door-token-of-ann"
+	doorBea = "door-token-of-bea"
+)
+
+func TestASignedInPersonIsAcceptedByTheirDoorTokenAndOwnsTheirTicket(t *testing.T) {
 	f := newFakeGateway(synthesisEvents()...)
 	defer f.srv.Close()
 	p := newPersonService(t)
-	svc, srv := personDoor(t, f, personAuth(t, p, false))
-	ctx := context.Background()
 	exp := time.Now().Add(15 * time.Minute)
 	ann, bea := personToken("acct-ann", exp, ""), personToken("acct-bea", exp, "")
+	svc, srv := signedInDoor(t, f, personAuth(t, p, false), map[string]string{doorAnn: ann, doorBea: bea})
+	ctx := context.Background()
 
-	session := connectSession(ctx, t, srv.URL+"/mcp", ann)
-	out := callTool(ctx, t, session, "ask", map[string]any{argCrew: testCrew, argQuestion: testQuestion, "waitSeconds": 5})
+	session := connectSession(ctx, t, srv.URL+"/mcp", doorAnn)
+	out := callTool(ctx, t, session, "ask", map[string]any{argCrew: testCrew, argQuestion: testQuestion, argWaitSeconds: 5})
 	var asked TicketView
 	if err := json.Unmarshal([]byte(out), &asked); err != nil {
 		t.Fatal(err)
@@ -106,15 +138,103 @@ func TestAServiceTokenCallerIsAcceptedAndOwnsItsTicket(t *testing.T) {
 	if !ok || ticket.Owner == "" || strings.Contains(ticket.Owner, "acct-ann") {
 		t.Fatalf("the owner should be the hashed principal id, got %q", ticket.Owner)
 	}
-	// The gateway got the person's token to decide for itself.
-	if got := f.authorizations()[0]; got != "Bearer "+ann {
-		t.Errorf("gateway authorization %q", got)
+	// The gateway got the token the liaison keeps for the person, never the door token.
+	for _, got := range f.authorizations() {
+		if got != "Bearer "+ann {
+			t.Errorf("gateway authorization %q", got)
+		}
 	}
 	// Another person cannot read the ticket.
-	other := connectSession(ctx, t, srv.URL+"/mcp", bea)
+	other := connectSession(ctx, t, srv.URL+"/mcp", doorBea)
 	res, err := other.CallTool(ctx, &mcp.CallToolParams{Name: "get_answer", Arguments: map[string]any{"ticket": asked.ID}})
 	if err != nil || !res.IsError {
 		t.Fatalf("another person read the ticket: %v %v", err, res)
+	}
+}
+
+// postMCP sends one request to /mcp with a bearer and returns the status and challenge.
+func postMCP(t *testing.T, url, bearer string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, url+"/mcp", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode, resp.Header.Get("WWW-Authenticate")
+}
+
+func TestTheDoorRefusesAServicesOwnToken(t *testing.T) {
+	f := newFakeGateway(synthesisEvents()...)
+	defer f.srv.Close()
+	p := newPersonService(t)
+	ann := personToken("acct-ann", time.Now().Add(15*time.Minute), "")
+	auth := personAuth(t, p, false)
+	want := `Bearer realm="kubemoot-crew-liaison", resource_metadata="` + metadataURL + `"`
+
+	// With a sign-in front, and on a door that has verifiers and no front: the service
+	// accepts the token and names the person, and the door still refuses it, because the
+	// token was issued for the service and not for this door.
+	_, withFront := signedInDoor(t, f, auth, map[string]string{doorAnn: ann})
+	if code, challenge := postMCP(t, withFront.URL, ann); code != http.StatusUnauthorized || challenge != want {
+		t.Errorf("with a front: %d %q", code, challenge)
+	}
+	noFront := httptest.NewServer(NewHandlerWithAuth(newTestService(t, f, 1), "", auth))
+	defer noFront.Close()
+	if code, _ := postMCP(t, noFront.URL, ann); code != http.StatusUnauthorized {
+		t.Errorf("without a front: %d", code)
+	}
+	if n := len(f.authorizations()); n != 0 {
+		t.Errorf("a refused token reached a gateway %d times", n)
+	}
+}
+
+func TestADoorTokenThatIsNoLongerGoodIsRefusedAndAFailedCheckIsNotAnAllow(t *testing.T) {
+	f := newFakeGateway()
+	defer f.srv.Close()
+	p := newPersonService(t)
+	auth := personAuth(t, p, false)
+	for name, tc := range map[string]struct {
+		err  error
+		code int
+	}{
+		"expired or signed out": {identity.ErrInvalid, http.StatusUnauthorized},
+		"the store is down":     {errors.New("store down"), http.StatusServiceUnavailable},
+	} {
+		front := frontStub()
+		front.Tokens = func(*http.Request, string) (identity.Caller, string, error) {
+			return identity.Caller{}, "", tc.err
+		}
+		srv := httptest.NewServer(NewHandlerWithFront(newTestService(t, f, 1), "", auth, front))
+		code, _ := postMCP(t, srv.URL, doorAnn)
+		srv.Close()
+		if code != tc.code {
+			t.Errorf("%s: %d", name, code)
+		}
+	}
+}
+
+func TestPersonFromNamesOnlyAPersonTheVerifiersKnow(t *testing.T) {
+	p := newPersonService(t)
+	name := PersonFrom(personAuth(t, p, true))
+	ann := personToken("acct-ann", time.Now().Add(15*time.Minute), "")
+	// The request's own header is not what is checked: the given token is.
+	r := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	r.Header.Set("Authorization", "Bearer "+doorAnn)
+	caller, err := name(r, ann)
+	if err != nil || caller.Principal.ID == "" || caller.Identity.Credential.Token() != ann {
+		t.Fatalf("a token the service accepts: %v %v", caller.Principal, err)
+	}
+	if r.Header.Get("Authorization") != "Bearer "+doorAnn {
+		t.Error("naming the person changed the request it was given")
+	}
+	if _, err := name(r, "not-a-token"); !errors.Is(err, identity.ErrInvalid) {
+		t.Errorf("garbage: %v", err)
+	}
+	// With anonymous callers allowed, a token that names nobody is still not a person.
+	if _, err := name(r, ""); !errors.Is(err, identity.ErrInvalid) {
+		t.Errorf("no token: %v", err)
 	}
 }
 
@@ -122,10 +242,10 @@ func TestAKubernetesTokenNeverGoesToTheService(t *testing.T) {
 	f := newFakeGateway(synthesisEvents()...)
 	defer f.srv.Close()
 	p := newPersonService(t)
-	_, srv := personDoor(t, f, personAuth(t, p, false))
+	srv := personDoor(t, f, personAuth(t, p, false))
 	ctx := context.Background()
 	session := connectSession(ctx, t, srv.URL+"/mcp", tokenAlice)
-	callTool(ctx, t, session, "ask", map[string]any{argCrew: testCrew, argQuestion: testQuestion, "waitSeconds": 5})
+	callTool(ctx, t, session, "ask", map[string]any{argCrew: testCrew, argQuestion: testQuestion, argWaitSeconds: 5})
 	if n := p.calls.Load(); n != 0 {
 		t.Fatalf("the Kubernetes token reached the service %d times", n)
 	}
@@ -138,7 +258,7 @@ func TestUnauthenticatedAndRefusedCallersGetTheChallenge(t *testing.T) {
 	f := newFakeGateway()
 	defer f.srv.Close()
 	p := newPersonService(t)
-	_, srv := personDoor(t, f, personAuth(t, p, false))
+	srv := personDoor(t, f, personAuth(t, p, false))
 	want := `Bearer realm="kubemoot-crew-liaison", resource_metadata="` + metadataURL + `"`
 	if got := challengeOf(t, srv.URL); got != want {
 		t.Errorf("no token: challenge %q", got)

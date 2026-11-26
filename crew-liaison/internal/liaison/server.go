@@ -58,25 +58,23 @@ func NewHandlerWithAuth(svc *Service, token string, auth *identity.Authenticator
 	return NewHandlerWithFront(svc, token, auth, nil)
 }
 
-// SignInFront is a sign-in front mounted beside the door: its routes, and the address of
-// the protected-resource metadata that a 401 on /mcp points the app to.
+// SignInFront is a sign-in front mounted beside the door: its routes, the address of the
+// protected-resource metadata that a 401 on /mcp points the app to, and the reader of the
+// tokens it issues (nil for a front that issues none).
 type SignInFront struct {
 	Handler             http.Handler
 	ResourceMetadataURL string
+	Tokens              DoorTokens
 }
 
 // NewHandlerWithFront is NewHandlerWithAuth with a sign-in front (nil for none). The front
 // answers the metadata documents and the /oauth routes; the door's 401 names its metadata.
 func NewHandlerWithFront(svc *Service, token string, auth *identity.Authenticator, front *SignInFront) http.Handler {
-	metadataURL := ""
-	if front != nil {
-		metadataURL = front.ResourceMetadataURL
-	}
 	server := NewMCPServer(svc)
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", requireCaller(token, auth, metadataURL, mcpHandler))
+	mux.Handle("/mcp", requireCaller(token, auth, front, mcpHandler))
 	if front != nil {
 		mux.Handle("/.well-known/", front.Handler)
 		mux.Handle("/oauth/", front.Handler)

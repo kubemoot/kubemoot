@@ -1,24 +1,42 @@
-// Package signin is the liaison's stateless sign-in front. To a chat app the liaison is
-// the authorization server for its MCP door. Behind that, the front sends the person to an
-// upstream sign-in without ever forwarding the app's `resource`, and hands the upstream's
-// own token back to the app unchanged. Nothing is stored: client ids, state and codes are
-// sealed (encrypted) strings, so two replicas behave as one and a restart loses nothing.
+// Package signin is the liaison's sign-in front. To a chat app the liaison is the
+// authorization server for its MCP door, and the tokens the app holds are the door's own:
+// issued by the liaison, for the liaison, and good nowhere else. Behind that, the front sends
+// the person to an upstream sign-in without ever forwarding the app's `resource`, exchanges
+// the upstream's code itself, and keeps the upstream's token for that person in the token
+// store, sealed. The upstream's token never reaches the chat app, and a token the upstream
+// issued is never accepted at the door.
+//
+// Client ids, state, codes and door tokens are sealed (encrypted) strings. What the front
+// keeps is in the token store: one record per person for the upstream account, one per
+// sign-in of an app, each with its own time to live.
 //
 // No token or code is ever logged; the logger receives event names and error kinds only.
 package signin
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"time"
+
+	"golang.org/x/sync/singleflight"
+
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/tokenstore"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
-// SignIn is the seam: anything that answers the OAuth routes for the liaison's door can
-// replace this implementation.
+// SignIn is the seam: anything that answers the OAuth routes for the liaison's door and
+// knows the tokens it issued can replace this implementation.
 type SignIn interface {
 	// Handler serves the metadata documents and the /oauth routes.
 	Handler() http.Handler
+	// Resolve reads a bearer token presented at the door. For a door token it returns the
+	// person and the upstream token kept for them, renewing that token when it is due. A
+	// bearer that is not a door token is identity.ErrNoCredential; a door token that is
+	// expired, was issued for another door, or whose person has no upstream token any more
+	// is identity.ErrInvalid; any other error means the check could not be made.
+	Resolve(r *http.Request, bearer string) (identity.Caller, string, error)
 }
 
 // OAuth vocabulary the front reads and writes.
@@ -33,6 +51,13 @@ const (
 	paramState           = "state"
 	paramRedirect        = "redirect_uri"
 	paramResponseType    = "response_type"
+	paramResource        = "resource"
+	paramToken           = "token"
+	errInvalidTarget     = "invalid_target"
+	errInvalidGrant      = "invalid_grant"
+	errServerError       = "server_error"
+	errAccessDenied      = "access_denied"
+	errUnavailable       = "temporarily_unavailable"
 	keyRedirectURIs      = "redirect_uris"
 	responseCode         = "code"
 	authMethodNone       = "none"
@@ -46,6 +71,8 @@ const (
 	pathAuthorize         = "/oauth/authorize"
 	pathCallback          = "/oauth/callback"
 	pathToken             = "/oauth/token"
+	pathRevoke            = "/oauth/revoke"
+	pathDoor              = "/mcp"
 
 	stateLifetime = 10 * time.Minute
 	codeLifetime  = 60 * time.Second
@@ -54,6 +81,13 @@ const (
 	upstreamWait  = 15 * time.Second
 )
 
+// errNoIdentifier is returned by New when nothing can name the person who signed in.
+var errNoIdentifier = errors.New("sign-in needs a verifier that names the person the upstream signed in")
+
+// doorResource is the canonical address of the door: the audience of every token the front
+// issues and the only `resource` an app may ask for.
+func (f *front) doorResource() string { return f.cfg.PublicURL + pathDoor }
+
 // ResourceMetadataURL is the address the 401 challenge on /mcp names, for a front whose
 // public base URL is publicURL.
 func ResourceMetadataURL(publicURL string) string { return publicURL + pathProtectedResource }
@@ -61,9 +95,12 @@ func ResourceMetadataURL(publicURL string) string { return publicURL + pathProte
 type front struct {
 	cfg    *Config
 	sealer *Sealer
+	store  tokenstore.Store
 	now    func() time.Time
 	http   *http.Client
 	mux    *http.ServeMux
+	// renewals makes concurrent requests of one person share one renewal at the upstream.
+	renewals singleflight.Group
 }
 
 // New builds the front from cfg.
@@ -78,9 +115,15 @@ func New(cfg *Config) (SignIn, error) {
 	if len(cfg.AllowedRedirectHosts) == 0 {
 		cfg.Logger.Info("sign-in allows redirect addresses on any host; set " + EnvRedirectHosts + " on a shared deployment")
 	}
-	f := &front{cfg: cfg, sealer: sealer, now: cfg.Now, http: cfg.HTTPClient}
+	if cfg.Identify == nil {
+		return nil, errNoIdentifier
+	}
+	f := &front{cfg: cfg, sealer: sealer, store: cfg.Store, now: cfg.Now, http: cfg.HTTPClient}
 	if f.now == nil {
 		f.now = time.Now
+	}
+	if f.store == nil {
+		f.store = tokenstore.NewMemory(f.now)
 	}
 	if f.http == nil {
 		f.http = &http.Client{
@@ -95,6 +138,7 @@ func New(cfg *Config) (SignIn, error) {
 	f.mux.HandleFunc("GET "+pathAuthorize, f.authorize)
 	f.mux.HandleFunc("GET "+pathCallback, f.callback)
 	f.mux.HandleFunc("POST "+pathToken, f.token)
+	f.mux.HandleFunc("POST "+pathRevoke, f.revoke)
 	return f, nil
 }
 

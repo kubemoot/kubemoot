@@ -3,6 +3,7 @@ package signin
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -67,6 +68,9 @@ func TestConfigRefusesIncompleteOrUnsafe(t *testing.T) {
 		"relative":      withEnv(goodEnv(), EnvPublicURL, "/x"),
 		"fragment":      withEnv(goodEnv(), EnvPublicURL, "https://a.example.test/#f"),
 		"http upstream": withEnv(goodEnv(), EnvUpstream, "http://auth.example.test/authorize"),
+		"account name":  withEnv(goodEnv(), EnvUpstreamName, "Not.A.Label"),
+		"lifetime":      withEnv(goodEnv(), EnvUpstreamKeep, "soon"),
+		"no lifetime":   withEnv(goodEnv(), EnvUpstreamKeep, "0s"),
 	} {
 		if _, err := ConfigFromEnv(envOf(m), nil); err == nil {
 			t.Errorf("%s accepted", name)
@@ -78,5 +82,27 @@ func TestNewRejectsBadKeys(t *testing.T) {
 	cfg := Config{PublicURL: "https://a.example.test", UpstreamAuthorizeURL: "https://u.example.test/a", UpstreamTokenURL: "https://u.example.test/t", UpstreamClientID: "c", SealKeys: "k:short"}
 	if _, err := New(&cfg); err == nil {
 		t.Error("a short key must fail")
+	}
+}
+
+func TestConfigNamesTheUpstreamAccountAndItsLifetime(t *testing.T) {
+	cfg, err := ConfigFromEnv(envOf(goodEnv()), nil)
+	if err != nil || cfg.UpstreamName != defaultUpstreamName || cfg.UpstreamTokenLifetime != 0 {
+		t.Fatalf("defaults: %+v %v", cfg, err)
+	}
+	m := withEnv(withEnv(goodEnv(), EnvUpstreamName, "library"), EnvUpstreamKeep, "720h")
+	cfg, err = ConfigFromEnv(envOf(m), nil)
+	if err != nil || cfg.UpstreamName != "library" || cfg.UpstreamTokenLifetime != 720*time.Hour {
+		t.Fatalf("set: %+v %v", cfg, err)
+	}
+}
+
+func TestNewNeedsAWayToNameThePerson(t *testing.T) {
+	cfg := Config{
+		PublicURL: "https://a.example.test", UpstreamAuthorizeURL: "https://u.example.test/a",
+		UpstreamTokenURL: "https://u.example.test/t", UpstreamClientID: "c", SealKeys: testKey(t, "k1"),
+	}
+	if _, err := New(&cfg); !errors.Is(err, errNoIdentifier) {
+		t.Errorf("a front with no identifier: %v", err)
 	}
 }

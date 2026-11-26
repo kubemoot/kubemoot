@@ -27,20 +27,35 @@ func TestFullFlow(t *testing.T) {
 	if back.Scheme+"://"+back.Host+back.Path != appRedirect || back.Query().Get(paramState) != appState {
 		t.Fatalf("app redirect %s", back)
 	}
+	// The upstream's code was redeemed by the liaison, at the callback, once.
+	checkUpstreamTokenCall(t, r)
 
 	resp := r.postToken(tokenForm(clientID, back.Query().Get(paramCode), verifier))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("token: %d %s", resp.StatusCode, body(t, resp))
 	}
-	var tok map[string]any
-	decode(t, resp, &tok)
-	if tok["access_token"] != accessToken || tok[grantRefresh] != refreshToken || tok["expires_in"] != float64(900) {
-		t.Errorf("the token was not relayed as received: %v", tok)
-	}
 	if resp.Header.Get("Cache-Control") != "no-store" {
 		t.Error("token response must be no-store")
 	}
+	checkDoorTokenAnswer(t, body(t, resp))
+	// The token endpoint asked the upstream nothing.
 	checkUpstreamTokenCall(t, r)
+}
+
+// checkDoorTokenAnswer checks the token endpoint's answer: the door's own token pair, and
+// nothing of the upstream's.
+func checkDoorTokenAnswer(t *testing.T, raw string) {
+	t.Helper()
+	if strings.Contains(raw, accessToken) || strings.Contains(raw, refreshToken) {
+		t.Fatal("the upstream's token reached the app")
+	}
+	var tok doorTokens
+	if err := json.Unmarshal([]byte(raw), &tok); err != nil {
+		t.Fatal(err)
+	}
+	if tok.Access == "" || tok.Refresh == "" || tok.Type != "Bearer" || tok.ExpiresIn != int64(accessLifetime.Seconds()) {
+		t.Errorf("door tokens: %+v", tok)
+	}
 }
 
 func checkUpstreamTokenCall(t *testing.T, r *rig) {
@@ -71,7 +86,7 @@ func checkUpstreamAuthorize(t *testing.T, r *rig, up *url.URL, appChallenge stri
 	}
 }
 
-func TestTwoReplicasShareNothing(t *testing.T) {
+func TestTwoReplicasShareOnlyTheStore(t *testing.T) {
 	r := newRig(t, nil)
 	// A second front built from the same configuration finishes what the first started.
 	second := r.replica(r.cfg)
@@ -85,6 +100,14 @@ func TestTwoReplicasShareNothing(t *testing.T) {
 	second.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("the second replica refused: %d %s", rec.Code, rec.Body.String())
+	}
+	// A door token one replica issued is read by the other.
+	var tok doorTokens
+	if err := json.Unmarshal(rec.Body.Bytes(), &tok); err != nil {
+		t.Fatal(err)
+	}
+	if caller, kept, err := r.resolve(tok.Access); err != nil || caller.Principal.ID != personAnn || kept != accessToken {
+		t.Errorf("the first replica on the second's token: %v %q %v", caller.Principal, kept, err)
 	}
 }
 
@@ -113,8 +136,9 @@ func TestPKCEAndClientChecks(t *testing.T) {
 			}
 		})
 	}
-	if n := len(r.up.sent()); n != 0 {
-		t.Errorf("a refused request reached the upstream %d times", n)
+	// The upstream is asked once per sign-in, at the callback, and never by the token endpoint.
+	if n := len(r.up.sent()); n != len(cases) {
+		t.Errorf("the upstream was asked %d times for %d sign-ins", n, len(cases))
 	}
 }
 
@@ -181,7 +205,7 @@ func TestExpiredCodeAndState(t *testing.T) {
 	}
 }
 
-func TestReplayedCodeFailsAtTheUpstream(t *testing.T) {
+func TestACodeWorksOnce(t *testing.T) {
 	r := newRig(t, nil)
 	clientID := r.registerClient()
 	verifier, challenge := appVerifier()
@@ -191,7 +215,15 @@ func TestReplayedCodeFailsAtTheUpstream(t *testing.T) {
 	if resp := r.postToken(form); resp.StatusCode != http.StatusOK {
 		t.Fatalf("first use: %d", resp.StatusCode)
 	}
-	assertOAuthError(t, r.postToken(form), http.StatusBadRequest, "invalid_grant")
+	assertOAuthError(t, r.postToken(form), http.StatusBadRequest, errInvalidGrant)
+	// Another replica refuses the replay too: the used code is in the store they share.
+	req, _ := http.NewRequest(http.MethodPost, "http://x"+pathToken, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := newRecorder()
+	r.replica(r.cfg).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("a replayed code on another replica: %d", rec.Code)
+	}
 }
 
 func TestTamperedBlobsAreRefused(t *testing.T) {
@@ -267,35 +299,47 @@ func TestUpstreamErrorCodeIsConstrained(t *testing.T) {
 	}
 }
 
-func TestUpstreamRedirectIsNotRelayed(t *testing.T) {
+func TestAnUpstreamRedirectIsNotFollowed(t *testing.T) {
 	redir := newRedirectingUpstream(t)
-	r2 := newRig(t, func(c *Config) { c.UpstreamTokenURL = redir.URL })
-	cid := r2.registerClient()
-	assertOAuthError(t, r2.postToken(url.Values{paramGrantType: {grantRefresh}, paramClientID: {cid}, grantRefresh: {"x"}}),
-		http.StatusBadGateway, "temporarily_unavailable")
+	r := newRig(t, func(c *Config) { c.UpstreamTokenURL = redir.URL })
+	_, challenge := appVerifier()
+	back, _ := r.signIn(r.registerClient(), challenge, nil)
+	if got := back.Query().Get("error"); got != errUnavailable || back.Query().Get(paramCode) != "" {
+		t.Errorf("a redirecting upstream: %s", back)
+	}
 }
 
-func TestResourceIsNeverForwarded(t *testing.T) {
+func TestResourceMustBeTheDoorAndIsNeverForwarded(t *testing.T) {
 	r := newRig(t, nil)
 	clientID := r.registerClient()
 	verifier, challenge := appVerifier()
-	res := url.Values{"resource": {"https://liaison.example.test/mcp"}}
+	door := r.srv.URL + pathDoor
 
-	back, up := r.signIn(clientID, challenge, res)
-	if _, found := up.Query()["resource"]; found || strings.Contains(up.String(), "liaison.example.test") {
+	back, up := r.signIn(clientID, challenge, url.Values{paramResource: {door}})
+	if _, found := up.Query()[paramResource]; found || strings.Contains(up.String(), url.QueryEscape(door)) {
 		t.Errorf("resource reached the upstream authorize request: %s", up)
 	}
 	form := tokenForm(clientID, back.Query().Get(paramCode), verifier)
-	form.Set("resource", "https://liaison.example.test/mcp")
+	form.Set(paramResource, door+"/")
 	if resp := r.postToken(form); resp.StatusCode != http.StatusOK {
 		t.Fatalf("token: %d", resp.StatusCode)
 	}
-	rf := url.Values{paramGrantType: {grantRefresh}, paramClientID: {clientID}, grantRefresh: {refreshToken}, "resource": {"x"}}
-	r.postToken(rf)
 	for _, f := range r.up.sent() {
-		if _, found := f["resource"]; found {
+		if _, found := f[paramResource]; found {
 			t.Errorf("resource reached the upstream token endpoint: %v", f)
 		}
+	}
+
+	// A token for anything but this door is refused: at authorize, and at the token endpoint.
+	for _, other := range []string{"https://api.example.test/", r.srv.URL, r.srv.URL + "/mcp/other"} {
+		loc := location(t, r.get(r.authorizeQuery(clientID, challenge, url.Values{paramResource: {other}})))
+		if loc.Host != appHost || loc.Query().Get("error") != errInvalidTarget {
+			t.Errorf("authorize for %s: %s", other, loc)
+		}
+		back, _ := r.signIn(clientID, challenge, nil)
+		form := tokenForm(clientID, back.Query().Get(paramCode), verifier)
+		form.Set(paramResource, other)
+		assertOAuthError(t, r.postToken(form), http.StatusBadRequest, errInvalidTarget)
 	}
 }
 
@@ -319,48 +363,45 @@ func TestUpstreamErrorsPassThrough(t *testing.T) {
 	assertOAuthError(t, resp, http.StatusBadRequest, "invalid_grant")
 }
 
-func TestUpstreamBodyRelayedAsReceived(t *testing.T) {
+func TestAnUpstreamRefusalIsNotRelayed(t *testing.T) {
 	r := newRig(t, nil)
 	clientID := r.registerClient()
-	verifier, challenge := appVerifier()
-	back, _ := r.signIn(clientID, challenge, nil)
-	// Make the upstream fail after the code is sealed.
-	r.up.mu.Lock()
-	r.up.used[upstreamCode] = true
-	r.up.mu.Unlock()
-	resp := r.postToken(tokenForm(clientID, back.Query().Get(paramCode), verifier))
-	var e map[string]string
-	decode(t, resp, &e)
-	if resp.StatusCode != http.StatusBadRequest || e["error_description"] != "upstream says no" {
-		t.Errorf("%d %v", resp.StatusCode, e)
+	_, challenge := appVerifier()
+	auth := r.get(r.authorizeQuery(clientID, challenge, nil))
+	state := location(t, auth).Query().Get(paramState)
+	// The upstream refuses the code (its PKCE challenge was never recorded by the rig).
+	cb := r.get(pathCallback+"?"+url.Values{paramCode: {upstreamCode}, paramState: {state}}.Encode(), auth.Cookies()...)
+	loc := location(t, cb)
+	if loc.Host != appHost || loc.Query().Get("error") != errAccessDenied || loc.Query().Get(paramCode) != "" ||
+		strings.Contains(loc.String(), "upstream") {
+		t.Errorf("a refused code: %s", loc)
 	}
 }
 
-func TestRefreshPassesThrough(t *testing.T) {
+func TestASignInThatNamesNobodyIsDenied(t *testing.T) {
 	r := newRig(t, nil)
-	clientID := r.registerClient()
-	resp := r.postToken(url.Values{paramGrantType: {grantRefresh}, paramClientID: {clientID}, grantRefresh: {refreshToken}})
-	var tok map[string]any
-	decode(t, resp, &tok)
-	if resp.StatusCode != http.StatusOK || tok["access_token"] != "ACCESS-2" || tok[grantRefresh] != "REFRESH-2" {
-		t.Errorf("refresh: %d %v", resp.StatusCode, tok)
+	r.knows(accessToken, "")
+	_, challenge := appVerifier()
+	back, _ := r.signIn(r.registerClient(), challenge, nil)
+	if back.Query().Get("error") != errAccessDenied || back.Query().Get(paramCode) != "" {
+		t.Errorf("a sign-in the verifiers cannot name: %s", back)
 	}
-	sent := r.up.sent()
-	if len(sent) != 1 || sent[0].Get(paramClientID) != upstreamClientID || sent[0].Get(grantRefresh) != refreshToken {
-		t.Errorf("upstream got %v", sent)
+	if _, err := r.store.Get(t.Context(), "account.upstream."+personAnn); err == nil {
+		t.Error("a token was kept for a sign-in that named nobody")
 	}
-	assertOAuthError(t, r.postToken(url.Values{paramGrantType: {grantRefresh}, paramClientID: {clientID}, grantRefresh: {"stale"}}),
-		http.StatusBadRequest, "invalid_grant")
-	assertOAuthError(t, r.postToken(url.Values{paramGrantType: {grantRefresh}, paramClientID: {"nope"}, grantRefresh: {refreshToken}}),
-		http.StatusUnauthorized, "invalid_client")
 }
 
-func TestUpstreamDownIsAGatewayError(t *testing.T) {
+func TestUpstreamDownFailsTheSignIn(t *testing.T) {
 	r := newRig(t, nil)
 	clientID := r.registerClient()
+	_, challenge := appVerifier()
+	auth := r.get(r.authorizeQuery(clientID, challenge, nil))
+	state := location(t, auth).Query().Get(paramState)
 	r.up.srv.Close()
-	resp := r.postToken(url.Values{paramGrantType: {grantRefresh}, paramClientID: {clientID}, grantRefresh: {"x"}})
-	assertOAuthError(t, resp, http.StatusBadGateway, "temporarily_unavailable")
+	cb := r.get(pathCallback+"?"+url.Values{paramCode: {upstreamCode}, paramState: {state}}.Encode(), auth.Cookies()...)
+	if loc := location(t, cb); loc.Query().Get("error") != errUnavailable {
+		t.Errorf("upstream down: %s", loc)
+	}
 }
 
 func TestMetadataDocuments(t *testing.T) {
@@ -377,6 +418,7 @@ func TestMetadataDocuments(t *testing.T) {
 	for k, want := range map[string]string{
 		"issuer": r.srv.URL, "authorization_endpoint": r.srv.URL + pathAuthorize,
 		"token_endpoint": r.srv.URL + pathToken, "registration_endpoint": r.srv.URL + pathRegister,
+		"revocation_endpoint": r.srv.URL + pathRevoke,
 	} {
 		if as[k] != want {
 			t.Errorf("%s = %v", k, as[k])
@@ -386,7 +428,7 @@ func TestMetadataDocuments(t *testing.T) {
 		t.Errorf("auth server metadata: %v", as)
 	}
 	if _, has := as["jwks_uri"]; has {
-		t.Error("jwks_uri must be absent, nothing is signed")
+		t.Error("jwks_uri must be absent, no key is published")
 	}
 	if got := ResourceMetadataURL(r.srv.URL); got != r.srv.URL+pathProtectedResource {
 		t.Errorf("resource metadata url %s", got)
@@ -458,19 +500,26 @@ func TestNothingSecretIsLogged(t *testing.T) {
 	verifier, challenge := appVerifier()
 	back, up := r.signIn(clientID, challenge, nil)
 	code := back.Query().Get(paramCode)
-	r.postToken(tokenForm(clientID, code, verifier))
-	r.postToken(url.Values{paramGrantType: {grantRefresh}, paramClientID: {clientID}, grantRefresh: {refreshToken}})
+	var first, second doorTokens
+	decode(t, r.postToken(tokenForm(clientID, code, verifier)), &first)
+	decode(t, r.postToken(r.refreshForm(clientID, first.Refresh)), &second)
+	r.postToken(r.refreshForm(clientID, first.Refresh))
 	r.postToken(tokenForm(clientID, code, "wrong-verifier-wrong-verifier-wrong-verifier-1234"))
+	r.now = r.now.Add(20 * time.Minute)
+	if _, _, err := r.resolve(second.Access); err == nil {
+		t.Fatal("an expired door token was accepted")
+	}
 
 	logs := r.logText()
 	if logs == "" {
 		t.Fatal("expected some events to be logged")
 	}
 	for name, secret := range map[string]string{
-		"access token": accessToken, "refresh token": refreshToken, "upstream code": upstreamCode,
+		"access token": accessToken, "refresh token": refreshToken, "upstream code": codePrefix,
 		"sealed code": code, "sealed state": up.Query().Get(paramState), "client id": clientID,
-		"app verifier": verifier, "app challenge": challenge, "rotated access": "ACCESS-2", "rotated refresh": "REFRESH-2",
-		"upstream challenge": up.Query().Get("code_challenge"),
+		"app verifier": verifier, "app challenge": challenge, "rotated access": rotatedAccess, "rotated refresh": rotatedRefresh,
+		"upstream challenge": up.Query().Get("code_challenge"), "person": personAnn,
+		"door access": first.Access, "door refresh": first.Refresh, "second door access": second.Access, "second door refresh": second.Refresh,
 	} {
 		if strings.Contains(logs, secret) {
 			t.Errorf("the %s appears in the logs", name)

@@ -173,7 +173,17 @@ A crew can call a service as the person who asked, using that person's own token
 - **For how long.** Until the earliest of the token's own expiry and 30 minutes after it was written or renewed. It is dropped sooner when the conversation's answer is delivered on a stream, or the conversation is stopped or deleted. A gateway restart loses every grant; the person's next question or credential renewal restores it.
 - **Who can read it.** The one ServiceAccount of the crew's MCP gateway, over a separate internal port, for a named conversation and the principal it was started for. Operators who read conversations get no lease.
 - **A memory dump.** Go cannot wipe a string from memory, so the defense is the short life above. Do not enable heap or core dumps on the gateway, and encrypt the traffic between pods (your CNI or a mesh), because the token crosses the cluster network in plain HTTP between the liaison, the gateway and the MCP gateway.
-- **Persistence is yours.** The store is an interface. Kubemoot ships only the in-memory one. A store that survives restarts would hold a refresh token under your key, retention and erasure; it is an opt-in you would install, and nothing in this install keeps one.
+- **Persistence is yours.** The gateway's store is an interface. Kubemoot ships only the in-memory one, and the gateway never holds a refresh token.
+
+## A person's token the liaison keeps after sign-in
+
+Off unless you turn on the liaison's sign-in front (`liaison.signIn.enabled`, [Signing in](../../integrations/signing-in/#the-sign-in-front)). Nothing is kept for anyone until that person signs in. When they do:
+
+- **What is held.** The access token and the refresh token the outside service issued for the person, under a key made of the account's name and the person's pseudonymous principal id; one small record per chat app that signed in (the person's id and the app's client id); and for two minutes the id of each used sign-in code. Never the person's name, account id or email.
+- **Where.** In the liaison's memory, each value sealed (AES-GCM) with the keys in `liaison.signIn.sealKeySecret` and bound to its own key, so a record copied under another person's key does not open. Not on a disk, in a Secret, a log, a trace, the bus or a NATS store. The chat app holds only a token for the liaison's own `/mcp`, never the service's.
+- **For how long.** 30 days without use, and each use starts the 30 days again. Never past the service's own limit for the sign-in, which the service states or you set (`liaison.signIn.upstream.tokenLifetime`). Deleted at once when the person signs out (the chat app disconnects the server), and when the service refuses to renew the token. A liaison restart loses everything kept and each person signs in again.
+- **Who can read it.** The liaison process, to present the token to the gateway of the crew that person asks. No route returns it.
+- **Erasure.** A person's sign-out deletes their record. To delete every record, restart the liaison; to make every sealed value unreadable, remove its sealing key.
 
 ## Other places data appears
 

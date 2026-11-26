@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 )
 
 // loginState is sealed into the upstream `state`, so the callback needs no store.
@@ -34,7 +35,8 @@ type authorizeRequest struct {
 
 // authorize starts a sign-in. A problem with the client or redirect is shown to the
 // browser (never redirected, the redirect is not trusted yet); anything after is returned to
-// the app's redirect. The request's `resource` is not read and so never reaches the upstream.
+// the app's redirect. The request's `resource` must be this door when it is given (RFC 8707)
+// and never reaches the upstream.
 func (f *front) authorize(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	req, ok := f.checkClient(w, q)
@@ -48,6 +50,10 @@ func (f *front) authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	if q.Get(paramChallengeMethod) != methodS256 || !validChallenge(q.Get("code_challenge")) {
 		f.refuseAuthorize(w, r, req, "invalid_request", "a PKCE code_challenge with method S256 is required")
+		return
+	}
+	if !f.resourceIsDoor(q.Get(paramResource)) {
+		f.refuseAuthorize(w, r, req, errInvalidTarget, "this server issues tokens for its own /mcp only")
 		return
 	}
 	req.challenge = q.Get("code_challenge")
@@ -72,6 +78,12 @@ func (f *front) checkClient(w http.ResponseWriter, q url.Values) (authorizeReque
 		return authorizeRequest{}, false
 	}
 	return authorizeRequest{clientID: clientID, redirect: redirect, redirectSent: q.Get(paramRedirect) != ""}, true
+}
+
+// resourceIsDoor reports whether an app's `resource` names this door. An app that sends
+// none gets a token for the door all the same: it is the only resource there is.
+func (f *front) resourceIsDoor(resource string) bool {
+	return resource == "" || strings.TrimSuffix(resource, "/") == f.doorResource()
 }
 
 func (f *front) refuseAuthorize(w http.ResponseWriter, r *http.Request, req authorizeRequest, code, desc string) {

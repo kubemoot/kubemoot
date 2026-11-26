@@ -132,7 +132,14 @@ spec:
             {{- end }}
             {{- if .Values.liaison.signIn.enabled }}
             {{- $in := .Values.liaison.signIn }}
-            # The stateless OAuth sign-in front: it holds no token and no state, only keys.
+            {{- if not .Values.liaison.auth.serviceTokens }}
+            {{- fail "liaison.signIn.enabled needs liaison.auth.serviceTokens: the sign-in names the person with the service's verifier, and issues no token for someone it cannot name" }}
+            {{- end }}
+            {{- if gt (int .Values.liaison.replicas) 1 }}
+            {{- fail "liaison.signIn.enabled needs liaison.replicas: 1: the liaison keeps each person's token in its own memory, which replicas do not share" }}
+            {{- end }}
+            # The OAuth sign-in front. The chat app holds the liaison's own token for /mcp; the
+            # token the upstream issues for a person stays in the liaison, sealed.
             - name: LIAISON_SIGNIN_PUBLIC_URL
               value: {{ required "liaison.signIn.publicURL is required when liaison.signIn.enabled" $in.publicURL | quote }}
             - name: LIAISON_SIGNIN_UPSTREAM
@@ -143,6 +150,14 @@ spec:
               value: {{ required "liaison.signIn.upstream.clientId is required when liaison.signIn.enabled" $in.upstream.clientId | quote }}
             {{- with $in.upstream.scopes }}
             - name: LIAISON_SIGNIN_UPSTREAM_SCOPES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $in.upstream.name }}
+            - name: LIAISON_SIGNIN_UPSTREAM_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $in.upstream.tokenLifetime }}
+            - name: LIAISON_SIGNIN_UPSTREAM_TOKEN_LIFETIME
               value: {{ . | quote }}
             {{- end }}
             {{- with $in.allowedRedirectHosts }}

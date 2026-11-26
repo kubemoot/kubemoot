@@ -10,7 +10,7 @@ import (
 // protectedResourceHandler names the liaison itself as the authorization server for /mcp.
 func protectedResourceHandler(publicURL string) http.Handler {
 	return auth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
-		Resource:               publicURL + "/mcp",
+		Resource:               publicURL + pathDoor,
 		AuthorizationServers:   []string{publicURL},
 		BearerMethodsSupported: []string{"header"},
 		ResourceName:           "Kubemoot crew liaison",
@@ -18,17 +18,19 @@ func protectedResourceHandler(publicURL string) http.Handler {
 }
 
 // authServerMetadata is RFC 8414 metadata. It is a local type because the SDK's
-// oauthex.AuthServerMeta always writes "jwks_uri", and this server signs nothing, so an
-// empty value would fail strict clients.
+// oauthex.AuthServerMeta always writes "jwks_uri", and this server publishes no keys (its
+// tokens are sealed and only it reads them), so an empty value would fail strict clients.
 type authServerMetadata struct {
 	Issuer                        string   `json:"issuer"`
 	AuthorizationEndpoint         string   `json:"authorization_endpoint"`
 	TokenEndpoint                 string   `json:"token_endpoint"`
 	RegistrationEndpoint          string   `json:"registration_endpoint"`
+	RevocationEndpoint            string   `json:"revocation_endpoint"`
 	ResponseTypesSupported        []string `json:"response_types_supported"`
 	GrantTypesSupported           []string `json:"grant_types_supported"`
 	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported"`
 	TokenEndpointAuthMethods      []string `json:"token_endpoint_auth_methods_supported"`
+	RevocationAuthMethods         []string `json:"revocation_endpoint_auth_methods_supported"`
 }
 
 func (f *front) serveAuthServerMetadata(w http.ResponseWriter, _ *http.Request) {
@@ -39,9 +41,11 @@ func (f *front) serveAuthServerMetadata(w http.ResponseWriter, _ *http.Request) 
 		AuthorizationEndpoint:         base + pathAuthorize,
 		TokenEndpoint:                 base + pathToken,
 		RegistrationEndpoint:          base + pathRegister,
+		RevocationEndpoint:            base + pathRevoke,
 		ResponseTypesSupported:        []string{responseCode},
 		GrantTypesSupported:           []string{grantAuthCode, grantRefresh},
 		CodeChallengeMethodsSupported: []string{methodS256},
 		TokenEndpointAuthMethods:      []string{authMethodNone},
+		RevocationAuthMethods:         []string{authMethodNone},
 	})
 }

@@ -52,8 +52,11 @@ if render --set-json 'liaison.auth.serviceTokens=[{"name":"oreilly","verifyURL":
   fail "service tokens rendered with no hash key Secret"
 fi
 
-# Sign-in: the environment, the key file mounted from the Secret, the routes.
-signin=(--set liaison.signIn.enabled=true --set liaison.signIn.publicURL=https://oguide.example.com
+# Sign-in: the environment, the key file mounted from the Secret, the routes. It needs the
+# verifier that names the person who signed in.
+signin=(--set-json 'liaison.auth.serviceTokens=[{"name":"library","verifyURL":"https://api.example.com/mcp","subjectClaim":"sub","passToTools":true}]'
+  --set liaison.auth.hashKeySecret.name=hash
+  --set liaison.signIn.enabled=true --set liaison.signIn.publicURL=https://oguide.example.com
   --set liaison.signIn.upstream.authorizeURL=https://up.example.com/authorize
   --set liaison.signIn.upstream.tokenURL=https://up.example.com/token
   --set liaison.signIn.upstream.clientId=front --set liaison.signIn.sealKeySecret.name=seal
@@ -68,6 +71,11 @@ for want in LIAISON_SIGNIN_PUBLIC_URL=https://oguide.example.com LIAISON_SIGNIN_
   grep -qxF "$want" <<<"$env" || fail "sign-in env lacks $want"
 done
 grep -q '^LIAISON_SIGNIN_SEAL_KEYS=' <<<"$env" && fail "the sealing keys are inlined into the environment"
+grep -qxF 'LIAISON_SIGNIN_UPSTREAM_NAME=upstream' <<<"$env" || fail "the upstream account's default name is not rendered"
+grep -q '^LIAISON_SIGNIN_UPSTREAM_TOKEN_LIFETIME=' <<<"$env" && fail "a token lifetime is rendered when none is set"
+env="$(liaison_env "$(render "${signin[@]}" --set liaison.signIn.upstream.name=library --set liaison.signIn.upstream.tokenLifetime=720h)")"
+grep -qxF 'LIAISON_SIGNIN_UPSTREAM_NAME=library' <<<"$env" || fail "the upstream account's name is not rendered"
+grep -qxF 'LIAISON_SIGNIN_UPSTREAM_TOKEN_LIFETIME=720h' <<<"$env" || fail "the token lifetime is not rendered"
 d="$(liaison_deploy "$out")"
 [ "$(yq '.spec.template.spec.volumes[0].secret.secretName' <<<"$d")" = "seal" ] || fail "the seal key Secret is not mounted"
 [ "$(yq '.spec.template.spec.volumes[0].secret.items[0].key' <<<"$d")" = "seal-keys" ] || fail "the seal key's default key"
@@ -87,4 +95,13 @@ for missing in publicURL upstream.authorizeURL upstream.tokenURL upstream.client
     fail "sign-in rendered with liaison.signIn.$missing empty"
   fi
 done
+# Sign-in with nothing that names the person, or with replicas that would not share what
+# the liaison keeps, refuses to render.
+if render "${signin[@]}" --set-json 'liaison.auth.serviceTokens=[]' >/dev/null 2>&1; then
+  fail "sign-in rendered with no service token verifier"
+fi
+if render "${signin[@]}" --set liaison.replicas=2 >/dev/null 2>&1; then
+  fail "sign-in rendered with two replicas"
+fi
+render "${signin[@]}" --set liaison.replicas=1 >/dev/null || fail "sign-in does not render with one replica"
 echo "ok: liaison sign-in render tests"

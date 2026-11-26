@@ -7,6 +7,7 @@ require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/kubemoot/kubemoot/operator v0.0.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	golang.org/x/sync v0.25.0
 	k8s.io/api v0.37.2
 	k8s.io/apimachinery v0.37.2
 	k8s.io/client-go v0.37.2
@@ -65,7 +66,6 @@ require (
 	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/net v0.63.0 // indirect
 	golang.org/x/oauth2 v0.38.0 // indirect
-	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.48.0 // indirect
 	golang.org/x/text v0.44.0 // indirect

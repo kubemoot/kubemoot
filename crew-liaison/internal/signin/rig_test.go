@@ -8,12 +8,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr/funcr"
+
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/tokenstore"
+	"github.com/kubemoot/kubemoot/operator/pkg/bus"
+	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
 const (
@@ -26,6 +31,14 @@ const (
 	upstreamCode     = "UPSTREAM-CODE-1"
 	accessToken      = "ACCESS-TOKEN-SECRET"
 	refreshToken     = "REFRESH-TOKEN-SECRET"
+	rotatedAccess    = "ACCESS-2"
+	rotatedRefresh   = "REFRESH-2"
+	personAnn        = "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
+	personBob        = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+	bobAccess        = "BOB-ACCESS-TOKEN"
+	bobRefresh       = "BOB-REFRESH-TOKEN"
+	codePrefix       = "UPSTREAM-CODE-"
+	keyAccessToken   = "access_token"
 )
 
 func testKey(t *testing.T, id string) string {
@@ -38,7 +51,8 @@ func testKey(t *testing.T, id string) string {
 }
 
 // fakeUpstream stands in for the upstream sign-in service: a token endpoint that records
-// what it was sent and honours single-use codes and PKCE.
+// what it was sent and honours single-use codes and PKCE. It signs in whoever `issues`
+// names (an access and a refresh token), and renews a refresh token it knows once.
 type fakeUpstream struct {
 	srv *httptest.Server
 
@@ -46,11 +60,19 @@ type fakeUpstream struct {
 	forms     []url.Values
 	challenge string
 	used      map[string]bool
+	issues    [2]string
+	answer    string // the JSON tail of a sign-in answer after the tokens
+	renewals  map[string][2]string
+	codes     int
 }
 
 func newFakeUpstream(t *testing.T) *fakeUpstream {
 	t.Helper()
-	u := &fakeUpstream{used: map[string]bool{}}
+	u := &fakeUpstream{
+		used: map[string]bool{}, issues: [2]string{accessToken, refreshToken},
+		answer:   `"expires_in":900,"scope":"openid offline_access","token_type":"Bearer"`,
+		renewals: map[string][2]string{refreshToken: {rotatedAccess, rotatedRefresh}},
+	}
 	u.srv = httptest.NewServer(http.HandlerFunc(u.token))
 	t.Cleanup(u.srv.Close)
 	return u
@@ -64,24 +86,42 @@ func (u *fakeUpstream) token(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.PostForm.Get(paramGrantType) {
 	case grantAuthCode:
-		if r.PostForm.Get(paramCode) != upstreamCode || u.used[upstreamCode] ||
+		code := r.PostForm.Get(paramCode)
+		if !strings.HasPrefix(code, codePrefix) || u.used[code] ||
 			s256(r.PostForm.Get("code_verifier")) != u.challenge || r.PostForm.Get(paramClientID) != upstreamClientID {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(w, `{"error":"invalid_grant","error_description":"upstream says no"}`)
 			return
 		}
-		u.used[upstreamCode] = true
-		_, _ = io.WriteString(w, `{"access_token":"`+accessToken+`","refresh_token":"`+refreshToken+`","expires_in":900,"scope":"openid offline_access","token_type":"Bearer"}`)
+		u.used[code] = true
+		_, _ = io.WriteString(w, `{"access_token":"`+u.issues[0]+`","refresh_token":"`+u.issues[1]+`",`+u.answer+`}`)
 	case grantRefresh:
-		if r.PostForm.Get(grantRefresh) != refreshToken {
+		next, ok := u.renewals[r.PostForm.Get(grantRefresh)]
+		if !ok {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(w, `{"error":"invalid_grant"}`)
 			return
 		}
-		_, _ = io.WriteString(w, `{"access_token":"ACCESS-2","refresh_token":"REFRESH-2","expires_in":900,"token_type":"Bearer"}`)
+		delete(u.renewals, r.PostForm.Get(grantRefresh))
+		_, _ = io.WriteString(w, `{"access_token":"`+next[0]+`","refresh_token":"`+next[1]+`","expires_in":900,"token_type":"Bearer"}`)
 	default:
 		w.WriteHeader(http.StatusBadRequest)
 	}
+}
+
+// signsIn makes the next sign-in at the upstream issue these tokens.
+func (u *fakeUpstream) signsIn(access, refresh string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.issues = [2]string{access, refresh}
+}
+
+// nextCode is a fresh authorization code the upstream will accept once.
+func (u *fakeUpstream) nextCode() string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.codes++
+	return codePrefix + strconv.Itoa(u.codes)
 }
 
 func (u *fakeUpstream) sent() []url.Values {
@@ -101,11 +141,43 @@ type rig struct {
 	logMu    sync.Mutex
 	client   *http.Client
 	handlers []SignIn
+	store    *tokenstore.Memory
+
+	peopleMu sync.Mutex
+	people   map[string]string // upstream access token -> principal id
+}
+
+// identify stands in for the door's verifiers: it knows which person each upstream access
+// token belongs to, and refuses a token it does not know.
+func (r *rig) identify(_ *http.Request, token string) (identity.Caller, error) {
+	r.peopleMu.Lock()
+	defer r.peopleMu.Unlock()
+	id, ok := r.people[token]
+	if !ok {
+		return identity.Caller{}, identity.ErrInvalid
+	}
+	return identity.Caller{
+		Principal: bus.Principal{Kind: bus.PrincipalKindSubscriber, Issuer: "example", ID: id},
+		Identity:  &identity.Identity{Issuer: "example", Subject: "account-of-" + id, Credential: identity.NewCredential(token)},
+	}, nil
+}
+
+// knows sets (or with id "" removes) the person an upstream access token names.
+func (r *rig) knows(token, id string) {
+	r.peopleMu.Lock()
+	defer r.peopleMu.Unlock()
+	if id == "" {
+		delete(r.people, token)
+		return
+	}
+	r.people[token] = id
 }
 
 func newRig(t *testing.T, mutate func(*Config)) *rig {
 	t.Helper()
 	r := &rig{t: t, up: newFakeUpstream(t), now: time.Unix(1_800_000_000, 0), logs: &strings.Builder{}}
+	r.people = map[string]string{accessToken: personAnn, rotatedAccess: personAnn, bobAccess: personBob}
+	r.store = tokenstore.NewMemory(func() time.Time { return r.now })
 	var current http.Handler
 	r.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { current.ServeHTTP(w, req) }))
 	t.Cleanup(r.srv.Close)
@@ -117,6 +189,8 @@ func newRig(t *testing.T, mutate func(*Config)) *rig {
 		UpstreamClientID:     upstreamClientID,
 		SealKeys:             testKey(t, "k1"),
 		Now:                  func() time.Time { return r.now },
+		Identify:             r.identify,
+		Store:                r.store,
 		Logger: funcr.New(func(prefix, args string) {
 			r.logMu.Lock()
 			defer r.logMu.Unlock()
@@ -130,7 +204,8 @@ func newRig(t *testing.T, mutate func(*Config)) *rig {
 	return r
 }
 
-// replica builds another front from cfg that shares nothing with the others.
+// replica builds another front from cfg. It shares the token store with the others and
+// nothing else.
 func (r *rig) replica(cfg Config) http.Handler {
 	f, err := New(&cfg)
 	if err != nil {
@@ -251,8 +326,40 @@ func (r *rig) signIn(clientID, challenge string, extra url.Values) (appRedirectU
 	if cookie == nil {
 		r.t.Fatal("no binding cookie")
 	}
-	back := r.get(pathCallback+"?"+url.Values{paramCode: {upstreamCode}, paramState: {upstreamAuth.Query().Get(paramState)}}.Encode(), cookie)
+	back := r.get(pathCallback+"?"+url.Values{paramCode: {r.up.nextCode()}, paramState: {upstreamAuth.Query().Get(paramState)}}.Encode(), cookie)
 	return location(r.t, back), upstreamAuth
+}
+
+// doorTokens is the token endpoint's answer.
+type doorTokens struct {
+	Access    string `json:"access_token"`
+	Refresh   string `json:"refresh_token"`
+	Type      string `json:"token_type"`
+	ExpiresIn int64  `json:"expires_in"`
+}
+
+// signedIn runs a whole sign-in for a new app and returns its client id and door tokens.
+func (r *rig) signedIn() (clientID string, tokens doorTokens) {
+	r.t.Helper()
+	clientID = r.registerClient()
+	verifier, challenge := appVerifier()
+	back, _ := r.signIn(clientID, challenge, nil)
+	resp := r.postToken(tokenForm(clientID, back.Query().Get(paramCode), verifier))
+	if resp.StatusCode != http.StatusOK {
+		r.t.Fatalf("token: %d %s", resp.StatusCode, body(r.t, resp))
+	}
+	decode(r.t, resp, &tokens)
+	return clientID, tokens
+}
+
+// resolve presents bearer at the door, as the liaison does for a request to /mcp.
+func (r *rig) resolve(bearer string) (identity.Caller, string, error) {
+	req := httptest.NewRequest(http.MethodPost, pathDoor, nil)
+	return r.handlers[0].Resolve(req, bearer)
+}
+
+func (r *rig) refreshForm(clientID, refresh string) url.Values {
+	return url.Values{paramGrantType: {grantRefresh}, paramClientID: {clientID}, grantRefresh: {refresh}}
 }
 
 func newRecorder() *httptest.ResponseRecorder { return httptest.NewRecorder() }

@@ -71,20 +71,23 @@ By default the liaison accepts every caller that presents the shared token (or a
 - A caller with no token is refused, unless `liaison.auth.allowAnonymous` is `true`. A token that is present and not valid is always refused, and when a shared token is also configured a request that presents nothing is refused even with `allowAnonymous`.
 - The caller's token is handed to the background follower only to open the discussion's stream. Once the stream is open the follower holds no token, so the liaison keeps none while the discussion runs. It is never stored, logged or put in a trace.
 
-### A person's own token
+### A person who signed in
 
-When the liaison has service token verifiers (`ACCESS_SERVICE_TOKENS`, with the install's `ACCESS_HASH_KEY`, the same settings a crew's gateway reads), a person's own token for a service the crew trusts is accepted at `/mcp` when that service accepts it:
+With the [sign-in front](../signing-in/#the-sign-in-front) on, a person signs in at an outside service through the liaison, and the chat app then holds a token the liaison issued for its own `/mcp`. That token is the only one `/mcp` accepts from a person who signed in:
 
+- The liaison keeps the service's token for that person, sealed, and the chat app never holds it. On each request the liaison reads its own token, finds the person's kept token, and renews it at the service when it is due.
 - The ticket belongs to the person the service named, by the same hashed id the gateway uses. Nobody else can read it.
-- A Kubernetes token is checked first and is never sent to a service.
-- The token goes to the crew's gateway on the question and on the stream. The gateway keeps it in memory for the turn when the crew's verifier passes tokens to tools.
-- A chat app refreshes the person's token on its own, so each `get_answer` carries the current one. When it differs from the last one the liaison sent for that ticket, the liaison sends it to the gateway's credential route for that conversation, and the gateway replaces the held token after checking the caller owns the conversation. A token the gateway accepted is not sent again, renewals for one ticket go one at a time, and a ticket that already has its answer is not renewed. If a renewal fails the next poll tries again; the answer does not depend on it.
+- The service's own token is refused at `/mcp` with 401, even when the service would accept it: it was issued for the service, not for this door. A Kubernetes token is checked first and is never sent to a service.
+- The kept token goes to the crew's gateway on the question and on the stream. The gateway keeps it in memory for the turn when the crew's verifier passes tokens to tools.
+- When the kept token was renewed while a question runs, the next `get_answer` sends the new one to the gateway's credential route for that conversation, and the gateway replaces the held token after checking the caller owns the conversation. A token the gateway accepted is not sent again, renewals for one ticket go one at a time, and a ticket that already has its answer is not renewed. If a renewal fails the next poll tries again; the answer does not depend on it.
 - For each ticket the liaison remembers only a keyed fingerprint of the last token sent, never the token.
-- A request with no token, or a token the service refuses, gets 401 with a challenge that names the sign-in front's metadata when the front is on. A service that cannot be asked gets 503, never an allow.
+- A request with no token, an expired token, or a token the liaison did not issue gets 401 with a challenge that names the sign-in front's metadata. A service or a store that cannot be asked gets 503, never an allow.
 
-### A person's own token from a service
+What is kept, for how long, and how a person signs out is in [Signing in](../signing-in/#what-the-liaison-keeps-and-for-how-long).
 
-The chart can also let the liaison accept a person's own token from a service, such as a chat app signed in to a library. It is off by default: `liaison.auth.serviceTokens` is empty.
+### Naming the person who signed in
+
+The liaison names the person with a service token verifier: it asks the service whose token it holds. It is off by default: `liaison.auth.serviceTokens` is empty, and the sign-in front needs it.
 
 | Chart value | Default | Meaning |
 |-------------|---------|---------|
@@ -92,7 +95,9 @@ The chart can also let the liaison accept a person's own token from a service, s
 | `liaison.auth.hashKeySecret.name` | empty | A Secret in the release namespace that you create. Required once `serviceTokens` is set; the chart refuses to render without it |
 | `liaison.auth.hashKeySecret.key` | `hash-key` | The key that holds the install's hash key. It must be the same value as the Secret each crew names in `hashKeySecretRef` |
 
-The liaison is one process for every crew, so its list belongs to the whole liaison. A crew whose gateway does not list the same service refuses the token with 401, and the question fails with that message. Turning the list on also turns on enforcement (`ACCESS_ENFORCE`); Kubernetes token review stays as `liaison.auth.kubernetesTokens` sets it.
+The liaison is one process for every crew, so its list belongs to the whole liaison. A crew whose gateway does not list the same service refuses the person's token with 401, and the question fails with that message. Turning the list on also turns on enforcement (`ACCESS_ENFORCE`); Kubernetes token review stays as `liaison.auth.kubernetesTokens` sets it.
+
+The list alone opens nothing at `/mcp`: without the sign-in front there is no way to present a service's token to the liaison, because the door takes only tokens issued for it.
 
 The liaison and the gateway are two doors to one crew and share one definition of who is asking (see [Who is asking](../../concepts/who-is-asking/)). Turn on `spec.discussion.access` on the crew as well: a crew that verifies callers refuses the liaison's questions when the liaison sends no token.
 
