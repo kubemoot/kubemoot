@@ -44,6 +44,17 @@
 {{- if not $reg.clientId }}
 {{- fail (printf "liaison.connectedAccounts.accounts.%s.clientId is required" $name) }}
 {{- end }}
+{{- if and (not $reg.allowedCrews) (not $reg.hosts) }}
+{{- fail (printf "liaison.connectedAccounts.accounts.%s needs allowedCrews or hosts: without either, any crew author could send the install's client to an address of their choosing" $name) }}
+{{- end }}
+{{- if and $reg.clientSecret $reg.clientSecret.name (not $reg.hosts) }}
+{{- fail (printf "liaison.connectedAccounts.accounts.%s holds a client secret, so it needs hosts: the secret goes to the token endpoint" $name) }}
+{{- end }}
+{{- range $crew := ($reg.allowedCrews | default list) }}
+{{- if not (regexMatch "^[^/]+/[^/]+$" $crew) }}
+{{- fail (printf "liaison.connectedAccounts.accounts.%s.allowedCrews entry %q must be namespace/name" $name $crew) }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- if and $door .Values.liaison.expose.enabled (not .Values.liaison.signIn.allowedRedirectHosts) }}

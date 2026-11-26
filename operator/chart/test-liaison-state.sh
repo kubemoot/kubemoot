@@ -12,7 +12,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 render() { helm template km "$chart" --namespace km "$@"; }
 
 door='{"liaison":{"expose":{"enabled":true,"hostname":"moot.example.org"},"signIn":{"enabled":true,"publicURL":"https://moot.example.org","allowedRedirectHosts":["app.example.org"],"sealKeySecret":{"name":"seal"},"identity":{"provider":"oidc","oidc":{"issuer":"https://idp.example.org","clientId":"c","clientSecret":{"name":"oidc"}},"signingKeySecret":{"name":"sign"}}}},"gateway":{"hostname":"moot.example.org","enabled":true}}'
-acct='{"liaison":{"auth":{"hashKeySecret":{"name":"hash"}},"connectedAccounts":{"enabled":true,"sealKeySecret":{"name":"vault"},"accounts":{"library":{"clientId":"cid","clientSecret":{"name":"lib-secret"},"allowedCrews":["guide"],"hosts":["auth.example.org"],"maxLifetimeHours":48}}}}}'
+acct='{"liaison":{"auth":{"hashKeySecret":{"name":"hash"}},"connectedAccounts":{"enabled":true,"sealKeySecret":{"name":"vault"},"accounts":{"library":{"clientId":"cid","clientSecret":{"name":"lib-secret"},"allowedCrews":["ns/guide"],"hosts":["auth.example.org"],"maxLifetimeHours":48}}}}}'
 merge() { yq -o=json eval-all '. as $item ireduce ({}; . * $item)' <(echo "$1") <(echo "$2"); }
 withdoor() { merge "$door" "${1:-{\}}"; }
 
@@ -81,6 +81,10 @@ refuses "accounts without seal keys" "$(withdoor "$(merge "$acct" '{"liaison":{"
 refuses "accounts without the hash key" "$(withdoor "$(merge "$acct" '{"liaison":{"auth":{"hashKeySecret":{"name":""}}}}')")"
 refuses "accounts on two replicas in memory" "$(withdoor "$(merge "$acct" '{"liaison":{"replicas":2,"state":{"backend":"memory"}}}')")"
 refuses "an account without a client id" "$(withdoor "$(merge "$acct" '{"liaison":{"connectedAccounts":{"accounts":{"library":{"clientId":""}}}}}')")"
+refuses "an account with neither allowedCrews nor hosts" "$(withdoor "$(merge "$acct" '{"liaison":{"connectedAccounts":{"accounts":{"library":{"allowedCrews":null,"hosts":null,"clientSecret":null}}}}}')")"
+refuses "a client secret without hosts" "$(withdoor "$(merge "$acct" '{"liaison":{"connectedAccounts":{"accounts":{"library":{"hosts":null}}}}}')")"
+refuses "a bare crew name" "$(withdoor "$(merge "$acct" '{"liaison":{"connectedAccounts":{"accounts":{"library":{"allowedCrews":["guide"]}}}}}')")"
+render --set-json "$(withdoor "$(merge "$acct" '{"liaison":{"connectedAccounts":{"accounts":{"library":{"allowedCrews":null,"clientSecret":null}}}}}')")" >/dev/null || fail "hosts alone, with no secret, was refused"
 refuses "an unknown backend" "$(withdoor '{"liaison":{"state":{"backend":"etcd"}}}')"
 refuses "OpenBao without an address" "$(withdoor '{"liaison":{"state":{"backend":"openbao"}}}')"
 refuses "NATS without NATS" "$(withdoor '{"nats":{"enabled":false},"liaison":{"state":{"backend":"nats"}}}')"
