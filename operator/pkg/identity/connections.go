@@ -1,0 +1,125 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+*/
+
+package identity
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+)
+
+// The connectedAccount rule admits a person only while they hold a live connection to the
+// crew's account. The liaison keeps the connections; the gateway asks its account broker, as
+// the crew, whether this person has one. The environment the operator writes for a gateway
+// whose rule is connectedAccount.
+const (
+	// EnvAccountBrokerURL is the base address of the liaison's account broker.
+	EnvAccountBrokerURL = "ACCOUNT_BROKER_URL"
+	// EnvAccountBrokerTokenFile is the projected ServiceAccount token (audience
+	// AccountBrokerAudience) the gateway presents. It is read on every call: the kubelet rotates it.
+	EnvAccountBrokerTokenFile = "ACCOUNT_BROKER_TOKEN_FILE"
+
+	// AccountBrokerAudience is the audience of that token.
+	AccountBrokerAudience = "kubemoot-account-broker"
+
+	connectedPath    = "/internal/v1/accounts/connected"
+	connectedTimeout = 5 * time.Second
+	maxConnectedBody = 4096
+)
+
+// ErrConnectionCheck marks a connection check that could not be answered. The person is
+// refused, and the caller may retry: it is not a statement that they are not connected.
+var ErrConnectionCheck = errors.New("could not check the connected account")
+
+// ConnectionChecker says whether a person has a live connection to an account of the crew.
+type ConnectionChecker interface {
+	// Connected reports whether the person (by the id the crews' gateways give them) holds a
+	// live connection to the account.
+	Connected(ctx context.Context, principalID, account string) (bool, error)
+}
+
+// BrokerConnections asks the liaison's account broker.
+type BrokerConnections struct {
+	base      string
+	tokenFile string
+	client    *http.Client
+}
+
+// NewBrokerConnections returns a checker for the broker at base. tokenFile holds the
+// projected ServiceAccount token. client nil is a client with a timeout.
+func NewBrokerConnections(base, tokenFile string, client *http.Client) (*BrokerConnections, error) {
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return nil, fmt.Errorf("%s must be an http or https address", EnvAccountBrokerURL)
+	}
+	if tokenFile == "" {
+		return nil, fmt.Errorf("%s needs %s", EnvAccountBrokerURL, EnvAccountBrokerTokenFile)
+	}
+	if client == nil {
+		client = &http.Client{Timeout: connectedTimeout}
+	}
+	c := *client
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &BrokerConnections{base: strings.TrimRight(base, "/"), tokenFile: tokenFile, client: &c}, nil
+}
+
+// Connected implements ConnectionChecker. Nothing in an error carries the token.
+func (b *BrokerConnections) Connected(ctx context.Context, principalID, account string) (bool, error) {
+	raw, err := os.ReadFile(b.tokenFile)
+	token := strings.TrimSpace(string(raw))
+	if err != nil || token == "" {
+		return false, fmt.Errorf("%w: the gateway's own token is not available", ErrConnectionCheck)
+	}
+	body, _ := json.Marshal(map[string]string{"principalId": principalID, "account": account})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+connectedPath, bytes.NewReader(body))
+	if err != nil {
+		return false, ErrConnectionCheck
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("%w: the broker is not reachable", ErrConnectionCheck)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return readConnected(resp)
+}
+
+func readConnected(resp *http.Response) (bool, error) {
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("%w: the broker answered %d", ErrConnectionCheck, resp.StatusCode)
+	}
+	var out struct {
+		Connected *bool `json:"connected"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, maxConnectedBody)).Decode(&out) != nil || out.Connected == nil {
+		return false, fmt.Errorf("%w: the broker's answer was not understood", ErrConnectionCheck)
+	}
+	return *out.Connected, nil
+}
+
+// connectionsFromEnv builds the checker of a gateway whose rule is connectedAccount; nil when
+// no broker is configured.
+func connectionsFromEnv(getenv func(string) string) (ConnectionChecker, error) {
+	base := strings.TrimSpace(getenv(EnvAccountBrokerURL))
+	if base == "" {
+		return nil, nil
+	}
+	return NewBrokerConnections(base, strings.TrimSpace(getenv(EnvAccountBrokerTokenFile)), nil)
+}

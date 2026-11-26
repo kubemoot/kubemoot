@@ -122,7 +122,13 @@ type AskerAuthorizer struct {
 	Rule AskersConfig
 	// PDP answers the external kind; nil refuses it.
 	PDP AccessEvaluator
-	Log logr.Logger
+	// Connections answers the connectedAccount kind; nil refuses it, because without it no
+	// connection can be told from none.
+	Connections ConnectionChecker
+	// Hasher names the person the way the gateway names every caller, which is how the
+	// liaison keeps their connection.
+	Hasher Hasher
+	Log    logr.Logger
 }
 
 // AccessEvaluator asks a policy decision point whether a subject may take an action on a resource.
@@ -141,15 +147,28 @@ func (a AskerAuthorizer) Allowed(
 	case "anySignedIn":
 		return true, nil
 	case "connectedAccount":
-		// The account is declared by the crew (the operator checks it). Leasing it per person
-		// comes with the tool gateway; today every signed-in person is admitted.
-		return true, nil
+		return a.connected(ctx, id)
 	case "issuerGroups":
 		return slices.ContainsFunc(id.Groups, func(g string) bool { return slices.Contains(a.Rule.IssuerGroups, g) }), nil
 	case "external":
 		return a.external(ctx, id, attrs)
 	}
 	return false, nil
+}
+
+// connected admits the person only while they hold a live connection to the account the rule
+// names. A check that cannot be answered refuses and says so in the log; the person is told to
+// connect or to try again by the liaison, which knows which.
+func (a AskerAuthorizer) connected(ctx context.Context, id *Identity) (bool, error) {
+	if a.Connections == nil || !a.Hasher.Keyed() {
+		return false, nil
+	}
+	ok, err := a.Connections.Connected(ctx, a.Hasher.ID(id.Issuer, id.Subject), a.Rule.ConnectedAccount)
+	if err != nil {
+		a.Log.Info("A connected account could not be checked; the person is refused", "error", err.Error())
+		return false, err
+	}
+	return ok, nil
 }
 
 func (a AskerAuthorizer) external(

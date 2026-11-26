@@ -87,12 +87,6 @@ func TestAnySignedInAdmitsEveryAssertedPerson(t *testing.T) {
 	}
 }
 
-func TestConnectedAccountAdmitsAPersonTheDoorSignedIn(t *testing.T) {
-	if !allowedBy(t, AskersConfig{ConnectedAccount: "library"}, asker()) {
-		t.Error("refused")
-	}
-}
-
 func TestIssuerGroupsAdmitOnlyAMemberOfAListedGroup(t *testing.T) {
 	rule := AskersConfig{IssuerGroups: []string{askerGroup, "oidc:staff"}}
 	if !allowedBy(t, rule, asker("oidc:other", "oidc:staff")) {

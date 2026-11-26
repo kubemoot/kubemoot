@@ -147,13 +147,20 @@ func askersFromEnv(getenv func(string) string, rule AskersConfig, hasher Hasher)
 			return Hasher{}, nil, fmt.Errorf("askers other than kubernetesRBAC need %s: %w", EnvHashKey, ErrNoHashKey)
 		}
 	}
-	authz, err := askerAuthorizerFromEnv(getenv, rule)
+	authz, err := askerAuthorizerFromEnv(getenv, rule, hasher)
 	return hasher, authz, err
 }
 
 // askerAuthorizerFromEnv builds the authorizer of a rule that does not map to Kubernetes.
-func askerAuthorizerFromEnv(getenv func(string) string, rule AskersConfig) (Authorizer, error) {
-	a := AskerAuthorizer{Rule: rule, Log: logr.Discard()}
+func askerAuthorizerFromEnv(getenv func(string) string, rule AskersConfig, hasher Hasher) (Authorizer, error) {
+	a := AskerAuthorizer{Rule: rule, Hasher: hasher, Log: logr.Discard()}
+	if rule.ConnectedAccount != "" {
+		conns, err := connectionsFromEnv(getenv)
+		if err != nil {
+			return nil, err
+		}
+		a.Connections = conns
+	}
 	if rule.External != nil {
 		pdp, err := NewAuthZENClient(*rule.External, getenv(EnvAskersToken), nil)
 		if err != nil {
