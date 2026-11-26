@@ -66,6 +66,8 @@ type DoorConfig struct {
 	SigningKeys          string // PEM, see ParseSigningKeys
 	HopKeys              string // PEM; empty means the door asserts nobody to a crew
 	RefreshMaxAge        time.Duration
+	// Replay is the single-use memory; nil keeps it in this process.
+	Replay ReplaySet
 
 	DisplayName string // what the consent page calls the door; "Kubemoot" by default
 
@@ -81,6 +83,12 @@ type DoorConfig struct {
 	fetchAllow   func(netip.Addr) bool
 	fetchTimeout time.Duration
 	fetchBurst   int
+}
+
+// ReplayLife is the longest the door must remember an id: the absolute life of a sign-in or
+// the idle life of a refresh token, whichever is longer, plus an hour.
+func (c *DoorConfig) ReplayLife() time.Duration {
+	return max(c.RefreshMaxAge, refreshIdleLifetime) + time.Hour
 }
 
 // DoorConfigFromEnv reads the door's settings. It returns nil, nil when the door's identity is
