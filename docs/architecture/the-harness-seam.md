@@ -93,7 +93,7 @@ The shim reads a JSON configuration file. For goose the image ships this:
 
 ```json
 {
-  "argv": ["/usr/local/bin/goose", "run", "--no-session", "[none]--no-profile",
+  "argv": ["/workspace/goose", "run", "--no-session", "[none]--no-profile",
            "--output-format", "json", "--with-streamable-http-extension", "{{toolsURL}}",
            "-i", "{{promptFile}}"],
   "env": ["GOOSE_PROVIDER=openai", "OPENAI_HOST={{modelHost}}", "OPENAI_API_KEY={{turnKey}}"],

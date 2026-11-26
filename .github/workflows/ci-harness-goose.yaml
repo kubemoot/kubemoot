@@ -11,7 +11,9 @@ on:
       - '.golangci.yml'
       - '.github/scripts/golangci-lint.sh'
       - 'operator/Makefile'
-      - '.github/workflows/build-dockerfile-image.yaml'
+      - '.github/workflows/build-paketo-image.yaml'
+      - '.github/scripts/paketo-build-args.sh'
+      - '.github/scripts/go-build-static.sh'
   workflow_dispatch:
 
 env:
@@ -61,13 +63,37 @@ jobs:
         working-directory: agent-sidecar
         run: go test -run 'TheHarnessShim' ./internal/a2a/
 
-  # The image is the shim plus the pinned goose release; the Dockerfile verifies the
-  # release's sha256 and builds the shim.
+      - name: Test the goose download and the image files
+        run: bash harness-shim/test-fetch-goose.sh
+
+      # The statically linked shim, the pinned goose release (its sha256 is checked) and
+      # the shim's goose configuration: the files the image packages.
+      - name: Stage the image files
+        run: harness-shim/stage-image.sh "${RUNNER_TEMP}/image-files"
+
+      - name: Keep the staged files for the image build
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: harness-goose-image
+          path: ${{ runner.temp }}/image-files
+          if-no-files-found: error
+          retention-days: 3
+
+  # The image is the shim plus the pinned goose release, packaged by the Paketo Procfile
+  # buildpack from harness-shim/image/ and the files staged above.
   build-image:
     name: harness-goose-build-image
     needs: test
     if: github.event_name != 'pull_request'
-    uses: ./.github/workflows/build-dockerfile-image.yaml
+    uses: ./.github/workflows/build-paketo-image.yaml
     with:
       name: harness-goose
-      context: harness-shim
+      context: harness-shim/image
+      artifact: harness-goose-image
+      executables: harness-shim goose
+      builder: builder-java-tiny
+      # A shell and the common tools, for goose's built-in tools (nativeTools declared or
+      # all); the Alpine image this replaces had a busybox shell.
+      run_image: run-base
+      buildpacks: paketo-buildpacks/procfile paketo-buildpacks/image-labels

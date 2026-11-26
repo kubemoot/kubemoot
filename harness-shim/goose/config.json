@@ -1,7 +1,7 @@
 {
   "name": "harness-goose",
   "argv": [
-    "/usr/local/bin/goose", "run", "-q", "--no-session", "--max-turns", "12",
+    "/workspace/goose", "run", "-q", "--no-session", "--max-turns", "12",
     "[none]--no-profile",
     "--output-format", "json",
     "--with-streamable-http-extension", "{{toolsURL}}",
