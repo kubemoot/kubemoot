@@ -70,7 +70,7 @@ type BrokerConnections struct {
 // projected ServiceAccount token. client nil is a client with a timeout.
 func NewBrokerConnections(base, tokenFile string, client *http.Client) (*BrokerConnections, error) {
 	u, err := url.Parse(base)
-	if err != nil || u.Host == "" || (u.Scheme != schemeHTTPS && u.Scheme != "http") {
+	if err != nil || u.Host == "" || (u.Scheme != schemeHTTPS && u.Scheme != schemeHTTP) {
 		return nil, fmt.Errorf("%s must be an http or https address", EnvAccountBrokerURL)
 	}
 	if tokenFile == "" {

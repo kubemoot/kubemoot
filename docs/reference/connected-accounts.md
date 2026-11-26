@@ -99,7 +99,7 @@ liaison:
 | `liaison.connectedAccounts.brokerPort` | `8081` | The internal port of the account broker and its Service |
 | `liaison.connectedAccounts.accounts.<name>.clientId` | required | The install's client id at the service |
 | `liaison.connectedAccounts.accounts.<name>.clientSecret` | none | A Secret (`name`, `key` default `client-secret`) mounted as a file. Never in the environment |
-| `liaison.connectedAccounts.accounts.<name>.hosts` | `[]` | Hosts the declared authorization, token and revocation endpoints must be on. A declaration elsewhere is not offered. The declared token hosts, the hosts the access token may be sent to, must be on it too |
+| `liaison.connectedAccounts.accounts.<name>.hosts` | `[]` | Hosts the declared authorization, token and revocation endpoints must be on, on port 443 only (an endpoint with another port is not offered; a host entry never carries a port). A declaration elsewhere is not offered. The declared token hosts, the hosts the access token may be sent to, must be on it too |
 | `liaison.connectedAccounts.accounts.<name>.issuer` | empty | What the `iss` of the service's redirect must equal |
 | `liaison.connectedAccounts.accounts.<name>.allowedCrews` | `[]` | The crews that may use the account, each `namespace/name`. A bare name is refused, because it would match that name in every namespace |
 | `liaison.connectedAccounts.accounts.<name>.maxLifetimeHours` | `0` | The longest a connection is kept from the day it was made, for a service that limits it without saying so in its token answer |

@@ -82,7 +82,7 @@ discussionGateway:
   # pages and non-browser clients can. The gateway never allows credentials.
   allowedOrigins: []
   # Policy decision point hosts a crew's external askers rule (spec.discussion.access.askers.external)
-  # may use, as plain host names (pdp.example.org: no scheme, port or path). The gateway sends each
+  # may use, as plain host names (pdp.example.org: no scheme, port or path). A policy decision point is called on port 443 only (an external.url with another port is refused). The gateway sends each
   # asker's identity to that address, so the install, not the crew author, decides where. A crew
   # whose external.url names another host reports Authentication=False, reason UntrustedPolicyHost,
   # and its gateway refuses everyone for that rule. Every call also refuses private, loopback,
@@ -655,7 +655,7 @@ liaison:
     #   library:
     #     clientId: "<the id registered at the service for <signIn.publicURL>/oauth/callback>"
     #     clientSecret: {name: "", key: client-secret}   # optional; a public client uses PKCE alone
-    #     hosts: []                 # pin the service: the endpoints and token hosts a crew declares must be on these
+    #     hosts: []                 # pin the service: the endpoints and token hosts a crew declares must be on these, on port 443 only
     #                               # hosts. Required with clientSecret; needed unless allowedCrews is set
     #     issuer: ""                # the service's issuer (RFC 9207); empty accepts its endpoint's host
     #     allowedCrews: []          # namespace/name of each crew that may use it; set this or hosts (the chart refuses neither)

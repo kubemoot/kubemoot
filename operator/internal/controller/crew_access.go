@@ -46,7 +46,7 @@ func discussionAccess(crew *kubemootv1alpha1.Crew) *kubemootv1alpha1.DiscussionA
 
 // gatewayAccessEnv is the access part of a gateway's environment: nothing for a crew that
 // declares none, so its gateway runs exactly as it did before identity existed.
-func gatewayAccessEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar {
+func gatewayAccessEnv(crew *kubemootv1alpha1.Crew, access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar {
 	if access == nil {
 		return nil
 	}
@@ -58,7 +58,7 @@ func gatewayAccessEnv(access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar
 	if len(access.TokenAudiences) > 0 {
 		env = append(env, corev1.EnvVar{Name: identity.EnvTokenAudiences, Value: strings.Join(access.TokenAudiences, ",")})
 	}
-	return append(env, gatewayServiceTokenEnv(access)...)
+	return append(env, gatewayServiceTokenEnv(crew, access)...)
 }
 
 // exposesCaller reports whether the crew lets its agents be told who is asking. It needs

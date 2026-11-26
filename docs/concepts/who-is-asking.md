@@ -115,7 +115,7 @@ The configuration is two environment variables on a crew's discussion gateway an
 | Variable | Value |
 |----------|-------|
 | `ACCESS_SERVICE_TOKENS` | A JSON list, one entry per service. Needs `ACCESS_ENFORCE=true` |
-| `ACCESS_CREW` | `<namespace>/<name>` of the one crew the door guards. The operator sets it with the list. A subscriber a crew's verifier accepted is admitted for that crew alone; without it no subscriber is admitted |
+| `ACCESS_CREW` | `<namespace>/<name>` of the one crew the door guards. The operator sets it with the list. A subscriber a crew's verifier accepted is admitted for that crew alone; without it no subscriber is admitted (during an upgrade a gateway that starts before the operator reconciles its crew refuses subscribers until it does) |
 | `ACCESS_HASH_KEY` | The install's hash key, from a Secret, the same value on every door. Required whenever `ACCESS_SERVICE_TOKENS` is set; a door that has the list and no key does not start |
 
 ```json

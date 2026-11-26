@@ -554,7 +554,7 @@ func (r *CrewReconciler) reconcileDeployment(ctx context.Context, crew *kubemoot
 const gatewayAllowedOriginsEnv = "DISCUSSION_GATEWAY_ALLOWED_ORIGINS"
 
 // gatewayEnv is the environment of a crew's discussion gateway.
-func gatewayEnv(natsURL string, access *kubemootv1alpha1.DiscussionAccess) []corev1.EnvVar {
+func gatewayEnv(natsURL string, crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: envPort, Value: fmt.Sprintf("%d", crewGatewayPort)},
 		{Name: "NATS_URL", Value: natsURL},
@@ -569,7 +569,11 @@ func gatewayEnv(natsURL string, access *kubemootv1alpha1.DiscussionAccess) []cor
 	if len(origins) > 0 {
 		env = append(env, corev1.EnvVar{Name: "ALLOWED_ORIGINS", Value: strings.Join(origins, ",")})
 	}
-	return append(env, gatewayAccessEnv(access)...)
+	var access *kubemootv1alpha1.DiscussionAccess
+	if crew != nil {
+		access = discussionAccess(crew)
+	}
+	return append(env, gatewayAccessEnv(crew, access)...)
 }
 
 // defaultGatewayResources is what a discussion gateway asks for and may use when the Crew sets
@@ -584,6 +588,14 @@ func defaultGatewayResources() corev1.ResourceRequirements {
 			corev1.ResourceMemory: resource.MustParse("128Mi"),
 		},
 	}
+}
+
+// gatewayContainerEnv is everything the crew's discussion gateway is told: the service, who may
+// ask and how callers are known, and the trusted doors with the rule that admits their people.
+func (r *CrewReconciler) gatewayContainerEnv(natsURL string, crew *kubemootv1alpha1.Crew) []corev1.EnvVar {
+	env := gatewayEnv(natsURL, crew)
+	env = append(env, gatewayIdentityEnv(crew)...)
+	return append(env, gatewayTrustedHopEnv(crew, r.AskerPolicyHosts)...)
 }
 
 func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.Deployment {
@@ -632,7 +644,7 @@ func (r *CrewReconciler) buildDeployment(crew *kubemootv1alpha1.Crew) *appsv1.De
 							Ports: []corev1.ContainerPort{
 								{Name: portNameHTTP, ContainerPort: crewGatewayPort, Protocol: corev1.ProtocolTCP},
 							},
-							Env: gomem.With(append(append(gatewayEnv(natsURL, discussionAccess(crew)), gatewayIdentityEnv(crew)...), append(gatewayServiceTokenCrewEnv(crew), gatewayTrustedHopEnv(crew, r.AskerPolicyHosts)...)...), resources),
+							Env: gomem.With(r.gatewayContainerEnv(natsURL, crew), resources),
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: &noEscalation,
 								ReadOnlyRootFilesystem:   &nonRoot,

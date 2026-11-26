@@ -138,8 +138,12 @@ func (r Registration) Allows(crew string) bool {
 	return slices.Contains(r.AllowedCrews, crew)
 }
 
-// PinsAllow reports whether the declaration's endpoints are on the hosts the registration pins.
-// A registration that pins none allows any.
+// httpsPort is the only port an endpoint of a pinned account may use: the tool gateway sends
+// account tokens to port 443 only, so a pin names hosts, never a port.
+const httpsPort = "443"
+
+// PinsAllow reports whether the declaration's endpoints are on the hosts the registration pins,
+// on port 443 (the default, or written out). A registration that pins none allows any.
 func (r Registration) PinsAllow(d Declaration) bool {
 	if len(r.Hosts) == 0 {
 		return true
@@ -155,7 +159,7 @@ func (r Registration) PinsAllow(d Declaration) bool {
 			continue
 		}
 		u, err := url.Parse(raw)
-		if err != nil || !slices.Contains(r.Hosts, u.Hostname()) {
+		if err != nil || !slices.Contains(r.Hosts, u.Hostname()) || (u.Port() != "" && u.Port() != httpsPort) {
 			return false
 		}
 	}

@@ -19,6 +19,7 @@ import (
 const (
 	crewGuide    = "ns/guide"
 	apiHostName  = "api.example.org"
+	authHostName = "auth.example.org"
 	libraryTitle = "Library"
 	guideFull    = "b/guide"
 	authToken    = "https://auth.example.org/t"

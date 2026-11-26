@@ -13,11 +13,16 @@ package identity
 import (
 	"errors"
 	"net/url"
+	"slices"
 	"strings"
 )
 
 // schemeHTTPS is the only scheme a policy decision point or service is called with.
-const schemeHTTPS = "https"
+const (
+	schemeHTTP  = "http"
+	schemeHTTPS = "https"
+	httpsPort   = "443"
+)
 
 // EnvAskersPolicyHosts is the install's list of policy decision point hosts a crew's external
 // askers rule may use, comma separated. The operator reads it from its own environment and
@@ -32,6 +37,9 @@ var ErrPolicyHostNotTrusted = errors.New("the policy decision point's host is no
 // decision points, lower case.
 type PolicyHosts []string
 
+// normalizeHost lower-cases a host name and drops one trailing dot.
+func normalizeHost(h string) string { return strings.ToLower(strings.TrimSuffix(h, ".")) }
+
 // ParsePolicyHosts reads a comma separated list. An entry that is not a plain host name (it has
 // a scheme, port, path, wildcard or space) is returned in rejected and never trusted.
 func ParsePolicyHosts(raw string) (hosts PolicyHosts, rejected []string) {
@@ -40,7 +48,7 @@ func ParsePolicyHosts(raw string) (hosts PolicyHosts, rejected []string) {
 		if item == "" {
 			continue
 		}
-		host := strings.ToLower(strings.TrimSuffix(item, "."))
+		host := normalizeHost(item)
 		if host == "" || strings.ContainsAny(host, "/:*@?# \t") {
 			rejected = append(rejected, item)
 			continue
@@ -50,20 +58,19 @@ func ParsePolicyHosts(raw string) (hosts PolicyHosts, rejected []string) {
 	return hosts, rejected
 }
 
-// Trusts reports whether rawURL is an https address whose host is on the list.
-func (h PolicyHosts) Trusts(rawURL string) bool {
+// PolicyHostOf is the normalized host of an https address, "" when rawURL is not one on port 443
+// (the default, or written out) with no credentials. Policy decision points are reached on
+// port 443 only, so a service on another port of a listed host is never called.
+func PolicyHostOf(rawURL string) string {
 	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != schemeHTTPS || u.User != nil {
-		return false
+	if err != nil || u.Scheme != schemeHTTPS || u.User != nil || (u.Port() != "" && u.Port() != httpsPort) {
+		return ""
 	}
-	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
-	if host == "" {
-		return false
-	}
-	for _, t := range h {
-		if t == host {
-			return true
-		}
-	}
-	return false
+	return normalizeHost(u.Hostname())
+}
+
+// Trusts reports whether rawURL is an https address on port 443 whose host is on the list.
+func (h PolicyHosts) Trusts(rawURL string) bool {
+	host := PolicyHostOf(rawURL)
+	return host != "" && slices.Contains(h, host)
 }

@@ -611,9 +611,6 @@ func main() {
 	}
 }
 
-// newNetPolicySync reads the network policy setting from the environment and returns the
-// applier every controller shares. With the flag off it still removes the policies the
-// operator generated earlier, and creates none.
 // askerPolicyHosts is the policy decision point hosts the install trusts for crews' external
 // askers rules. An entry that is not a plain host name is logged and never trusted.
 func askerPolicyHosts() identity.PolicyHosts {
@@ -625,6 +622,9 @@ func askerPolicyHosts() identity.PolicyHosts {
 	return hosts
 }
 
+// newNetPolicySync reads the network policy setting from the environment and returns the
+// applier every controller shares. With the flag off it still removes the policies the
+// operator generated earlier, and creates none.
 func newNetPolicySync(mgr ctrl.Manager) *controller.NetPolicySync {
 	cfg, warnings := netpol.ConfigFromEnv(os.Getenv)
 	for _, w := range warnings {
