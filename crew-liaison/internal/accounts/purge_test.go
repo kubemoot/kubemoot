@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -116,4 +117,54 @@ func TestPurgeLeavesRefreshLeasesAlone(t *testing.T) {
 	if n, err := p.Run(ctx); err != nil || n != 0 {
 		t.Fatalf("a lease is not a record: %d %v", n, err)
 	}
+}
+
+// countingStore counts the deletes that reach the store, to show a pass deletes only what exists.
+type countingStore struct {
+	*tokenstore.Sealed
+	deletes int
+}
+
+func (c *countingStore) Delete(ctx context.Context, p, a string) error {
+	c.deletes++
+	return c.Sealed.Delete(ctx, p, a)
+}
+
+func TestPurgeDeletesAMarkOnlyWhenThereIsOne(t *testing.T) {
+	p, v, _, _ := newPurger(t, fakeDecls{acctLib: {Name: acctLib, Crews: []string{crewA}}})
+	counter := &countingStore{Sealed: v.store.(*tokenstore.Sealed)}
+	v.store = counter
+	ctx := context.Background()
+	wantPurged(t, p, 0)
+	if counter.deletes != 0 {
+		t.Fatalf("a declared account with no mark cost %d deletes", counter.deletes)
+	}
+	raw, _ := json.Marshal(orphanMark{Since: time.Now()})
+	if _, err := counter.Put(ctx, tokenstore.Record{Principal: orphanPrincipal, Account: acctLib, Value: raw}, time.Hour, tokenstore.AnyRevision); err != nil {
+		t.Fatal(err)
+	}
+	wantPurged(t, p, 0)
+	if counter.deletes != 1 {
+		t.Fatalf("an existing mark must be deleted once: %d", counter.deletes)
+	}
+}
+
+func TestPurgeRepairsAMarkItCannotRead(t *testing.T) {
+	p, v, c, _ := newPurger(t, fakeDecls{})
+	ctx := context.Background()
+	saveFor(t, v, c, pAlice, acctLib)
+	for _, bad := range []string{"garbage {", `{"s":"0001-01-01T00:00:00Z"}`} {
+		if _, err := v.store.Put(ctx, tokenstore.Record{Principal: orphanPrincipal, Account: acctLib, Value: []byte(bad)}, time.Hour, tokenstore.AnyRevision); err != nil {
+			t.Fatal(err)
+		}
+		wantPurged(t, p, 0)
+		rec, err := v.store.Get(ctx, orphanPrincipal, acctLib)
+		var mark orphanMark
+		if err != nil || json.Unmarshal(rec.Value, &mark) != nil || !mark.Since.Equal(c.now()) {
+			t.Fatalf("%q was not repaired: %s %v", bad, rec.Value, err)
+		}
+	}
+	c.advance(Grace + time.Hour)
+	saveFor(t, v, c, pAlice, acctLib)
+	wantPurged(t, p, 1)
 }
