@@ -68,6 +68,14 @@ func newHopGateway(t *testing.T, nc *natsclient.Client, client kubernetes.Interf
 // newAskersGateway is newHopGateway with the crew's askers rule (the JSON the operator writes).
 func newAskersGateway(t *testing.T, nc *natsclient.Client, client kubernetes.Interface, tokenReview bool, askers string) hopSetup {
 	t.Helper()
+	return newAskersGatewayEnv(t, nc, client, tokenReview, askers, nil)
+}
+
+// newAskersGatewayEnv is newAskersGateway with more environment, such as the account broker's.
+func newAskersGatewayEnv(
+	t *testing.T, nc *natsclient.Client, client kubernetes.Interface, tokenReview bool, askers string, extra map[string]string,
+) hopSetup {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +90,9 @@ func newAskersGateway(t *testing.T, nc *natsclient.Client, client kubernetes.Int
 	}
 	if tokenReview {
 		env[identity.EnvTokenReview] = identity.EnvTrue
+	}
+	for k, v := range extra {
+		env[k] = v
 	}
 	settings, err := identity.FromEnv(func(k string) string { return env[k] },
 		func() (kubernetes.Interface, error) { return client, nil })

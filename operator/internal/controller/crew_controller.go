@@ -79,6 +79,9 @@ type CrewReconciler struct {
 	RegisteredAccounts RegisteredAccounts
 	// GatewayTLS issues the gateways' serving certificates. Nil serves the gateways plain.
 	GatewayTLS *GatewayTLS
+	// AccountBrokerURL is the liaison's account broker, given to the gateway of a crew whose askers
+	// rule is connectedAccount. Empty gives none.
+	AccountBrokerURL string
 	// bus replaces NATSPublisher for discussion-state cleanup in tests.
 	bus crewDiscussionBus
 }
@@ -513,6 +516,7 @@ func (r *CrewReconciler) reconcileDeployment(ctx context.Context, crew *kubemoot
 
 	desired := r.buildDeployment(crew)
 	r.GatewayTLS.apply(&desired.Spec.Template.Spec, name)
+	applyAccountBroker(&desired.Spec.Template.Spec, crew, r.AccountBrokerURL)
 	if err := r.applyCredentialLease(ctx, crew, desired); err != nil {
 		return nil, err
 	}
