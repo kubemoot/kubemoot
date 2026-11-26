@@ -63,8 +63,8 @@ func (l *LeaseServer) RegisterRoutes(mux *http.ServeMux) {
 type leaseRequest struct {
 	ConversationID string `json:"conversationId"`
 	// PrincipalID and Verifier name a token the gateway kept for the turn. A lease for a
-	// connected account names Account instead and no principal: the gateway resolves the person
-	// from the conversation.
+	// connected account names Account and the principal and no verifier: the principal must be
+	// the conversation's owner, whom the gateway finds from the conversation.
 	PrincipalID string `json:"principalId"`
 	Verifier    string `json:"verifier"`
 	Account     string `json:"account"`
@@ -143,7 +143,7 @@ func readLeaseRequest(w http.ResponseWriter, r *http.Request) (leaseRequest, boo
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLeaseRequestBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil || !validLeaseRequest(req) {
-		httpError(w, http.StatusBadRequest, "conversationId and either principalId with verifier, or account, are required")
+		httpError(w, http.StatusBadRequest, "conversationId, principalId and either verifier or account are required")
 		return req, false
 	}
 	return req, true
@@ -156,7 +156,7 @@ func validLeaseRequest(req leaseRequest) bool {
 		return false
 	}
 	if req.Account != "" {
-		return req.PrincipalID == "" && req.Verifier == "" && validAccountName(req.Account)
+		return req.PrincipalID != "" && req.Verifier == "" && validAccountName(req.Account)
 	}
 	return req.PrincipalID != "" && req.Verifier != ""
 }

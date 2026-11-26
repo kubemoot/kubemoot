@@ -62,7 +62,7 @@ func accountRig(t *testing.T, owners OwnerReader, leaser identity.AccountLeaser)
 	return srv
 }
 
-const accountBody = `{"conversationId":"c1","account":"library"}`
+const accountBody = `{"conversationId":"c1","principalId":"person-key-1","account":"library"}`
 
 func leaseAccount(t *testing.T, srv *httptest.Server, token, body string) (*http.Response, string) {
 	t.Helper()
@@ -151,11 +151,11 @@ func TestAnAccountLeaseNeedsABrokerAndTheRightCaller(t *testing.T) {
 func TestAnAccountLeaseRequestIsValidated(t *testing.T) {
 	srv := accountRig(t, fakeOwners{owner: doorPerson(), found: true}, &fakeLeaser{lease: goodLease()})
 	for name, body := range map[string]string{
-		"bad conversation": `{"conversationId":"a.b","account":"library"}`,
-		"bad account":      `{"conversationId":"c1","account":"Library!"}`,
-		"long account":     `{"conversationId":"c1","account":"` + strings.Repeat("a", 64) + `"}`,
-		"both kinds":       `{"conversationId":"c1","account":"library","verifier":"oreilly"}`,
-		"unknown field":    `{"conversationId":"c1","account":"library","crew":"other"}`,
+		"bad conversation": `{"conversationId":"a.b","principalId":"person-key-1","account":"library"}`,
+		"bad account":      `{"conversationId":"c1","principalId":"person-key-1","account":"Library!"}`,
+		"long account":     `{"conversationId":"c1","principalId":"person-key-1","account":"` + strings.Repeat("a", 64) + `"}`,
+		"both kinds":       `{"conversationId":"c1","principalId":"person-key-1","account":"library","verifier":"oreilly"}`,
+		"unknown field":    `{"conversationId":"c1","principalId":"person-key-1","account":"library","crew":"other"}`,
 	} {
 		if resp, _ := leaseAccount(t, srv, saGood, body); resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("%s: %d", name, resp.StatusCode)
@@ -174,11 +174,27 @@ func TestAnAccountLeaseNeverLogsTheTokenOrTheErrorText(t *testing.T) {
 	}
 }
 
-func TestAnAccountLeaseRefusesACallerThatNamesThePerson(t *testing.T) {
+func TestAnAccountLeaseForAnotherPersonsConversationIsRefusedAndNeverAsksTheBroker(t *testing.T) {
+	leaser := &fakeLeaser{lease: goodLease()}
+	srv := accountRig(t, fakeOwners{owner: doorPerson(), found: true}, leaser)
+	for name, principal := range map[string]string{"another person": "someone-else", "a prefix of the owner": "person-key", "the owner in other case": "PERSON-KEY-1"} {
+		body := `{"conversationId":"c1","principalId":"` + principal + `","account":"library"}`
+		resp, text := leaseAccount(t, srv, saGood, body)
+		var got leaseReason
+		if err := json.Unmarshal([]byte(text), &got); err != nil || resp.StatusCode != http.StatusNotFound ||
+			got.Reason != identity.LeaseNoGrant || strings.Contains(text, accountToken) {
+			t.Errorf("%s: %d %s", name, resp.StatusCode, text)
+		}
+	}
+	if leaser.principal != "" {
+		t.Errorf("the broker was asked for %q", leaser.principal)
+	}
+}
+
+func TestAnAccountLeaseNeedsTheCallersPrincipal(t *testing.T) {
 	srv := accountRig(t, fakeOwners{owner: doorPerson(), found: true}, &fakeLeaser{lease: goodLease()})
-	body := `{"conversationId":"c1","account":"library","principalId":"someone-else"}`
-	if resp, _ := leaseAccount(t, srv, saGood, body); resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("a claimed principal: %d", resp.StatusCode)
+	if resp, _ := leaseAccount(t, srv, saGood, `{"conversationId":"c1","account":"library"}`); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("no principal: %d", resp.StatusCode)
 	}
 }
 
