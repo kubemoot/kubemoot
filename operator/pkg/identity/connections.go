@@ -81,24 +81,34 @@ func NewBrokerConnections(base, tokenFile string, client *http.Client) (*BrokerC
 
 // Connected implements ConnectionChecker. Nothing in an error carries the token.
 func (b *BrokerConnections) Connected(ctx context.Context, principalID, account string) (bool, error) {
+	resp, err := b.post(ctx, connectedPath, map[string]string{"principalId": principalID, "account": account})
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return readConnected(resp)
+}
+
+// post sends one authenticated request to the broker. An error is always ErrConnectionCheck
+// and never carries the gateway's own token.
+func (b *BrokerConnections) post(ctx context.Context, path string, payload map[string]string) (*http.Response, error) {
 	raw, err := os.ReadFile(b.tokenFile)
 	token := strings.TrimSpace(string(raw))
 	if err != nil || token == "" {
-		return false, fmt.Errorf("%w: the gateway's own token is not available", ErrConnectionCheck)
+		return nil, fmt.Errorf("%w: the gateway's own token is not available", ErrConnectionCheck)
 	}
-	body, _ := json.Marshal(map[string]string{"principalId": principalID, "account": account})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+connectedPath, bytes.NewReader(body))
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+path, bytes.NewReader(body))
 	if err != nil {
-		return false, ErrConnectionCheck
+		return nil, ErrConnectionCheck
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := b.client.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("%w: the broker is not reachable", ErrConnectionCheck)
+		return nil, fmt.Errorf("%w: the broker is not reachable", ErrConnectionCheck)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	return readConnected(resp)
+	return resp, nil
 }
 
 func readConnected(resp *http.Response) (bool, error) {
