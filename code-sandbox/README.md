@@ -64,7 +64,29 @@ the standard library only, bash, and GNU date with the zone database; `internal/
 states that. The server runs under `tini -s`, which reaps the processes a killed program leaves
 behind. The image's launcher starts it: leave the pod's `command` unset. A `stdio` server that the
 bridge starts names the launcher, `/cnb/process/web`. The image runs as the run image's user,
-1002:1001, from `/workspace`; the operator's strict security mode runs it as 1000:1000 instead.
+1002:1001, from `/workspace`. The pod runs it as 1000:1000, the workspace-access materializer's user: the operator's strict security mode does, and in the default relaxed mode a crew pins it with `spec.securityContext` (`runAsUser: 1000`, `runAsGroup: 1000`), as the crews' charts do.
+
+### What the image guarantees, and how it is checked
+
+The Dockerfile proved `bash`, GNU `date` and the zone database inside the image at build time.
+A buildpacks build has no such step, and this repository has no in-cluster smoke run of a built
+image for any component, so the checks are in two parts:
+
+- `internal/runner/runtime_contract_test.go` runs the contract commands (Python minor version,
+  no packages beyond pip tooling, standard library modules, `TZ=Asia/Tokyo date -d ...` zone
+  conversion and date arithmetic) on the CI runner, against the Python that `image/buildpacks.env`
+  pins. It also checks the Procfile and that the CI workflow builds on the `run-base` run image.
+- The `run-base` image (Paketo Ubuntu Noble run, pinned by digest in kubemoot/release-actions)
+  supplies bash, GNU coreutils (`date`), `tzdata` with the zone database, `ca-certificates` and
+  OpenSSL. Its package list at the pinned digest was read to confirm this. A new `run-base`
+  digest that drops one of these would not fail a test before the first run of an image built
+  on it; the crew's tool smoke (`smokeInputs`) lists the tools but does not assert output.
+
+The Python interpreter and tini come from the buildpacks, not from the run image: the Paketo
+`cpython` buildpack installs Python, and `BP_LAUNCH_WITH_TINI=true` makes the Python start
+buildpack require the `tini` buildpack, which puts tini on `PATH` at launch. The Procfile's
+process replaces the start buildpack's own `tini -g -- python` process, so tini wraps the server
+once.
 
 ## Config (env)
 

@@ -102,3 +102,22 @@ func TestCodeSandboxStdioIsStartedByTheLauncher(t *testing.T) {
 		t.Errorf("the bridge must run %s, got args %v", codeSandboxLauncher, main.Args)
 	}
 }
+
+// The default security mode, relaxed, forces no user, so a Paketo image would run as its own
+// user, 1002. The code sandbox's pod spec (the crews' charts) pins 1000:1000 through
+// spec.securityContext; the pod then runs as before and keeps the mode's hardening.
+func TestRelaxedCodeSandboxPodPinsTheUserThroughTheSecurityContext(t *testing.T) {
+	r := &MCPServerReconciler{ConfigCache: NewConfigCache()}
+	mcp := codeSandboxMCPServer(kubemootv1alpha1.TransportHTTP, nil)
+	mcp.Spec.SecurityMode = kubemootv1alpha1.SecurityModeRelaxed
+
+	unpinned := r.buildDeployment(mcp).Spec.Template.Spec.Containers[0].SecurityContext
+	if unpinned == nil || unpinned.RunAsUser != nil {
+		t.Fatalf("relaxed mode alone must leave the image user, got %+v", unpinned)
+	}
+
+	nonRoot, uid := true, int64(1000)
+	mcp.Spec.SecurityContext = &corev1.SecurityContext{RunAsNonRoot: &nonRoot, RunAsUser: &uid, RunAsGroup: &uid}
+	pinned := r.buildDeployment(mcp).Spec.Template.Spec.Containers[0].SecurityContext
+	assertSandboxContainerContext(t, pinned)
+}

@@ -115,3 +115,16 @@ func TestImageFilesStartTheServerUnderTini(t *testing.T) {
 		t.Errorf("the Python buildpacks need image/requirements.txt: %v", err)
 	}
 }
+
+// bash, GNU date and the zone database come from the run image, not from a buildpack: the
+// image must be built on the run image that carries them (Paketo run-base; run-tiny and
+// run-static have no shell and no coreutils).
+func TestImageIsBuiltOnTheRunImageWithBashAndDate(t *testing.T) {
+	raw, err := os.ReadFile("../../../.github/workflows/ci-code-sandbox.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^\s+run_image: run-base$`).Match(raw) {
+		t.Error("ci-code-sandbox.yaml must build the image on run_image: run-base")
+	}
+}
