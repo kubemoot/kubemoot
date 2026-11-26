@@ -1,0 +1,69 @@
+# Sets up Go (the version a go.mod names) and restores one shared Go cache that the Go Build
+# Cache workflow (go-cache.yaml) fills on main: the compiled build cache, the module cache, the
+# golangci-lint binary and its analysis cache, and the operator's tool binaries (operator/bin).
+# One cache serves every module because the build cache is content-addressed, and every Go
+# check compiles the same Kubernetes libraries.
+#
+# Why not setup-go's own cache: it keys on go.sum, saves once, and the first save wins, so on
+# a pull request it kept a 12 MB cache while the self-hosted runners saved a 900 MB cache from a
+# slow upload (a 9 minute post step) that never reached the pull request runners. Here only the
+# Go Build Cache workflow on a GitHub-hosted runner saves (warm-key set); every other use only
+# restores, so a pull request cannot write a cache that a later run trusts.
+#
+# Run it after the repository is checked out (the cache includes operator/bin).
+name: Set up Go with the shared build cache
+description: Set up Go and restore the shared Go build, module and linter cache
+
+inputs:
+  go-version-file:
+    description: The go.mod that names the Go version.
+    required: true
+  warm-key:
+    description: Set only by the Go Build Cache workflow; restores and, at the end of the job, saves the cache under this key.
+    required: false
+    default: ''
+
+outputs:
+  cache-hit:
+    description: "'true' when warm-key matched an existing cache exactly."
+    value: ${{ steps.warm.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
+        cache: false
+
+    # The newest cache the Go Build Cache workflow saved. The key below never exists, so the
+    # restore-keys prefix picks the most recent one.
+    - name: Restore the shared Go cache
+      if: inputs.warm-key == ''
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+          ~/go/bin/golangci-lint
+          ~/.cache/golangci-lint
+          operator/bin
+        key: go-warm-${{ runner.os }}-restore-only
+        restore-keys: |
+          go-warm-${{ runner.os }}-
+
+    - name: Restore and save the shared Go cache
+      id: warm
+      if: inputs.warm-key != ''
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+          ~/go/bin/golangci-lint
+          ~/.cache/golangci-lint
+          operator/bin
+        key: ${{ inputs.warm-key }}
+        restore-keys: |
+          go-warm-${{ runner.os }}-

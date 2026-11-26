@@ -1,0 +1,71 @@
+# Fills the shared Go cache (build cache, module cache, golangci-lint and its analysis cache,
+# the operator's tool binaries) that every Go check restores through the setup-go-cached
+# action. It runs on a GitHub-hosted runner because uploading a 1 GB cache from a cluster
+# runner takes about 9 minutes and holds the job that does it; here it takes seconds and no
+# release waits for it. The key changes with the dependency files and the lint pin, so a new
+# cache is built only when they change; the weekly run rebuilds one that GitHub evicted.
+# Not a release gate, and it runs nothing from a pull request: only main writes the cache.
+name: Go Build Cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'operator/Makefile'
+      - '.golangci.yml'
+      - '.github/actions/setup-go-cached/**'
+      - '.github/workflows/go-cache.yaml'
+  schedule:
+    - cron: '41 5 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go and the cache
+        id: go
+        uses: ./.github/actions/setup-go-cached
+        with:
+          go-version-file: operator/go.mod
+          warm-key: go-warm-${{ runner.os }}-${{ hashFiles('**/go.sum', 'operator/Makefile', '.golangci.yml') }}
+
+      # Every module that builds against the operator's Kubernetes libraries. A step that
+      # fails only leaves the cache thinner; the checks themselves are the gates.
+      - name: Compile each module, its tests, the fuzz targets and the static binary
+        if: steps.go.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          for module in operator accelerator-mcp agent-sidecar crew-liaison discussion-gateway fitness-runner scheduling-mcp workspace-access; do
+            echo "::group::${module}"
+            (cd "${module}" && go build ./... && go test -count=1 -run '^$' ./...)
+            echo "::endgroup::"
+          done
+          (cd operator && bash ../.github/scripts/fuzz-targets.sh run 1x)
+          (cd operator && ../.github/scripts/go-build-static.sh manager ./cmd/)
+
+      - name: Build the linters and their analysis cache
+        if: steps.go.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: |
+          (cd operator && make golangci-lint controller-gen setup-envtest && bin/golangci-lint run)
+          for module in accelerator-mcp agent-sidecar crew-liaison discussion-gateway fitness-runner scheduling-mcp workspace-access; do
+            (cd "${module}" && ../.github/scripts/golangci-lint.sh)
+          done

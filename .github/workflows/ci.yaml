@@ -20,6 +20,10 @@ on:
       - '.golangci.yml'
       - '.github/scripts/go-build-static.sh'
       - '.github/workflows/build-go-binary-image.yaml'
+      # The workflow, its fuzz job and the Go cache action are what the checks run on.
+      - '.github/workflows/ci.yaml'
+      - '.github/workflows/fuzz.yaml'
+      - '.github/actions/setup-go-cached/**'
   workflow_dispatch:
 
 env:
@@ -46,10 +50,9 @@ jobs:
           sudo apt-get install -y make
 
       - name: Set up Go
-        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        uses: ./.github/actions/setup-go-cached
         with:
           go-version-file: operator/go.mod
-          cache-dependency-path: operator/go.sum
 
       # The operator tests render the chart's use-grant policies with helm.
       - if: inputs.tested_commit_reason == ''
