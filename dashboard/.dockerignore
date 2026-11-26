@@ -1,0 +1,8 @@
+# Keep the build context lean and reproducible: never ship host build artifacts
+# or dependencies into the image build (the Dockerfile runs `npm ci` itself).
+node_modules
+.svelte-kit
+build
+.git
+*.log
+npm-debug.log*

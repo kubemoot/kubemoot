@@ -46,15 +46,11 @@ check "a key that starts with a digit fails" 2 "$(status '1A=1\n')"
 check "a missing file fails" 2 "$(bash "$script" "${work}/none" >/dev/null 2>&1 && echo 0 || echo $?)"
 check "no argument fails" 2 "$(bash "$script" >/dev/null 2>&1 && echo 0 || echo $?)"
 
-images=(dashboard harness-shim/image code-sandbox/image)
+images=(harness-shim/image code-sandbox/image)
 for f in "${images[@]}"; do
   check "${f}/buildpacks.env parses" 0 "$(if bash "$script" "${root}/${f}/buildpacks.env" >/dev/null 2>&1; then echo 0; else echo 1; fi)"
 done
 
-# The Node.js major the buildpack installs is the one the tests run on (dashboard/.nvmrc).
-nvmrc="$(tr -d '[:space:]' <"${root}/dashboard/.nvmrc")"
-check "the dashboard builds on the Node.js major of .nvmrc" "BP_NODE_VERSION=${nvmrc#v}.*" \
-  "$(grep '^BP_NODE_VERSION=' "${root}/dashboard/buildpacks.env")"
 
 if [ "$failures" -gt 0 ]; then
   echo "${failures} check(s) failed"
