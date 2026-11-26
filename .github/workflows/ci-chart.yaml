@@ -70,6 +70,8 @@ jobs:
         run: operator/chart/test-liaison-signin.sh
       - name: Connected accounts render tests
         run: operator/chart/test-connected-accounts.sh
+      - name: Liaison state and connected accounts render tests
+        run: operator/chart/test-liaison-state.sh
       - name: Verify runner RBAC render tests
         run: operator/chart/test-verify-rbac.sh
       - name: Kubernetes MCP read RBAC render tests
