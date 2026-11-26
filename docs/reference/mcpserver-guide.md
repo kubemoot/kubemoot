@@ -471,7 +471,17 @@ spec:
 
 The operator passes the field through the registration and wires the rest, only for a gateway whose servers include one in mode `Required`: the MCPGateway runs as its own ServiceAccount (`<gateway>-credential-broker`), carries a projected token for the audience `kubemoot-credential-broker`, and is told the address of the crew's lease port. The server's `authSecretRef` lists the tools at registration and is never sent on a call in this mode: with no token for the turn the call fails, and the agent reports that the person's account is not connected. How the gateway makes the call and what the agent sees is in the [MCPGateway guide](../mcpgateway-guide/#calls-with-the-asking-persons-own-credential).
 
-The transport must be `http`; the API server refuses `Required` on any other. Each `onForbidden` entry must be `https`, because it receives the person's token; a gateway whose outbound traffic is restricted is allowed each one and the crew's lease port, see [A gateway's outbound traffic](../../concepts/network-policies/#a-gateways-outbound-traffic). A namespace uses one MCPGateway and one crew that keeps tokens; with more, the crew's `CallerCredentials` condition says so.
+A server that takes a connected account sets `account` in place of `verifier`. The operator wires the same lease for it: the namespace's one crew that declares connected accounts answers the tool gateway on its lease port, and its discussion gateway is given the liaison's broker address and its own crew name. The gateway sends the token only to an `https` address whose host is one of the account's `tokenHosts`, and the refusals name the account (see [A connected account's token](../mcpgateway-guide/#a-connected-accounts-token)).
+
+```yaml
+  registry:
+    callerCredential:
+      mode: Required
+      account: library
+      accountName: Example Library
+```
+
+The transport must be `http`; the API server refuses `Required` on any other. Each `onForbidden` entry must be `https`, because it receives the person's token; a gateway whose outbound traffic is restricted is allowed each one and the crew's lease port, see [A gateway's outbound traffic](../../concepts/network-policies/#a-gateways-outbound-traffic). A namespace uses one MCPGateway and one crew that keeps tokens or declares connected accounts; with more, the crew's `CallerCredentials` or `ConnectedAccounts` condition says so.
 
 ### Connect an external MCP server that needs a key
 

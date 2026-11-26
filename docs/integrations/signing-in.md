@@ -321,6 +321,8 @@ this crew) and `EXPIRED`. A token about to end is refreshed once however many ca
 compare-and-swap before the new access token is returned, so a second replica that lost the race uses the winner's record and never a spent token. The service
 answering `invalid_grant` marks the connection for reconnecting and the person is sent a link.
 
+**How a tool gets the token.** A tool server that names the account in `registry.callerCredential.account` is called through the crew's tool gateway. For each call the tool gateway asks the crew's discussion gateway on its internal lease port; the discussion gateway reads who owns the conversation (never who the caller says asked), names that person by the same keyed hash the door uses, and asks the broker, with its own projected token, for `{person, account}`. The broker names the crew from that token. The answer is the access token, when it ends and `tokenHosts`, or `NO_GRANT`, `NEEDS_RECONNECT` or `EXPIRED`; a broker that cannot answer is a retryable `503` and every error refuses. The tool gateway sends the token once, only to an `https` address on one of `tokenHosts`, and drops it. A conversation owned by an anonymous caller or a Kubernetes user has no connected accounts, so its lease is `NO_GRANT`. See [the MCPGateway guide](../../reference/mcpgateway-guide/#a-connected-accounts-token).
+
 **The `connectedAccount` asker rule.** A crew whose askers rule is `connectedAccount` admits a person only while they hold a live
 connection to that account. The gateway asks the broker, by the person's opaque id, whether one exists. A gateway with no broker
 configured, or one the broker does not answer, refuses: no answer is never a yes. The liaison tells the person to connect before
