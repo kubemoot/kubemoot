@@ -41,6 +41,31 @@ const (
 	LeaseExpired        = "EXPIRED"
 )
 
+// LeaseStatusFor is the HTTP status that carries a refusal reason, the one pairing the broker,
+// the discussion gateway and their clients share. A reason that is not one of the three means
+// the lease could not be answered, which is 503 and retryable.
+func LeaseStatusFor(reason string) int {
+	switch reason {
+	case LeaseNoGrant:
+		return http.StatusNotFound
+	case LeaseNeedsReconnect:
+		return http.StatusConflict
+	case LeaseExpired:
+		return http.StatusGone
+	}
+	return http.StatusServiceUnavailable
+}
+
+// LeaseReasonFor is the refusal reason a status carries, and false for any other status.
+func LeaseReasonFor(status int) (string, bool) {
+	for _, reason := range []string{LeaseNoGrant, LeaseNeedsReconnect, LeaseExpired} {
+		if LeaseStatusFor(reason) == status {
+			return reason, true
+		}
+	}
+	return "", false
+}
+
 // AccountLease is one person's access token for an outside service, for one call.
 type AccountLease struct {
 	// Token is the bearer token. Never log it, trace it or store it.
@@ -77,15 +102,11 @@ func (b *BrokerConnections) Lease(ctx context.Context, principalID, account stri
 		return AccountLease{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	switch resp.StatusCode {
-	case http.StatusOK:
+	if resp.StatusCode == http.StatusOK {
 		return readLease(resp.Body)
-	case http.StatusNotFound:
-		return AccountLease{}, &LeaseRefusal{Reason: LeaseNoGrant}
-	case http.StatusConflict:
-		return AccountLease{}, &LeaseRefusal{Reason: LeaseNeedsReconnect}
-	case http.StatusGone:
-		return AccountLease{}, &LeaseRefusal{Reason: LeaseExpired}
+	}
+	if reason, ok := LeaseReasonFor(resp.StatusCode); ok {
+		return AccountLease{}, &LeaseRefusal{Reason: reason}
 	}
 	return AccountLease{}, fmt.Errorf("%w: the broker answered %d", ErrConnectionCheck, resp.StatusCode)
 }
