@@ -53,6 +53,7 @@ func (h hmacSealer) Open(purpose, blob string, v any) error {
 const (
 	revision2026 = "2026-07-28"
 	toolAsk      = "ask"
+	kindElicit   = "elicitation"
 )
 
 // callerWith is a tool request on revision 2026-07-28 with the client's capabilities and the
@@ -62,7 +63,7 @@ func callerWith(caps map[string]any, state string) *mcp.CallToolRequest {
 	return &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: toolAsk, Meta: meta, RequestState: state}}
 }
 
-var urlCaps = map[string]any{"elicitation": map[string]any{"form": map[string]any{}, "url": map[string]any{}}}
+var urlCaps = map[string]any{kindElicit: map[string]any{"form": map[string]any{}, "url": map[string]any{}}}
 
 func elicitService(t *testing.T, f *fakeGateway, stub *stubAccounts) *Service {
 	t.Helper()
@@ -109,7 +110,7 @@ func TestOtherClientsKeepTheLinkInTheResult(t *testing.T) {
 		sealer bool
 	}{
 		"no capabilities":   {callerWith(map[string]any{}, ""), true},
-		"form only":         {callerWith(map[string]any{"elicitation": map[string]any{"form": map[string]any{}}}, ""), true},
+		"form only":         {callerWith(map[string]any{kindElicit: map[string]any{"form": map[string]any{}}}, ""), true},
 		"an older revision": {&mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "ask"}}, true},
 		"no request":        {nil, true},
 		"no state sealer":   {callerWith(urlCaps, ""), false},
@@ -239,5 +240,31 @@ func TestTheWireAnswerIsInputRequired(t *testing.T) {
 	if r.ResultType != "input_required" || len(r.InputRequests) != 1 || r.RequestState == "" || len(r.Content) != 0 ||
 		!strings.Contains(string(r.InputRequests["connect_"+acctLibrary]), `"mode":"url"`) {
 		t.Fatalf("wire answer: %s", raw)
+	}
+}
+
+func TestTheReconnectWordingIsOneAcrossTheLineTheMidwayLineAndTheElicitation(t *testing.T) {
+	again := ConnectionView{Account: acctLibrary, DisplayName: exampleName, State: "needs_reconnect", ConnectURL: exampleLibrary.ConnectURL}
+	for name, got := range map[string]string{
+		"line":     connectLine([]ConnectionView{again}),
+		"midway":   midwayLine([]ConnectionView{again}),
+		kindElicit: elicitMessage(again),
+	} {
+		if !strings.Contains(strings.ToLower(got), "connect again") {
+			t.Errorf("%s does not say connect again: %q", name, got)
+		}
+	}
+	for name, got := range map[string]string{
+		"line":     connectLine([]ConnectionView{exampleLibrary}),
+		"midway":   midwayLine([]ConnectionView{exampleLibrary}),
+		kindElicit: elicitMessage(exampleLibrary),
+	} {
+		if strings.Contains(strings.ToLower(got), "again account") || strings.Contains(strings.ToLower(got), "connect again") {
+			t.Errorf("%s says again for a first connection: %q", name, got)
+		}
+	}
+	if !strings.HasPrefix(connectLine([]ConnectionView{exampleLibrary}), "To use this crew, connect your") ||
+		!strings.HasPrefix(midwayLine([]ConnectionView{exampleLibrary}), "The crew could not use") {
+		t.Error("each sentence keeps its own opening")
 	}
 }
