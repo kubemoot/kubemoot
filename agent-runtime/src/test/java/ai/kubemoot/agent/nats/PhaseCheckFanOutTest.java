@@ -15,6 +15,7 @@ import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.after;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -75,10 +76,8 @@ class PhaseCheckFanOutTest {
         orchestrator.checkPhaseTransitions();
 
         long started = System.nanoTime();
-        while (b.phase != DiscussionOrchestrator.Phase.CLOSED && Duration.ofNanos(System.nanoTime() - started).toSeconds() < 3) {
-            Thread.sleep(10);
-        }
-        assertEquals(DiscussionOrchestrator.Phase.CLOSED, b.phase, "tB closed while tA's close was still waiting");
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(3)).pollInterval(Duration.ofMillis(10))
+                .until(() -> b.phase == DiscussionOrchestrator.Phase.CLOSED);
         assertTrue(a.phase != DiscussionOrchestrator.Phase.CLOSED || Duration.ofNanos(System.nanoTime() - started).toSeconds() >= 3,
                 "tA is still waiting for NATS");
     }
@@ -89,12 +88,10 @@ class PhaseCheckFanOutTest {
 
         for (int i = 0; i < 5; i++) {
             orchestrator.checkPhaseTransitions();
-            Thread.sleep(20);
         }
 
         verify(metrics, timeout(2000).times(1)).threadTimedOut();
-        Thread.sleep(300);
-        verify(metrics, times(1)).threadTimedOut();
+        verify(metrics, after(300).times(1)).threadTimedOut();
     }
 
     @Test

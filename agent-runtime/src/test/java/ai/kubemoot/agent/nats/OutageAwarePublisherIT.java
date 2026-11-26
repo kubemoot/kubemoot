@@ -69,16 +69,12 @@ class OutageAwarePublisherIT {
     private void startServer() throws Exception {
         server = new ProcessBuilder(bin, "-js", "-a", "127.0.0.1", "-p", String.valueOf(port), "-sd", store.toString())
                 .redirectErrorStream(true).redirectOutput(store.resolve("server.log").toFile()).start();
-        for (int i = 0; i < 100; i++) {
-            try (Connection probe = Nats.connect("nats://127.0.0.1:" + port)) {
-                if (probe.jetStreamManagement().getAccountStatistics() != null) {
-                    return;
-                }
-            } catch (Exception e) {
-                Thread.sleep(100);
-            }
-        }
-        throw new IllegalStateException("nats-server did not start");
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(50))
+                .ignoreExceptions().until(() -> {
+                    try (Connection probe = Nats.connect("nats://127.0.0.1:" + port)) {
+                        return probe.jetStreamManagement().getAccountStatistics() != null;
+                    }
+                });
     }
 
     @Test
@@ -94,7 +90,9 @@ class OutageAwarePublisherIT {
         server.waitFor(5, TimeUnit.SECONDS);
         var sent = CompletableFuture.supplyAsync(() -> publisher.run("synthesis", js ->
                 DerivedIds.publishAcked(js, SUBJECT, body, "t1/0/synthesis/done/1/msg/synthesis"), publisher.startWait()));
-        Thread.sleep(1500); // the publisher is retrying against a server that is not there
+        // the publisher is retrying once the client has seen the server go away
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10))
+                .until(() -> conn.getStatus() != Connection.Status.CONNECTED);
         startServer();
 
         assertTrue(sent.get(30, TimeUnit.SECONDS), "the answer was acknowledged once NATS came back");

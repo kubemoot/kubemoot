@@ -181,7 +181,7 @@ class NatsConnectionProviderTest {
         assertNull(p.getConnection());
         assertNull(p.getConnection());
         assertEquals(5, calls.get());
-        Thread.sleep(80);
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> p.getConnection() != null);
         assertSame(ok, p.getConnection());
         assertEquals(6, calls.get());
     }

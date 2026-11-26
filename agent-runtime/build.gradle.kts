@@ -104,6 +104,7 @@ dependencies {
     testImplementation("io.quarkus:quarkus-junit5")
     testImplementation("io.rest-assured:rest-assured")
     testImplementation("org.mockito:mockito-core")
+    testImplementation("org.awaitility:awaitility")
     // Validates what the runtime writes on the bus against operator/pkg/bus/schema.
     testImplementation("com.networknt:json-schema-validator:3.0.9")
 }

@@ -326,7 +326,7 @@ class CoordinatorWriteAheadTest extends CoordinatorThreadTestBase {
         start(t);
         orchestrator.checkThreadTransition(orchestrator.threadForTest(t), Instant.now());
         awaitPublished("advisory");
-        Thread.sleep(300);
+        await(() -> orchestrator.threadForTest(t).trace.fenced(), "the thread was never fenced");
     }
 
     /** The check at close runs just after the close event is written. */

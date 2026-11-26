@@ -59,14 +59,8 @@ class NatsConnectionProviderRestartIT {
     private void startServer() throws Exception {
         server = new ProcessBuilder(bin, "-a", "127.0.0.1", "-p", String.valueOf(port), "-sd", store.toString())
                 .redirectErrorStream(true).redirectOutput(store.resolve("server.log").toFile()).start();
-        for (int i = 0; i < 100; i++) {
-            try (Connection probe = Nats.connect("nats://127.0.0.1:" + port)) {
-                return;
-            } catch (Exception e) {
-                Thread.sleep(100);
-            }
-        }
-        throw new IllegalStateException("nats-server did not start");
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(50))
+                .ignoreExceptions().untilAsserted(() -> Nats.connect("nats://127.0.0.1:" + port).close());
     }
 
     private AgentProperties props() {
@@ -106,10 +100,8 @@ class NatsConnectionProviderRestartIT {
         provider.close();
     }
 
-    private static void waitUntil(java.util.function.BooleanSupplier condition) throws InterruptedException {
-        for (int i = 0; i < 200 && !condition.getAsBoolean(); i++) {
-            Thread.sleep(100);
-        }
-        assertEquals(true, condition.getAsBoolean(), "condition not reached");
+    private static void waitUntil(java.util.function.BooleanSupplier condition) {
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(50))
+                .until(condition::getAsBoolean);
     }
 }
