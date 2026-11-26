@@ -588,16 +588,23 @@ func (c *InstallCA) NeedLeaderElection() bool { return false }
 // Start implements manager.Runnable: it makes the CA when there is none, publishes the bundle,
 // and compares it with the CA Secret every minute so a replaced CA reaches clients without a restart.
 func (c *InstallCA) Start(ctx context.Context) error {
-	every := c.PublishEvery
-	if every <= 0 {
-		every = caPublishEvery
-	}
-	ticker := time.NewTicker(every)
-	defer ticker.Stop()
-	for {
+	return runEvery(ctx, c.PublishEvery, func(ctx context.Context) {
 		if err := c.PublishCA(ctx); err != nil {
 			installCALog.Info("The install CA bundle is not published", "reason", err.Error())
 		}
+	})
+}
+
+// runEvery calls fn at once and then every interval (caPublishEvery when interval is not set)
+// until ctx ends. A Runnable that keeps a Secret or ConfigMap current uses it.
+func runEvery(ctx context.Context, interval time.Duration, fn func(context.Context)) error {
+	if interval <= 0 {
+		interval = caPublishEvery
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		fn(ctx)
 		select {
 		case <-ctx.Done():
 			return nil
