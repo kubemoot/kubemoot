@@ -111,7 +111,7 @@ func (f *flakyBackend) Delete(ctx context.Context, group, name string) error {
 	return f.Backend.Delete(ctx, group, name)
 }
 
-func newConnectRig(t *testing.T) *connectRig {
+func newConnectRig(t *testing.T, mutate ...func(*DoorConfig)) *connectRig {
 	t.Helper()
 	up := newUpstream(t)
 	sealer, err := ParseKeys(testKey(t, "vault"))
@@ -135,7 +135,12 @@ func newConnectRig(t *testing.T) *connectRig {
 		TokenHosts: []string{"api.example.org"},
 	}}
 	svc := &accounts.Service{People: accounts.NewPrincipals([]byte("install-key")), Vault: vault, Decls: decls, Regs: regs, Client: accounts.NewClient(up.srv.Client()), Now: time.Now}
-	r := newDoorRig(t, func(c *DoorConfig) { c.Accounts = svc })
+	r := newDoorRig(t, func(c *DoorConfig) {
+		c.Accounts = svc
+		for _, m := range mutate {
+			m(c)
+		}
+	})
 	return &connectRig{doorRig: r, up: up, vault: vault, svc: svc, store: flaky}
 }
 

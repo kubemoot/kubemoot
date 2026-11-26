@@ -95,12 +95,14 @@ func (d *door) connectRoutes() {
 	if d.cfg.Accounts == nil {
 		return
 	}
-	d.mux.HandleFunc("GET "+pathConnect+"{account}", d.connectPage)
-	d.mux.HandleFunc("POST "+pathConnect+"{account}", d.connectStart)
-	d.mux.HandleFunc("GET "+pathAccounts, d.accountsPage)
-	d.mux.HandleFunc("POST "+pathDisconnect, d.disconnect)
-	d.mux.HandleFunc("POST "+pathSignOut, d.signOut)
-	d.mux.HandleFunc("POST "+pathRevoke, d.revoke)
+	d.mux.HandleFunc("GET "+pathConnect+"{account}", d.limited(d.connectPage, true))
+	d.mux.HandleFunc("POST "+pathConnect+"{account}", d.limited(d.connectStart, true))
+	d.mux.HandleFunc("GET "+pathAccounts, d.limited(d.accountsPage, true))
+	d.mux.HandleFunc("POST "+pathDisconnect, d.limited(d.disconnect, true))
+	d.mux.HandleFunc("POST "+pathSignOut, d.limited(d.signOut, true))
+	// A chat app's server calls revoke, and many people share its address, so only the address
+	// limit applies.
+	d.mux.HandleFunc("POST "+pathRevoke, d.limited(d.revoke, false))
 }
 
 func (d *door) principalOf(s session) string { return d.cfg.Accounts.PrincipalID(s.Who.User) }
