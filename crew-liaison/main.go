@@ -259,7 +259,7 @@ func attachExporter(svc *liaison.Service, log logr.Logger) {
 // attachAccounts gives the tools their view of connected accounts when the door keeps them.
 func attachAccounts(svc *liaison.Service, acct *accounts.Service, front *liaison.SignInFront) {
 	if acct != nil && front != nil && front.Links != nil {
-		svc.WithAccounts(liaison.NewAccounts(acct, front.Links, front.AccountsURL))
+		svc.WithAccounts(liaison.NewAccounts(acct, front.Links, front.AccountsURL)).WithStateSealer(front.Sealer)
 	}
 }
 
@@ -345,7 +345,7 @@ func doorFront(cfg *signin.DoorConfig) (*liaison.SignInFront, error) {
 		Verifier: door.Verifier(), Hop: door.HopSigner(),
 	}
 	if cfg.Accounts != nil {
-		front.Links, front.AccountsURL = door, cfg.PublicURL+"/oauth/accounts"
+		front.Links, front.AccountsURL, front.Sealer = door, cfg.PublicURL+"/oauth/accounts", door.Sealer()
 	}
 	return front, nil
 }

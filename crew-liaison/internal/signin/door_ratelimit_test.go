@@ -106,3 +106,19 @@ func TestPeerAddressWithoutAPort(t *testing.T) {
 		t.Fatalf("peer: %q", got)
 	}
 }
+
+func TestTheDoorLendsItsSealerForTheStateOfAnElicitation(t *testing.T) {
+	r := newConnectRig(t)
+	sealer := r.door.Sealer()
+	blob, err := sealer.Seal("elicit", map[string]string{"u": "jane"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := sealer.Open("elicit", blob, &got); err != nil || got["u"] != "jane" {
+		t.Fatalf("round trip: %v %v", got, err)
+	}
+	if sealer.Open("another-purpose", blob, &got) == nil {
+		t.Fatal("a value sealed for one purpose must not open for another")
+	}
+}

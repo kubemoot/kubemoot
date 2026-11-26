@@ -39,6 +39,7 @@ type Service struct {
 	exporter *Exporter
 	accounts Accounts
 	title    string
+	sealer   StateSealer
 	inflight chan struct{}
 	now      func() time.Time
 }
@@ -188,7 +189,7 @@ func (s *Service) ListCrews(
 // Ask starts a discussion (or rejoins the caller's own pending one, named by ticket) and waits
 // up to the requested time for the answer before returning the ticket.
 func (s *Service) Ask(
-	ctx context.Context, _ *mcp.CallToolRequest, in AskInput,
+	ctx context.Context, req *mcp.CallToolRequest, in AskInput,
 ) (*mcp.CallToolResult, AskOutput, error) {
 	question := strings.TrimSpace(in.Question)
 	if question == "" {
@@ -203,7 +204,7 @@ func (s *Service) Ask(
 		return toolError(err.Error()), AskOutput{}, nil
 	}
 	if in.Ticket == "" {
-		if res, out := s.preflight(ctx, crew); res != nil {
+		if res, out := s.preflight(ctx, req, crew, question); res != nil {
 			return res, out, nil
 		}
 	}

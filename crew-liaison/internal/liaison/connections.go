@@ -241,13 +241,18 @@ func (s *Service) WithAccounts(a Accounts) *Service {
 
 // preflight checks that the person has connected what the crew requires. It answers a result
 // to return when they have not; nil means the question may start.
-func (s *Service) preflight(ctx context.Context, crew Crew) (*mcp.CallToolResult, AskOutput) {
+func (s *Service) preflight(
+	ctx context.Context, req *mcp.CallToolRequest, crew Crew, question string,
+) (*mcp.CallToolResult, AskOutput) {
 	if s.accounts == nil {
 		return nil, AskOutput{}
 	}
 	user, ok := doorUserOf(ctx)
 	if !ok {
 		return nil, AskOutput{}
+	}
+	if err := s.checkEcho(req, user, crew, question); err != nil {
+		return toolError(err.Error()), AskOutput{}
 	}
 	views, err := s.accounts.Pending(ctx, user, crew)
 	if err != nil {
@@ -260,6 +265,9 @@ func (s *Service) preflight(ctx context.Context, crew Crew) (*mcp.CallToolResult
 	out := AskOutput{
 		TicketView:  TicketView{Crew: crew.Name, Namespace: crew.Namespace, State: StateNeedsConnection},
 		Connections: views,
+	}
+	if res := s.elicitResult(req, user, crew, question, views); res != nil {
+		return res, out
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: connectLine(views)}}}, out
 }
