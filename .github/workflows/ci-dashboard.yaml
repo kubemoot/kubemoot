@@ -6,6 +6,10 @@ on:
     branches: [main]
     paths:
       - 'dashboard/**'
+      # The NATS store definition test reads these, so a change there runs it.
+      - 'docs/operating/data-ownership.md'
+      - 'operator/chart/kubemoot-operator/templates/nats-streams-job.yaml'
+      - 'crew-liaison/internal/tokenstore/**'
       - '.github/workflows/build-dockerfile-image.yaml'
   workflow_dispatch:
 
