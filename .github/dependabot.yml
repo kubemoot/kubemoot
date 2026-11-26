@@ -3,9 +3,8 @@
 # Every pull request is reviewed by a maintainer before it merges.
 #
 # Node majors are bumped by hand on purpose: Dependabot does not update dashboard/.nvmrc,
-# the single Node version source that the workflows read with node-version-file.
-# For the same reason the docker entry ignores node majors in dashboard/Dockerfile;
-# a Node major moves dashboard/.nvmrc and that image together.
+# the single Node version source that the workflows read with node-version-file;
+# dashboard/buildpacks.env holds the same major for the image build (a test checks that they agree).
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -28,9 +27,6 @@ updates:
   - package-ecosystem: docker
     directories:
       - "/arc-runner-image"
-      - "/code-sandbox"
-      - "/dashboard"
-      - "/harness-shim"
       - "/k8s/tests"
       - "/query-service"
     schedule:
@@ -39,8 +35,6 @@ updates:
       docker:
         patterns: ["*"]
     ignore:
-      - dependency-name: "node"
-        update-types: ["version-update:semver-major"]
       # test-runner's kubectl (registry.k8s.io/kubectl) matches the cluster's Kubernetes
       # version and moves with a Talos upgrade, not on this schedule; Dependabot also
       # cannot read registry.k8s.io anonymously and would fail the whole Docker run.
