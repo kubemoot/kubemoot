@@ -45,13 +45,13 @@ jobs:
         uses: ./.github/actions/setup-go-cached
         with:
           go-version-file: operator/go.mod
-          warm-key: go-warm-${{ runner.os }}-${{ hashFiles('**/go.sum', 'operator/Makefile', '.golangci.yml') }}
+          warm-key: go-warm-${{ runner.os }}-${{ hashFiles('**/go.mod', '**/go.sum', 'operator/Makefile', '.golangci.yml') }}
 
-      # Every module that builds against the operator's Kubernetes libraries. A step that
-      # fails only leaves the cache thinner; the checks themselves are the gates.
+      # Every module that builds against the operator's Kubernetes libraries. A failed step
+      # fails the job, and actions/cache saves only after a successful job, so a partial cache
+      # is never saved under a key that later runs would trust.
       - name: Compile each module, its tests, the fuzz targets and the static binary
         if: steps.go.outputs.cache-hit != 'true'
-        continue-on-error: true
         run: |
           for module in operator accelerator-mcp agent-sidecar crew-liaison discussion-gateway fitness-runner scheduling-mcp workspace-access; do
             echo "::group::${module}"
@@ -63,7 +63,6 @@ jobs:
 
       - name: Build the linters and their analysis cache
         if: steps.go.outputs.cache-hit != 'true'
-        continue-on-error: true
         run: |
           (cd operator && make golangci-lint controller-gen setup-envtest && bin/golangci-lint run)
           for module in accelerator-mcp agent-sidecar crew-liaison discussion-gateway fitness-runner scheduling-mcp workspace-access; do
