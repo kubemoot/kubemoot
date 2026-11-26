@@ -289,11 +289,12 @@ The gateway reads the registration field on `POST /admin/servers`. The operator 
 | `callerCredential` field | Default | Description |
 |--------------------------|---------|-------------|
 | `mode` | `Off` | `Off` uses the server's registered credential. `Required` calls the server with the asking person's token |
-| `verifier` | | Required in mode `Required`. The name of the verifier that vouched for the person, sent with the lease request. A DNS label |
+| `verifier` | | The name of the verifier that vouched for the person, sent with the lease request. A DNS label. Exactly one of `verifier` and `account` is set in mode `Required` |
+| `account` | | The name of a crew's connected account whose token the person's call carries, in place of `verifier`. A DNS label. See [A connected account's token](#a-connected-accounts-token) |
 | `leaseUrl` | | The broker's lease endpoint for this server. It must have the same scheme, host and port as `mcp.gateway.credential-broker.url` (environment `CREDENTIAL_BROKER_URL`), because the gateway's own token goes only to that broker; any other address is refused as "sign-in unavailable". Empty uses that broker plus `/internal/v1/lease` |
 | `onForbidden` | none | Endpoints tried in order, with the same token, when the server's own endpoint answers 403 to the asker. At most four. Each must be https, because it receives the person's token; plain http is accepted only for `localhost`, `127.0.0.0/8` and `::1`, and any other registration is refused |
 | `relayContext` | `false` | Keep `conversationId` and `principalId` in the `_meta` forwarded to the server, for a tool server that calls back through the gateway. Off removes them. It applies in mode `Off` as well: the call keeps the server's registered credential and carries only the two ids, so a server that reaches a per-person server through the gateway can name the person; no token is leased or forwarded |
-| `accountName` | the verifier name | How a refusal names the account to connect |
+| `accountName` | the verifier or account name | How a refusal names the account to connect |
 
 Mode `Required` needs transport `http` (streamable HTTP); a registration with another transport is refused. The call goes to the same endpoint as every other call to the server.
 
@@ -305,6 +306,27 @@ Mode `Required` needs transport `http` (streamable HTTP); a registration with an
 4. The server's `authSecretRef` is used to list tools at registration and is never sent on a `tools/call` in this mode.
 
 When the server's endpoint answers 403, the gateway makes the same call on each `onForbidden` endpoint in turn, with the same token. A fallback endpoint that does not know the tool does not hide the refusal: if every endpoint refuses or does not know the tool, the tool result is the first refusal's own text, followed by a sentence that the person's account does not include the tool. For a library that offers a deep tool to some members and a search tool to every member, list the deep endpoint as the server and the search endpoint in `onForbidden`.
+
+### A connected account's token
+
+A server registered with `account` takes the token the person connected at an outside service (see [connected accounts](../connected-accounts/)). The gateway keeps the same lease call, to the same address, and changes only what it sends and what it checks:
+
+1. The lease request is `{conversationId, account}`. No `principalId` and no `verifier` are sent: the crew's discussion gateway finds the person from the conversation's owner record, never from anything the caller claims, and asks the liaison's account broker for that person's token.
+2. The answer is `{token, expiresAt, tokenHosts}`. A lease with no `tokenHosts` is refused, because a token with nowhere to go is of no use.
+3. The gateway sends the token only to an `https` address whose host is exactly one of `tokenHosts` (compared without regard to case; the port and path are not part of the host). The server's own endpoint and each `onForbidden` endpoint are checked one at a time; an endpoint off the list is not called at all and sees nothing. Plain `http` is refused even for a listed host, including `localhost`.
+4. The token is used for the one call and dropped, as in mode `Required` with a verifier. It is leased again on the next call, so a refresh the broker made is used at once and a disconnect takes effect on the next call.
+
+A refusal is a tool result that names the account (`accountName`, else the account's name):
+
+| Lease answer | Tool result |
+|--------------|-------------|
+| 404 `NO_GRANT` (not connected, or the conversation has no connected person) | This tool uses the asking person's own account and none is connected for this question. Connect your account and ask again |
+| 409 `NEEDS_RECONNECT` (the service no longer honors the connection) | Your connection no longer works. Connect your account again and ask again |
+| 410 `EXPIRED` | Your sign-in expired. Sign in again and ask again |
+| 503, or no answer | Sign-in is unavailable right now. Ask again |
+| An endpoint off `tokenHosts` | This server is not on a host your account may be used at, so it was not called |
+
+Nothing falls back to the server's registered credential, and every failure refuses.
 
 ### What the agent sees when there is no token
 

@@ -40,7 +40,7 @@ spec:
 | `connectedAccounts[].authorizeURL` | string | required | The service's OAuth authorization endpoint. `https` with a host |
 | `connectedAccounts[].tokenURL` | string | required | The service's OAuth token endpoint. `https` with a host |
 | `connectedAccounts[].revocationURL` | string | | The service's [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009) revocation endpoint. `https` with a host |
-| `connectedAccounts[].tokenHosts` | []string | required | The hosts the account's token may be sent to, as bare lower-case host names without scheme, port or path. At least one |
+| `connectedAccounts[].tokenHosts` | []string | required | The hosts the account's token may be sent to, as bare lower-case host names without scheme, port or path. At least one. The tool gateway sends the token only to an `https` address on exactly one of these hosts, and refuses any other address, including plain `http` |
 
 The API server refuses a declaration whose name is not a DNS label, whose endpoints are not `https` with a host, or that has no `tokenHosts`.
 
