@@ -61,25 +61,17 @@ func (b *BrokerCertificate) Ensure(ctx context.Context) error {
 }
 
 // Start implements manager.Runnable: it issues the certificate at once and checks it again on a
-// timer, so a renewal or a new CA reaches the broker without a restart. One replica issues it.
+// timer, so a renewal or a new CA reaches the broker without a restart.
 func (b *BrokerCertificate) Start(ctx context.Context) error {
-	every := b.Every
-	if every <= 0 {
-		every = caPublishEvery
-	}
-	ticker := time.NewTicker(every)
-	defer ticker.Stop()
-	for {
+	return runEvery(ctx, b.Every, func(ctx context.Context) {
 		if err := b.Ensure(ctx); err != nil {
 			brokerTLSLog.Info("The account broker's certificate is not issued", "reason", err.Error())
 		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-		}
-	}
+	})
 }
+
+// NeedLeaderElection is true: one operator replica issues the certificate.
+func (b *BrokerCertificate) NeedLeaderElection() bool { return true }
 
 // brokerCAFile is the CA file a crew's gateway verifies the broker against: the CA certificate
 // its own gateway certificate Secret carries. Empty when gateways serve no TLS, so the pod has

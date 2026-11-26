@@ -132,11 +132,7 @@ func readConnected(resp *http.Response) (bool, error) {
 // connectionsFromEnv builds the checker of a gateway whose rule is connectedAccount; nil when
 // no broker is configured.
 func connectionsFromEnv(getenv func(string) string) (ConnectionChecker, error) {
-	broker, err := brokerFromEnv(getenv)
-	if broker == nil {
-		return nil, err
-	}
-	return broker, nil
+	return brokerAs[ConnectionChecker](brokerFromEnv(getenv))
 }
 
 // brokerFromEnv builds the client of the account broker the environment names, or nil when none
@@ -157,4 +153,14 @@ func brokerFromEnv(getenv func(string) string) (*BrokerConnections, error) {
 		client = &http.Client{Timeout: connectedTimeout, Transport: transport}
 	}
 	return NewBrokerConnections(base, strings.TrimSpace(getenv(EnvAccountBrokerTokenFile)), client)
+}
+
+// brokerAs returns the broker as the interface I, or the nil interface when there is none: a nil
+// *BrokerConnections in an interface is not nil, and a caller tests the interface for nil.
+func brokerAs[I any](b *BrokerConnections, err error) (I, error) {
+	var none I
+	if b == nil {
+		return none, err
+	}
+	return any(b).(I), nil
 }

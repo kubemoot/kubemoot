@@ -4,9 +4,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"os"
-	"sync"
-	"time"
+
+	"github.com/kubemoot/kubemoot/operator/pkg/filereload"
 )
 
 // The environment of the account broker's TLS listener: the serving certificate and key the
@@ -40,44 +39,20 @@ func brokerTLSConfig(getenv func(string) string) (*tls.Config, error) {
 	if certFile == "" || keyFile == "" {
 		return nil, errors.New(envBrokerCertFile + " and " + envBrokerKeyFile + " are set together")
 	}
-	keys := &reloadingKeyPair{certFile: certFile, keyFile: keyFile}
-	if _, err := keys.get(); err != nil {
+	// The certificate and key are read again when either file changes, so a renewal is served
+	// without a restart; an unreadable or mismatched pair fails the handshake.
+	keys := filereload.New(func() (*tls.Certificate, error) {
+		pair, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return nil, fmt.Errorf("the broker's certificate and key do not load: %w", err)
+		}
+		return &pair, nil
+	}, certFile, keyFile)
+	if _, err := keys.Get(); err != nil {
 		return nil, err
 	}
-	return &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: keys.getCertificate}, nil
-}
-
-// reloadingKeyPair serves the certificate and key in two files and reads them again when the
-// certificate file changes, so a certificate the operator renews is served without a restart.
-type reloadingKeyPair struct {
-	certFile, keyFile string
-
-	mu      sync.Mutex
-	modTime time.Time
-	size    int64
-	current *tls.Certificate
-}
-
-func (k *reloadingKeyPair) getCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-	return k.get()
-}
-
-// get returns the pair as the files hold it now. An unreadable or mismatched pair is an error,
-// never a stale certificate: the handshake fails and the caller retries.
-func (k *reloadingKeyPair) get() (*tls.Certificate, error) {
-	info, err := os.Stat(k.certFile)
-	if err != nil {
-		return nil, fmt.Errorf("the broker's certificate is not readable: %w", err)
-	}
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	if k.current != nil && info.ModTime().Equal(k.modTime) && info.Size() == k.size {
-		return k.current, nil
-	}
-	pair, err := tls.LoadX509KeyPair(k.certFile, k.keyFile)
-	if err != nil {
-		return nil, fmt.Errorf("the broker's certificate and key do not load: %w", err)
-	}
-	k.current, k.modTime, k.size = &pair, info.ModTime(), info.Size()
-	return k.current, nil
+	return &tls.Config{
+		MinVersion:     tls.VersionTLS12,
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return keys.Get() },
+	}, nil
 }
