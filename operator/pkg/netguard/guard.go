@@ -1,4 +1,5 @@
-// Package netguard keeps the liaison from being used to reach addresses it was never meant to:
+// Package netguard keeps a component that calls addresses a crew author chose (the liaison, a
+// crew's discussion gateway) from being used to reach addresses it was never meant to:
 // a name is resolved once, every answer must be a public address, and the connection goes to an
 // address that was checked, so a name that answers differently the second time (DNS rebinding)
 // reaches nothing new.
@@ -6,9 +7,12 @@ package netguard
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
+	"net/http"
 	"net/netip"
+	"time"
 )
 
 var ErrBlocked = errors.New("the address is not a public one")
@@ -83,3 +87,25 @@ func (g *Dialer) resolve(ctx context.Context, host string) ([]netip.Addr, error)
 	}
 	return addrs, nil
 }
+
+// maxResponseHeader bounds the headers a guarded call reads.
+const maxResponseHeader = 16 << 10
+
+// Client is an http client whose every connection goes through g, with no proxy (a proxy would
+// connect where the guard cannot see), no kept connection, bounded headers, and no redirect
+// followed: a redirect is returned as the answer. wait bounds the whole call. tlsConfig, nil for
+// the default, is the TLS setting of the connection.
+func (g *Dialer) Client(wait time.Duration, tlsConfig *tls.Config) *http.Client {
+	g.Net.Timeout = wait
+	return &http.Client{
+		Timeout:       wait,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport: &http.Transport{
+			Proxy: nil, DialContext: g.DialContext, TLSClientConfig: tlsConfig, TLSHandshakeTimeout: wait,
+			ResponseHeaderTimeout: wait, MaxResponseHeaderBytes: maxResponseHeader, DisableKeepAlives: true,
+		},
+	}
+}
+
+// PublicDialer is the Dialer that resolves with the system resolver and allows public addresses only.
+func PublicDialer() *Dialer { return &Dialer{Lookup: SystemLookup, Allow: PublicAddr} }
