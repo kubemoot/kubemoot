@@ -145,14 +145,17 @@ class CallerCredentialRequiredTest {
     }
 
     @Test
-    void aServerThatTakesAConnectedAccountIsNotLeasedFromTheVerifierBroker() {
+    void aServerThatTakesAConnectedAccountSendsNoVerifierAndNoClaimedPerson() {
         register(new CallerCredentialConfig(Mode.REQUIRED, base(broker) + "/internal/v1/lease", null, "Example Library",
             List.of(), false, "library"));
 
         call("conv-1", "principal-a", Map.of());
 
-        assertEquals(0, leases.size(), "no lease request is sent for an account");
-        assertTrue(rpc(expert, "tools/call").isEmpty(), "the server is not called without a token");
+        assertEquals(1, leases.size());
+        JsonNode body = leases.get(0).body();
+        assertEquals("library", body.path("account").asText());
+        assertTrue(body.path("verifier").isMissingNode() && body.path("principalId").isMissingNode());
+        assertTrue(rpc(expert, "tools/call").isEmpty(), "a lease without token hosts is not used");
     }
 
     @Test

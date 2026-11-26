@@ -90,7 +90,7 @@ public class CallerCredentialCaller {
         McpMessage outgoing = config.relayContext() ? withContext(request, who) : request;
         return leases.lease(config, who).flatMap(lease -> switch (lease) {
             case CredentialLeaseClient.Granted granted ->
-                tryEndpoints(endpoints(primaryUrl, config), 0, granted.token(), outgoing, config, null);
+                tryEndpoints(endpoints(primaryUrl, config), 0, granted, outgoing, config, null);
             case CredentialLeaseClient.Denied denied -> Mono.just(toolError(request, denial(denied, config)));
         });
     }
@@ -102,9 +102,9 @@ public class CallerCredentialCaller {
         return all;
     }
 
-    private Mono<McpMessage> tryEndpoints(List<String> urls, int index, CallerToken token, McpMessage request,
-                                          CallerCredentialConfig config, String firstRefusal) {
-        return callOne(urls.get(index), token, request)
+    private Mono<McpMessage> tryEndpoints(List<String> urls, int index, CredentialLeaseClient.Granted granted,
+                                          McpMessage request, CallerCredentialConfig config, String firstRefusal) {
+        return callOne(urls.get(index), granted, request, config)
             .onErrorResume(e -> {
                 log.warn("Call with a person's token failed: {}", e.getClass().getSimpleName());
                 return Mono.just(new Failed("The server could not be reached. Ask again."));
@@ -113,7 +113,7 @@ public class CallerCredentialCaller {
                 String refusal = outcome instanceof Refused refused && firstRefusal == null
                     ? refused.text() : firstRefusal;
                 if (index + 1 < urls.size() && movesOn(outcome, index, refusal)) {
-                    return tryEndpoints(urls, index + 1, token, request, config, refusal);
+                    return tryEndpoints(urls, index + 1, granted, request, config, refusal);
                 }
                 return Mono.just(finish(outcome, index, request, config, refusal));
             });
@@ -147,8 +147,18 @@ public class CallerCredentialCaller {
         };
     }
 
-    private Mono<Outcome> callOne(String url, CallerToken token, McpMessage call) {
-        return Mono.defer(() -> callAt(URI.create(url), token, call));
+    /**
+     * One call at one endpoint. A connected account's token is sent only to an https address on a
+     * host the account declares; any other endpoint is not called and sees nothing.
+     */
+    private Mono<Outcome> callOne(String url, CredentialLeaseClient.Granted granted, McpMessage call,
+                                  CallerCredentialConfig config) {
+        if (granted.tokenHosts() != null && !TokenHosts.permit(url, granted.tokenHosts())) {
+            log.warn("A connected account's token was not sent: the server's address is not on its token hosts");
+            return Mono.just(new Failed("This server is not on a host your " + config.account()
+                + " account may be used at, so it was not called."));
+        }
+        return Mono.defer(() -> callAt(URI.create(url), granted.token(), call));
     }
 
     private Mono<Outcome> callAt(URI endpoint, CallerToken token, McpMessage call) {
@@ -287,6 +297,8 @@ public class CallerCredentialCaller {
     private static String denial(CredentialLeaseClient.Denied denied, CallerCredentialConfig config) {
         return switch (denied.reason()) {
             case NO_GRANT -> noGrant(config);
+            case NEEDS_RECONNECT -> "Your " + config.account() + " connection no longer works. Connect your "
+                + config.account() + " account again and ask again.";
             case EXPIRED -> "Your " + config.account() + " sign-in expired. Sign in again and ask again.";
             case UNAVAILABLE -> "Sign-in is unavailable right now: the credential service could not be reached."
                 + " Ask again.";
