@@ -148,12 +148,14 @@ public class CallerCredentialCaller {
     }
 
     /**
-     * One call at one endpoint. A connected account's token is sent only to an https address on a
-     * host the account declares; any other endpoint is not called and sees nothing.
+     * One call at one endpoint. A connected account's token (the server takes an account, not a
+     * verifier) is sent only to an https address on a host the account declares; with no declared
+     * hosts, or at any other endpoint, nothing is called and nothing is sent.
      */
     private Mono<Outcome> callOne(String url, CredentialLeaseClient.Granted granted, McpMessage call,
                                   CallerCredentialConfig config) {
-        if (granted.tokenHosts() != null && !TokenHosts.permit(url, granted.tokenHosts())) {
+        boolean account = config.verifier() == null;
+        if (account && !TokenHosts.permit(url, granted.tokenHosts())) {
             log.warn("A connected account's token was not sent: the server's address is not on its token hosts");
             return Mono.just(new Failed("This server is not on a host your " + config.account()
                 + " account may be used at, so it was not called."));

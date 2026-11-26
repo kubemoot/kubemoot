@@ -13,6 +13,7 @@ import com.sun.net.httpserver.HttpsServer;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import kubemoot.ai.mcpgateway.config.McpConfig;
 import kubemoot.ai.mcpgateway.config.McpGatewayProperties;
 import kubemoot.ai.mcpgateway.controller.ToolController;
 import kubemoot.ai.mcpgateway.controller.ToolController.ToolCallRequest;
@@ -31,6 +32,7 @@ import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
+import reactor.netty.resources.ConnectionProvider;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -70,6 +72,7 @@ class CallerAccountCredentialTest {
     private static final String STORE_PASSWORD = "changeit";
     private static final String ACCOUNT = "library";
     private static final String CONVERSATION = "conv-1";
+    private static final String OWNER = "person-key-1";
     private static final String LEASE_PATH = "/internal/v1/lease";
     private static final String JSON = "application/json";
 
@@ -83,7 +86,10 @@ class CallerAccountCredentialTest {
     private final List<Seen> seen = new CopyOnWriteArrayList<>();
     private final List<Leased> leases = new CopyOnWriteArrayList<>();
     private final Map<String, Integer> leaseStatus = new ConcurrentHashMap<>();
-    private volatile List<String> leasedHosts = List.of("localhost");
+    /** The hosts the fake gateway leases with; null means the upstream's own host and port. */
+    private volatile List<String> leasedHosts;
+    private volatile int upstreamPort;
+    private volatile String redirectTo;
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
     private final Logger root = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
     private Level rootLevel;
@@ -103,7 +109,8 @@ class CallerAccountCredentialTest {
         gateway = discussionGateway();
         properties.getCredentialBroker().setUrl("http://127.0.0.1:" + gateway.getAddress().getPort());
         SslContext trustAll = SslContextBuilder.forClient().trustManager(InsecureTrustManagerFactory.INSTANCE).build();
-        HttpClient trusting = HttpClient.create().secure(spec -> spec.sslContext(trustAll));
+        HttpClient trusting = McpConfig.httpClient(ConnectionProvider.newConnection())
+            .secure(spec -> spec.sslContext(trustAll));
         manager = new McpClientManager(properties,
             WebClient.builder().clientConnector(new ReactorClientHttpConnector(trusting)), mapper);
         controller = new ToolController(manager, null);
@@ -137,7 +144,7 @@ class CallerAccountCredentialTest {
         JsonNode body = leases.get(0).body();
         assertEquals(ACCOUNT, body.path("account").asText());
         assertEquals(CONVERSATION, body.path("conversationId").asText());
-        assertTrue(body.path("principalId").isMissingNode(), "the caller's claim of who asked is not sent");
+        assertEquals(OWNER, body.path("principalId").asText(), "the principal the runtime says asked is sent");
         assertTrue(body.path("verifier").isMissingNode());
     }
 
@@ -181,8 +188,8 @@ class CallerAccountCredentialTest {
 
     @Test
     void anAddressThatIsNotHttpsNeverSeesTheTokenEvenOnADeclaredHost() throws Exception {
-        leasedHosts = List.of("127.0.0.1");
         registerOverHttp(config());
+        leasedHosts = List.of("127.0.0.1:" + upstreamPort);
 
         ToolCallResponse reply = call();
 
@@ -257,10 +264,65 @@ class CallerAccountCredentialTest {
     }
 
     @Test
+    void aPrincipalThatIsNotTheConversationsOwnerGetsNoTokenAndNoCall() throws Exception {
+        registerOverHttps(config());
+
+        ToolCallResponse reply = callAs("someone-who-knows-the-conversation-id");
+
+        assertTrue(reply.isError());
+        assertTrue(reply.content().contains("Connect your Example Library account"), reply.content());
+        assertEquals("someone-who-knows-the-conversation-id", leases.get(0).body().path("principalId").asText());
+        assertTrue(rpc("tools/call").isEmpty());
+        assertTrue(seen.stream().noneMatch(s -> String.valueOf(s.authorization()).contains(CANARY)));
+    }
+
+    @Test
+    void aBareDeclaredHostAllowsOnlyPort443() throws Exception {
+        leasedHosts = List.of("localhost");
+        registerOverHttps(config());
+
+        ToolCallResponse reply = call();
+
+        assertTrue(reply.isError());
+        assertTrue(rpc("tools/call").isEmpty());
+        assertTrue(seen.stream().noneMatch(s -> String.valueOf(s.authorization()).contains(CANARY)));
+    }
+
+    @Test
+    void aRedirectIsNotFollowedSoTheTokenNeverGoesToAnotherAddress() throws Exception {
+        HttpServer elsewhere = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        List<String> hits = new CopyOnWriteArrayList<>();
+        elsewhere.createContext("/", exchange -> {
+            hits.add(String.valueOf(exchange.getRequestHeaders().getFirst("Authorization")));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        elsewhere.start();
+        try {
+            registerOverHttps(config());
+            redirectTo = "http://127.0.0.1:" + elsewhere.getAddress().getPort() + "/steal";
+
+            ToolCallResponse reply = call();
+
+            assertTrue(reply.isError());
+            assertFalse(rpc("tools/call").isEmpty(), "the declared host was called and answered with a redirect");
+            assertTrue(hits.isEmpty(), "the redirect target was called: " + hits);
+        } finally {
+            redirectTo = null;
+            elsewhere.stop(0);
+        }
+    }
+
+    @Test
     void tokenHostsPermitOnlyAnExactHostOverHttps() {
         List<String> hosts = List.of("api.example.org");
         assertTrue(TokenHosts.permit("https://api.example.org/mcp", hosts));
-        assertTrue(TokenHosts.permit("https://API.Example.org:8443/mcp", hosts));
+        assertTrue(TokenHosts.permit("https://API.Example.org:443/mcp", hosts));
+        assertFalse(TokenHosts.permit("https://API.Example.org:8443/mcp", hosts), "a bare host allows port 443 only");
+        assertTrue(TokenHosts.permit("https://api.example.org:8443/mcp", List.of("api.example.org:8443")));
+        assertFalse(TokenHosts.permit("https://api.example.org/mcp", List.of("api.example.org:8443")));
+        assertFalse(TokenHosts.permit("https://api.example.org:9/mcp", List.of("api.example.org:8443")));
+        assertFalse(TokenHosts.permit("https://api.example.org/mcp", List.of("api.example.org:x")));
         assertFalse(TokenHosts.permit("http://api.example.org/mcp", hosts));
         assertFalse(TokenHosts.permit("https://evil.api.example.org/mcp", hosts));
         assertFalse(TokenHosts.permit("https://api.example.org.evil.net/mcp", hosts));
@@ -282,8 +344,12 @@ class CallerAccountCredentialTest {
     }
 
     private ToolCallResponse call() {
+        return callAs(OWNER);
+    }
+
+    private ToolCallResponse callAs(String principal) {
         ToolCallResponse reply = controller.callTool("ping", new ToolCallRequest(Map.of(),
-            Map.of("conversationId", CONVERSATION, "principalId", "claimed-by-the-caller"))).block(Duration.ofSeconds(30));
+            Map.of("conversationId", CONVERSATION, "principalId", principal))).block(Duration.ofSeconds(30));
         assertNotNull(reply);
         return reply;
     }
@@ -296,12 +362,14 @@ class CallerAccountCredentialTest {
         HttpsServer server = HttpsServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.setHttpsConfigurator(new HttpsConfigurator(serverContext()));
         serve(server);
+        upstreamPort = server.getAddress().getPort();
         register("https://localhost:" + server.getAddress().getPort() + "/mcp", config);
     }
 
     private void registerOverHttp(CallerCredentialConfig config) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         serve(server);
+        upstreamPort = server.getAddress().getPort();
         register("http://127.0.0.1:" + server.getAddress().getPort() + "/mcp", config);
     }
 
@@ -347,8 +415,11 @@ class CallerAccountCredentialTest {
             JsonNode body = mapper.readTree(exchange.getRequestBody());
             leases.add(new Leased(exchange.getRequestHeaders().getFirst("Authorization"), body));
             int status = leaseStatus.getOrDefault(body.path("conversationId").asText(), 404);
+            if (!OWNER.equals(body.path("principalId").asText())) {
+                status = 404;
+            }
             String json = status == 200 ? mapper.writeValueAsString(Map.of("token", CANARY,
-                "expiresAt", Instant.now().plusSeconds(600).toString(), "tokenHosts", leasedHosts)) : "{}";
+                "expiresAt", Instant.now().plusSeconds(600).toString(), "tokenHosts", leasedHosts == null ? List.of("localhost:" + upstreamPort) : leasedHosts)) : "{}";
             reply(exchange, status, JSON, json);
         });
         server.setExecutor(Executors.newCachedThreadPool());
@@ -366,7 +437,11 @@ class CallerAccountCredentialTest {
         String method = request.path("method").asText();
         seen.add(new Seen(method, auth, request));
         JsonNode id = request.get("id");
-        if (id == null || id.isNull()) {
+        if (redirectTo != null && "tools/call".equals(method)) {
+            exchange.getResponseHeaders().add("Location", redirectTo);
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        } else if (id == null || id.isNull()) {
             reply(exchange, 202, JSON, "");
         } else if (forbidCalls && "tools/call".equals(method)) {
             reply(exchange, 403, JSON, mapper.writeValueAsString(Map.of("message", "No access for " + auth)));
