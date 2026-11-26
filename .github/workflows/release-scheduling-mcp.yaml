@@ -12,6 +12,8 @@ on:
       - '!scheduling-mcp/**.md'
       # Operator packages this image is built from (check-release-paths.sh keeps this list whole).
       - 'operator/pkg/natsconn/**'
+      - 'operator/go.mod'
+      - 'operator/go.sum'
       - '.github/scripts/retag-image.sh'
       - '.github/scripts/go-build-static.sh'
       - '.github/workflows/build-go-binary-image.yaml'

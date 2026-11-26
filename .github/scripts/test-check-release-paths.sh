@@ -34,7 +34,7 @@ build_repo() {
   printf 'package main\n\nimport "github.com/kubemoot/kubemoot/operator/pkg/a"\n\nfunc main() { a.A() }\n' > "$r/comp/main.go"
   printf 'includeBuild("../gcore")\n' > "$r/gcomp/settings.gradle.kts"
   : > "$r/gcore/build.gradle.kts"
-  workflow comp "'comp/**'" "'operator/pkg/a/**'" "'operator/pkg/b/**'"
+  workflow comp "'comp/**'" "'operator/pkg/a/**'" "'operator/pkg/b/**'" "'operator/go.mod'" "'operator/go.sum'"
   workflow gcomp "'gcomp/**'" "'gcore/**'"
 }
 
@@ -57,20 +57,27 @@ check "covered" "every release filter covers the sources its image is built from
 
 # A transitive dependency (b, imported by a) missing from the filter.
 repo="${work}/transitive"; build_repo "$repo"
-workflow comp "'comp/**'" "'operator/pkg/a/**'"
+workflow comp "'comp/**'" "'operator/pkg/a/**'" "'operator/go.mod'" "'operator/go.sum'"
 out="$(run)"
 check "transitive missing" "1" "$(grep -c '^MISSING comp: operator/pkg/b/ ' <<<"$out")"
 check "transitive exit" "exit=1" "$(tail -1 <<<"$out")"
 
 # A package the component does not import (c) in the filter is allowed: broader is not an error.
 repo="${work}/broad"; build_repo "$repo"
-workflow comp "'comp/**'" "'operator/pkg/**'"
+workflow comp "'comp/**'" "'operator/pkg/**'" "'operator/go.mod'" "'operator/go.sum'"
 check "broader filter" "every release filter covers the sources its image is built from" "$(run)"
 
 # A negated pattern after the include removes the files.
 repo="${work}/negated"; build_repo "$repo"
 workflow comp "'comp/**'" "'operator/pkg/**'" "'!operator/pkg/b/**'"
 check "negated" "1" "$(grep -c '^MISSING comp: operator/pkg/b/ ' <<<"$(run)")"
+
+# The operator's go.mod and go.sum missing: their dependencies are built into the image.
+repo="${work}/gomod"; build_repo "$repo"
+workflow comp "'comp/**'" "'operator/pkg/**'"
+out="$(run)"
+check "go.mod missing" "1" "$(grep -c '^MISSING comp: operator/go.mod ' <<<"$out")"
+check "go.sum missing" "1" "$(grep -c '^MISSING comp: operator/go.sum ' <<<"$out")"
 
 # A Gradle included build missing from the filter.
 repo="${work}/gradle"; build_repo "$repo"

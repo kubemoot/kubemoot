@@ -12,6 +12,8 @@ on:
       - 'operator/pkg/mesh/**'
       - 'operator/pkg/natsconn/**'
       - 'operator/pkg/secretscreen/**'
+      - 'operator/go.mod'
+      - 'operator/go.sum'
       - '.github/scripts/retag-image.sh'
       - '.github/scripts/go-build-static.sh'
       - '.github/workflows/build-go-binary-image.yaml'
