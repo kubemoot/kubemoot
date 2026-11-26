@@ -14,7 +14,8 @@ import (
 // service. The person is the owner the conversation records; the caller's claim of who asked
 // must equal it and is never used in its place. The owner's id is already the install's keyed
 // hash of the hop issuer and user name, which is the id the liaison keeps the person's
-// connections under. The liaison's account broker decides the rest (the crew declares the account, the person consented to the crew).
+// connections under. The liaison's account broker decides the rest (the crew declares the
+// account, the person consented to the crew).
 
 // accountNamePattern is a DNS label, which is what a Crew's connected account name is.
 var accountNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
