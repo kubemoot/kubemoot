@@ -60,6 +60,8 @@ func (e *eraser) erase(ctx context.Context, streamThreads []string) erasure {
 	if len(e.report.Failed) == 0 {
 		ownerKey := bus.ConversationOwnerKey(e.scope.Namespace, e.scope.Crew, e.id)
 		e.purgeIfPresent(ctx, ownerKey, "owner", &e.report.Deleted.Owner)
+		var notes int64
+		e.purgeIfPresent(ctx, bus.ConversationNeedsKey(e.scope.Namespace, e.scope.Crew, e.id), "needs", &notes)
 	}
 	return e.report
 }

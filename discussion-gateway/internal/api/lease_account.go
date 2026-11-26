@@ -39,6 +39,7 @@ type OwnerReader interface {
 // broker and owners finds the person a conversation belongs to.
 func (l *LeaseServer) WithAccounts(leaser identity.AccountLeaser, owners OwnerReader) *LeaseServer {
 	l.accounts, l.owners = leaser, owners
+	l.notes, _ = owners.(AccountNoter)
 	return l
 }
 
@@ -69,6 +70,7 @@ func (l *LeaseServer) accountLease(w http.ResponseWriter, r *http.Request, req l
 	lease, err := l.accounts.Lease(ctx, person, req.Account)
 	if refusal, refused := identity.IsLeaseRefusal(err); refused {
 		leaseLog.Info("Refused an account lease", "account", req.Account, "reason", refusal.Reason)
+		l.noteRefusal(ctx, req, refusal.Reason)
 		refuseLease(w, identity.LeaseStatusFor(refusal.Reason), refusal.Reason, req.Account)
 		return
 	}
@@ -85,6 +87,17 @@ func (l *LeaseServer) accountLease(w http.ResponseWriter, r *http.Request, req l
 	writeJSON(w, http.StatusOK, leaseResponse{
 		Token: lease.Token, ExpiresAt: lease.ExpiresAt.UTC().Format(time.RFC3339), TokenHosts: lease.TokenHosts,
 	})
+}
+
+// noteRefusal marks the conversation's turn when the person has to connect the account: no
+// connection, or one that must be made again. Other refusals are not the person's to fix.
+func (l *LeaseServer) noteRefusal(ctx context.Context, req leaseRequest, reason string) {
+	if l.notes == nil || (reason != identity.LeaseNoGrant && reason != identity.LeaseNeedsReconnect) {
+		return
+	}
+	if err := l.notes.NeedsAccount(ctx, req.ConversationID, req.Account); err != nil {
+		leaseLog.Info("Could not note the account a call was refused for", "account", req.Account)
+	}
 }
 
 // leasePerson is the id the conversation's owner is connected under. The id the caller

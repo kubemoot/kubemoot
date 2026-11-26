@@ -46,7 +46,9 @@ func (h *Handler) conversationState(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusNotFound, errConversationNotFound)
 		return
 	}
-	writeJSON(w, http.StatusOK, stateOf(id, threads, waiting))
+	state := stateOf(id, threads, waiting)
+	h.withNeededAccounts(ctx, js, scope, id, &state)
+	writeJSON(w, http.StatusOK, state)
 }
 
 // readTurns reads the conversation's threads from the discussion stream, their pauses and the

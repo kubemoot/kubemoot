@@ -111,7 +111,7 @@ A person's data has no account key in NATS; it is keyed by namespace, crew, and 
 
 | Store | What is removed |
 |-------|-----------------|
-| `kubemoot_conversations` | The history, `conv.<namespace>.<crew>.<id>`, and the owner record, `own.<namespace>.<crew>.<id>`, every revision of each |
+| `kubemoot_conversations` | The history, `conv.<namespace>.<crew>.<id>`, and the owner record, `own.<namespace>.<crew>.<id>`, every revision of each; with connected accounts, a note of the account names a tool call was refused for, `needs.<namespace>.<crew>.<id>` (names and times only, never a token or a person) |
 | `KUBEMOOT_DISCUSS` | Every message of each thread, `kubemoot.discuss.<namespace>.<crew>.*.<threadId>` |
 | `KUBEMOOT_COORDINATOR` | The coordinator's decision log of each thread, `kubemoot.coordinator.<namespace>.<crew>.<threadId>` |
 | `kubemoot_workspace` (and the bucket it replaced) | Each thread's objects, `<namespace>/<crew>/<threadId>/...` |
@@ -123,7 +123,7 @@ A person's data has no account key in NATS; it is keyed by namespace, crew, and 
 When the person asks for everything about them across conversations, or the endpoint is not reachable, remove the stores by hand:
 
 1. Find the crew and the time window of the person's questions.
-2. Remove the conversation keys from `kubemoot_conversations` (`conv.<namespace>.<crew>.<id>`, and the owner record `own.<namespace>.<crew>.<id>`) and the facts from `kubemoot_crew_memory` (`<namespace>.<crew>.<topic>.<key>`) with the `nats kv` command line. `kmctl memory export <crew>` lists a crew's facts so you can find those that mention the person.
+2. Remove the conversation keys from `kubemoot_conversations` (`conv.<namespace>.<crew>.<id>`, the owner record `own.<namespace>.<crew>.<id>` and the account note `needs.<namespace>.<crew>.<id>`) and the facts from `kubemoot_crew_memory` (`<namespace>.<crew>.<topic>.<key>`) with the `nats kv` command line. `kmctl memory export <crew>` lists a crew's facts so you can find those that mention the person.
 3. Messages in the streams cannot be edited. They expire with the stream's age. If the request cannot wait, purge the stream by subject (`nats stream purge KUBEMOOT_DISCUSS --subject 'kubemoot.discuss.<namespace>.<crew>.>'`), which removes that crew's messages for everyone.
 4. Check your backups of the NATS volumes and your log backend: erasing from NATS does not erase from them.
 
