@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/kubemoot/kubemoot/crew-liaison/internal/netguard"
+	"github.com/kubemoot/kubemoot/operator/pkg/netguard"
 )
 
 // Client ID metadata documents (draft-ietf-oauth-client-id-metadata-document): a chat app's

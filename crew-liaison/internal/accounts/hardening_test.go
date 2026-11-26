@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubemoot/kubemoot/crew-liaison/internal/netguard"
+	"github.com/kubemoot/kubemoot/operator/pkg/netguard"
 )
 
 const (

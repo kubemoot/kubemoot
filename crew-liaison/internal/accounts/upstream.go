@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kubemoot/kubemoot/crew-liaison/internal/netguard"
+	"github.com/kubemoot/kubemoot/operator/pkg/netguard"
 )
 
 // What a call to a service's endpoint can end in besides tokens.
@@ -63,7 +63,7 @@ type Client struct {
 // that changes its answer between the check and the connection), with no proxy.
 func NewClient(httpClient *http.Client) *Client {
 	if httpClient == nil {
-		httpClient = guardedHTTP(&netguard.Dialer{Lookup: netguard.SystemLookup, Allow: netguard.PublicAddr})
+		httpClient = guardedHTTP(netguard.PublicDialer())
 	}
 	c := *httpClient
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -71,13 +71,7 @@ func NewClient(httpClient *http.Client) *Client {
 }
 
 // guardedHTTP is an http client that dials only through d.
-func guardedHTTP(d *netguard.Dialer) *http.Client {
-	d.Net.Timeout = serviceWait
-	return &http.Client{Timeout: serviceWait, Transport: &http.Transport{
-		Proxy: nil, DialContext: d.DialContext, TLSHandshakeTimeout: serviceWait,
-		ResponseHeaderTimeout: serviceWait, MaxResponseHeaderBytes: 16 << 10, DisableKeepAlives: true,
-	}}
-}
+func guardedHTTP(d *netguard.Dialer) *http.Client { return d.Client(serviceWait, nil) }
 
 // Exchange trades an authorization code (with the PKCE verifier) for tokens.
 func (c *Client) Exchange(
