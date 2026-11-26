@@ -70,9 +70,11 @@ const (
 // brokerServer is the internal HTTP server a crew's discussion gateway asks for a person's
 // account token. It is never behind a Service the public reaches. The caller's ServiceAccount
 // token is checked with TokenReview for the broker's audience.
-func brokerServer(svc *accounts.Service, reviewer identity.Reviewer, port string) *http.Server {
+func brokerServer(
+	svc *accounts.Service, reviewer identity.Reviewer, gateways liaison.GatewayVerifier, port string,
+) *http.Server {
 	return &http.Server{
-		Addr: ":" + port, Handler: liaison.NewAccountBroker(svc.Broker, reviewer).Handler(),
+		Addr: ":" + port, Handler: liaison.NewAccountBroker(svc.Broker, reviewer, gateways).Handler(),
 		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 20 * time.Second,
 		IdleTimeout: 120 * time.Second,
 	}

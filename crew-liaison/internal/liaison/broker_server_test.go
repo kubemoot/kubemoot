@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -38,8 +39,19 @@ func (f fakeReviewer) Review(_ context.Context, token string) (*identity.Identit
 }
 
 type brokerRig struct {
-	handler http.Handler
-	vault   *accounts.Vault
+	gateways *stubGateways
+	handler  http.Handler
+	vault    *accounts.Vault
+}
+
+// stubGateways stands in for the cluster's word on which ServiceAccount is a crew's gateway.
+type stubGateways struct {
+	ok  bool
+	err error
+}
+
+func (s *stubGateways) Verify(context.Context, string, string, string) (bool, error) {
+	return s.ok, s.err
 }
 
 type sealerStub struct{}
@@ -69,7 +81,8 @@ func newBrokerRig(t *testing.T) *brokerRig {
 		"other-token":   {Subject: "system:serviceaccount:ns:someone"},
 		"user-token":    {Subject: "oidc:alice"},
 	}
-	return &brokerRig{handler: NewAccountBroker(broker, reviewer).Handler(), vault: vault}
+	gateways := &stubGateways{ok: true}
+	return &brokerRig{gateways: gateways, handler: NewAccountBroker(broker, reviewer, gateways).Handler(), vault: vault}
 }
 
 type fakeAccountDecls map[string]accounts.Declaration
@@ -251,5 +264,34 @@ func TestCrewOfGateway(t *testing.T) {
 		if got != want || ok != (want != "") {
 			t.Errorf("%q: %q %v", subject, got, ok)
 		}
+	}
+}
+
+func TestBrokerRefusesAServiceAccountThatOnlyHasTheNameOfAGateway(t *testing.T) {
+	r := newBrokerRig(t)
+	r.connect(t, nil)
+	r.gateways.ok = false
+	rec := r.call(leasePath, "gateway-token", askAlice)
+	if rec.Code != http.StatusForbidden || strings.Contains(rec.Body.String(), "leased-access-token") {
+		t.Fatalf("a look-alike ServiceAccount: %d %s", rec.Code, rec.Body)
+	}
+	if rec := r.call(connectedPath, "gateway-token", askAlice); rec.Code != http.StatusForbidden {
+		t.Fatalf("connected: %d", rec.Code)
+	}
+}
+
+func TestBrokerCannotCheckTheServiceAccountIsRetryable(t *testing.T) {
+	r := newBrokerRig(t)
+	r.gateways.err = errors.New("api away")
+	if rec := r.call(leasePath, "gateway-token", askAlice); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("%d", rec.Code)
+	}
+}
+
+func TestBrokerNeverAsksTheClusterForACallerThatIsNotAGatewayByName(t *testing.T) {
+	r := newBrokerRig(t)
+	r.gateways.err = errors.New("must not be asked")
+	if rec := r.call(leasePath, "other-token", askAlice); rec.Code != http.StatusForbidden {
+		t.Fatalf("%d", rec.Code)
 	}
 }

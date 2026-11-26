@@ -12,7 +12,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 render() { helm template km "$chart" --namespace km "$@"; }
 
 door='{"liaison":{"expose":{"enabled":true,"hostname":"moot.example.org"},"signIn":{"enabled":true,"publicURL":"https://moot.example.org","allowedRedirectHosts":["app.example.org"],"sealKeySecret":{"name":"seal"},"identity":{"provider":"oidc","oidc":{"issuer":"https://idp.example.org","clientId":"c","clientSecret":{"name":"oidc"}},"signingKeySecret":{"name":"sign"}}}},"gateway":{"hostname":"moot.example.org","enabled":true}}'
-acct='{"liaison":{"auth":{"hashKeySecret":{"name":"hash"}},"connectedAccounts":{"enabled":true,"sealKeySecret":{"name":"vault"},"accounts":{"library":{"clientId":"cid","clientSecret":{"name":"lib-secret"},"allowedCrews":["guide"],"maxLifetimeHours":48}}}}}'
+acct='{"liaison":{"auth":{"hashKeySecret":{"name":"hash"}},"connectedAccounts":{"enabled":true,"sealKeySecret":{"name":"vault"},"accounts":{"library":{"clientId":"cid","clientSecret":{"name":"lib-secret"},"allowedCrews":["guide"],"hosts":["auth.example.org"],"maxLifetimeHours":48}}}}}'
 merge() { yq -o=json eval-all '. as $item ireduce ({}; . * $item)' <(echo "$1") <(echo "$2"); }
 withdoor() { merge "$door" "${1:-{\}}"; }
 
@@ -29,6 +29,7 @@ out="$(render)"
 [ -z "$(has_service "$out")" ] || fail "the default render has a broker Service"
 [ -z "$(operator_env "$out")" ] || fail "the default render gives the operator a broker address"
 [ -z "$(reviews "$out")" ] || fail "the default render may review tokens"
+[ -z "$(yq -N 'select(.kind == "NetworkPolicy" and .metadata.name == "km-kubemoot-operator-liaison-broker") | .metadata.name' <<<"$out")" ] || fail "the default render has a broker NetworkPolicy"
 
 # The door on: its single-use memory goes to NATS, and no account exists.
 out="$(render --set-json "$(withdoor)")"
@@ -45,6 +46,7 @@ json="$(env_of "$out" LIAISON_ACCOUNTS)"
 [ "$(yq -p=json '.library.clientId' <<<"$json")" = "cid" ] || fail "the client id is missing from the registrations"
 [ "$(yq -p=json '.library.clientSecretFile' <<<"$json")" = "/etc/kubemoot/accounts/library-client-secret" ] || fail "the client secret is not a file path"
 [ "$(yq -p=json '.library.maxLifetimeHours' <<<"$json")" = "48" ] || fail "the lifetime is missing"
+[ "$(yq -p=json '.library.hosts[0]' <<<"$json")" = "auth.example.org" ] || fail "the pinned host is missing"
 [ "$(env_of "$out" ACCESS_HASH_KEY)" = "set" ] || fail "the hash key is not given to the liaison"
 [ -n "$(has_service "$out")" ] || fail "no broker Service"
 [ "$(reviews "$out")" = "create" ] || fail "the liaison cannot review a gateway's token"
@@ -52,6 +54,14 @@ json="$(env_of "$out" LIAISON_ACCOUNTS)"
 [ "$(liaison "$out" | yq -N '.spec.template.spec.volumes[] | select(.name == "accounts") | .projected.sources | length')" = "2" ] || fail "the accounts volume lacks the keys or the client secret"
 [ "$(liaison "$out" | yq -N '.spec.template.spec.containers[0].volumeMounts[] | select(.name == "accounts") | .readOnly')" = "true" ] || fail "the accounts mount is writable"
 if grep -q 'lib-secret-value' <<<"$out"; then fail "a secret value is in the render"; fi
+
+# Only the crews' gateways reach the broker port, and the liaison may read ServiceAccounts.
+policy() { yq -N 'select(.kind == "NetworkPolicy" and .metadata.name == "km-kubemoot-operator-liaison-broker")' <<<"$1"; }
+[ -n "$(policy "$out")" ] || fail "no NetworkPolicy for the broker"
+[ "$(policy "$out" | yq -N '.spec.ingress[1].from[0].podSelector.matchLabels."app.kubernetes.io/component"')" = "discussion-gateway" ] || fail "the broker port is not limited to discussion gateways"
+[ "$(policy "$out" | yq -N '.spec.ingress[1].ports[0].port')" = "broker" ] || fail "the gateway rule is not for the broker port"
+[ "$(policy "$out" | yq -N '.spec.ingress[0].ports[0].port')" = "http" ] || fail "the route's port was closed"
+[ "$(yq -N 'select(.kind == "ClusterRole" and .metadata.name == "km-kubemoot-operator-liaison") | .rules[] | select(.resources[0] == "serviceaccounts") | .verbs[0]' <<<"$out")" = "get" ] || fail "the liaison cannot read ServiceAccounts"
 
 # The broker is never behind the public route.
 if yq -N 'select(.kind == "HTTPRoute") | .spec.rules[].backendRefs[].name' <<<"$out" | grep -q broker; then fail "the broker is routed publicly"; fi

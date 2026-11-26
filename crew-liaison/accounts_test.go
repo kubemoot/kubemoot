@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -91,7 +92,7 @@ func TestAccountsNeedTheDoor(t *testing.T) {
 
 func TestBrokerServerRefusesACallerWithoutAToken(t *testing.T) {
 	svc := &accounts.Service{Broker: accounts.NewBroker(nil, nil, nil, nil, nil)}
-	srv := brokerServer(svc, identity.Reviewer{Audiences: []string{liaison.AccountBrokerAudience}}, "8081")
+	srv := brokerServer(svc, identity.Reviewer{Audiences: []string{liaison.AccountBrokerAudience}}, nil, "8081")
 	if srv.Addr != ":8081" || srv.ReadHeaderTimeout == 0 || srv.WriteTimeout == 0 {
 		t.Fatalf("the server: %+v", srv)
 	}
@@ -106,5 +107,17 @@ func TestBrokerServerRefusesACallerWithoutAToken(t *testing.T) {
 		return rec2.Code == http.StatusNotFound
 	}() == false {
 		t.Fatal("the internal port serves only the broker routes")
+	}
+}
+
+func TestSchemeKnowsGatewayServiceAccountsAndCrews(t *testing.T) {
+	scheme, err := newScheme()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, obj := range []runtime.Object{&corev1.ServiceAccount{}, &kubemootv1alpha1.Crew{}} {
+		if gvks, _, err := scheme.ObjectKinds(obj); err != nil || len(gvks) == 0 {
+			t.Errorf("%T is not in the scheme: %v", obj, err)
+		}
 	}
 }

@@ -99,3 +99,7 @@ type failingReader struct{ client.Reader }
 func (failingReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
 	return errors.New("api server away")
 }
+
+func (failingReader) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+	return errors.New("api server away")
+}
