@@ -77,3 +77,14 @@ go build .
 ```
 
 Tickets live in memory; a restart forgets them and the client asks again. The token store behind connected accounts and the door's single-use marks (`internal/tokenstore`) has a NATS key-value backend, an OpenBao backend and a memory one behind one interface; its contract tests run against all three.
+
+## Testing against a real OpenBao
+
+The token store's OpenBao backend is checked on every test run against an in-process server that speaks KV version 2, and against a real OpenBao (or Vault compatible) server when `OPENBAO_ADDR` is set. The real-server checks cover the compare-and-swap create, a conflict on a stale revision, a version expiring by its time to live, and delete. They skip when the address is not set:
+
+```sh
+bao server -dev -dev-root-token-id=root &
+OPENBAO_ADDR=http://127.0.0.1:8200 OPENBAO_TOKEN=root go test ./internal/tokenstore -run OpenBaoServer
+```
+
+`OPENBAO_MOUNT` names the KV v2 mount (default `secret`, which a dev server provides). Each run writes under a prefix of its own and deletes what it wrote. The test accepts an `http` address because a dev server has no TLS; the liaison itself never does.
