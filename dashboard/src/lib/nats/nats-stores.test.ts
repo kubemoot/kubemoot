@@ -130,14 +130,26 @@ describe.skipIf(!haveRepo)('the definition against the docs and the bootstrap jo
 	it('creates every store the bootstrap job creates, and the job creates every store', () => {
 		const job = readFileSync(JOB, 'utf8');
 		const created = [...job.matchAll(/(?:stream_limits|kv_bucket|object_store) (\w+)/g)].map((m) => m[1]);
-		const known = new Set(STORES.map((s) => s.name));
+		const byJob = STORES.filter((s) => s.createdBy === undefined);
+		const known = new Set(byJob.map((s) => s.name));
 		expect(created.filter((n) => !known.has(n))).toEqual([]);
-		for (const s of STORES) expect(created, s.name).toContain(s.name);
+		for (const s of byJob) expect(created, s.name).toContain(s.name);
+	});
+
+	it('names the liaison\'s own stores with the prefix and size the liaison creates them with', () => {
+		const source = readFileSync(repo('crew-liaison/internal/tokenstore/config.go'), 'utf8')
+			+ readFileSync(repo('crew-liaison/internal/tokenstore/nats.go'), 'utf8');
+		expect(source).toContain('"kubemoot_liaison_"+purpose');
+		expect(source).toContain('maxBucketBytes = 64 << 20');
+		for (const s of STORES.filter((x) => x.createdBy === 'liaison')) {
+			expect(s.name.startsWith('kubemoot_liaison_'), s.name).toBe(true);
+			expect(s.defaultMaxBytes, s.name).toBe(64 * MIB);
+		}
 	});
 
 	it('gives each store the size limit the bootstrap job sets', () => {
 		const limits = jobLimits();
-		for (const s of STORES.filter((x) => x.defaultMaxBytes !== null)) {
+		for (const s of STORES.filter((x) => x.defaultMaxBytes !== null && x.createdBy === undefined)) {
 			expect(limits.get(s.name), s.name).toBe(s.defaultMaxBytes);
 		}
 	});
