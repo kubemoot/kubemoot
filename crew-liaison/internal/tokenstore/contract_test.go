@@ -48,9 +48,9 @@ type rigMaker func(t *testing.T) rig
 
 func backends() map[string]rigMaker {
 	return map[string]rigMaker{
-		"memory":  memoryRig,
-		"nats":    natsRig,
-		"openbao": baoRig,
+		"memory": memoryRig,
+		natsName: natsRig,
+		bao:      baoRig,
 	}
 }
 

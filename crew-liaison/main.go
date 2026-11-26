@@ -22,6 +22,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/liaison"
 	"github.com/kubemoot/kubemoot/crew-liaison/internal/signin"
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/tokenstore"
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
@@ -59,13 +60,16 @@ func main() {
 	}
 	svc := liaison.NewService(liaison.NewLister(k8s), gateway, tickets, maxInflight)
 	svc.WithDisplayName(os.Getenv("LIAISON_DISPLAY_NAME"))
-	if exporter, err := reportExporter(os.Getenv); err != nil {
-		log.Error(err, "conversation export is off")
-	} else if exporter != nil {
-		svc.WithExporter(exporter)
-	}
+	attachExporter(svc, log)
 
-	front, err := signInFront(log)
+	state, err := openState(os.Getenv)
+	if err != nil {
+		log.Error(err, "state backend")
+		os.Exit(1)
+	}
+	defer state.Close()
+
+	front, err := signInFront(log, state)
 	if err != nil {
 		log.Error(err, "sign-in front")
 		os.Exit(1)
@@ -191,7 +195,7 @@ func callerAuthenticator() (*identity.Authenticator, error) {
 // when LIAISON_SIGNIN_IDENTITY is set, else the front that relays one service's sign-in when
 // LIAISON_SIGNIN_UPSTREAM is set. It returns nil when neither is, which leaves the liaison
 // without a sign-in.
-func signInFront(log logr.Logger) (*liaison.SignInFront, error) {
+func signInFront(log logr.Logger, state *tokenstore.Opener) (*liaison.SignInFront, error) {
 	doorCfg, err := signin.DoorConfigFromEnv(os.Getenv, nil)
 	if err != nil {
 		return nil, err
@@ -199,6 +203,9 @@ func signInFront(log logr.Logger) (*liaison.SignInFront, error) {
 	if doorCfg != nil {
 		doorCfg.Logger = log.WithName("signin")
 		doorCfg.DisplayName = os.Getenv("LIAISON_DISPLAY_NAME")
+		if err := shareReplay(doorCfg, state, log); err != nil {
+			return nil, err
+		}
 		return doorFront(doorCfg)
 	}
 	cfg, err := signin.ConfigFromEnv(os.Getenv, nil)
@@ -213,6 +220,51 @@ func signInFront(log logr.Logger) (*liaison.SignInFront, error) {
 	return &liaison.SignInFront{
 		Handler: front.Handler(), ResourceMetadataURL: signin.ResourceMetadataURL(cfg.PublicURL),
 	}, nil
+}
+
+// attachExporter turns conversation export on when the report service is configured; a bad
+// setting leaves export off and says why.
+func attachExporter(svc *liaison.Service, log logr.Logger) {
+	exporter, err := reportExporter(os.Getenv)
+	if err != nil {
+		log.Error(err, "conversation export is off")
+		return
+	}
+	if exporter != nil {
+		svc.WithExporter(exporter)
+	}
+}
+
+// openState connects the backend that holds what the liaison must remember between requests.
+func openState(getenv func(string) string) (*tokenstore.Opener, error) {
+	cfg, err := tokenstore.ConfigFromEnv(getenv)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.Open()
+}
+
+// shareReplay moves the door's single-use memory into the shared store when the install runs
+// one, so every replica refuses a code or refresh token another replica already saw. With the
+// memory backend the door keeps it in its own process.
+func shareReplay(cfg *signin.DoorConfig, state *tokenstore.Opener, log logr.Logger) error {
+	if state == nil || !state.Shared() {
+		return nil
+	}
+	backend, err := state.Backend("door", cfg.ReplayLife())
+	if err != nil {
+		return err
+	}
+	sealer, err := signin.ParseKeys(cfg.SealKeys)
+	if err != nil {
+		return err
+	}
+	store, err := tokenstore.NewSealed(backend, sealer, cfg.ReplayLife())
+	if err != nil {
+		return err
+	}
+	cfg.Replay, err = signin.NewSharedReplay(store, log.WithName("replay"))
+	return err
 }
 
 func doorFront(cfg *signin.DoorConfig) (*liaison.SignInFront, error) {

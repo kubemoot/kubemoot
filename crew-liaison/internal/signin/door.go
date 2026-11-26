@@ -20,8 +20,9 @@ const (
 
 // Door is the liaison's own authorization server for its /mcp resource. The person proves who
 // they are at an identity provider the install names, and the door issues the chat app its own
-// signed access token and a sealed refresh token. It keeps no store: only keys, and a small
-// process-local memory that makes a code single use and a refresh token rotate.
+// signed access token and a sealed refresh token. It keeps no record of a person: only keys, and a
+// replay memory (process-local, or shared through the token store) that makes a code single use
+// and a refresh token rotate.
 type Door interface {
 	// Handler serves the metadata documents and the /oauth routes.
 	Handler() http.Handler
@@ -42,7 +43,7 @@ type door struct {
 	idp     identityProvider
 	fetcher *metadataFetcher
 	hop     *identity.HopSigner
-	replay  *replayCache
+	replay  ReplaySet
 	mux     *http.ServeMux
 }
 
@@ -75,7 +76,10 @@ func newDoor(cfg *DoorConfig, idp identityProvider) (*door, error) {
 	}
 	d := &door{
 		cfg: cfg, base: base, sealer: base.sealer, now: base.now, keys: keys, idp: idp,
-		replay: newReplayCache(), fetcher: newMetadataFetcher(cfg),
+		replay: cfg.Replay, fetcher: newMetadataFetcher(cfg),
+	}
+	if d.replay == nil {
+		d.replay = newReplayCache()
 	}
 	if err := d.loadHop(); err != nil {
 		return nil, err
