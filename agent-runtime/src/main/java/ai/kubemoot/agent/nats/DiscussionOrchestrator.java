@@ -1107,7 +1107,7 @@ public class DiscussionOrchestrator {
         enterAdvisory(state);
         events.get().opened(state, "external");
         spans.opened(state.threadId, state.crew, "external");
-        enterPhase(state, "thread_start");
+        enterPhase(state, MSG_THREAD_START);
         metrics.threadStarted();
         log.info("Thread {} started by {} -> ADVISORY phase", state.threadId, agentName);
     }
