@@ -169,12 +169,12 @@ func TestOverviewShowsConnectedAndMissingAndHidesUnofferedAccounts(t *testing.T)
 	r.connect(t, pAlice, nil)
 	s.Regs["mail"] = Registration{ClientID: "m"}
 	declared := []Declaration{
-		{Name: acctLib, DisplayName: "Library", Crews: []string{crewA}, Required: true},
+		{Name: acctLib, DisplayName: libraryTitle, Crews: []string{crewA}, Required: true},
 		{Name: "mail", DisplayName: "Mail", Crews: []string{crewA}},
 		{Name: "secret", DisplayName: "Not registered", Crews: []string{crewA}},
 	}
 	got, err := s.overviewOf(ctx, pAlice, declared)
-	if err != nil || len(got) != 2 || got[0].State != StateConnected || got[1].State != StateMissing || got[0].DisplayName != "Library" {
+	if err != nil || len(got) != 2 || got[0].State != StateConnected || got[1].State != StateMissing || got[0].DisplayName != libraryTitle {
 		t.Fatalf("overview: %+v %v", got, err)
 	}
 	other, _ := s.overviewOf(ctx, pBob, declared)

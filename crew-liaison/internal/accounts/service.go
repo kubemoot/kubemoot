@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
+
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/tokenstore"
 	"github.com/kubemoot/kubemoot/operator/pkg/identity"
 )
 
@@ -41,6 +45,7 @@ type Service struct {
 	Regs   map[string]Registration
 	Client *Client
 	Now    func() time.Time
+	Log    logr.Logger
 	// Broker leases tokens to the crews' gateways; nil when only the pages are in use.
 	Broker *Broker
 }
@@ -48,39 +53,15 @@ type Service struct {
 // PrincipalID is the vault key of a person the door signed in.
 func (s *Service) PrincipalID(user string) string { return s.People.ID(user) }
 
-// Offer is an account as one person can connect it: the crew's declaration, the install's
-// registration, and the crews that will use it.
-type Offer struct {
-	Declaration  Declaration
-	Registration Registration
-	// Crews are the crews that declare the account and that the install allows.
-	Crews []string
-}
-
-// Offered returns the account as it can be connected. ErrNotAllowed when no crew declares
-// it, the install did not register it, or none of the declaring crews is allowed.
+// Offered returns the account as it can be connected. ErrNotAllowed when the install did not
+// register it or no allowed crew declares it, ErrConflict when the allowed crews declare it
+// for different services (logged, so the install can see why a person cannot connect).
 func (s *Service) Offered(ctx context.Context, name string) (Offer, error) {
-	reg, ok := s.Regs[name]
-	if !ok {
-		return Offer{}, ErrNotAllowed
+	o, err := offerFor(ctx, s.Decls, s.Regs, name)
+	if errors.Is(err, ErrConflict) {
+		s.Log.Info("An account is not offered: its allowed crews declare different services", "account", name)
 	}
-	d, found, err := s.Decls.Account(ctx, name)
-	if err != nil {
-		return Offer{}, err
-	}
-	if !found {
-		return Offer{}, ErrNotAllowed
-	}
-	var crews []string
-	for _, c := range d.Crews {
-		if reg.Allows(c) {
-			crews = append(crews, c)
-		}
-	}
-	if len(crews) == 0 {
-		return Offer{}, ErrNotAllowed
-	}
-	return Offer{Declaration: d, Registration: reg, Crews: crews}, nil
+	return o, err
 }
 
 // OfferedFor is Offered for the account when the one crew named is among its crews.
@@ -89,7 +70,7 @@ func (s *Service) OfferedFor(ctx context.Context, name, crew string) (Offer, err
 	if err != nil {
 		return Offer{}, err
 	}
-	if !contains(o.Crews, crew) {
+	if !slices.Contains(o.Crews, crew) {
 		return Offer{}, ErrNotAllowed
 	}
 	return o, nil
@@ -115,12 +96,9 @@ func (s *Service) Complete(
 	if life := tokens.RefreshLifetime(); life > 0 && tokens.Refresh != "" {
 		tok.KeepUntil = now.Add(life)
 	}
-	_, err = s.Vault.Save(ctx, principal, o.Declaration.Name, tok, anyRevision)
+	_, err = s.Vault.Save(ctx, principal, o.Declaration.Name, tok, tokenstore.AnyRevision)
 	return err
 }
-
-// anyRevision overwrites a connection the person is connecting again.
-const anyRevision = ^uint64(0)
 
 func scopesOf(granted string, asked []string) []string {
 	if f := strings.Fields(granted); len(f) > 0 {
@@ -152,8 +130,9 @@ func (s *Service) Disconnect(ctx context.Context, principal, account string) (Ou
 // revoke tells the service, using the declaration as it stands now. A missing declaration or
 // endpoint means the service was not asked.
 func (s *Service) revoke(ctx context.Context, account string, tok Token) Outcome {
-	d, found, err := s.Decls.Account(ctx, account)
-	if err != nil || !found || d.RevocationURL == "" {
+	o, err := offerFor(ctx, s.Decls, s.Regs, account)
+	d := o.Declaration
+	if err != nil || d.RevocationURL == "" {
 		return Outcome{}
 	}
 	secret, hint := tok.Refresh, "refresh_token"
@@ -203,14 +182,19 @@ func (s *Service) overviewOf(ctx context.Context, principal string, declared []D
 		byName[c.Account] = c
 	}
 	var out []Entry
-	for _, d := range declared {
-		reg, ok := s.Regs[d.Name]
-		if !ok || !anyAllowed(reg, d.Crews) {
+	for _, name := range declaredNames(declared) {
+		reg, ok := s.Regs[name]
+		if !ok {
 			continue
 		}
+		o, err := resolve(declared, name, reg)
+		if err != nil {
+			continue
+		}
+		d := o.Declaration
 		e := Entry{
 			Account: d.Name, DisplayName: d.DisplayName, Purpose: d.Purpose, State: StateMissing, Required: d.Required,
-			Crews: allowedCrews(reg, d.Crews),
+			Crews: d.Crews,
 		}
 		if c, ok := byName[d.Name]; ok {
 			e.State, e.Scopes, e.GrantedAt, e.Crews = c.State, c.Scopes, c.GrantedAt, c.Crews
@@ -218,25 +202,6 @@ func (s *Service) overviewOf(ctx context.Context, principal string, declared []D
 		out = append(out, e)
 	}
 	return out, nil
-}
-
-func allowedCrews(reg Registration, crews []string) []string {
-	var out []string
-	for _, c := range crews {
-		if reg.Allows(c) {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-func anyAllowed(reg Registration, crews []string) bool {
-	for _, c := range crews {
-		if reg.Allows(c) {
-			return true
-		}
-	}
-	return false
 }
 
 // IssuerAccepted reports whether the "iss" a service sent on its redirect (RFC 9207) is the
@@ -249,4 +214,15 @@ func IssuerAccepted(iss string, reg Registration, d Declaration) bool {
 	got, err1 := url.Parse(iss)
 	want, err2 := url.Parse(d.AuthorizeURL)
 	return err1 == nil && err2 == nil && got.Scheme == "https" && got.Host == want.Host
+}
+
+// declaredNames lists each account name once, in the order first declared.
+func declaredNames(all []Declaration) []string {
+	var out []string
+	for _, d := range all {
+		if !slices.Contains(out, d.Name) {
+			out = append(out, d.Name)
+		}
+	}
+	return out
 }

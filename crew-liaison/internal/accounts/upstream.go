@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/netguard"
 )
 
 // What a call to a service's endpoint can end in besides tokens.
@@ -55,14 +57,26 @@ type Client struct {
 	allowHTTP bool
 }
 
-// NewClient returns a Client. httpClient nil is a client with a timeout.
+// NewClient returns a Client. httpClient nil is the guarded client: the endpoints are declared
+// by crews, so every connection goes only to an address on the public internet that was checked
+// when the name was resolved (a private address or a cluster service is refused, and so is a name
+// that changes its answer between the check and the connection), with no proxy.
 func NewClient(httpClient *http.Client) *Client {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: serviceWait}
+		httpClient = guardedHTTP(&netguard.Dialer{Lookup: netguard.SystemLookup, Allow: netguard.PublicAddr})
 	}
 	c := *httpClient
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &Client{http: &c}
+}
+
+// guardedHTTP is an http client that dials only through d.
+func guardedHTTP(d *netguard.Dialer) *http.Client {
+	d.Net.Timeout = serviceWait
+	return &http.Client{Timeout: serviceWait, Transport: &http.Transport{
+		Proxy: nil, DialContext: d.DialContext, TLSHandshakeTimeout: serviceWait,
+		ResponseHeaderTimeout: serviceWait, MaxResponseHeaderBytes: 16 << 10, DisableKeepAlives: true,
+	}}
 }
 
 // Exchange trades an authorization code (with the PKCE verifier) for tokens.
@@ -84,7 +98,7 @@ func (c *Client) token(ctx context.Context, endpoint string, reg Registration, f
 	if err != nil {
 		return Tokens{}, err
 	}
-	if status >= 400 && status < 500 {
+	if refusal(status, body) {
 		return Tokens{}, ErrRefused
 	}
 	var t Tokens
@@ -92,6 +106,23 @@ func (c *Client) token(ctx context.Context, endpoint string, reg Registration, f
 		return Tokens{}, ErrUnavailable
 	}
 	return t, nil
+}
+
+// refusal reports whether the service said the code, the refresh token or the client is not
+// valid: a 400 or 401 whose error is invalid_grant or invalid_client (RFC 6749 section 5.2). Any
+// other answer (a 408 or 429, another 4xx, a 5xx, a body with no such error) is the service
+// being unable to answer now, which never ends a connection.
+func refusal(status int, body []byte) bool {
+	if status != http.StatusBadRequest && status != http.StatusUnauthorized {
+		return false
+	}
+	var e struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &e) != nil {
+		return false
+	}
+	return e.Error == "invalid_grant" || e.Error == "invalid_client"
 }
 
 // Revoke asks the service to revoke token (RFC 7009). A service that does not answer 200 is

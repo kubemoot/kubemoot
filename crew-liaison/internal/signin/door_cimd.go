@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/kubemoot/kubemoot/crew-liaison/internal/netguard"
 )
 
 // Client ID metadata documents (draft-ietf-oauth-client-id-metadata-document): a chat app's
@@ -49,14 +51,14 @@ func newMetadataFetcher(cfg *DoorConfig) *metadataFetcher {
 	if burst == 0 {
 		burst = fetchBurst
 	}
-	dialer := &guardedDialer{lookup: systemLookup, allow: publicAddr}
+	dialer := &netguard.Dialer{Lookup: netguard.SystemLookup, Allow: netguard.PublicAddr}
 	if cfg.fetchLookup != nil {
-		dialer.lookup = cfg.fetchLookup
+		dialer.Lookup = cfg.fetchLookup
 	}
 	if cfg.fetchAllow != nil {
-		dialer.allow = cfg.fetchAllow
+		dialer.Allow = cfg.fetchAllow
 	}
-	dialer.dialer.Timeout = timeout
+	dialer.Net.Timeout = timeout
 	transport := &http.Transport{
 		// No proxy from the environment: a proxy would connect where the guard cannot see.
 		Proxy:                  nil,

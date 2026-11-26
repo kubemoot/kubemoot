@@ -59,6 +59,13 @@ type service struct {
 	body    func(r *http.Request)
 }
 
+// plainClient reaches the loopback servers the tests run; the guarded client is tested apart.
+func plainClient() *Client {
+	c := NewClient(&http.Client{})
+	c.allowHTTP = true
+	return c
+}
+
 func newService(t *testing.T) *service {
 	s := &service{valid: "r1", expires: 3600}
 	s.srv = httptest.NewServer(http.HandlerFunc(s.serve))
@@ -76,11 +83,14 @@ func (s *service) serve(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	if s.status != 0 {
 		w.WriteHeader(s.status)
+		if s.status == http.StatusBadRequest {
+			_, _ = w.Write([]byte(invalidGrant))
+		}
 		return
 	}
 	if r.PostForm.Get("grant_type") == "refresh_token" && r.PostForm.Get("refresh_token") != s.valid {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+		_, _ = w.Write([]byte(invalidGrant))
 		return
 	}
 	s.seq++
@@ -103,9 +113,9 @@ func newRig(t *testing.T) *rig {
 	regs := map[string]Registration{acctLib: {ClientID: testClientID, ClientSecret: "csecret", AllowedCrews: []string{crewGuide}}}
 	v, c := newTestVault(t, regs)
 	decls := fakeDecls{acctLib: {
-		Name: acctLib, TokenURL: svc.srv.URL + "/token", TokenHosts: []string{"api.example.org"}, Crews: []string{crewA, crewB},
+		Name: acctLib, TokenURL: svc.srv.URL + "/token", TokenHosts: []string{apiHostName}, Crews: []string{crewA, crewB},
 	}}
-	client := NewClient(nil)
+	client := plainClient()
 	client.allowHTTP = true
 	return &rig{broker: NewBroker(v, decls, regs, client, c.now), vault: v, clock: c, svc: svc}
 }
@@ -135,7 +145,7 @@ func TestLeaseUsesAFreshTokenWithoutCallingTheService(t *testing.T) {
 	r := newRig(t)
 	r.connect(t, pAlice, nil)
 	l, err := r.broker.Lease(context.Background(), pAlice, acctLib, crewA)
-	if err != nil || l.Token != "a1" || l.TokenHosts[0] != "api.example.org" {
+	if err != nil || l.Token != "a1" || l.TokenHosts[0] != apiHostName {
 		t.Fatalf("lease: %+v %v", l, err)
 	}
 	if r.svc.calls.Load() != 0 {
@@ -321,7 +331,7 @@ func TestClientCallsSendCredentialsAndRefuseUnsafeEndpoints(t *testing.T) {
 		_, _ = w.Write([]byte(`{"access_token":"a","refresh_token":"r","expires_in":60,"refresh_expires_in":120}`))
 	}))
 	defer srv.Close()
-	c := NewClient(nil)
+	c := plainClient()
 	d := Declaration{TokenURL: srv.URL}
 	c.allowHTTP = true
 	tok, err := c.Exchange(context.Background(), d, Registration{ClientID: testClientID, ClientSecret: "sec"}, "code", "ver", "https://door/cb")
@@ -344,7 +354,7 @@ func publicClientSendsItsIDInTheForm(t *testing.T, err error, auth, form string)
 }
 
 func TestClientRefusesUnsafeEndpoints(t *testing.T) {
-	c := NewClient(nil)
+	c := NewClient(&http.Client{})
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
 	// https only: a plain http endpoint is refused before any request.
@@ -365,7 +375,7 @@ func TestClientDoesNotFollowRedirectsAndBoundsAnswers(t *testing.T) {
 	defer target.Close()
 	redirecting := httptest.NewServer(http.RedirectHandler(target.URL, http.StatusTemporaryRedirect))
 	defer redirecting.Close()
-	c := NewClient(nil)
+	c := plainClient()
 	c.allowHTTP = true
 	if _, err := c.Refresh(context.Background(), Declaration{TokenURL: redirecting.URL}, Registration{}, "r"); err == nil {
 		t.Fatal("a redirect is not tokens")
@@ -391,7 +401,7 @@ func TestRevoke(t *testing.T) {
 		w.WriteHeader(status)
 	}))
 	defer srv.Close()
-	c := NewClient(nil)
+	c := plainClient()
 	c.allowHTTP = true
 	d := Declaration{RevocationURL: srv.URL}
 	if err := c.Revoke(context.Background(), d, Registration{ClientID: "c"}, "tok", "refresh_token"); err != nil || !strings.Contains(form, "token=tok") {
