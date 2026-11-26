@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -168,6 +170,31 @@ func (n *NATS) Names(ctx context.Context, group string) ([]string, error) {
 		}
 	}
 	_ = lister.Stop()
+	return out, nil
+}
+
+// Groups implements Backend.
+func (n *NATS) Groups(ctx context.Context) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, natsWait)
+	defer cancel()
+	kv, err := n.ready(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lister, err := kv.ListKeys(ctx)
+	if err != nil {
+		return nil, wrapNATS(err)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for key := range lister.Keys() {
+		if group, _, ok := strings.Cut(key, "."); ok && !seen[group] {
+			seen[group] = true
+			out = append(out, group)
+		}
+	}
+	_ = lister.Stop()
+	sort.Strings(out)
 	return out, nil
 }
 

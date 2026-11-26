@@ -291,6 +291,11 @@ func (b *OpenBao) Delete(ctx context.Context, group, name string) error {
 
 // Names implements Backend.
 func (b *OpenBao) Names(ctx context.Context, group string) ([]string, error) {
+	return b.list(ctx, group)
+}
+
+// list returns the keys under a group, or under the prefix when group is empty.
+func (b *OpenBao) list(ctx context.Context, group string) ([]string, error) {
 	status, body, err := b.call(ctx, "LIST", b.path("metadata", group, ""), nil)
 	if err != nil {
 		return nil, err
@@ -310,6 +315,21 @@ func (b *OpenBao) Names(ctx context.Context, group string) ([]string, error) {
 		return nil, errors.New("token store: openbao answered something unreadable")
 	}
 	return reply.Data.Keys, nil
+}
+
+// Groups implements Backend: KV v2 lists a folder's entries with a trailing slash.
+func (b *OpenBao) Groups(ctx context.Context) ([]string, error) {
+	keys, err := b.list(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if g := strings.TrimSuffix(k, "/"); g != k && g != "" {
+			out = append(out, g)
+		}
+	}
+	return out, nil
 }
 
 func baoStatus(status int) error {

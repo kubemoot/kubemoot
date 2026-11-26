@@ -162,10 +162,18 @@ func (f *fakeBao) put(w http.ResponseWriter, path string, raw []byte) {
 func (f *fakeBao) list(w http.ResponseWriter, path string) {
 	prefix := strings.TrimSuffix(path, "/") + "/"
 	var keys []string
+	seen := map[string]bool{}
 	for p := range f.secrets {
 		if strings.HasPrefix(p, prefix) {
 			if s := f.live(p); s != nil && s.hasValue {
-				keys = append(keys, strings.TrimPrefix(p, prefix))
+				rest := strings.TrimPrefix(p, prefix)
+				if i := strings.Index(rest, "/"); i >= 0 {
+					rest = rest[:i+1]
+				}
+				if !seen[rest] {
+					seen[rest] = true
+					keys = append(keys, rest)
+				}
 			}
 		}
 	}

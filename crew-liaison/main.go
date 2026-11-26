@@ -96,6 +96,7 @@ func main() {
 	defer stop()
 	go sweep(ctx, tickets)
 	startBroker(ctx, acct, k8s, log)
+	startPurge(ctx, acct, log.WithName("accounts"))
 	go func() {
 		log.Info("crew liaison listening",
 			"port", port, "maxInflight", maxInflight, "auth", token != "",

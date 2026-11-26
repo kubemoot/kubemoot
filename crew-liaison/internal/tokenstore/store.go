@@ -80,6 +80,9 @@ type Backend interface {
 	Delete(ctx context.Context, group, name string) error
 	// Names lists the names kept in a group.
 	Names(ctx context.Context, group string) ([]string, error)
+	// Groups lists every group that holds a value, for the sweep that purges records no
+	// declaration explains any more.
+	Groups(ctx context.Context) ([]string, error)
 }
 
 // wholeSeconds rounds a time to live up to the whole seconds NATS and OpenBao count in, so a
