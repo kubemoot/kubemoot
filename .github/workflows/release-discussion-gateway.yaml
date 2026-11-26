@@ -17,6 +17,8 @@ on:
       - 'operator/pkg/identity/**'
       - 'operator/pkg/mesh/**'
       - 'operator/pkg/natsconn/**'
+      - 'operator/pkg/filereload/**'
+      - 'operator/pkg/catransport/**'
       - 'operator/go.mod'
       - 'operator/go.sum'
       - '.github/scripts/retag-image.sh'
