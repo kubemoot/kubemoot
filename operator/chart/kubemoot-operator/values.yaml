@@ -601,12 +601,55 @@ liaison:
         key: hop-keys
       # How long a sign-in lasts at most, in hours, however it is used.
       refreshMaxHours: 24
-  # Outside services whose accounts a person may connect, keyed by account name (a DNS label).
-  # A Crew declares the accounts it needs in spec.connectedAccounts; this install registers a
-  # client with each service. The operator reports a Crew that declares a name missing here as
-  # ConnectedAccounts=False, reason UnregisteredAccount. Only the names are read today.
+  # Where the liaison keeps what it must remember between requests, sealed, with a time to live
+  # on every value: the door's single-use marks (a code or refresh token used twice is refused)
+  # and, when connectedAccounts is on, the connected accounts. "memory" keeps it in the pod: a
+  # restart forgets it and replicas do not share it, so it fits one replica and a trial.
+  # "nats" keeps it in a JetStream key-value bucket on the NATS server the install already runs
+  # (nats.* above; nothing new to install). "openbao" keeps it in an OpenBao (or compatible)
+  # KV version 2 mount, for installs that want a vault with its own audit log and policies.
+  # "" picks nats when nats.enabled and the door's identity is on, else memory.
+  state:
+    backend: ""
+    openbao:
+      address: ""            # https://... of the server
+      mount: secret          # the KV v2 mount
+      prefix: kubemoot-liaison
+      tokenSecret:           # a Secret you create: the token the liaison presents
+        name: ""
+        key: token
+      caSecret:              # optional: a Secret with the CA that signed the server certificate
+        name: ""
+        key: ca.crt
+  # Outside services whose accounts a person may connect, so a crew's tools act as that person
+  # there. A Crew declares the accounts it needs in spec.connectedAccounts (what, where the
+  # service's sign-in lives, which hosts the token may reach); this install registers a client
+  # with each service. The operator reports a Crew that declares a name missing here as
+  # ConnectedAccounts=False, reason UnregisteredAccount.
+  #
+  # Kubemoot keeps no one's data by default. Nothing is kept unless enabled is true, a crew
+  # declares the account and the person presses Connect. What is kept is a sealed token, deleted
+  # when the person disconnects or signs out of the door, after 30 days unused, and when the
+  # service's own lifetime for it ends. Needs signIn.identity (the person is the one the door
+  # signed in), auth.hashKeySecret, and state.backend nats or openbao when replicas is above 1.
   connectedAccounts:
+    enabled: false
+    # A Secret you create: "id:base64key" lines, each key 32 random bytes in base64. The first
+    # seals new records; older ones still open, so keys rotate. Apart from signIn.sealKeySecret.
+    sealKeySecret:
+      name: ""
+      key: vault-keys
+    # The port a crew's discussion gateway asks for a person's token and connection state. It
+    # is served inside the cluster only and checks the gateway's own ServiceAccount token.
+    brokerPort: 8081
+    # Account name (a DNS label) to the install's client at that service.
     accounts: {}
+    #   library:
+    #     clientId: "<the id registered at the service for <signIn.publicURL>/oauth/callback>"
+    #     clientSecret: {name: "", key: client-secret}   # optional; a public client uses PKCE alone
+    #     issuer: ""                # the service's issuer (RFC 9207); empty accepts its endpoint's host
+    #     allowedCrews: []          # empty: every crew that declares it; else names or namespace/name
+    #     maxLifetimeHours: 0       # the longest the service lets a connection stand; 0 for no limit
   # Public route through the Gateway API listener configured under `gateway` above.
   # The route carries exactly /mcp, plus /oauth and /.well-known when signIn is on, and nothing
   # else (never the dashboard); the hostname defaults to gateway.hostname.

@@ -123,6 +123,12 @@ spec:
             # The report Service's name, which its serving certificate names.
             - name: REPORT_SERVICE_NAME
               value: {{ printf "%s-report" (include "kubemoot-operator.fullname" .) | quote }}
+            {{- if and .Values.liaison.enabled .Values.liaison.connectedAccounts.enabled }}
+            # The liaison's account broker, which the gateway of a crew whose askers rule is
+            # connectedAccount asks whether a person is connected.
+            - name: KUBEMOOT_ACCOUNT_BROKER_URL
+              value: {{ printf "http://%s-liaison-broker.%s.svc:%v" (include "kubemoot-operator.fullname" .) .Release.Namespace .Values.liaison.connectedAccounts.brokerPort | quote }}
+            {{- end }}
             {{- with .Values.liaison.connectedAccounts.accounts }}
             {{- range $account, $_ := . }}
             {{- if not (regexMatch "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$" $account) }}

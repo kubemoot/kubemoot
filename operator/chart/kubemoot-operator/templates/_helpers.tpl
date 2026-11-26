@@ -419,3 +419,23 @@ or nothing. Pass "root", "resources" (the container's whole resources map) and "
 {{- printf "\n%s- name: GOMEMLIMIT\n%s  value: %s" $pad $pad ($v | quote) -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+The registrations of liaison.connectedAccounts.accounts as the JSON the liaison reads: the client
+id, the path of the mounted client secret (never its value), the issuer, the allowed crews and the
+longest lifetime.
+*/}}
+{{- define "kubemoot-operator.liaisonAccountsJSON" -}}
+{{- $out := dict -}}
+{{- range $name, $reg := .Values.liaison.connectedAccounts.accounts -}}
+{{- $one := dict "clientId" $reg.clientId -}}
+{{- if and $reg.clientSecret $reg.clientSecret.name -}}
+{{- $_ := set $one "clientSecretFile" (printf "/etc/kubemoot/accounts/%s-client-secret" $name) -}}
+{{- end -}}
+{{- with $reg.issuer -}}{{- $_ := set $one "issuer" . -}}{{- end -}}
+{{- with $reg.allowedCrews -}}{{- $_ := set $one "allowedCrews" . -}}{{- end -}}
+{{- with $reg.maxLifetimeHours -}}{{- $_ := set $one "maxLifetimeHours" . -}}{{- end -}}
+{{- $_ := set $out $name $one -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end }}
