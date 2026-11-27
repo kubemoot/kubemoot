@@ -122,6 +122,7 @@ func (s *Server) execute(
 	if err != nil {
 		return nil, RunOut{}, err
 	}
+	defer inputs.Close(staged)
 	res, err := s.Runner.Execute(ctx, in.Language, in.Code, runner.WithInputs(staged), runner.WithThread(prefix))
 	if err != nil {
 		return nil, RunOut{}, err
