@@ -10,11 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -75,8 +77,16 @@ type Runner struct {
 	// TempSize is the size limit of the private temporary directory of each run, in tmpfs syntax
 	// (256m); empty means DefaultTempSize. The memory it uses counts against the pod's limit.
 	TempSize string
+	// RequireProc refuses to run a program whose /proc cannot be replaced; otherwise the run goes on and
+	// the server logs it once.
+	RequireProc bool
+	// Logf reports what the helpers tell the server; nil means the standard logger.
+	Logf func(format string, args ...any)
 	// Self is the sandbox binary that confines the program; empty means this executable.
 	Self string
+
+	procOnce    sync.Once
+	beforeStart func() // a test hook, called after the helper's command is built and before it starts
 }
 
 // Option adjusts one run.
@@ -129,21 +139,74 @@ func (r *Runner) withSource(
 		return Result{}, err
 	}
 	cmdline := append(append([]string{}, argv(lang)...), file)
-	attr := &syscall.SysProcAttr{Setpgid: true}
-	confined := !r.Unconfined && j.confine
-	if confined {
-		mounts, err := r.mounts(j)
-		if err != nil {
-			return Result{}, err
+	if r.Unconfined || !j.confine {
+		return r.run(ctx, cmdline, dir, &syscall.SysProcAttr{Setpgid: true}, nil)
+	}
+	return r.runConfined(ctx, cmdline, dir, j)
+}
+
+// runConfined runs cmdline through the confining helper.
+func (r *Runner) runConfined(ctx context.Context, cmdline []string, dir string, j job) (Result, error) {
+	mounts, err := r.mounts(j)
+	if err != nil {
+		return Result{}, err
+	}
+	status, err := newStatusPipe()
+	if err != nil {
+		return Result{}, err
+	}
+	defer status.close()
+	spec := confine.Spec{Mounts: mounts, RunDir: dir, TempSize: r.tempSize(),
+		RequireProc: r.RequireProc, StatusFD: firstExtraFD}
+	cmdline = confine.Command(r.self(), spec, cmdline)
+	if r.beforeStart != nil {
+		r.beforeStart()
+	}
+	res, err := r.run(ctx, cmdline, dir, confine.Attr(), []*os.File{status.w})
+	r.noteProc(status.report())
+	return res, confinementError(res, err)
+}
+
+// firstExtraFD is the descriptor number of the first extra file a child receives.
+const firstExtraFD = 3
+
+// statusPipe carries the helper's reports to the server.
+type statusPipe struct{ r, w *os.File }
+
+func newStatusPipe() (*statusPipe, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	return &statusPipe{r: r, w: w}, nil
+}
+
+func (p *statusPipe) close() {
+	_ = p.r.Close()
+	_ = p.w.Close()
+}
+
+// report is what the helper wrote, read once the run has ended and the parent's copy of the write end is closed.
+func (p *statusPipe) report() string {
+	_ = p.w.Close()
+	_ = p.r.SetReadDeadline(time.Now().Add(time.Second))
+	b, _ := io.ReadAll(io.LimitReader(p.r, 4096))
+	return strings.TrimSpace(string(b))
+}
+
+// noteProc logs, once, that a run could not get its own /proc.
+func (r *Runner) noteProc(report string) {
+	if !strings.HasPrefix(report, confine.ProcNotReplaced) {
+		return
+	}
+	r.procOnce.Do(func() {
+		logf := r.Logf
+		if logf == nil {
+			logf = log.Printf
 		}
-		cmdline = confine.Command(r.self(), mounts, dir, r.tempSize(), cmdline)
-		attr = confine.Attr()
-	}
-	res, err := r.run(ctx, cmdline, dir, attr)
-	if confined {
-		err = confinementError(res, err)
-	}
-	return res, err
+		logf("code-sandbox: programs keep the host's /proc (%s); the kernel's ptrace rules still deny other "+
+			"processes, and SANDBOX_REQUIRE_PROC=1 refuses to run instead", report)
+	})
 }
 
 // confinementError turns a helper that could not set the view up, or a program that could not start in
@@ -162,6 +225,7 @@ func confinementError(res Result, err error) error {
 
 // mounts are the views that replace the workspace directories that exist. A directory that cannot be
 // examined for a reason other than being absent stops the run: the program must not start with it visible.
+// The helper opens the discussion's folder itself, so nothing is resolved here.
 func (r *Runner) mounts(j job) ([]confine.Mount, error) {
 	var out []confine.Mount
 	for _, dir := range r.WorkspaceDirs {
@@ -174,20 +238,9 @@ func (r *Runner) mounts(j job) ([]confine.Mount, error) {
 		case !info.IsDir():
 			continue
 		}
-		out = append(out, confine.Mount{Path: dir, View: threadView(dir, j.thread)})
+		out = append(out, confine.Mount{Path: dir, Thread: j.thread})
 	}
 	return out, nil
-}
-
-// threadView is the discussion's folder under dir, or empty when there is no such folder.
-func threadView(dir, thread string) string {
-	if thread == "" || !filepath.IsLocal(thread) {
-		return ""
-	}
-	if err := inputs.CheckDir(dir, strings.Split(strings.TrimSuffix(thread, "/"), "/")); err != nil {
-		return ""
-	}
-	return filepath.Join(dir, thread)
 }
 
 // DefaultTempSize is the size of the private temporary directory a program gets.
@@ -278,7 +331,9 @@ func (c ctxReader) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-func (r *Runner) run(ctx context.Context, argv []string, dir string, attr *syscall.SysProcAttr) (Result, error) {
+func (r *Runner) run(
+	ctx context.Context, argv []string, dir string, attr *syscall.SysProcAttr, extra []*os.File,
+) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
 
@@ -291,6 +346,7 @@ func (r *Runner) run(ctx context.Context, argv []string, dir string, attr *sysca
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.SysProcAttr = attr
+	cmd.ExtraFiles = extra
 	cmd.Cancel = func() error { return killGroup(cmd) }
 	// A background child that keeps stdout open gets this long before the pipes close.
 	cmd.WaitDelay = 250 * time.Millisecond

@@ -53,6 +53,7 @@ func main() {
 		WorkspaceDirs: workspaceDirs(),
 		Unconfined:    os.Getenv("SANDBOX_CONFINEMENT") == confinementOff,
 		TempSize:      tempSize(),
+		RequireProc:   os.Getenv("SANDBOX_REQUIRE_PROC") != "",
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

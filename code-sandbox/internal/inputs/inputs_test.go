@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	mine  = "ns/crew/thread-a/"
-	other = "ns/crew/thread-b/"
-	key   = "k8s-config/001-resources_get"
+	crewDir = "crew"
+	mine    = "ns/crew/thread-a/"
+	other   = "ns/crew/thread-b/"
+	key     = "k8s-config/001-resources_get"
 )
 
 func fixture(t *testing.T) Resolver {
@@ -180,5 +181,32 @@ func TestSharedVectors(t *testing.T) {
 		if (err == nil) != (k.Inputs == "ok") {
 			t.Errorf("key %q: inputs = %v, want %s", k.Key, err, k.Inputs)
 		}
+	}
+}
+
+func TestOpenDirRefusesALinkAnywhereInThePath(t *testing.T) {
+	r := fixture(t)
+	root := r.Roots[1]
+	if err := os.Symlink(filepath.Join(root, other), filepath.Join(root, "ns", crewDir, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "ns", crewDir), filepath.Join(root, "ns", "alias")); err != nil {
+		t.Fatal(err)
+	}
+	for _, parts := range [][]string{{"ns", crewDir, "linked"}, {"ns", "alias", "thread-a"}} {
+		if f, err := OpenDir(root, parts); !errors.Is(err, ErrLink) {
+			if f != nil {
+				_ = f.Close()
+			}
+			t.Errorf("%v: want ErrLink, got %v", parts, err)
+		}
+	}
+	f, err := OpenDir(root, []string{"ns", crewDir, "thread-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	if _, err := OpenDir(root, []string{"ns", crewDir, "missing"}); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a missing folder is not a link: %v", err)
 	}
 }
