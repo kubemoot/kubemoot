@@ -27,6 +27,7 @@ import ai.kubemoot.agent.modelserver.ServerSelector;
 import ai.kubemoot.agent.modelserver.ServerState;
 import ai.kubemoot.agent.modelserver.StreamedChat;
 import ai.kubemoot.agent.rag.RagClient;
+import ai.kubemoot.agent.signal.SignalScope;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
@@ -134,6 +135,27 @@ public class ChatService {
     /** The current tool set; one read, so a caller works with a single consistent snapshot. */
     private ToolSet tools() {
         return toolSet.get();
+    }
+
+    /**
+     * The tools offered in a tool loop: the agent's MCP tools and, during a discussion turn whose
+     * archetype declares signals, the built-in signal tool (see {@link SignalScope}). An MCP tool
+     * of the same name is left out, since the built-in one answers the call.
+     */
+    private List<ToolSpecification> loopSpecs() {
+        var specs = tools().specs();
+        var scope = SignalScope.current();
+        if (scope == null) {
+            return specs;
+        }
+        var offered = new ArrayList<ToolSpecification>(specs.size() + 1);
+        for (var spec : specs) {
+            if (!scope.handles(spec.name())) {
+                offered.add(spec);
+            }
+        }
+        offered.add(scope.spec());
+        return offered;
     }
     /** This agent's characters per prompt token, learned from the engine's reported prompt sizes. */
     private final CharsPerToken charsPerToken = new CharsPerToken();
@@ -362,7 +384,7 @@ public class ChatService {
         // char count so the predictor can gate against in-flight + this-call
         // KV pressure. Crude chars/4 with a safety pad; tighter accuracy
         // via real tokenizer comes in Phase D2 (operator /api/show probe).
-        int promptCharCount = PromptSize.chars(messages, tools().specs());
+        int promptCharCount = PromptSize.chars(messages, loopSpecs());
         MullingPick pick = pickMullingChatModel(promptCharCount, wait, request.discussionThreadId(),
                 CallObservation.KIND_TOOL_TURN);
         String serverName = pick.serverName();
@@ -774,7 +796,7 @@ public class ChatService {
         if (contextLength <= 0) {
             return java.util.Optional.empty();
         }
-        long next = PromptSize.nextPromptTokens(state.allMessages, tools().specs(),
+        long next = PromptSize.nextPromptTokens(state.allMessages, loopSpecs(),
                 state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall, charsPerToken);
         boolean holdsOutput = toolerHoldsOutput(state, toolerRawOutput);
         long reserve = holdsOutput ? ToolResultBudget.replyReserve(contextLength) : 0;
@@ -805,7 +827,7 @@ public class ChatService {
         }
         log.info("agent {}: the next prompt (~{} tokens) did not fit the {}-token context; replaced {} earlier tool "
                 + "result(s) with a note that they were removed", properties.agentName(), next, contextLength, replaced);
-        return ToolResultCompaction.estimate(state.allMessages, tools().specs(), charsPerToken)
+        return ToolResultCompaction.estimate(state.allMessages, loopSpecs(), charsPerToken)
                 < contextLength - ToolResultBudget.replyReserve(contextLength);
     }
 
@@ -817,7 +839,7 @@ public class ChatService {
      * further. The next turn is estimated afresh, since the engine's last report no longer applies.
      */
     private int shrinkPromptToWindow(ToolLoopState state, long window, long actualTokens) {
-        var specs = tools().specs();
+        var specs = loopSpecs();
         long estimate = ToolResultCompaction.estimate(state.allMessages, specs, charsPerToken);
         double missed = actualTokens > estimate ? (double) estimate / actualTokens : 1.0;
         long target = (long) ((window - ToolResultBudget.replyReserve(window)) * missed);
@@ -868,7 +890,7 @@ public class ChatService {
         if (!ContextRejection.isCausedBy(error)) {
             return java.util.Optional.empty();
         }
-        var specs = tools().specs();
+        var specs = loopSpecs();
         long estimate = PromptSize.nextPromptTokens(state.allMessages, specs, state.lastPromptTokens,
                 state.lastReplyTokens, state.messagesAtLastCall, charsPerToken);
         ContextRejection.reportedPromptTokens(error).ifPresent(
@@ -932,7 +954,7 @@ public class ChatService {
      */
     private AiMessage invokeModelForLoop(ChatModel modelForThisCall, ToolLoopState state, long contextLength) {
         ChatResponse response;
-        var toolSpecList = tools().specs();
+        var toolSpecList = loopSpecs();
         long sentChars = PromptSize.estimateChars(state.allMessages, toolSpecList);
         if (toolSpecList.isEmpty()) {
             response = modelForThisCall.chat(dev.langchain4j.model.chat.request.ChatRequest.builder()
@@ -1107,7 +1129,7 @@ public class ChatService {
      * is the honest escape.
      */
     private boolean computeContractNeedsRetry(AiMessage aiMessage, ToolLoopState state) {
-        if (!properties.discuss().computeContract() || isNoDataDeclaration(aiMessage.text())) {
+        if (!properties.discuss().computeContract() || isNoDataDeclaration(aiMessage.text()) || signalsNoFinding()) {
             return false;
         }
         boolean artifactOk = !inputReferencesArtifact(state) || state.codeReferencedArtifact;
@@ -1139,7 +1161,7 @@ public class ChatService {
      */
     private boolean computeGroundingApplies(AiMessage aiMessage, ToolLoopState state) {
         return properties.discuss().computeGrounding() && state.toolsExecuted
-                && !isNoDataDeclaration(aiMessage.text());
+                && !isNoDataDeclaration(aiMessage.text()) && !signalsNoFinding();
     }
 
     private java.util.Optional<AiMessage> groundedComputeAnswer(AiMessage aiMessage, ToolLoopState state) {
@@ -1327,6 +1349,12 @@ public class ChatService {
         return answer.equals("NO_DATA") || answer.startsWith("NO_DATA:");
     }
 
+    /** True when this turn's signal call says the agent has no finding (no data, a missing tool, nothing to add). */
+    private static boolean signalsNoFinding() {
+        var scope = SignalScope.current();
+        return scope != null && scope.declaresNoFinding();
+    }
+
     /** Strip a reasoning model's &lt;think&gt; block and normalize, so a sentinel check
      *  sees only the agent's actual answer (shared by the NO_DATA / gap checks). */
     private static String normalizeAnswer(String text) {
@@ -1377,16 +1405,31 @@ public class ChatService {
     private void executeToolCalls(AiMessage aiMessage, ToolLoopState state, long contextLength,
                                   boolean toolerRawOutput) {
         long promptTokens = contextLength <= 0 ? 0 : PromptSize.nextPromptTokens(state.allMessages,
-                tools().specs(), state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall,
+                loopSpecs(), state.lastPromptTokens, state.lastReplyTokens, state.messagesAtLastCall,
                 charsPerToken);
         var budget = new ToolResultBudget(contextLength, promptTokens, charsPerToken);
+        var signalScope = SignalScope.current();
         for (var toolRequest : aiMessage.toolExecutionRequests()) {
-            if (state.repeatGuard.refuses(toolRequest.name(), toolRequest.arguments())) {
+            if (signalScope != null && signalScope.handles(toolRequest.name())) {
+                recordSignalCall(toolRequest, state, signalScope);
+            } else if (state.repeatGuard.refuses(toolRequest.name(), toolRequest.arguments())) {
                 refuseRepeatedCall(toolRequest, state, toolerRawOutput);
             } else {
                 executeToolCall(toolRequest, state, budget, toolerRawOutput, contextLength);
             }
         }
+    }
+
+    /**
+     * The agent recorded its verdict: the call is answered here and is not a tool call of the
+     * agent's work, so it is not stored, counted, or part of a tooler's output.
+     */
+    private void recordSignalCall(dev.langchain4j.agent.tool.ToolExecutionRequest toolRequest, ToolLoopState state,
+                                  SignalScope scope) {
+        String answer = scope.handle(toolRequest.arguments());
+        state.allMessages.add(new ToolExecutionResultMessage(toolRequest.id(), toolRequest.name(), answer));
+        log.info("agent {}: signal tool called: {}", properties.agentName(),
+                scope.call().map(c -> c.kind()).orElse("(not recorded)"));
     }
 
     private void executeToolCall(dev.langchain4j.agent.tool.ToolExecutionRequest toolRequest, ToolLoopState state,
