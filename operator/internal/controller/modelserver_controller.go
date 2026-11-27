@@ -661,6 +661,16 @@ func (r *ModelServerReconciler) updateStatus(ctx context.Context, server *aiv1al
 // condition last, after every patch of the reconcile, so every path (including the
 // early returns of an unreachable server) states it from the current record.
 func (r *ModelServerReconciler) updateStatusWaiting(ctx context.Context, server *aiv1alpha1.ModelServer, ready bool, phase, message string, waiting error) (ctrl.Result, error) {
+	return r.writeStatus(ctx, server, ready, phase, phase, message, waiting)
+}
+
+// updateStatusReason is updateStatus for a phase whose Ready condition gives its
+// own reason.
+func (r *ModelServerReconciler) updateStatusReason(ctx context.Context, server *aiv1alpha1.ModelServer, ready bool, phase, reason, message string) (ctrl.Result, error) {
+	return r.writeStatus(ctx, server, ready, phase, reason, message, nil)
+}
+
+func (r *ModelServerReconciler) writeStatus(ctx context.Context, server *aiv1alpha1.ModelServer, ready bool, phase, reason, message string, waiting error) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	setCalibratedCondition(server, waiting)
 
@@ -671,7 +681,7 @@ func (r *ModelServerReconciler) updateStatusWaiting(ctx context.Context, server 
 	condition := metav1.Condition{
 		Type:               conditionTypeReady,
 		Status:             metav1.ConditionFalse,
-		Reason:             phase,
+		Reason:             reason,
 		Message:            message,
 		LastTransitionTime: metav1.Now(),
 	}
@@ -985,6 +995,8 @@ func (r *ModelServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// A server that names a Service by spec.serviceRef finds its servers
 		// from the Service's ports, so a change to the Service reconciles it.
 		Watches(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(r.servicesToServers)).
+		// Its endpoints say whether anything runs behind the Service.
+		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(r.endpointSlicesToServers)).
 		// A server's catalog merges the Model objects in its namespace that name it,
 		// so adding, changing or removing one reconciles the server at once.
 		Watches(&aiv1alpha1.Model{}, handler.EnqueueRequestsFromMapFunc(modelToServer),

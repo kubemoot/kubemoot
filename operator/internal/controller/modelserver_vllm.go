@@ -45,6 +45,12 @@ func (r *ModelServerReconciler) reconcileVLLM(ctx context.Context, server *aiv1a
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
 
+	if message, none := r.noReadyEndpoints(ctx, server); none {
+		dropLiveCapacity(server)
+		log.Info("No ready endpoint behind the Service", "server", server.Name)
+		return r.updateStatusReason(ctx, server, false, phaseUnavailable, reasonNoReadyEndpoints, message)
+	}
+
 	if done, result, err := r.discoverServers(ctx, server, httpClient); done {
 		return result, err
 	}
@@ -56,7 +62,8 @@ func (r *ModelServerReconciler) reconcileVLLM(ctx context.Context, server *aiv1a
 	snap, err := r.probeSnapshot(ctx, server, httpClient)
 	if err != nil {
 		log.Error(err, "No vLLM server answered", "server", server.Name)
-		return r.updateStatus(ctx, server, false, "Failed", fmt.Sprintf("No vLLM server answered: %v", err))
+		dropLiveCapacity(server)
+		return r.updateStatusReason(ctx, server, false, phaseFailed, reasonProbeFailed, fmt.Sprintf("No vLLM server answered: %v", err))
 	}
 
 	server.Status.ServerInfo = &aiv1alpha1.ServerInfo{LastChecked: time.Now().UTC().Format(time.RFC3339)}

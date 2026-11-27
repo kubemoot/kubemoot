@@ -221,7 +221,10 @@ type ServerScheduling struct {
 
 // ModelServerStatus defines the observed state of ModelServer.
 type ModelServerStatus struct {
-	// Phase is the current phase (Pending, Ready, Failed)
+	// Phase is the current phase: Pending, Ready, Unavailable (a vLLM server whose
+	// Service has no ready endpoint; the Ready condition's reason is NoReadyEndpoints),
+	// or Failed (a server whose endpoints are ready but that does not answer, or
+	// cannot be set up; the Ready condition's reason is ProbeFailed for the former)
 	// +optional
 	Phase string `json:"phase,omitempty"`
 

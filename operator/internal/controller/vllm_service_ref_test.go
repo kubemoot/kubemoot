@@ -213,8 +213,18 @@ func TestDiscoverFailsWhenTheServiceIsMissing(t *testing.T) {
 // reconcileRef reconciles the serviceRef server over a Service and fake servers.
 func reconcileRef(t *testing.T, roots servedRoots, ports ...int32) (*aiv1alpha1.ModelServer, *ModelServerReconciler) {
 	t.Helper()
+	var extra []client.Object
+	if len(ports) > 0 {
+		extra = append(extra, refSlice(true))
+	}
+	return reconcileRefWith(t, roots, extra, ports...)
+}
+
+// reconcileRefWith is reconcileRef over extra objects (EndpointSlices, pods, nodes).
+func reconcileRefWith(t *testing.T, roots servedRoots, extra []client.Object, ports ...int32) (*aiv1alpha1.ModelServer, *ModelServerReconciler) {
+	t.Helper()
 	p := refServer()
-	objs := []client.Object{p}
+	objs := append([]client.Object{p}, extra...)
 	if len(ports) > 0 {
 		objs = append(objs, refService1(ports...))
 	}
