@@ -39,6 +39,7 @@ func workspace(t *testing.T) string {
 func confined(t *testing.T, ws string) *Runner {
 	t.Helper()
 	r := newRunner(t)
+	r.Unconfined = false
 	r.WorkspaceDirs = []string{ws}
 	r.Timeout = 20 * time.Second
 	probe, err := r.Execute(context.Background(), "bash", "true", WithThread(threadA))
@@ -48,11 +49,12 @@ func confined(t *testing.T, ws string) *Runner {
 	return r
 }
 
-// skipOrFail skips a confinement test on a host without user namespaces, and fails it where CI or
-// REQUIRE_CONFINEMENT says the host must have them, so a missing capability cannot pass silently.
+// skipOrFail skips a confinement test on a host without user namespaces, and fails it where
+// REQUIRE_CONFINEMENT says the host must have them (the pull request CI job sets it), so a missing
+// capability cannot pass silently there.
 func skipOrFail(t *testing.T, format string, args ...any) {
 	t.Helper()
-	if os.Getenv("CI") != "" || os.Getenv("REQUIRE_CONFINEMENT") != "" {
+	if os.Getenv("REQUIRE_CONFINEMENT") != "" {
 		t.Fatalf(format, args...)
 	}
 	t.Skipf(format, args...)

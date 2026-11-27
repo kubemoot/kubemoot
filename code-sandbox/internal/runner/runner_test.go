@@ -8,9 +8,15 @@ import (
 	"time"
 )
 
+// newRunner is a runner for tests of program behaviour. On a host that cannot confine a program it
+// runs unconfined, so those tests still run there; the confinement tests build theirs with confined.
 func newRunner(t *testing.T) *Runner {
 	t.Helper()
-	return &Runner{Timeout: 10 * time.Second, MaxOutput: 64 * 1024, TempDir: t.TempDir()}
+	r := &Runner{Timeout: 10 * time.Second, MaxOutput: 64 * 1024, TempDir: t.TempDir()}
+	if os.Getenv("REQUIRE_CONFINEMENT") == "" && r.ConfinementAvailable(context.Background()) != nil {
+		r.Unconfined = true
+	}
+	return r
 }
 
 func execute(t *testing.T, r *Runner, language, code string) Result {

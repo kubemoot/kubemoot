@@ -183,10 +183,10 @@ func TestExecuteSchemaOffersInputsAndKeepsTheLanguageEnum(t *testing.T) {
 	}
 }
 
-// skipOrFail skips on a host without user namespaces, and fails where CI or REQUIRE_CONFINEMENT says it must have them.
+// skipOrFail skips on a host without user namespaces, and fails where REQUIRE_CONFINEMENT says it must have them.
 func skipOrFail(t *testing.T, msg string) {
 	t.Helper()
-	if os.Getenv("CI") != "" || os.Getenv("REQUIRE_CONFINEMENT") != "" {
+	if os.Getenv("REQUIRE_CONFINEMENT") != "" {
 		t.Fatal(msg)
 	}
 	t.Skip(msg)

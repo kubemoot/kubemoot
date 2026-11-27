@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -75,7 +76,7 @@ func TestServeListenerServesThenStops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &server.Server{Runner: &runner.Runner{Timeout: time.Second, MaxOutput: 1024, TempDir: t.TempDir()}}
+	s := &server.Server{Runner: &runner.Runner{Timeout: time.Second, MaxOutput: 1024, TempDir: t.TempDir(), Unconfined: !confinable(t)}}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- serveListener(ctx, s, ln) }()
@@ -125,7 +126,7 @@ func TestServeHTTPServesOnThePort(t *testing.T) {
 	}
 	port := probe.Addr().(*net.TCPAddr).Port
 	_ = probe.Close()
-	s := &server.Server{Runner: &runner.Runner{Timeout: time.Second, MaxOutput: 1024, TempDir: t.TempDir()}}
+	s := &server.Server{Runner: &runner.Runner{Timeout: time.Second, MaxOutput: 1024, TempDir: t.TempDir(), Unconfined: !confinable(t)}}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- serve(ctx, transportHTTP, s, port) }()
@@ -145,4 +146,15 @@ func TestServeHTTPServesOnThePort(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("shutdown returned %v", err)
 	}
+}
+
+// confinable reports whether this host can confine a program; tests of the transport run unconfined
+// where it cannot, unless REQUIRE_CONFINEMENT says it must.
+func confinable(t *testing.T) bool {
+	t.Helper()
+	if os.Getenv("REQUIRE_CONFINEMENT") != "" {
+		return true
+	}
+	r := &runner.Runner{Timeout: 5 * time.Second, MaxOutput: 1024, TempDir: t.TempDir()}
+	return r.ConfinementAvailable(context.Background()) == nil
 }

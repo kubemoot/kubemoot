@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,11 @@ func codeArgs(language, code string) map[string]any {
 
 func newServer(t *testing.T) *Server {
 	t.Helper()
-	return &Server{Runner: &runner.Runner{Timeout: 10 * time.Second, MaxOutput: 64 * 1024, TempDir: t.TempDir()}}
+	r := &runner.Runner{Timeout: 10 * time.Second, MaxOutput: 64 * 1024, TempDir: t.TempDir()}
+	if os.Getenv("REQUIRE_CONFINEMENT") == "" && r.ConfinementAvailable(context.Background()) != nil {
+		r.Unconfined = true
+	}
+	return &Server{Runner: r}
 }
 
 func allText(res *mcp.CallToolResult) string {
