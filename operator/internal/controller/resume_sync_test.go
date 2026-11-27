@@ -12,6 +12,8 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	kubemootv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
@@ -78,9 +80,7 @@ func TestBuildAgentResume(t *testing.T) {
 		a.Annotations = map[string]string{triageSummaryAnno: "node health and capacity"}
 	})
 	bare := mkResumeAgent(testCrewNamespace, "x", testCrewName, "", nil)
-	cli := fake.NewClientBuilder().WithScheme(resumeScheme(t)).WithObjects(a, bare).Build()
-	rec := &AgentReconciler{Client: cli}
-	r := rec.buildAgentResume(context.Background(), a, nil)
+	r := buildAgentResume(a)
 	if r.Name != testK8sNodes || r.Role != testRoleTooler || r.Description != "k8s-nodes desc" {
 		t.Errorf("unexpected base fields: %+v", r)
 	}
@@ -92,7 +92,7 @@ func TestBuildAgentResume(t *testing.T) {
 	}
 
 	// Empty role defaults to tooler.
-	if got := rec.buildAgentResume(context.Background(), bare, nil); got.Role != testRoleTooler {
+	if got := buildAgentResume(bare); got.Role != testRoleTooler {
 		t.Errorf("empty role default = %q, want tooler", got.Role)
 	}
 }
@@ -104,13 +104,11 @@ func TestBuildAgentResumeSummaryFromSpec(t *testing.T) {
 		a.Spec.TriageSummary = "explains what a crew status means"
 		a.Annotations = map[string]string{triageSummaryAnno: "older annotation"}
 	})
-	cli := fake.NewClientBuilder().WithScheme(resumeScheme(t)).WithObjects(both).Build()
-	rec := &AgentReconciler{Client: cli}
-	if got := rec.buildAgentResume(context.Background(), both, nil).Summary; got != "explains what a crew status means" {
+	if got := buildAgentResume(both).Summary; got != "explains what a crew status means" {
 		t.Errorf("summary = %q, want spec.triageSummary", got)
 	}
 	both.Spec.TriageSummary = ""
-	if got := rec.buildAgentResume(context.Background(), both, nil).Summary; got != "older annotation" {
+	if got := buildAgentResume(both).Summary; got != "older annotation" {
 		t.Errorf("summary = %q, want the annotation when the spec is empty", got)
 	}
 }
@@ -169,5 +167,27 @@ func TestDiscoverRAGSourceDefaults(t *testing.T) {
 	}
 	if embRef != testNomicEmbed || ns != testCrewNamespace {
 		t.Errorf("embRef/ns = %q/%q, want nomic-embed/crew-x", embRef, ns)
+	}
+}
+
+// TestResumeIgnoresPromptText: the resume is the declared fields only, so the text of
+// an agent's PromptModules neither appears in it nor changes its hash.
+func TestResumeIgnoresPromptText(t *testing.T) {
+	a := mkResumeAgent(testCrewNamespace, "a", testCrewName, testRoleTooler, func(a *kubemootv1alpha1.Agent) {
+		a.Spec.PromptRefs = []string{"a-system"}
+	})
+	cli := fake.NewClientBuilder().WithScheme(resumeScheme(t)).WithObjects(a, &kubemootv1alpha1.PromptModule{
+		ObjectMeta: metav1.ObjectMeta{Name: "a-system", Namespace: testCrewNamespace},
+		Spec:       kubemootv1alpha1.PromptModuleSpec{Content: "LONG PROMPT TEXT"},
+	}).Build()
+	coord := mkResumeAgent(testCrewNamespace, testHomelabCoordinator, testCrewName, testRoleCoordinator, nil)
+	r := &AgentReconciler{Client: cli}
+	resumes := r.compileCrewResumes(context.Background(), coord, testCrewName)
+	raw, err := json.Marshal(resumes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "LONG PROMPT TEXT") || strings.Contains(string(raw), `"prompt"`) {
+		t.Errorf("resume carries prompt text: %s", raw)
 	}
 }

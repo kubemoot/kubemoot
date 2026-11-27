@@ -107,10 +107,11 @@ accuracy, not as the main selection signal.
 A vague resume gets a Tooler overlooked or selected for the wrong questions. A crisp,
 concrete resume produces reliable subcommittee selection.
 
-The resume also carries the text of the agent's own prompt modules, the ones no other agent
-in the crew references (typically its `<agent-name>-system` module). Put what the agent
-fetches or decides in that module, in the words questions use. Modules that several agents
-share are left out of the resume, so a line in a shared module does not help selection.
+The resume is what the agent's author declares: description, triage summary, keywords,
+tools and channels. The text of its prompt modules is not part of it, because a long prompt
+buries the short statement of what the agent answers and pulls the ranking toward the
+prompt's vocabulary. Put what the agent fetches or decides in `spec.description` and
+`spec.triageSummary`, in the words questions use.
 
 **`spec.description`** (shown in the dashboard, included in the catalog the coordinator
 reasons over): one sentence, declarative, naming the domain, the resource types, and

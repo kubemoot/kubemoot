@@ -54,18 +54,6 @@ func TestHashResumes_ChangeDetection(t *testing.T) {
 	}
 }
 
-func TestHashResumes_PromptChangeDetection(t *testing.T) {
-	resumes1 := []AgentResume{
-		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Prompt: "WHEN asked about nodes THEN list them"},
-	}
-	resumes2 := []AgentResume{
-		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Prompt: "WHEN asked about nodes THEN list them with capacity"},
-	}
-	if HashResumes(resumes1) == HashResumes(resumes2) {
-		t.Error("HashResumes should differ when the system prompt changes (so the resume re-embeds)")
-	}
-}
-
 func TestHashResumes_Empty(t *testing.T) {
 	h := HashResumes(nil)
 	if h == "" {

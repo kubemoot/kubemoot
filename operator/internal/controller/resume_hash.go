@@ -36,13 +36,6 @@ type AgentResume struct {
 	Domains []string `json:"domains,omitempty"`
 	Role    string   `json:"role"`
 	Summary string   `json:"triageSummary,omitempty"`
-	// Prompt is the text of the agent's own PromptModules (those no other agent
-	// in the crew references), included for EMBEDDING only (the indexer folds it
-	// into the resume text for sharper top-K ranking).
-	// It rides the NATS-KV view, not the triage path: the resume query returns
-	// agent NAMES only, so the prompt never reaches a triage LLM call
-	// (embed-rich, triage-lean).
-	Prompt string `json:"prompt,omitempty"`
 }
 
 // writeAgentHashSection writes the deterministic hash contribution for each
@@ -51,12 +44,11 @@ type AgentResume struct {
 func writeAgentHashSection(h io.Writer, agents []AgentResume) {
 	for _, r := range agents {
 		// Writes to a hash never fail.
-		_, _ = fmt.Fprintf(h, "%s|%s|%s|%s|%s|%s|%s|%s\n",
+		_, _ = fmt.Fprintf(h, "%s|%s|%s|%s|%s|%s|%s\n",
 			r.Name, r.Description, r.Role, r.Summary,
 			strings.Join(r.Keywords, ","),
 			strings.Join(r.Tools, ","),
 			strings.Join(r.Channels, ","),
-			r.Prompt,
 		)
 		// Only an agent that declares domains adds to the hash, so a crew without
 		// them keeps the hash (and the embedding) it had.
@@ -67,8 +59,7 @@ func writeAgentHashSection(h io.Writer, agents []AgentResume) {
 }
 
 // HashResumes computes a deterministic SHA-256 hash over a slice of AgentResume.
-// The resumes must already be sorted by Name for deterministic output. Prompt is
-// included so a prompt edit re-embeds the resume.
+// The resumes must already be sorted by Name for deterministic output.
 func HashResumes(resumes []AgentResume) string {
 	h := sha256.New()
 	writeAgentHashSection(h, resumes)
