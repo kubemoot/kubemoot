@@ -1,13 +1,13 @@
 ---
 title: "MootArchetype CRD"
 weight: 9
-description: "The MootArchetype resource: the declared phases, signals, and state machine of a consensus archetype, and the review and ratify settings the agent runtime reads. A v1alpha1 API."
+description: "The MootArchetype resource: the declared phases, signal kinds, and state machine of a consensus archetype, and the review, ratify, signal and recheck settings the agent runtime reads. A v1alpha1 API."
 ---
 
 ## Overview
 
 A `MootArchetype` declares the shape of a consensus archetype: the phases it passes
-through, the signals agents may emit, and the legal transitions between phases. The
+through, the kinds of signal agents may record, and the legal transitions between phases. The
 operator installs one, `consent-3`, and validates the resource and the scheduling
 policies that reference it.
 
@@ -37,7 +37,17 @@ spec:
     - name: synthesis
       role: closure
       description: "Coordinator synthesizes the deliberation into a response."
-  signals: [agree, concern, stand_aside, block, advisory]
+  signals:
+    - name: agree
+      meaning: "Your finding stands."
+    - name: concern
+      meaning: "A finding on the table is wrong or unverified."
+    - name: question
+      meaning: "Ask the agent that made a finding to recheck it."
+      terminal: false
+      addressed: true
+  recheck:
+    maxRounds: 1
   stateMachine:
     initial: triaging
     transitions:
@@ -55,7 +65,8 @@ spec:
 |-------|------|----------|-------------|
 | `description` | string | no | Human-readable explanation of the archetype. |
 | `phases` | list of phase | yes (at least one) | The phase definitions. See [Phases](#phases). |
-| `signals` | list of string | no | The signal types agents may emit during a discussion. An open set of names; informational. |
+| `signals` | list of signal | no | The kinds of verdict an agent records with the signal tool. See [Signals](#signals). When absent, agents record their verdict the way they did before the tool existed. |
+| `recheck` | object | no | The clarifying-question round. See [Recheck](#recheck). When absent, a thread may have one question. |
 | `stateMachine` | object | no | The legal phase transitions. See [State machine](#state-machine). When absent, progression is sequential in the order the phases are declared. |
 | `review` | object | no | Which analysts the coordinator convenes for review. See [Review](#review). When absent, every analyst reviews. |
 | `ratify` | object | no | Whether the contributors ratify the coordinator's draft before it is released, and how. See [Ratify](#ratify). Ratification is opt-in and experimental: when absent, they do not. |
@@ -137,6 +148,72 @@ The field is optional and additive: a crew whose archetype has no `ratify` block
 before ratification existed. Apply the new CRDs before the operator chart that sets the block (see
 [Review](#review)).
 
+### Signals
+
+Each entry declares one kind of verdict. The runtime offers every agent of a crew on the
+archetype one tool, `signal`, built from this list: its `kind` parameter takes the declared
+names, and its description lists each name with its meaning. An agent records its verdict by
+calling the tool; its reply text stays its finding. See
+[How an agent records its verdict](../../concepts/signals-and-protocol/#how-an-agent-records-its-verdict).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | required | The kind, as the agent passes it: lower case letters, digits and underscores, at most 32 characters. Unique in the list. |
+| `meaning` | string | required | What the kind says, in plain words, at most 300 characters. The model reads it to choose a kind. |
+| `terminal` | bool | `true` | Whether the kind ends the agent's turn in the phase, so the phase can settle on it. A question is not terminal: the asker's turn stays open until it signals again. |
+| `addressed` | bool | `false` | Whether the kind is said to one named agent. The tool then requires `to`, the agent's name. |
+
+The runtime knows what these names do in a phase:
+
+| Name | Published as | What the coordinator does |
+|------|--------------|---------------------------|
+| `agree` | `agree` | Counts the finding as standing. |
+| `concern` | `concern` | Weighs the objection; the phase does not take the early settle while it stands. |
+| `question` | `question` | Starts the [clarifying-question round](../../concepts/consensus-model/#clarifying-questions). |
+| `stand_aside` | `stand_aside` | Counts the agent as having nothing to add. |
+| `tool_gap` | `concern` whose content is the missing tool | Weighs it as a concern and feeds gap detection. |
+| `no_data` | `failure` with `failureType: gather_failed` | Counts a failed gather, never an agreement. |
+| `block` | `block` | Records a strong objection. |
+
+An archetype may declare other names. The runtime publishes such a kind as a `signal` message
+with the name in `metadata.signalKind`, ends the agent's turn when the kind is terminal, and
+shows it to the synthesis. It has no other phase logic for it.
+
+The operator gives the declared kinds to every agent of the crew as
+`KUBEMOOT_DISCUSS_SIGNALS`, a JSON list. An edit to the list re-reconciles the crew's agents.
+An archetype stored before kinds were declared, whose `signals` is a list of bare names, still
+decodes; a bare name has no meaning, so it is not offered to a model, and an archetype with only
+bare names offers no tool.
+
+```yaml
+spec:
+  signals:
+    - name: agree
+      meaning: "Your finding stands: it answers your part of the question from what your tools returned."
+    - name: question
+      meaning: "You doubt a finding and want the agent that made it to recheck."
+      terminal: false
+      addressed: true
+```
+
+### Recheck
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `maxRounds` | int, 0 to 5 | `1` | Most clarifying questions the coordinator relays per thread. `0` turns the round off: a question is then recorded as the asker's concern. |
+
+The operator gives the value to the crew's coordinator as `KUBEMOOT_DISCUSS_RECHECK_MAX_ROUNDS`.
+
+```yaml
+spec:
+  recheck:
+    maxRounds: 1
+```
+
+The `consent-3` archetype the operator installs declares the seven kinds in the table above and
+`recheck.maxRounds: 1`. Apply the new CRDs before the operator chart that sets them (see
+[Review](#review)).
+
 ### State machine
 
 | Field | Type | Required | Description |
@@ -167,6 +244,8 @@ phase names and validity.
 
 ## What it does today
 
+- **The runtime reads `review`, `ratify`, `signals` and `recheck`.** The signal kinds become
+  each agent's signal tool, and `recheck` sets how many clarifying questions a thread may have.
 - **The operator validates state-machine edges.** `stateMachine.initial` and every
   transition `from` and `to` must name a declared phase. A violation sets
   `status.valid` to `false` and reports the first offending name in `status.message`.
@@ -180,9 +259,8 @@ phase names and validity.
 
 ## What it does not do yet
 
-- **The agent runtime reads only `review` and `ratify`.** Editing the phases, signals or state machine of
-  a `MootArchetype` does not change how a discussion runs; editing `review` changes which
-  analysts review, and editing `ratify` changes whether and how the draft is ratified.
+- **The runtime does not read the phases or the state machine.** Editing them does not change
+  how a discussion runs. Editing `review`, `ratify`, `signals` or `recheck` does.
 - **The discussion's phases and transitions are fixed in code.** The runtime moves a
   discussion through its own sequence: advisory, evaluating, review, synthesis, and ratify.
   That sequence does not come from the archetype.
@@ -191,8 +269,9 @@ phase names and validity.
   `CrewSchedulingPolicy` uses to choose a model per phase. They do not name the
   runtime's advisory, evaluating, review, synthesis, and ratify sequence, and there is no
   mapping between the two.
-- **`role`, `signals`, and `on` are informational.** The operator does not interpret
-  them.
+- **`role` and `on` are informational.** The operator does not interpret them.
+- **A declared kind outside the runtime's table has no phase logic.** It is recorded, settles
+  the agent's turn when terminal, and is shown to the synthesis; nothing else.
 - **Adding an archetype does not add a behavior.** Applying a new `MootArchetype`
   extends the set of phase names a scheduling policy may use. It does not add a new way
   for a crew to deliberate.

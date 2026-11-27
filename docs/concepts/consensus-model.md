@@ -20,18 +20,29 @@ answer.
 
 ## Consensus signals
 
-Agents communicate over the message bus with a vocabulary of consensus signals:
+Agents communicate over the message bus with a vocabulary of consensus signals. The
+kinds an agent can record come from its crew's archetype: the `consent-3` archetype
+declares these, each with a plain meaning the model reads:
 
-- `agree` - this contribution supports the emerging answer.
-- `concern` - a reservation that should be weighed before settling.
+- `agree` - this finding stands.
+- `concern` - a finding on the table is wrong or unverified.
+- `question` - ask the agent that made a finding to recheck it (see
+  [Clarifying questions](#clarifying-questions)).
 - `stand_aside` - no relevant contribution; abstain without blocking.
+- `tool_gap` - answering needs a tool the agent does not have.
+- `no_data` - the agent's tools ran but returned nothing usable.
 - `block` - a strong objection.
-- `failure` - the agent could not do its work (a tool call failed or a source was
-  unreachable).
 
-Additional protocol signals exist for facilitation (e.g. `triaging`, `evaluating`,
-`advisory`, `proposal`). A declared **failure** is first-class: agents surface failure
-as signal rather than going silent.
+An agent records its verdict by calling a built-in `signal` tool whose kinds are the
+archetype's names, not by writing a special word; its reply stays its finding (see
+[How an agent records its verdict](../signals-and-protocol/#how-an-agent-records-its-verdict)).
+Because the kinds are declared, an archetype can define its own consensus states without a
+change to the runtime.
+
+The runtime adds `failure`: the agent could not do its work (a tool call failed or a source
+was unreachable). Additional protocol signals exist for facilitation (e.g. `triaging`,
+`evaluating`, `advisory`, `proposal`). A declared **failure** is first-class: agents surface
+failure as signal rather than going silent.
 
 ## Discussion phase lifecycle
 
@@ -45,8 +56,8 @@ stuck agents; the normal path never hits them.
 |-------|---------------|
 | `SUBMITTED` | The user question has arrived; no deliberation has begun yet. |
 | `ADVISORY` | The coordinator is generating the framing advisory and selecting the tooler subcommittee. |
-| `EVALUATING` | Selected Toolers are calling their domain MCP tools and publishing findings. |
-| `REVIEW` | Analysts are reasoning over the Toolers' gathered data and contributing interpretive findings before synthesis. |
+| `EVALUATING` | Selected Toolers are calling their domain MCP tools and publishing findings. An agent may ask another to recheck a finding. |
+| `REVIEW` | Analysts are reasoning over the Toolers' gathered data and contributing interpretive findings before synthesis. An Analyst that doubts a finding asks the agent that made it to recheck. |
 | `SYNTHESIZING` | The coordinator is composing a draft answer from all contributions. |
 | `RATIFY` | The draft is on the table. The agents that contributed check it against what they found and publish `agree`, `concern` or `block`; the coordinator revises once on their objections and puts the revision to the table again. See [Ratification](#ratification). |
 | `CLOSED` | The answer has been delivered and the thread is clean. |
@@ -99,6 +110,10 @@ holds the phase, and a signal from an earlier phase does not count for the next 
 The minimum evaluation and review times and the quiet period are safety nets for a
 phase whose roster is unknown or still pending, not the normal path.
 
+**A question holds the phase.** While a clarifying question is open, the agent asked is
+pending and the asker has not finished its turn, so the phase cannot settle, and the
+EVALUATING fast path does not fire. See [Clarifying questions](#clarifying-questions).
+
 **REVIEW waits for its own roster.** The fast-path rule applies only in EVALUATING.
 Once the coordinator enters REVIEW, it holds until every woken Analyst has
 reported or missed its deadline. A slow Analyst is not dropped in favour of a faster
@@ -117,6 +132,49 @@ retention) needed to survive coordinator restarts.
 
 For a detailed walkthrough of how agents and the coordinator interact signal by
 signal, see [Agentic Consensus](../../architecture/agentic-consensus/).
+
+## Clarifying questions
+
+The strength of a crew comes from the discussion, not from one large model. When an agent
+doubts another's finding, it does not overrule it or replace it with its own guess: it asks
+the agent that made it, the way experts check each other's work.
+
+> k8s-advisor: "@k8s-nodes, can you recheck the node count? 100 seems high for this homelab."
+
+**The round.**
+
+1. The asker records a `question` with the signal tool, naming the agent in `to`. Its turn
+   stays open: a question is not a terminal signal.
+2. The coordinator relays it as `question_asked` to that agent alone. The agent asked is now
+   pending, with the same kind of deadline a triaging agent gets.
+3. The agent asked runs its assessment again with its tools (no triage: it was named) and
+   publishes its verdict and its new finding. The finding **replaces** its earlier one in what
+   the coordinator weighs; the bus keeps both, so the transcript shows the exchange.
+4. The coordinator wakes the asker with `question_answered`, which carries the revised
+   finding. The asker is pending again.
+5. The asker checks again and signals. That ends its turn, and the phase settles as it does
+   without a question.
+
+The archetype's [`recheck.maxRounds`](../../reference/mootarchetype/#recheck) (default 1) is
+the most questions relayed per thread; `0` turns the round off.
+
+**When a question is not relayed.** A question past the round limit, with the round off, to an
+agent not in the crew, to the asker itself, or to an agent already in a question is recorded
+as the asker's `concern`, with the question as its text, and the asker's turn ends. So is a
+question whose agent fails or misses its deadline. The doubt stays on the table for the
+synthesis; it is never dropped.
+
+**State-driven.** Every step waits on a message, never on a clock. The deadlines are safety nets
+for an agent that crashed: the agent asked refreshes its deadline with heartbeats while it
+works, as in any phase.
+
+**What the synthesis sees.** The question, the revised finding, and a line in the signal summary
+for each question (who asked whom, and whether it was answered). A replaced finding is shown
+only as replaced, without its text, so a wrong value does not reach the answer.
+
+**Recorded.** The coordinator log records `question_asked` and `question_answered`
+([the coordinator log](../signals-and-protocol/#the-coordinator-log)), and the dashboard and
+transcripts show the `question`, `question_asked` and `question_answered` messages.
 
 ## Ratification
 
@@ -227,9 +285,10 @@ archetype**.
 - The `MootArchetype` resource ([reference](../../reference/mootarchetype/)) declares
   the scheduling phases and signals of an archetype, and the operator validates
   `CrewSchedulingPolicy` phase names against it so the scheduler can choose a model per
-  phase. The agent runtime reads two blocks of it, `review` (who reviews) and
-  `ratify` (whether and how the draft is ratified); the phases and transitions of a
-  discussion (advisory, evaluating, review, synthesis, ratify) are fixed in code, so the consensus flow is the only archetype
-  that ships. Hierarchical organizations and stricter consent or voting rules are
+  phase. The agent runtime reads four blocks of it: `review` (who reviews), `ratify`
+  (whether and how the draft is ratified), `signals` (the kinds of verdict an agent can
+  record) and `recheck` (how many clarifying questions a thread may have). The phases and
+  transitions of a discussion (advisory, evaluating, review, synthesis, ratify) are fixed in
+  code, so the consensus flow is the only archetype that ships. Hierarchical organizations and stricter consent or voting rules are
   valid archetypes the design leaves room for; they are not implemented yet (see the
   [Roadmap](../../introduction/roadmap/#consensus-archetypes-declared-not-coded)).
