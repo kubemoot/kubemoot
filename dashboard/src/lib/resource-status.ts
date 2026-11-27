@@ -57,8 +57,13 @@ export function yesNo(flag: boolean | undefined): string {
 /** The phase of a model server with no ready endpoint: a state, not a fault. */
 export const UNAVAILABLE_PHASE = 'Unavailable';
 
+/** True for a model server with no ready endpoint: phase Unavailable and not ready. */
+export function isModelServerUnavailable(status: { ready?: boolean; phase?: string } | undefined): boolean {
+	return !status?.ready && status?.phase === UNAVAILABLE_PHASE;
+}
+
 /** A model server's badge: Unavailable is neutral, Failed is an error, ready is success. */
 export function modelServerStatus(status: { ready?: boolean; phase?: string } | undefined): BadgeStatus {
-	if (status?.phase === UNAVAILABLE_PHASE && !status.ready) return 'unknown';
+	if (isModelServerUnavailable(status)) return 'unknown';
 	return readinessStatus(status, 'Failed');
 }

@@ -9,6 +9,7 @@ import { nodeAccelerator } from './node-accelerator.js';
 import { combinedUse, useBars } from './accelerator-status.js';
 import { measuredUse, type AcceleratorUseByNode, type AcceleratorUseResponse } from './accelerator-use.js';
 import { readyHealth, worstHealth, type Health } from './health.js';
+import { isModelServerUnavailable } from './resource-status.js';
 import { nodeCounts } from './overview-counts.js';
 import { acceleratorMemoryTotalMiB, acceleratorMemoryUsedMiB } from './accelerator-capacity.js';
 import { formatMiB } from './format.js';
@@ -268,7 +269,7 @@ const idleWithoutModels = (s: ModelServer): Judged => ((s.status?.capacity?.load
  */
 function judgeServers(servers: readonly ModelServer[]): Judged[] {
 	return servers.flatMap((s) =>
-		!s.status?.ready && s.status?.phase === 'Unavailable'
+		isModelServerUnavailable(s.status)
 			? [{ health: 'idle' }]
 			: judgeResources([s], 'Model server', '/modelservers', idleWithoutModels)
 	);

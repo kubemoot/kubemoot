@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	isModelServerUnavailable,
 	NO_VALUE,
 	modelServerStatus,
 	phaseStatus,
@@ -76,5 +77,14 @@ describe('modelServerStatus', () => {
 	it('leaves any other phase pending', () => {
 		expect(modelServerStatus({ ready: false, phase: 'Pending' })).toBe('pending');
 		expect(modelServerStatus(undefined)).toBe('pending');
+	});
+});
+
+describe('isModelServerUnavailable', () => {
+	it('is true only for the Unavailable phase while not ready', () => {
+		expect(isModelServerUnavailable({ ready: false, phase: 'Unavailable' })).toBe(true);
+		expect(isModelServerUnavailable({ ready: true, phase: 'Unavailable' })).toBe(false);
+		expect(isModelServerUnavailable({ ready: false, phase: 'Failed' })).toBe(false);
+		expect(isModelServerUnavailable(undefined)).toBe(false);
 	});
 });
