@@ -131,7 +131,7 @@ func run(args []string) error {
 	if err := apply(spec, status); err != nil {
 		return err
 	}
-	closeDescriptors(spec)
+	closeStatus(status)
 	if err := dropCapabilities(); err != nil {
 		return err
 	}
@@ -149,10 +149,11 @@ func statusFile(fd int) *os.File {
 	return os.NewFile(uintptr(fd), "status")
 }
 
-// closeDescriptors closes the descriptor the parent passed, so the program inherits none of it.
-func closeDescriptors(spec Spec) {
-	if spec.StatusFD != noView {
-		_ = unix.Close(spec.StatusFD)
+// closeStatus closes the descriptor the parent passed, through its one *os.File, so the program
+// inherits none of it and no finalizer closes the same number again later.
+func closeStatus(status *os.File) {
+	if status != nil {
+		_ = status.Close()
 	}
 }
 

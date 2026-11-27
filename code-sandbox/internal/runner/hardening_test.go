@@ -296,3 +296,17 @@ func TestTemporaryDirectorySizeIsASetting(t *testing.T) {
 		t.Fatalf("the default size holds 3 MiB:\n%s", res.Stdout)
 	}
 }
+
+func TestProgramInheritsOnlyItsStandardDescriptors(t *testing.T) {
+	r := confined(t, workspace(t))
+	code := "import os\nopen_fds = []\nfor fd in range(3, 256):\n" +
+		"    try:\n        os.fstat(fd)\n        open_fds.append(fd)\n    except OSError:\n        pass\n" +
+		"print(open_fds)\n"
+	res, err := r.Execute(context.Background(), "python", code, WithThread(threadA))
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("run failed: %v %+v", err, res)
+	}
+	if res.Stdout != "[]\n" {
+		t.Fatalf("program holds descriptors beyond 0, 1 and 2: %s", res.Stdout)
+	}
+}
