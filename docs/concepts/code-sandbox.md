@@ -72,8 +72,13 @@ mount namespace:
   so programs of concurrent calls cannot read each other's inputs or code.
 - The program holds no capabilities, so it cannot undo any mount, and the server's own processes (their
   environment, file descriptors and working directory) are out of its reach.
-- The server copies an input only from a regular file with no symbolic link in its path, never follows a
-  link, and caps one input at 64 MiB and all inputs of a call at 256 MiB.
+- The program runs in its own pid namespace with a fresh `/proc`, so the server and other runs are not listed.
+- The server opens an input once, each path component relative to the one before it and never through a
+  link, so the file it checked is the file it copies; it takes regular files only and caps one input at 64 MiB
+  and all inputs of a call at 256 MiB. A discussion folder that is a link shows the program an empty workspace.
+- The private temporary directory is memory (`SANDBOX_TMP_SIZE`, default `256m`) and counts against the pod's
+  memory limit while a run holds it, so size the pod for the concurrent runs. The run's own directory is on the
+  pod's disk and is not size-capped; the pod's ephemeral-storage limit bounds it.
 
 **This needs user namespaces and mounts.** A sandboxed runtime such as gVisor allows both (the combination
 of a user namespace, a bind mount, a read-only remount and a private temporary directory is exercised on the
@@ -82,8 +87,8 @@ every `execute_code` call fails, with an error that names the cause, until you s
 With confinement off a program can read every discussion's files in the volume and every other run's files, so
 there is no isolation between discussions: use it only for a pod whose workspace holds one discussion's data.
 
-The server refuses to start when a volume named `workspace` or `artifacts` is mounted at a path it does not
-hide. Name that path in `SANDBOX_WORKSPACE_DIRS` (comma separated) or set `WORKSPACE_DIR`.
+At startup only, the server refuses to start when a volume whose mount path is named `workspace` or
+`artifacts` is mounted at a path it does not hide (volumes are found by that name, not by content). Name that path in `SANDBOX_WORKSPACE_DIRS` (comma separated) or set `WORKSPACE_DIR`.
 
 ## How a run is contained
 
