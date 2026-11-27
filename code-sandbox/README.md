@@ -53,16 +53,26 @@ stored results shows them. Each becomes the file `./inputs/{agent}/{nnn}-{tool}`
 program counts over every row. The discussion comes from the call's `_meta.workspacePrefix`
 (`{namespace}/{crew}/{thread}/`, set by the agent runtime and relayed by the gateway), never from the key. A key of
 another discussion, an unknown key, a pattern, more than 32 keys, or any key on a call with no discussion is refused
-before the program runs (`internal/inputs`). Its prefix rules mirror workspace-access's `internal/threadkey`.
+before the program runs (`internal/inputs`). Its prefix rules are the gateway's and workspace-access's, checked against one shared file of vectors, `test/fixtures/workspace-prefix-vectors.json`, that all three run.
 
 ### What a program sees of the workspace
 
-The workspace volume holds every discussion's results and a program runs as the server's user, so a program is
-started in its own user and mount namespace (`internal/confine`, through a re-executed copy of this binary) where
-`/kubemoot/workspace` and the old `/artifacts` mount show only the calling discussion's folder, or an empty directory
-for a call with no discussion. The program keeps no capabilities, so it cannot undo the mount. This needs user
-namespaces, which gVisor allows and a plain runtime's default seccomp profile does not: a run that cannot start says
-so. A mount that is absent needs no confinement.
+The workspace volume holds every discussion's results and a program runs as the server's user, so each program
+is started in its own user and mount namespace (`internal/confine`, through a re-executed copy of this binary):
+
+- `/kubemoot/workspace` and the old `/artifacts` show only the calling discussion's folder, read-only (a program
+  cannot plant a link or alter a result), or an empty directory for a call with no discussion.
+- The run directory's parent, the temporary root, is a private tmpfs holding only that run's directory, so
+  concurrent programs cannot read each other's inputs.
+- No capabilities remain, so no mount can be undone, and the server's `/proc` entries are out of reach.
+- `internal/inputs` refuses a symbolic link anywhere in a key's path; the copy opens with `O_NOFOLLOW`, takes
+  regular files only, and caps an input at 64 MiB and a call's inputs at 256 MiB.
+
+This needs user namespaces and mounts. gVisor allows them (checked on the homelab's gVisor). A plain runtime with the
+default `RuntimeDefault` seccomp profile blocks them, and then every `execute_code` call fails with an error that
+names the cause until `SANDBOX_CONFINEMENT=off`. Off means no isolation between discussions or between concurrent
+runs. A helper failure is a tool error, never a program exit code. The server refuses to start when a volume named
+`workspace` or `artifacts` is mounted somewhere it does not hide: list the path in `SANDBOX_WORKSPACE_DIRS`.
 
 ## How a program runs
 
@@ -113,7 +123,8 @@ once.
 | `EXECUTION_TIMEOUT` | `30` | seconds a program may run |
 | `MAX_OUTPUT_BYTES` | `65536` | cap on each of stdout and stderr |
 | `SANDBOX_TMPDIR` | OS default | where run directories are created |
-| `SANDBOX_CONFINEMENT` | on | `off` leaves the whole workspace visible to programs; use it only where the workspace holds one discussion's data |
+| `SANDBOX_CONFINEMENT` | on | `off` removes all isolation between discussions and runs; use it only where the pod's workspace holds one discussion's data, or the runtime blocks user namespaces |
+| `SANDBOX_WORKSPACE_DIRS` | empty | more workspace mount paths to hide, comma separated |
 | `WORKSPACE_DIR` | `/kubemoot/workspace` | the workspace mount a program is kept out of (`ARTIFACT_DIR` is read too; `/artifacts` is always included) |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http`; any other value stops the server at start |
 | `PORT` | `3000` | the listening port, in `http` mode only; a value that is not a number from 1 to 65535 stops the server at start |

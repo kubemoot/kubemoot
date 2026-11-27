@@ -324,7 +324,7 @@ Without a thread in `_meta` (a call from outside a discussion), keys are used as
 receives the thread in `_meta` too. It takes the keys of the results a program reads in `inputs` and
 resolves them inside the thread, and it shows the program only that thread's folder at
 `/kubemoot/workspace`, so a program that builds a path to another thread's file finds nothing
-([Code sandbox](../code-sandbox/#what-a-program-can-see-of-the-workspace)).
+([Code sandbox](../code-sandbox/#what-a-program-can-see-of-the-workspace)), read-only, and in a private temporary directory.
 
 ### The catalog: the complete list of files
 
