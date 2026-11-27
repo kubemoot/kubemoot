@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -33,12 +34,17 @@ const (
 	// FailurePrefix starts the message a helper writes to stderr when it could not set the view up.
 	FailurePrefix = "code-sandbox: the workspace could not be hidden from the program"
 	// ExitCode is the exit code of a helper that could not set the view up.
-	ExitCode = exitConfine
-	// tempSize limits the private temporary directory a program gets.
-	tempSize = "size=256m,mode=1777"
+	ExitCode     = exitConfine
+	flagTempSize = "--tmpsize"
 	// capLimit bounds the capability numbers tried when the bounding set is emptied.
 	capLimit = 64
 )
+
+// sizePattern is a tmpfs size: digits and an optional unit, so the value cannot add mount options.
+var sizePattern = regexp.MustCompile(`^[0-9]+[kKmMgG]?$`)
+
+// ValidSize reports whether s is a size the private temporary directory accepts, like 256m.
+func ValidSize(s string) bool { return sizePattern.MatchString(s) }
 
 // Mount replaces the directory Path with View for the program; an empty View shows an empty directory.
 type Mount struct {
@@ -49,8 +55,8 @@ type Mount struct {
 // Command is the argument list that starts argv confined by mounts, run through the binary self.
 // The run directory (the helper's working directory) becomes the only entry of its parent, which is
 // replaced by a private temporary directory, so concurrent programs cannot see each other's files.
-func Command(self string, mounts []Mount, runDir string, argv []string) []string {
-	out := []string{self, Arg, flagPrivate, runDir}
+func Command(self string, mounts []Mount, runDir, tempSize string, argv []string) []string {
+	out := []string{self, Arg, flagTempSize, tempSize, flagPrivate, runDir}
 	for _, m := range mounts {
 		out = append(out, flagMount, m.Path, m.View)
 	}
@@ -58,14 +64,14 @@ func Command(self string, mounts []Mount, runDir string, argv []string) []string
 	return append(out, argv...)
 }
 
-// Attr gives the helper process its own user and mount namespace. The current user and group map to
+// Attr gives the helper process its own user, mount and pid namespace. The current user and group map to
 // themselves, so files the program works on keep their owner. Two capabilities stay ambient until the
 // helper has set the view up and dropped them.
 func Attr() *syscall.SysProcAttr {
 	uid, gid := os.Getuid(), os.Getgid()
 	return &syscall.SysProcAttr{
 		Setpgid:                    true,
-		Cloneflags:                 syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS,
+		Cloneflags:                 syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID,
 		UidMappings:                []syscall.SysProcIDMap{{ContainerID: uid, HostID: uid, Size: 1}},
 		GidMappings:                []syscall.SysProcIDMap{{ContainerID: gid, HostID: gid, Size: 1}},
 		GidMappingsEnableSetgroups: false,
@@ -83,63 +89,90 @@ func Main(args []string) {
 }
 
 func run(args []string) error {
-	mounts, runDir, argv, err := parse(args)
+	p, err := parse(args)
 	if err != nil {
 		return err
 	}
-	if err := apply(mounts, runDir); err != nil {
+	if err := apply(p); err != nil {
 		return err
 	}
 	if err := dropCapabilities(); err != nil {
 		return err
 	}
-	path, err := exec.LookPath(argv[0])
+	path, err := exec.LookPath(p.argv[0])
 	if err != nil {
 		return err
 	}
-	return syscall.Exec(path, argv, os.Environ())
+	return syscall.Exec(path, p.argv, os.Environ())
+}
+
+// plan is what Command wrote: the views, the run directory and the size of its private parent, and the program.
+type plan struct {
+	mounts   []Mount
+	runDir   string
+	tempSize string
+	argv     []string
 }
 
 // parse reads what Command wrote, after the Arg itself.
-func parse(args []string) (mounts []Mount, runDir string, argv []string, err error) {
-	if len(args) < 2 || args[0] != flagPrivate {
-		return nil, "", nil, errors.New("no run directory")
+func parse(args []string) (plan, error) {
+	var p plan
+	if len(args) < 4 || args[0] != flagTempSize || args[2] != flagPrivate {
+		return p, errors.New("no run directory")
 	}
-	runDir, args = args[1], args[2:]
+	p.tempSize, p.runDir, args = args[1], args[3], args[4:]
+	if !sizePattern.MatchString(p.tempSize) {
+		return p, fmt.Errorf("temporary directory size %q is not a number with an optional k, m or g", p.tempSize)
+	}
 	for len(args) > 0 && args[0] == flagMount {
 		if len(args) < 3 {
-			return nil, "", nil, errors.New("incomplete mount")
+			return p, errors.New("incomplete mount")
 		}
-		mounts = append(mounts, Mount{Path: args[1], View: args[2]})
+		p.mounts = append(p.mounts, Mount{Path: args[1], View: args[2]})
 		args = args[3:]
 	}
 	if len(args) < 2 || args[0] != flagEnd {
-		return nil, "", nil, errors.New("no program to run")
+		return p, errors.New("no program to run")
 	}
-	return mounts, runDir, args[1:], nil
+	p.argv = args[1:]
+	return p, nil
 }
 
-func apply(mounts []Mount, runDir string) error {
+func apply(p plan) error {
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return fmt.Errorf("make the mounts private: %w", err)
 	}
-	for _, m := range mounts {
+	for _, m := range p.mounts {
 		if err := show(m); err != nil {
 			return err
 		}
 	}
-	return privateTemp(runDir)
+	if err := privateTemp(p.runDir, p.tempSize); err != nil {
+		return err
+	}
+	freshProc()
+	return nil
+}
+
+// freshProc mounts a /proc that lists only the processes of the program's own pid namespace, so the
+// server and other runs are not named there at all. A host that refuses the mount leaves the old /proc,
+// where the kernel's ptrace rules still deny every entry of a process in another user namespace.
+func freshProc() {
+	if err := unix.Mount("proc", "/proc", "proc", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "code-sandbox: /proc is not replaced: %v\n", err)
+	}
 }
 
 // privateTemp replaces the run directory's parent with an empty temporary directory that holds only the
 // run directory. The helper's working directory is the run directory, and "." still names it after the
 // parent is covered, so it is the source of the bind.
-func privateTemp(runDir string) error {
+func privateTemp(runDir, size string) error {
 	parent := filepath.Dir(runDir)
 	if !filepath.IsAbs(runDir) || parent == "/" || parent == "." {
 		return fmt.Errorf("run directory %q has no private parent", runDir)
 	}
-	if err := unix.Mount("tmpfs", parent, "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, tempSize); err != nil {
+	opts := "size=" + size + ",mode=1777"
+	if err := unix.Mount("tmpfs", parent, "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, opts); err != nil {
 		return fmt.Errorf("private %s: %w", parent, err)
 	}
 	if err := os.Mkdir(runDir, 0o700); err != nil {

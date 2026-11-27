@@ -52,6 +52,7 @@ func main() {
 
 		WorkspaceDirs: workspaceDirs(),
 		Unconfined:    os.Getenv("SANDBOX_CONFINEMENT") == confinementOff,
+		TempSize:      tempSize(),
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -101,6 +102,16 @@ func baseWorkspaceDirs() []string {
 		return []string{dir}
 	}
 	return []string{dir, legacyWorkspaceDir}
+}
+
+// tempSize is the private temporary directory's size limit from SANDBOX_TMP_SIZE; a value that is not a
+// size stops the server at start.
+func tempSize() string {
+	v := os.Getenv("SANDBOX_TMP_SIZE")
+	if v != "" && !confine.ValidSize(v) {
+		fatal(fmt.Errorf("SANDBOX_TMP_SIZE=%q is not a size like 256m", v))
+	}
+	return v
 }
 
 // envInt reads a positive integer from the environment, or returns def.

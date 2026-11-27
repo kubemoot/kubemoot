@@ -3,6 +3,7 @@ package inputs
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +37,8 @@ func TestShortKeyResolvesInsideTheThread(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].Name != key {
 		t.Fatalf("got %v, %v", got, err)
 	}
-	if b, _ := os.ReadFile(got[0].Source); string(b) != mine+key {
+	defer Close(got)
+	if b, _ := io.ReadAll(got[0].File); string(b) != mine+key {
 		t.Fatalf("read %q, want the file of this thread", b)
 	}
 }

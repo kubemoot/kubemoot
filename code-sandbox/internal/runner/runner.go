@@ -72,6 +72,9 @@ type Runner struct {
 	// Unconfined leaves the workspace visible to the program. It is for a pod without the
 	// namespaces confinement needs; the program then reads every discussion's files.
 	Unconfined bool
+	// TempSize is the size limit of the private temporary directory of each run, in tmpfs syntax
+	// (256m); empty means DefaultTempSize. The memory it uses counts against the pod's limit.
+	TempSize string
 	// Self is the sandbox binary that confines the program; empty means this executable.
 	Self string
 }
@@ -133,7 +136,7 @@ func (r *Runner) withSource(
 		if err != nil {
 			return Result{}, err
 		}
-		cmdline = confine.Command(r.self(), mounts, dir, cmdline)
+		cmdline = confine.Command(r.self(), mounts, dir, r.tempSize(), cmdline)
 		attr = confine.Attr()
 	}
 	res, err := r.run(ctx, cmdline, dir, attr)
@@ -181,11 +184,20 @@ func threadView(dir, thread string) string {
 	if thread == "" || !filepath.IsLocal(thread) {
 		return ""
 	}
-	view := filepath.Join(dir, thread)
-	if info, err := os.Stat(view); err != nil || !info.IsDir() {
+	if err := inputs.CheckDir(dir, strings.Split(strings.TrimSuffix(thread, "/"), "/")); err != nil {
 		return ""
 	}
-	return view
+	return filepath.Join(dir, thread)
+}
+
+// DefaultTempSize is the size of the private temporary directory a program gets.
+const DefaultTempSize = "256m"
+
+func (r *Runner) tempSize() string {
+	if r.TempSize != "" {
+		return r.TempSize
+	}
+	return DefaultTempSize
 }
 
 func (r *Runner) self() string {
@@ -216,7 +228,7 @@ func stage(ctx context.Context, dir string, in []inputs.Input) error {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 			return err
 		}
-		n, err := copyFile(ctx, i.Source, dest, min(int64(MaxInputBytes), budget))
+		n, err := copyFile(ctx, i.File, dest, min(int64(MaxInputBytes), budget))
 		if err != nil {
 			return fmt.Errorf("input %q: %w", i.Name, err)
 		}
@@ -225,13 +237,9 @@ func stage(ctx context.Context, dir string, in []inputs.Input) error {
 	return nil
 }
 
-// copyFile copies a regular file, never following a link, and fails past limit bytes or when ctx ends.
-func copyFile(ctx context.Context, src, dest string, limit int64) (int64, error) {
-	from, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = from.Close() }()
+// copyFile copies an input that was opened and checked as a regular file, and fails past limit bytes or
+// when ctx ends. The destination is never a link.
+func copyFile(ctx context.Context, from *os.File, dest string, limit int64) (int64, error) {
 	info, err := from.Stat()
 	if err != nil {
 		return 0, err

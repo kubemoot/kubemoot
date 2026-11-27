@@ -14,28 +14,30 @@ const (
 
 func TestCommandAndParseRoundTrip(t *testing.T) {
 	mounts := []Mount{{Path: "/kubemoot/workspace", View: "/kubemoot/workspace/ns/crew/t1"}, {Path: legacy}}
-	cmd := Command("/bin/self", mounts, "/tmp/code-sandbox-1", []string{python, "main.py"})
+	cmd := Command("/bin/self", mounts, "/tmp/code-sandbox-1", "64m", []string{python, "main.py"})
 	if cmd[0] != "/bin/self" || cmd[1] != Arg {
 		t.Fatalf("command starts %v", cmd[:2])
 	}
-	gotMounts, run, argv, err := parse(cmd[2:])
+	p, err := parse(cmd[2:])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run != "/tmp/code-sandbox-1" || !reflect.DeepEqual(gotMounts, mounts) || !reflect.DeepEqual(argv, []string{python, "main.py"}) {
-		t.Fatalf("parsed %v %v", gotMounts, argv)
+	if p.runDir != "/tmp/code-sandbox-1" || p.tempSize != "64m" || !reflect.DeepEqual(p.mounts, mounts) ||
+		!reflect.DeepEqual(p.argv, []string{python, "main.py"}) {
+		t.Fatalf("parsed %+v", p)
 	}
 }
 
 func TestParseRefusesMalformedArguments(t *testing.T) {
 	for name, args := range map[string][]string{
-		"no program":       {flagPrivate, runDir, flagEnd},
-		"no separator":     {flagPrivate, runDir, python},
-		"incomplete mount": {flagPrivate, runDir, flagMount, "/a"},
+		"no program":       {flagTempSize, "1m", flagPrivate, runDir, flagEnd},
+		"no separator":     {flagTempSize, "1m", flagPrivate, runDir, python},
+		"incomplete mount": {flagTempSize, "1m", flagPrivate, runDir, flagMount, "/a"},
+		"bad size":         {flagTempSize, "1m,uid=0", flagPrivate, runDir, flagEnd, python},
 		"no run directory": {flagEnd, python},
 		"empty":            {},
 	} {
-		if _, _, _, err := parse(args); err == nil {
+		if _, err := parse(args); err == nil {
 			t.Errorf("%s: want an error", name)
 		}
 	}

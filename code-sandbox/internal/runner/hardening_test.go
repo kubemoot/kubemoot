@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -30,28 +31,18 @@ func TestViewIsReadOnlySoNoLinkOrForgeryCanBePlanted(t *testing.T) {
 	}
 }
 
-func TestStageRefusesALinkAndAnOversizedFile(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "target")
-	if err := os.WriteFile(target, []byte("secret"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(dir, "link")
-	if err := os.Symlink(target, link); err != nil {
+func TestCopyRefusesAnOversizedFile(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "target")
+	if err := os.WriteFile(src, []byte("secret"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	run := t.TempDir()
-	if err := stage(context.Background(), run, []inputs.Input{{Name: "a/link", Source: link}}); err == nil {
-		t.Fatal("a symbolic link must not be copied")
-	}
-	if _, err := os.Stat(filepath.Join(run, "inputs", "a", "link")); err == nil {
-		t.Fatal("the link's target was copied")
-	}
-	if _, err := copyFile(context.Background(), target, filepath.Join(run, "big"), 3); err == nil ||
+	in := openInput(t, "a", src)
+	if _, err := copyFile(context.Background(), in.File, filepath.Join(run, "big"), 3); err == nil ||
 		!strings.Contains(err.Error(), "limit") {
 		t.Fatalf("a file over the limit must be refused, got %v", err)
 	}
-	if _, err := copyFile(context.Background(), target, filepath.Join(run, "ok"), 6); err != nil {
+	if _, err := copyFile(context.Background(), in.File, filepath.Join(run, "ok"), 6); err != nil {
 		t.Fatalf("a file at the limit is fine: %v", err)
 	}
 }
@@ -63,7 +54,8 @@ func TestCopyStopsWhenTheContextEnds(t *testing.T) {
 	if err := os.WriteFile(src, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := copyFile(ctx, src, filepath.Join(t.TempDir(), "d"), 10); !errors.Is(err, context.Canceled) {
+	in := openInput(t, "a", src)
+	if _, err := copyFile(ctx, in.File, filepath.Join(t.TempDir(), "d"), 10); !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -84,8 +76,9 @@ func TestConcurrentRunsCannotReadEachOthersFiles(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
+		in := openInput(t, "k8s-config/001-resources_get", src)
 		holderRes, _ = r.Execute(context.Background(), "python", holder, WithThread(threadA),
-			WithInputs([]inputs.Input{{Name: "k8s-config/001-resources_get", Source: src}}))
+			WithInputs([]inputs.Input{in}))
 	}()
 	go func() {
 		defer wg.Done()
@@ -140,5 +133,120 @@ func TestProgramThatExits125ItselfIsStillAResult(t *testing.T) {
 	res := execute(t, confined(t, workspace(t)), "bash", "exit 125")
 	if res.ExitCode != 125 {
 		t.Fatalf("got %+v", res)
+	}
+}
+
+func TestThreadFolderThatIsALinkIsNotShown(t *testing.T) {
+	ws := workspace(t)
+	// A link at the thread level that points at another discussion's folder.
+	if err := os.Symlink(filepath.Join(ws, threadB), filepath.Join(ws, "ns/crew/thread-c")); err != nil {
+		t.Fatal(err)
+	}
+	r := confined(t, ws)
+	res, err := r.Execute(context.Background(), "bash", "ls -A "+ws+" | wc -l; cat "+ws+"/k8s-config/001-resources_get 2>&1",
+		WithThread("ns/crew/thread-c/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res.Stdout, "other discussion") || !strings.HasPrefix(strings.TrimSpace(res.Stdout), "0") {
+		t.Fatalf("a linked thread folder must show an empty workspace:\n%s", res.Stdout)
+	}
+	// A link in the middle of the thread path is refused the same way.
+	if err := os.Symlink(filepath.Join(ws, "ns/crew"), filepath.Join(ws, "ns/linked")); err != nil {
+		t.Fatal(err)
+	}
+	res, _ = r.Execute(context.Background(), "bash", "ls -A "+ws+" | wc -l", WithThread("ns/linked/thread-b/"))
+	if strings.TrimSpace(res.Stdout) != "0" {
+		t.Fatalf("a link inside the thread path must show an empty workspace:\n%s", res.Stdout)
+	}
+}
+
+// hostPidOfRunUnder finds the process of a run whose program lives under dir, from outside the run.
+func hostPidOfRunUnder(t *testing.T, dir string) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		entries, _ := os.ReadDir("/proc")
+		for _, e := range entries {
+			cmd, err := os.ReadFile("/proc/" + e.Name() + "/cmdline")
+			if err == nil && strings.Contains(string(cmd), dir) && strings.Contains(string(cmd), "main.py") &&
+				!strings.Contains(string(cmd), "--code-sandbox-confine") {
+				return e.Name()
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the other run's process was not found")
+	return ""
+}
+
+func TestAnotherLiveRunsProcEntriesAreDenied(t *testing.T) {
+	r := confined(t, workspace(t))
+	r.TempDir = t.TempDir()
+	started := make(chan Result, 1)
+	go func() {
+		res, _ := r.Execute(context.Background(), "python", "import time\ntime.sleep(4)\n")
+		started <- res
+	}()
+	pid := hostPidOfRunUnder(t, r.TempDir)
+	code := "for e in cwd root environ fd; do cat /proc/" + pid + "/$e 2>&1 | head -c 200; ls /proc/" + pid + "/$e/ 2>&1 | head -3; done; " +
+		"echo LISTED:; ls /proc | grep -c '^[0-9]'"
+	res := execute(t, r, "bash", code)
+	if strings.Contains(res.Stdout, "main.py") || strings.Contains(res.Stdout, "code-sandbox-") {
+		t.Fatalf("the other run was readable through /proc/%s:\n%s", pid, res.Stdout)
+	}
+	if got := strings.Count(res.Stdout, "Permission denied") + strings.Count(res.Stdout, "No such file"); got < 4 {
+		t.Fatalf("every /proc/%s entry should be denied or absent:\n%s", pid, res.Stdout)
+	}
+	<-started
+}
+
+func TestProgramSeesOnlyItsOwnProcesses(t *testing.T) {
+	r := confined(t, workspace(t))
+	res := execute(t, r, "bash", "ls /proc | grep -c '^[0-9]'; echo $$")
+	if strings.Contains(res.Stderr, "/proc is not replaced") {
+		t.Skip("this host keeps the old /proc; the ptrace rules apply instead")
+	}
+	lines := strings.Fields(res.Stdout)
+	if len(lines) != 2 {
+		t.Fatalf("got %q (%s)", res.Stdout, res.Stderr)
+	}
+	count, _ := strconv.Atoi(lines[0])
+	pid, _ := strconv.Atoi(lines[1])
+	if count == 0 || count > 5 || pid > 5 {
+		t.Fatalf("the program should list a few processes of its own pid namespace: %d listed, shell pid %d", count, pid)
+	}
+}
+
+func TestProgramCannotUndoTheViewByUmountRemountOrANewNamespace(t *testing.T) {
+	ws := workspace(t)
+	r := confined(t, ws)
+	file := ws + "/k8s-config/001-resources_get"
+	code := "umount " + ws + " 2>&1; mount -o remount,rw,bind " + ws + " 2>&1; { echo x >> " + file + "; } 2>&1; " +
+		"unshare -Urm sh -c 'mount -o remount,rw,bind " + ws + " 2>&1; mount -t tmpfs none " + ws + " 2>&1; " +
+		"{ echo y >> " + file + "; } 2>&1' 2>&1; cat " + file
+	res, err := r.Execute(context.Background(), "bash", code, WithThread(threadA))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res.Stdout, "x\n") || strings.Contains(res.Stdout, "y\n") || !strings.Contains(res.Stdout, "mine") {
+		t.Fatalf("the stored result was changed:\n%s", res.Stdout)
+	}
+	if b, _ := os.ReadFile(filepath.Join(ws, threadA, "k8s-config/001-resources_get")); string(b) != "mine\n" {
+		t.Fatalf("the file on disk changed: %q", b)
+	}
+}
+
+func TestTemporaryDirectorySizeIsASetting(t *testing.T) {
+	r := confined(t, workspace(t))
+	r.TempSize = "1m"
+	res := execute(t, r, "bash", "dd if=/dev/zero of=\"$(dirname \"$PWD\")/big\" bs=1M count=3 2>&1 | grep -c 'No space left'")
+	if strings.TrimSpace(res.Stdout) != "1" {
+		t.Fatalf("a 1m temporary directory should fill up:\n%s", res.Stdout)
+	}
+	r.TempSize = ""
+	res = execute(t, r, "bash", "dd if=/dev/zero of=\"$(dirname \"$PWD\")/big\" bs=1M count=3 2>&1 | grep -c 'No space left'")
+	if strings.TrimSpace(res.Stdout) != "0" {
+		t.Fatalf("the default size holds 3 MiB:\n%s", res.Stdout)
 	}
 }

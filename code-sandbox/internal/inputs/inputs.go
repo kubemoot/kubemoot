@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -32,10 +31,20 @@ const (
 	example        = "k8s-config/001-resources_get"
 )
 
-// Input is one stored result a program reads: the file Source, shown to the program as inputs/Name.
+// Input is one stored result a program reads, shown to the program as inputs/Name. File is the result,
+// already opened and checked, so the copy reads what was checked; the caller closes it.
 type Input struct {
-	Name   string
-	Source string
+	Name string
+	File *os.File
+}
+
+// Close closes the files of inputs.
+func Close(in []Input) {
+	for _, i := range in {
+		if i.File != nil {
+			_ = i.File.Close()
+		}
+	}
 }
 
 // Resolver finds stored results under the workspace directories, tried in order.
@@ -70,12 +79,15 @@ func (r Resolver) Resolve(prefix string, keys []string) ([]Input, error) {
 	for _, key := range keys {
 		in, err := r.one(prefix, key)
 		if err != nil {
+			Close(out)
 			return nil, err
 		}
-		if !seen[in.Name] {
-			seen[in.Name] = true
-			out = append(out, in)
+		if seen[in.Name] {
+			Close([]Input{in})
+			continue
 		}
+		seen[in.Name] = true
+		out = append(out, in)
 	}
 	return out, nil
 }
@@ -86,10 +98,10 @@ func (r Resolver) one(prefix, key string) (Input, error) {
 		return Input{}, err
 	}
 	for _, root := range r.Roots {
-		path, err := plainFile(root, strings.Split(prefix+name, "/"))
+		f, err := OpenFile(root, strings.Split(prefix+name, "/"))
 		switch {
 		case err == nil:
-			return Input{Name: name, Source: path}, nil
+			return Input{Name: name, File: f}, nil
 		case errors.Is(err, os.ErrNotExist):
 			continue
 		default:
@@ -97,30 +109,6 @@ func (r Resolver) one(prefix, key string) (Input, error) {
 		}
 	}
 	return Input{}, fmt.Errorf("inputs: no stored result %q in this discussion; keys look like %s", key, example)
-}
-
-// ErrLink is the refusal of a path that has a symbolic link in it.
-var ErrLink = errors.New("a symbolic link is in its path")
-
-// plainFile is the path of the regular file the parts name under root, when no part of the path is a
-// symbolic link and the last is a regular file. A link could point at another discussion's file.
-func plainFile(root string, parts []string) (string, error) {
-	path := root
-	for i, part := range parts {
-		path = filepath.Join(path, part)
-		info, err := os.Lstat(path)
-		switch {
-		case err != nil:
-			return "", err
-		case info.Mode()&os.ModeSymlink != 0:
-			return "", ErrLink
-		case i < len(parts)-1 && !info.IsDir():
-			return "", fmt.Errorf("%s is not a directory: %w", part, os.ErrNotExist)
-		case i == len(parts)-1 && !info.Mode().IsRegular():
-			return "", fmt.Errorf("it is not a regular file: %w", os.ErrNotExist)
-		}
-	}
-	return path, nil
 }
 
 // shortKey is the {agent}/{nnn}-{tool} form of a key, refusing a key of another thread.

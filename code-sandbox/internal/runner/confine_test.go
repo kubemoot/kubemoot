@@ -144,17 +144,18 @@ func TestStagedInputIsAFileTheProgramCountsOver(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := confined(t, ws)
+	in := openInput(t, "k8s-config/002-resources_get", full)
 	code := "n = sum(1 for line in open('inputs/k8s-config/002-resources_get') if line.rstrip().endswith(',decommissioned'))\nprint(n)\n"
 	res, err := r.Execute(context.Background(), "python", code, WithThread(threadA),
-		WithInputs([]inputs.Input{{Name: "k8s-config/002-resources_get", Source: full}}))
+		WithInputs([]inputs.Input{in}))
 	if err != nil || strings.TrimSpace(res.Stdout) != itoa(want) {
 		t.Fatalf("count = %q (%v), want %d; stderr %s", res.Stdout, err, want, res.Stderr)
 	}
 }
 
 func TestInputNamesMustBePlain(t *testing.T) {
-	_, err := newRunner(t).Execute(context.Background(), "bash", "true",
-		WithInputs([]inputs.Input{{Name: "../escape", Source: "/etc/hostname"}}))
+	in := openInput(t, "../escape", "/etc/hostname")
+	_, err := newRunner(t).Execute(context.Background(), "bash", "true", WithInputs([]inputs.Input{in}))
 	if err == nil {
 		t.Fatal("a name that leaves inputs/ must be refused")
 	}
@@ -172,4 +173,15 @@ func indent(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// openInput opens path as a staged input of the given name; the test closes it.
+func openInput(t *testing.T, name, path string) inputs.Input {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	return inputs.Input{Name: name, File: f}
 }
