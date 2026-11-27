@@ -54,11 +54,9 @@ public class DiscussionSubscriber {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     private static final String NOTHING_TO_ADD = "NOTHING_TO_ADD";
-    // A reply that opens (after any reasoning block) with "CONCERN:" or "CONCERN -" states a concern;
-    // group 1 is everything after the prefix.
-    private static final java.util.regex.Pattern CONCERN_REPLY = java.util.regex.Pattern.compile(
-            "^\\s*(?:<think>.*?</think>\\s*)*\\**concern\\s*(?::|-(?=\\s))\\**\\s*(.+)$",
-            java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL);
+    private static final String THINK_OPEN = "<think>";
+    private static final String THINK_CLOSE = "</think>";
+    private static final String CONCERN_WORD = "concern";
     /** Signal metadata: the stored tool calls the agent read, as keys and key patterns. */
     private static final String SIGNAL_AGREE = "agree";
     private static final String SIGNAL_CONCERN = "concern";
@@ -1438,12 +1436,49 @@ public class DiscussionSubscriber {
         if (content == null) {
             return null;
         }
-        var m = CONCERN_REPLY.matcher(content);
-        if (!m.matches()) {
+        var rest = afterReasoning(content);
+        int i = skipStars(rest, 0);
+        if (!rest.regionMatches(true, i, CONCERN_WORD, 0, CONCERN_WORD.length())) {
             return null;
         }
-        var text = m.group(1).strip();
+        i = skipSpaces(rest, i + CONCERN_WORD.length());
+        if (i < rest.length() && rest.charAt(i) == ':') {
+            i++;
+        } else if (i < rest.length() && rest.charAt(i) == '-' && i + 1 < rest.length()
+                && Character.isWhitespace(rest.charAt(i + 1))) {
+            i++;
+        } else {
+            return null;
+        }
+        var text = rest.substring(skipStars(rest, i)).strip();
         return text.isEmpty() ? null : text;
+    }
+
+    /** The reply after leading whitespace and any leading reasoning blocks. */
+    private static String afterReasoning(String content) {
+        int i = skipSpaces(content, 0);
+        while (content.startsWith(THINK_OPEN, i)) {
+            int close = content.indexOf(THINK_CLOSE, i + THINK_OPEN.length());
+            if (close < 0) {
+                break;
+            }
+            i = skipSpaces(content, close + THINK_CLOSE.length());
+        }
+        return content.substring(i);
+    }
+
+    private static int skipStars(String s, int i) {
+        while (i < s.length() && (s.charAt(i) == '*' || Character.isWhitespace(s.charAt(i)))) {
+            i++;
+        }
+        return i;
+    }
+
+    private static int skipSpaces(String s, int i) {
+        while (i < s.length() && Character.isWhitespace(s.charAt(i))) {
+            i++;
+        }
+        return i;
     }
 
     /**
