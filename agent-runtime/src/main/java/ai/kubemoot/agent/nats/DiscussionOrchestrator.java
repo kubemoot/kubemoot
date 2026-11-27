@@ -285,6 +285,8 @@ public class DiscussionOrchestrator {
     private final ReviewConvening.Policy reviewPolicy;
     /** Whether and how the contributors ratify the draft (KUBEMOOT_DISCUSS_RATIFY_*, set by the operator). */
     private final RatifyPolicy ratifyPolicy;
+    /** Most clarifying questions relayed per thread, from the archetype's recheck block (0: none). */
+    private final int recheckMaxRounds;
     // Whether the coordinator may answer a turn directly (empty tooler selection).
     // Off for single-specialist crews (the fitness judge) so the coordinator always
     // delegates to its specialist. Set via KUBEMOOT_DISCUSS_ANSWER_DIRECTLY.
@@ -409,6 +411,7 @@ public class DiscussionOrchestrator {
                 properties.discuss().reviewGeneralists());
         this.ratifyPolicy = RatifyPolicy.of(properties.discuss().ratifyEnabled(),
                 properties.discuss().ratifyMaxRounds(), properties.discuss().ratifyRoster());
+        this.recheckMaxRounds = recheckRounds(properties.discuss().recheckMaxRounds());
         this.answerDirectlyEnabled = properties.discuss().answerDirectly();
         int advTimeout = properties.discuss().advisoryTimeoutSeconds();
         this.advisoryTimeoutSeconds = advTimeout > 0 ? advTimeout : 10;
@@ -1061,7 +1064,8 @@ public class DiscussionOrchestrator {
 
     /** The control messages the coordinator publishes and hears again: the close, the two wake-ups and the draft. */
     private static final Set<String> OWN_CONTROL_ECHOES =
-            Set.of(MSG_THREAD_CLOSE, MSG_ADVISORY_READY, MSG_REVIEW_READY, RatifyText.MSG_DRAFT);
+            Set.of(MSG_THREAD_CLOSE, MSG_ADVISORY_READY, MSG_REVIEW_READY, RatifyText.MSG_DRAFT,
+                    RecheckText.MSG_QUESTION_ASKED, RecheckText.MSG_QUESTION_ANSWERED);
 
     /** Dedup by messageId; an already-seen id is a redelivery to drop. */
     private boolean isDuplicateMessage(ThreadState state, JsonNode msg) {
@@ -1238,11 +1242,38 @@ public class DiscussionOrchestrator {
     // Visible for testing
     void handleAgentSignal(ThreadState state, String agentName, String messageType,
                            String content, JsonNode msg) {
-        dispatchSignal(state, agentName, messageType, content, msg);
-        if (TERMINAL_SIGNALS.contains(messageType)) {
+        String answers = answeredQuestion(msg);
+        String applied = answers.isEmpty() ? messageType : answerSignal(messageType);
+        boolean endsTurn = endsTurn(applied, msg);
+        if (!answers.isEmpty() && endsTurn && !MSG_FAILURE.equals(applied)) {
+            dropEarlierVerdict(state, agentName);
+        }
+        dispatchSignal(state, agentName, applied, content, msg);
+        if (endsTurn) {
             state.phaseRoster.get().recordTerminalSignal(agentName);
         }
-        events.get().signalApplied(state, agentName, messageType, msg);
+        events.get().signalApplied(state, agentName, applied, msg);
+        if (endsTurn) {
+            followRecheck(state, agentName, applied, content, answers);
+        }
+    }
+
+    /** The clarifying question a signal answers ({@code metadata.answers}), or empty. */
+    private static String answeredQuestion(JsonNode msg) {
+        return msg == null ? "" : msg.path(FIELD_METADATA).path(RecheckText.FIELD_ANSWERS).asText("");
+    }
+
+    /** An agent answering a question cannot ask one back: its question counts as a concern. */
+    private static String answerSignal(String messageType) {
+        return SignalVerdicts.MSG_QUESTION.equals(messageType) ? MSG_CONCERN : messageType;
+    }
+
+    /** True for a signal that ends an agent's turn in the phase: a terminal signal, or a declared kind the archetype marks terminal. */
+    static boolean endsTurn(String messageType, JsonNode msg) {
+        if (SignalVerdicts.MSG_DECLARED.equals(messageType)) {
+            return msg != null && msg.path(FIELD_METADATA).path(SignalVerdicts.FIELD_TERMINAL).asBoolean(true);
+        }
+        return TERMINAL_SIGNALS.contains(messageType);
     }
 
     private void dispatchSignal(ThreadState state, String agentName, String messageType,
@@ -1257,6 +1288,8 @@ public class DiscussionOrchestrator {
             case MSG_STAND_ASIDE, MSG_DECLINE -> handleStandAsideSignal(state, agentName, msg);
             case MSG_FAILURE -> handleFailureSignal(state, agentName, content, msg);
             case MSG_BLOCK -> handleBlockSignal(state, agentName, content, msg);
+            case SignalVerdicts.MSG_QUESTION -> handleQuestionSignal(state, agentName, content, msg);
+            case SignalVerdicts.MSG_DECLARED -> handleDeclaredSignal(state, agentName, content, msg);
             default -> {
                 // Other message types (e.g. advisory, proposal, consent) don't need signal tracking
             }
@@ -1431,6 +1464,222 @@ public class DiscussionOrchestrator {
         state.lastSignalReceived = Instant.now();
     }
 
+    // --- the clarifying-question round ---
+
+    /** The archetype's recheck rounds, 1 when it sets none, kept between 0 and 5 as the CRD allows. */
+    static int recheckRounds(Optional<Integer> declared) {
+        int rounds = declared == null ? 1 : declared.orElse(1);
+        return Math.max(0, Math.min(5, rounds));
+    }
+
+    /**
+     * An agent asks the agent that made a finding to recheck it. Its turn is open until it signals
+     * again, so it stays on the phase's roster unsignalled. With a round left and a known target the
+     * question is relayed to the target, which becomes pending; otherwise the question is the
+     * asker's concern and its turn ends.
+     */
+    private void handleQuestionSignal(ThreadState state, String asker, String content, JsonNode msg) {
+        JsonNode meta = msg.path(FIELD_METADATA);
+        String target = meta.path(SignalVerdicts.FIELD_TO).asText("");
+        String text = meta.path(SignalVerdicts.FIELD_STATEMENT).asText(content);
+        // An asker whose earlier question was answered is done with it once it asks again.
+        state.recheck.settle(asker);
+        state.pendingEvaluations.remove(asker);
+        state.waitingAgents.remove(asker);
+        state.lastSignalReceived = Instant.now();
+        var decision = state.recheck.ask(state.threadId + "/" + state.trace.round(), asker, target, text,
+                recheckMaxRounds, questionTargets(state));
+        var question = decision.question();
+        if (!decision.relayed()) {
+            log.info("Thread {} - {} asked {}; not relayed ({}), recorded as a concern", state.threadId, asker,
+                    target, decision.refusal().id());
+            recordQuestionAsConcern(state, question, decision.refusal().text());
+            events.get().questionAsked(state, question, decision.refusal().id(), 0L);
+            return;
+        }
+        long deadline = openRecheckDeadline(state, target);
+        log.info("Thread {} - {} asked {} to recheck; relaying the question", state.threadId, asker, target);
+        if (events.get().questionAsked(state, question, "", deadline)) {
+            publishRecheckMessage(state, RecheckText.MSG_QUESTION_ASKED, target,
+                    RecheckText.relayed(asker, target, question.text()), question);
+        }
+    }
+
+    /** The agents a question may name: the crew's toolers and analysts, and every agent that took part in the thread. */
+    private Set<String> questionTargets(ThreadState state) {
+        var targets = new HashSet<>(crewAgentNames());
+        targets.addAll(state.agreeSignals.keySet());
+        targets.addAll(state.concernSignals.keySet());
+        targets.addAll(state.blockSignals.keySet());
+        targets.addAll(state.standAsideSignals);
+        targets.addAll(state.failureSignals.keySet());
+        if (state.innerCircle != null) {
+            targets.addAll(state.innerCircle);
+        }
+        targets.remove(properties.agentName());
+        return targets;
+    }
+
+    /**
+     * A signal that ended an agent's turn moves the round on: an answer wakes its asker (or, when
+     * the recheck failed, leaves the question as the asker's concern), and an asker's signal after
+     * the answer settles its question.
+     */
+    private void followRecheck(ThreadState state, String agent, String signal, String content, String answers) {
+        if (!answers.isEmpty()) {
+            answerQuestion(state, agent, signal, content, answers);
+        } else if (state.recheck.awaitsAnswerFrom(agent)) {
+            owedAnswer(state, agent, signal);
+        }
+        if (state.recheck.settle(agent) != null) {
+            log.info("Thread {} - {} signalled {} after its question was answered", state.threadId, agent, signal);
+        }
+    }
+
+    /**
+     * An agent that was asked a question ended a turn without answering it (a late signal from
+     * its earlier run). A failure means it will not answer: the question is its asker's concern.
+     * Otherwise its recheck is still owed, so it stays pending and its deadline stays the safety net.
+     */
+    private void owedAnswer(ThreadState state, String agent, String signal) {
+        if (MSG_FAILURE.equals(signal)) {
+            abandonQuestions(state, agent, "it failed");
+        } else {
+            openRecheckDeadline(state, agent);
+        }
+    }
+
+    private void answerQuestion(ThreadState state, String agent, String signal, String content, String questionId) {
+        var question = state.recheck.answer(questionId, agent, signal, content);
+        if (question == null) {
+            log.debug("Thread {} - {} answered question {}, which is not open", state.threadId, agent, questionId);
+            return;
+        }
+        if (MSG_FAILURE.equals(signal)) {
+            recordQuestionAsConcern(state, question, agent + " could not recheck");
+            state.recheck.settle(question.asker());
+            events.get().questionAnswered(state, question, 0L);
+            return;
+        }
+        long deadline = openRecheckDeadline(state, question.asker());
+        log.info("Thread {} - {} rechecked ({}); waking {} with the revised finding", state.threadId, agent, signal,
+                question.asker());
+        if (events.get().questionAnswered(state, question, deadline)) {
+            publishRecheckMessage(state, RecheckText.MSG_QUESTION_ANSWERED, question.asker(),
+                    RecheckText.answered(question.asker(), agent, content), question);
+        }
+    }
+
+    /**
+     * The agent woken in the round is pending from now until the deadline a triaging agent gets:
+     * it starts with no triage, publishes {@code evaluating} at once (which sets its P90 deadline)
+     * and heartbeats while it works, as in any phase. Returns the deadline.
+     */
+    private long openRecheckDeadline(ThreadState state, String agent) {
+        long deadline = System.currentTimeMillis() + properties.triageModel().timeoutSeconds() * 1000L;
+        state.pendingEvaluations.put(agent, deadline);
+        metrics.setPendingEvaluations(state.pendingEvaluations.size());
+        return deadline;
+    }
+
+    /**
+     * The questions an agent that missed its deadline was asked stand as their askers' concerns,
+     * logged as a failed answer so a restarted coordinator rebuilds the same concern.
+     */
+    private void abandonQuestions(ThreadState state, String agent, String why) {
+        for (var question : state.recheck.abandonedBy(agent)) {
+            recordQuestionAsConcern(state, question, agent + " did not answer: " + why);
+            events.get().questionAnswered(state, question.answered(MSG_FAILURE, why), 0L);
+        }
+    }
+
+    /**
+     * A question that was not relayed, or not answered, is the asker's concern: the doubt stands
+     * on the table for the synthesis, and the asker's turn ends.
+     */
+    private void recordQuestionAsConcern(ThreadState state, RecheckState.Question question, String why) {
+        String asker = question.asker();
+        String concern = "Unanswered question to " + (question.target().isEmpty() ? "no agent" : question.target())
+                + ": " + question.text() + " (" + why + ")";
+        state.concernSignals.merge(asker, concern, (earlier, added) -> earlier + "\n\n" + added);
+        state.recheck.settle(asker);
+        state.pendingEvaluations.remove(asker);
+        state.phaseRoster.get().recordTerminalSignal(asker);
+        state.lastSignalReceived = Instant.now();
+        metrics.setPendingEvaluations(state.pendingEvaluations.size());
+    }
+
+    /**
+     * A revised finding replaces the agent's earlier one: its earlier verdict leaves the signal
+     * tallies (the new one is applied next), and its earlier findings in the thread are marked
+     * replaced. The bus keeps both, so the transcript shows the exchange.
+     */
+    private static void dropEarlierVerdict(ThreadState state, String agent) {
+        state.agreeSignals.remove(agent);
+        state.concernSignals.remove(agent);
+        state.blockSignals.remove(agent);
+        state.standAsideSignals.remove(agent);
+        state.declaredSignals.remove(agent);
+        var messages = state.messages;
+        for (int i = 0; i < messages.size() - 1; i++) {
+            var m = messages.get(i);
+            if (agent.equals(m.agentName()) && !m.replaced() && FINDING_TYPES.contains(m.messageType())) {
+                messages.set(i, m.asReplaced());
+            }
+        }
+    }
+
+    /** The message types that carry an agent's finding, the ones a recheck replaces. */
+    private static final Set<String> FINDING_TYPES = Set.of(MSG_AGREE, MSG_CONTRIBUTION, MSG_CONCERN, MSG_BLOCK,
+            SignalVerdicts.MSG_DECLARED);
+
+    /** A declared kind the runtime has no phase logic for: recorded for the synthesis, and terminal when declared so. */
+    private void handleDeclaredSignal(ThreadState state, String agentName, String content, JsonNode msg) {
+        String kind = msg.path(FIELD_METADATA).path(SignalVerdicts.FIELD_KIND).asText("signal");
+        state.declaredSignals.put(agentName, kind + ": " + content);
+        if (endsTurn(SignalVerdicts.MSG_DECLARED, msg)) {
+            state.pendingEvaluations.remove(agentName);
+            state.waitingAgents.remove(agentName);
+            metrics.setPendingEvaluations(state.pendingEvaluations.size());
+        }
+        state.lastSignalReceived = Instant.now();
+    }
+
+    /**
+     * Publishes a message of the round to one agent: the relayed question to its target, or the
+     * answer to its asker. The inner circle wakes only {@code recipient}.
+     */
+    private void publishRecheckMessage(ThreadState state, String messageType, String recipient, String content,
+                                       RecheckState.Question question) {
+        try {
+            var conn = natsProvider.getConnection();
+            if (conn == null) return;
+            var metadata = new HashMap<String, Object>();
+            metadata.put(FIELD_USER_QUERY, state.userQuery);
+            metadata.put(FIELD_INNER_CIRCLE, List.of(recipient));
+            metadata.put(RecheckText.FIELD_QUESTION_ID, question.id());
+            metadata.put(RecheckText.FIELD_ASKED_BY, question.asker());
+            metadata.put(RecheckText.FIELD_ANSWERED_BY, question.target());
+            metadata.put(SignalVerdicts.FIELD_STATEMENT, question.text());
+            String event = RecheckText.MSG_QUESTION_ASKED.equals(messageType)
+                    ? CoordinatorEvent.QUESTION_ASKED : CoordinatorEvent.QUESTION_ANSWERED;
+            String derivedId = events.get().messageId(state, event, messageType);
+            var message = Map.of(
+                    FIELD_MESSAGE_ID, DerivedIds.idOrRandom(derivedId),
+                    FIELD_THREAD_ID, state.threadId,
+                    FIELD_AGENT_NAME, properties.agentName(),
+                    FIELD_MESSAGE_TYPE, messageType,
+                    FIELD_CONTENT, content,
+                    FIELD_CHANNEL, CHANNEL_BROADCAST,
+                    FIELD_TIMESTAMP, Instant.now().toString(),
+                    FIELD_METADATA, metadata);
+            DerivedIds.publish(conn, broadcastSubject(state.crew, state.threadId), mapper.writeValueAsBytes(message),
+                    derivedId);
+        } catch (Exception e) {
+            log.warn("Failed to publish {} for thread {}: {}", messageType, state.threadId, LogContent.reason(e));
+        }
+    }
+
     /**
      * Handle human reply on a closed thread — reopen to EVALUATING phase
      * and clear all previous signals.
@@ -1459,6 +1708,8 @@ public class DiscussionOrchestrator {
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
         state.ratify.reset();
+        state.recheck.reset();
+        state.declaredSignals.clear();
         state.stopped = false;
         state.receipt.startRound(state.phaseStarted);
         events.get().reopened(state);
@@ -1675,6 +1926,11 @@ public class DiscussionOrchestrator {
         // Expire agents past their P90+grace deadline -> synthetic failure. The
         // ONLY per-agent timeout; heartbeats keep a deadline refreshed.
         checkEvaluationTimeouts(state);
+
+        // A clarifying question holds the phase until its asker has signalled again, whoever
+        // is pending at the moment and whether or not the asker is on the roster. A deadline
+        // that passes ends the question (checkEvaluationTimeouts), so this never holds forever.
+        if (state.recheck.inProgress()) return;
 
         // State first: once every participant the phase waits for has published a
         // terminal signal in this phase, it advances without waiting out the floor or
@@ -2013,6 +2269,8 @@ public class DiscussionOrchestrator {
         state.clearCapacitySignals();
         state.researcherAgents.clear();
         state.pendingEvaluations.clear();
+        state.recheck.reset();
+        state.declaredSignals.clear();
         state.phaseRoster.set(PhaseRoster.of(evaluationRoster(state.innerCircle, analystNamesFromResumes())));
         state.advisoryPending.set(false);
         return events.get().evaluationStarted(state);
@@ -3575,7 +3833,7 @@ public class DiscussionOrchestrator {
     }
 
     private static List<DiscussionFacts.Message> discussionMessages(ThreadState state) {
-        return state.messages.stream()
+        return state.messages.stream().filter(m -> !m.replaced())
                 .map(m -> new DiscussionFacts.Message(m.agentName, m.messageType, m.content)).toList();
     }
 
@@ -3718,6 +3976,7 @@ public class DiscussionOrchestrator {
     // Visible for testing
     boolean hasSufficientConsensus(ThreadState state, Instant now) {
         if (!state.concernSignals.isEmpty() || !state.blockSignals.isEmpty()) return false;
+        if (state.recheck.inProgress()) return false;
         if (toolerAgreeCount(state) < SUFFICIENT_AGREES_THRESHOLD) return false;
         return state.lastSignalReceived != null
                 && Duration.between(state.lastSignalReceived, now).getSeconds() >= settleSeconds;
@@ -3752,6 +4011,7 @@ public class DiscussionOrchestrator {
                 events.get().timedOut(state, timedOutAgent);
                 publishSyntheticFailure(timedOutAgent, state.threadId,
                         state.primaryChannel != null ? state.primaryChannel : CHANNEL_GENERAL);
+                abandonQuestions(state, timedOutAgent, "it missed its deadline");
                 return true;
             }
             return false;
@@ -3883,7 +4143,8 @@ public class DiscussionOrchestrator {
             MSG_BLOCK, "BLOCK",
             MSG_STAND_ASIDE, "STAND ASIDE",
             MSG_DECLINE, "STAND ASIDE",
-            "proposal", "PROPOSAL");
+            "proposal", "PROPOSAL",
+            SignalVerdicts.MSG_QUESTION, "QUESTION");
 
     /**
      * The label a thread message gets in the coordinator's view of the thread.
@@ -3904,6 +4165,11 @@ public class DiscussionOrchestrator {
         sb.append("Channel: ").append(state.primaryChannel != null ? state.primaryChannel : CHANNEL_GENERAL).append("\n\n");
 
         for (var msg : state.messages) {
+            if (msg.replaced()) {
+                sb.append("[EARLIER FINDING from ").append(msg.agentName)
+                        .append(", replaced by its recheck below]\n\n");
+                continue;
+            }
             String label = threadLabel(msg.messageType, msg.agentName);
 
             sb.append(label).append("\n");
@@ -3953,8 +4219,25 @@ public class DiscussionOrchestrator {
             sb.append(" (sources not reached: ").append(phrases).append(")");
         }
         sb.append("\n");
+        appendQuestions(sb, state);
         sb.append("Original question: \"").append(state.userQuery).append("\"");
         return sb.toString();
+    }
+
+    /** The clarifying questions of the turn, one line each: who asked whom, and what came of it. */
+    private static void appendQuestions(StringBuilder sb, ThreadState state) {
+        var questions = state.recheck.history();
+        if (questions.isEmpty()) {
+            return;
+        }
+        sb.append("- Clarifying questions: ").append(questions.size()).append("\n");
+        for (var q : questions) {
+            sb.append("  - ").append(q.asker()).append(" asked ").append(q.target().isEmpty() ? "(no agent)" : q.target())
+                    .append(": ").append(truncate(q.text(), LOG_PREVIEW_CHARS)).append(" -> ")
+                    .append(q.isAnswered() ? "answered with a revised finding (" + q.answerSignal() + ")"
+                            : "not answered; recorded as " + q.asker() + "'s concern")
+                    .append("\n");
+        }
     }
 
     /**
@@ -5249,8 +5532,20 @@ public class DiscussionOrchestrator {
         CLOSED          // Thread complete
     }
 
+    /**
+     * One message of the thread as the coordinator holds it. {@code replaced} marks an agent's
+     * finding that a later recheck replaced: the synthesis is told it was replaced, not its text.
+     */
     private record MessageRecord(String agentName, String messageType, String content,
-                                  String channel, Instant timestamp) {}
+                                  String channel, Instant timestamp, boolean replaced) {
+        MessageRecord(String agentName, String messageType, String content, String channel, Instant timestamp) {
+            this(agentName, messageType, content, channel, timestamp, false);
+        }
+
+        MessageRecord asReplaced() {
+            return new MessageRecord(agentName, messageType, content, channel, timestamp, true);
+        }
+    }
 
     /**
      * Broadcast subject for a thread of {@code crew} in this agent's namespace:
@@ -5518,6 +5813,10 @@ public class DiscussionOrchestrator {
         volatile Set<String> selectedSkills; // NOSONAR S3077: same pattern as innerCircle
         /** The draft on the table and what the roster answered (see RatifyState); inactive before RATIFY. */
         final RatifyState ratify = new RatifyState();
+        /** The turn's clarifying questions (see RecheckState). */
+        final RecheckState recheck = new RecheckState();
+        /** Declared kinds outside the runtime's table that agents signalled: agent to "kind: content". */
+        final ConcurrentHashMap<String, String> declaredSignals = new ConcurrentHashMap<>();
         /** The text the synthesis call answered from, kept for the revision when the table objects. */
         volatile String synthesisInput = "";
         /** Why these analysts were convened for review (see ReviewConvening); null before review. */

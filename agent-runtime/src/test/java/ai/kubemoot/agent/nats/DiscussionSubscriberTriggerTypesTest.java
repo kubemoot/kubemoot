@@ -15,12 +15,23 @@ import static org.junit.jupiter.api.Assertions.*;
 class DiscussionSubscriberTriggerTypesTest {
 
     @Test
-    void analystTriggersOnReviewReadyAndTheDraftOnly() {
+    void analystTriggersOnReviewReadyTheDraftAndTheQuestionRoundOnly() {
         var t = DiscussionSubscriber.triggerTypesFor("analyst");
         assertTrue(t.contains("review_ready"), "analyst must trigger on review_ready");
         assertFalse(t.contains("advisory_ready"), "analyst must NOT trigger on advisory_ready");
         assertTrue(t.contains("draft"), "analyst ratifies the coordinator's draft");
-        assertEquals(2, t.size(), "analyst triggers on review_ready and the draft only");
+        assertTrue(t.contains("question_asked"), "an analyst asked to recheck its finding answers");
+        assertTrue(t.contains("question_answered"), "an analyst whose question was answered signals again");
+        assertEquals(4, t.size(), "analyst triggers on review_ready, the draft and the question round only");
+    }
+
+    @Test
+    void everyRoleWakesForTheQuestionRound() {
+        for (String role : new String[]{"tooler", "analyst", "researcher", null}) {
+            var t = DiscussionSubscriber.triggerTypesFor(role);
+            assertTrue(t.contains("question_asked") && t.contains("question_answered"),
+                    "role '" + role + "' takes part in the clarifying-question round");
+        }
     }
 
     @Test

@@ -9,6 +9,9 @@ import ai.kubemoot.agent.requester.Requester;
 import ai.kubemoot.agent.requester.TurnContext;
 import ai.kubemoot.agent.chat.CallManifest;
 import ai.kubemoot.agent.chat.ChatService;
+import ai.kubemoot.agent.signal.DeclaredSignals;
+import ai.kubemoot.agent.signal.SignalCall;
+import ai.kubemoot.agent.signal.SignalScope;
 import ai.kubemoot.agent.chat.ContextRejection;
 import ai.kubemoot.agent.chat.ToolCallFailure;
 import ai.kubemoot.agent.config.AgentProperties;
@@ -58,9 +61,10 @@ public class DiscussionSubscriber {
     private static final String THINK_CLOSE = "</think>";
     private static final String CONCERN_WORD = "concern";
     /** Signal metadata: the stored tool calls the agent read, as keys and key patterns. */
-    private static final String SIGNAL_AGREE = "agree";
-    private static final String SIGNAL_CONCERN = "concern";
-    private static final String SIGNAL_STAND_ASIDE = "stand_aside";
+    static final String SIGNAL_AGREE = "agree";
+    static final String SIGNAL_CONCERN = "concern";
+    static final String SIGNAL_BLOCK = "block";
+    static final String SIGNAL_STAND_ASIDE = "stand_aside";
     /** Published once when an agent starts waiting for GPU capacity. */
     private static final String SIGNAL_WAITING = "waiting";
     private static final String SIGNAL_EVALUATING = "evaluating";
@@ -78,7 +82,7 @@ public class DiscussionSubscriber {
      * logic, dashboard, and GapDetector can distinguish "no relevant
      * tooler" from "toolers exist but their tools failed."
      */
-    private static final String SIGNAL_FAILURE = "failure";
+    static final String SIGNAL_FAILURE = "failure";
 
     // JSON field name constants (used in NATS message construction/parsing)
     private static final String FIELD_MESSAGE_ID = "messageId";
@@ -150,6 +154,10 @@ public class DiscussionSubscriber {
      * real /app/config/skills path.
      */
     private SkillBodyLoader skillBodyLoader;
+    /** The kinds of signal the crew's archetype declares; empty when the signal tool is not offered. */
+    private final DeclaredSignals declaredSignals;
+    /** The question each thread's recheck turn answers, by thread; its signals carry it as metadata.answers. */
+    private final ConcurrentHashMap<String, String> answering = new ConcurrentHashMap<>();
 
     private final ConcurrentHashMap<String, List<ThreadMessage>> threadContext = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, List<String>> threadTechnologies = new ConcurrentHashMap<>();
@@ -194,8 +202,11 @@ public class DiscussionSubscriber {
     // storm, so review_ready stays off their trigger set.
     // They do wake on the coordinator's draft (when they are on its roster): the contributors
     // ratify the answer before it is released.
+    // Every role wakes when the coordinator relays a clarifying question to it, and when its own
+    // question is answered (each scoped by the message's inner circle to the one agent).
     private static final Set<String> TOOLER_TRIGGERS = Set.of(
-            MSG_ADVISORY_READY, "follow_up", MSG_REPLY, RatifyText.MSG_DRAFT
+            MSG_ADVISORY_READY, "follow_up", MSG_REPLY, RatifyText.MSG_DRAFT,
+            RecheckText.MSG_QUESTION_ASKED, RecheckText.MSG_QUESTION_ANSWERED
     );
     // Analyst agents act in the REVIEW phase only. review_ready is re-enabled as a
     // trigger SCOPED to this role — only analysts wake on it, so the old storm
@@ -206,7 +217,8 @@ public class DiscussionSubscriber {
     // innerCircle is absent and all analysts review (the prior behavior). The
     // analyst reasons over the callers' gathered data the EVALUATING phase produced
     // (already accumulated in thread context).
-    private static final Set<String> ANALYST_TRIGGERS = Set.of(MSG_REVIEW_READY, RatifyText.MSG_DRAFT);
+    private static final Set<String> ANALYST_TRIGGERS = Set.of(MSG_REVIEW_READY, RatifyText.MSG_DRAFT,
+            RecheckText.MSG_QUESTION_ASKED, RecheckText.MSG_QUESTION_ANSWERED);
 
     /** The trigger message types an agent acts on, by its discuss-role. */
     static Set<String> triggerTypesFor(String role) {
@@ -235,6 +247,8 @@ public class DiscussionSubscriber {
         this.priority = properties.discuss().priority();
         this.jetstreamConsumer = properties.discuss().jetstreamConsumer().orElse(null);
         this.triggerTypes = triggerTypesFor(properties.discuss().role());
+        var declared = properties.discuss().signals();
+        this.declaredSignals = DeclaredSignals.parse(declared == null ? java.util.Optional.empty() : declared);
         this.rateLimiter = new DiscussionRateLimiter(
                 properties.discuss().maxInferencesPerMinute(),
                 properties.discuss().maxContributionsPerThread()
@@ -447,6 +461,8 @@ public class DiscussionSubscriber {
             if (RatifyText.MSG_DRAFT.equals(evaluation.trigger())) {
                 ratifyAndRespond(subject, evaluation.threadId(), evaluation.conversation(), evaluation.round(),
                         evaluation.draftId());
+            } else if (isRecheckTrigger(evaluation.trigger())) {
+                recheckAndRespond(subject, evaluation);
             } else {
                 evaluateAndRespond(subject, evaluation.threadId(), evaluation.conversation(), evaluation.selected());
             }
@@ -460,7 +476,12 @@ public class DiscussionSubscriber {
 
     /** A discussion message this agent will evaluate, with the thread formatted for the prompt. */
     record PendingEvaluation(String threadId, String conversation, boolean selected, String trigger, int round,
-                             String draftId) {
+                             String draftId, Recheck recheck) {
+        PendingEvaluation(String threadId, String conversation, boolean selected, String trigger, int round,
+                          String draftId) {
+            this(threadId, conversation, selected, trigger, round, draftId, Recheck.NONE);
+        }
+
         PendingEvaluation(String threadId, String conversation, boolean selected, String trigger) {
             this(threadId, conversation, selected, trigger, 0, "");
         }
@@ -512,8 +533,23 @@ public class DiscussionSubscriber {
         boolean draft = RatifyText.MSG_DRAFT.equals(messageType);
         int round = draft ? msg.path(FIELD_METADATA).path("round").asInt(1) : 0;
         String draftId = draft ? msg.path(FIELD_METADATA).path(RatifyText.FIELD_DRAFT_ID).asText("") : "";
+        var recheck = isRecheckTrigger(messageType) ? Recheck.of(msg.path(FIELD_METADATA)) : Recheck.NONE;
         return new PendingEvaluation(threadId, formatThread(messages, threadId), isExplicitlySelected(data),
-                messageType, round, draftId);
+                messageType, round, draftId, recheck);
+    }
+
+    /**
+     * The clarifying question a recheck turn is about: its id, who asked, and who answered (the
+     * agent asked to recheck). {@link #NONE} on every other turn.
+     */
+    record Recheck(String questionId, String askedBy, String answeredBy) {
+        static final Recheck NONE = new Recheck("", "", "");
+
+        static Recheck of(JsonNode meta) {
+            return new Recheck(meta.path(RecheckText.FIELD_QUESTION_ID).asText(""),
+                    meta.path(RecheckText.FIELD_ASKED_BY).asText(""),
+                    meta.path(RecheckText.FIELD_ANSWERED_BY).asText(""));
+        }
     }
 
     /** Rate-limit permits taken for the thread. Visible for testing. */
@@ -538,9 +574,19 @@ public class DiscussionSubscriber {
                 && !isExcludedByInnerCircle(data, threadId);
     }
 
-    /** Ratifying the draft is owed to the thread, not a contribution the limit may refuse; anything else takes a permit. */
+    /**
+     * Ratifying the draft and answering a clarifying question are owed to the thread, not
+     * contributions the limit may refuse; anything else takes a permit.
+     */
     private boolean withinRateLimit(String messageType, String threadId) {
-        return RatifyText.MSG_DRAFT.equals(messageType) || rateLimiter.tryAcquire(threadId);
+        return RatifyText.MSG_DRAFT.equals(messageType) || isRecheckTrigger(messageType)
+                || rateLimiter.tryAcquire(threadId);
+    }
+
+    /** True for the two messages of the clarifying-question round that wake an agent. */
+    static boolean isRecheckTrigger(String messageType) {
+        return RecheckText.MSG_QUESTION_ASKED.equals(messageType)
+                || RecheckText.MSG_QUESTION_ANSWERED.equals(messageType);
     }
 
     /**
@@ -972,10 +1018,12 @@ public class DiscussionSubscriber {
 
         long mullingStartMs = System.currentTimeMillis();
         ChatService.ChatResult result = null;
+        SignalCall verdict = null;
         boolean failed = false;
-        try {
+        try (var signalScope = SignalScope.bind(declaredSignals)) {
             result = runMullingInference(conversation, threadId,
                     new ThreadCapacityWait(subject, threadId));
+            verdict = signalScope.call().orElse(null);
         } catch (Exception e) {
             failed = true;
             handleMullingFailure(subject, threadId, e, triageMs, triageStartMs, mullingStartMs, mullingGpuLabel);
@@ -993,7 +1041,42 @@ public class DiscussionSubscriber {
         metrics.recordTokens(inTok, outTok);
 
         classifyAndPublishResult(subject, threadId, result,
-                new SignalTiming(totalMs, triageStartMs, inTok, outTok), mullingGpuLabel);
+                new SignalTiming(totalMs, triageStartMs, inTok, outTok), mullingGpuLabel, verdict);
+    }
+
+    /**
+     * A turn of the clarifying-question round. Asked to recheck, the agent runs its assessment
+     * again with its tools and its signals carry the question's id, so its revised finding
+     * replaces its earlier one. Answered, the asker checks the revised finding and signals again.
+     * Neither turn triages: the coordinator addressed the agent by name.
+     */
+    // Visible for testing
+    void recheckAndRespond(String subject, PendingEvaluation evaluation) {
+        String threadId = evaluation.threadId();
+        if (closedThreads.contains(threadId)) {
+            return;
+        }
+        var recheck = evaluation.recheck();
+        boolean asked = RecheckText.MSG_QUESTION_ASKED.equals(evaluation.trigger());
+        String instruction = asked ? RecheckText.recheckInstruction(recheck.askedBy())
+                : RecheckText.answeredInstruction(recheck.answeredBy());
+        if (asked && !recheck.questionId().isEmpty()) {
+            answering.put(threadId, recheck.questionId());
+        }
+        evaluations.put(threadId, false);
+        long startMs = System.currentTimeMillis();
+        try {
+            runMullingPhase(subject, threadId, evaluation.conversation() + "\n\n" + instruction, 0L, startMs);
+        } catch (Exception e) {
+            log.warn("Recheck turn failed for thread {}: {}", threadId, LogContent.reason(e));
+            if (!Boolean.TRUE.equals(evaluations.get(threadId))) {
+                publishExceptionAsFailure(subject, threadId, e, "Recheck", 0L, startMs, NOT_PLACED);
+            }
+        } finally {
+            answering.remove(threadId);
+            evaluations.remove(threadId);
+            chatService.releasePlan(threadId);
+        }
     }
 
     private void handleMullingFailure(String subject, String threadId, Exception failure,
@@ -1369,9 +1452,53 @@ public class DiscussionSubscriber {
         return false;
     }
 
+    /** {@link #classifyAndPublishResult(String, String, ChatService.ChatResult, SignalTiming, String, SignalCall)} with no signal call. */
     // Visible for testing
     void classifyAndPublishResult(String subject, String threadId, ChatService.ChatResult result,
                                   SignalTiming timing, String gpuLabel) {
+        classifyAndPublishResult(subject, threadId, result, timing, gpuLabel, null);
+    }
+
+    /**
+     * Publishes the turn's outcome. The verdict is the agent's signal-tool call when it made one;
+     * its reply stays its finding. Without a call the verdict is read from the reply's opening
+     * words, the way it was before the tool existed ({@link #publishFromReplyText}).
+     */
+    // Visible for testing
+    void classifyAndPublishResult(String subject, String threadId, ChatService.ChatResult result,
+                                  SignalTiming timing, String gpuLabel, SignalCall verdict) {
+        gpuLabel = jitGpuLabelOr(result, gpuLabel);
+        var triageUse = triageUses.remove(threadId);
+        if (verdict != null && !closedThreads.contains(threadId)) {
+            publishVerdict(subject, threadId, result, verdict, timing, gpuLabel, triageUse);
+            return;
+        }
+        if (!declaredSignals.isEmpty()) {
+            log.info("Agent {} made no signal call for thread {}; reading the verdict from the reply's opening words",
+                    properties.agentName(), threadId);
+        }
+        publishFromReplyText(subject, threadId, result, timing, gpuLabel, triageUse);
+    }
+
+    /** Publishes a signal-tool verdict with the finding it goes with (see {@link SignalVerdicts}). */
+    private void publishVerdict(String subject, String threadId, ChatService.ChatResult result, SignalCall verdict,
+                                SignalTiming timing, String gpuLabel, ai.kubemoot.agent.chat.ModelUse triageUse) {
+        var finding = new SignalVerdicts.Finding(result == null ? "" : result.response(),
+                result == null ? "" : result.files());
+        var published = SignalVerdicts.of(verdict, finding, declaredSignals.isTerminal(verdict.kind()));
+        var meta = new HashMap<String, Object>(ModelAttribution.withEarlierCall(findingMetadata(result), triageUse));
+        meta.putAll(published.metadata());
+        log.info("Agent {} signalled {} for thread {}", properties.agentName(), verdict.kind(), threadId);
+        publishSignal(subject, threadId, published.signal(), published.content(), timing, gpuLabel, meta);
+    }
+
+    /**
+     * DEPRECATED: the verdict read from the reply's opening words (NOTHING_TO_ADD, TOOL_GAP:,
+     * CONCERN:), else agree. Kept for crews whose archetype declares no signals and for a model
+     * that does not call the signal tool.
+     */
+    private void publishFromReplyText(String subject, String threadId, ChatService.ChatResult result,
+                                      SignalTiming timing, String gpuLabel, ai.kubemoot.agent.chat.ModelUse triageUse) {
         // The GPU badge should reflect WHERE this inference actually ran — the
         // JIT-selected server — not the agent's static reconcile-time
         // endpoint. Without this, an agent that JIT-picked the 5090 still shows
@@ -1379,8 +1506,6 @@ public class DiscussionSubscriber {
         // obs-metrics ran on rig0/5090 but the dashboard showed 4090). Fall
         // back to the static label when no JIT pick was made (selector unwired
         // / static fallback). See [[Per-Call Server Attribution]].
-        gpuLabel = jitGpuLabelOr(result, gpuLabel);
-        var triageUse = triageUses.remove(threadId);
         var ranOn = ModelAttribution.withEarlierCall(ranOn(result), triageUse);
 
         if (hasNoContributionToPublish(threadId, result)) {
@@ -1505,7 +1630,9 @@ public class DiscussionSubscriber {
             RatifyText.MSG_DRAFT, "Draft Answer To Ratify",
             MSG_REPLY, "User Reply",
             "follow_up", "Facilitator Follow-up",
-            "synthesis", "Synthesis");
+            "synthesis", "Synthesis",
+            RecheckText.MSG_QUESTION_ASKED, "Clarifying Question",
+            RecheckText.MSG_QUESTION_ANSWERED, "Clarifying Question Answered");
 
     /** Thread labels for message types shown with their author as "Label (agent)". */
     private static final Map<String, String> AUTHORED_THREAD_LABELS = Map.of(
@@ -1515,7 +1642,10 @@ public class DiscussionSubscriber {
             SIGNAL_CONCERN, "Concern",
             SIGNAL_STAND_ASIDE, "Stand Aside",
             "decline", "Stand Aside",
-            "proposal", "Proposal");
+            "proposal", "Proposal",
+            SIGNAL_BLOCK, "Block",
+            SignalVerdicts.MSG_QUESTION, "Question",
+            SignalVerdicts.MSG_DECLARED, "Signal");
 
     /**
      * The label a thread message gets in the formatted conversation. Unknown types
@@ -1597,6 +1727,10 @@ public class DiscussionSubscriber {
             if (extraMetadata != null) {
                 metadata.putAll(extraMetadata);
             }
+            String answers = answering.get(threadId);
+            if (answers != null && endsEvaluation(signal)) {
+                metadata.put(RecheckText.FIELD_ANSWERS, answers);
+            }
 
             String contentField = truncate(content == null ? "" : content, CONTENT_MAX_CHARS);
 
@@ -1612,7 +1746,7 @@ public class DiscussionSubscriber {
 
             String publishSubject = scope.discussSubject(channel, threadId);
             publishTraced(conn, publishSubject, signal, message);
-            if (isTerminal(signal)) {
+            if (endsEvaluation(signal)) {
                 evaluations.computeIfPresent(threadId, (id, answered) -> true);
             }
             log.info("Published {} signal to {} for thread {}", signal, publishSubject, threadId);
@@ -1622,10 +1756,14 @@ public class DiscussionSubscriber {
         }
     }
 
-    /** True for the signals that end an agent's evaluation of a thread, as opposed to progress signals. */
-    private static boolean isTerminal(String signal) {
+    /**
+     * True for the signals that end an agent's evaluation run, as opposed to progress signals: the
+     * terminal verdicts, a question (the agent waits for its answer), and a declared kind.
+     */
+    private static boolean endsEvaluation(String signal) {
         return switch (signal) {
-            case SIGNAL_AGREE, SIGNAL_CONCERN, "block", SIGNAL_STAND_ASIDE, "decline", SIGNAL_FAILURE -> true;
+            case SIGNAL_AGREE, SIGNAL_CONCERN, SIGNAL_BLOCK, SIGNAL_STAND_ASIDE, "decline", SIGNAL_FAILURE,
+                 SignalVerdicts.MSG_QUESTION, SignalVerdicts.MSG_DECLARED -> true;
             default -> false;
         };
     }

@@ -40,6 +40,10 @@ record CoordinatorEvent(String eventId, String type, String threadId, int round,
     static final String THREAD_REOPENED = "thread_reopened";
     static final String THREAD_CLOSED = "thread_closed";
     static final String COORDINATOR_RESUMED = "coordinator_resumed";
+    /** An agent asked a clarifying question: relayed to the agent it names, or recorded as the asker's concern. */
+    static final String QUESTION_ASKED = "question_asked";
+    /** The agent asked rechecked and answered, or failed to; the asker is woken or keeps its concern. */
+    static final String QUESTION_ANSWERED = "question_answered";
 
     /** The event as the JSON object that goes on the bus. */
     ObjectNode toJson(ObjectMapper mapper) {

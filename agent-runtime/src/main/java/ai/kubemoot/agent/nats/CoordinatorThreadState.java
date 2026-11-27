@@ -59,6 +59,8 @@ final class CoordinatorThreadState {
     final Set<String> tooLargeModels = new TreeSet<>();
     final Map<String, String> waiting = new TreeMap<>();
     boolean synthesisPromptTooLarge;
+    /** The turn's clarifying questions: the open ones, the rounds used, and every one asked. */
+    final RecheckState recheck = new RecheckState();
 
     // --- tokens of the coordinator's own calls ---
     long advisoryIn;
@@ -116,6 +118,7 @@ final class CoordinatorThreadState {
         tooLargeModels.clear();
         waiting.clear();
         pending.clear();
+        recheck.reset();
     }
 
     /** Records a terminal signal on the roster; an agent the phase does not wait for is ignored. */
