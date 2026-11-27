@@ -1,5 +1,5 @@
 {
-  "version": "2.11.0",
+  "version": "2.12.0",
   "surface": {
     "agent-activity.json#": {
       "type": "object"
@@ -438,6 +438,9 @@
     "coordinator-event.json#/definitions/CoordinatorEventFields/agrees": {
       "type": "integer"
     },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/asker": {
+      "type": "string"
+    },
     "coordinator-event.json#/definitions/CoordinatorEventFields/basis": {
       "type": "string",
       "enum": [
@@ -597,8 +600,27 @@
     "coordinator-event.json#/definitions/CoordinatorEventFields/promptTooLarge": {
       "type": "boolean"
     },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/question": {
+      "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/questionId": {
+      "type": "string"
+    },
     "coordinator-event.json#/definitions/CoordinatorEventFields/reason": {
       "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/refusal": {
+      "type": "string",
+      "enum": [
+        "busy",
+        "round_limit",
+        "round_off",
+        "self",
+        "unknown_agent"
+      ]
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/relayed": {
+      "type": "boolean"
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/requestSeq": {
       "type": "integer"
@@ -611,6 +633,9 @@
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/resumedAt": {
       "type": "string"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/revises": {
+      "type": "boolean"
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/roster": {
       "type": "array"
@@ -628,7 +653,9 @@
         "block",
         "concern",
         "evaluating",
+        "failure",
         "ready",
+        "signal",
         "stand_aside",
         "triaging",
         "waiting",
@@ -656,6 +683,9 @@
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/synthesized": {
       "type": "boolean"
+    },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/target": {
+      "type": "string"
     },
     "coordinator-event.json#/definitions/CoordinatorEventFields/taskFallbacks": {
       "type": "array"
@@ -715,6 +745,8 @@
         "evaluation_started",
         "failure_recorded",
         "phase_entered",
+        "question_answered",
+        "question_asked",
         "review_started",
         "settled",
         "signal_applied",
@@ -836,10 +868,14 @@
         "gap_detected",
         "heartbeat",
         "proposal",
+        "question",
+        "question_answered",
+        "question_asked",
         "ready",
         "reminder",
         "reply",
         "review_ready",
+        "signal",
         "stand_aside",
         "stop_requested",
         "subcommittee",
@@ -889,8 +925,17 @@
     "discussion-metadata.json#/agreeCount": {
       "type": "integer"
     },
+    "discussion-metadata.json#/answeredBy": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/answers": {
+      "type": "string"
+    },
     "discussion-metadata.json#/artifact": {
       "ref": "artifact-reference.json"
+    },
+    "discussion-metadata.json#/askedBy": {
+      "type": "string"
     },
     "discussion-metadata.json#/coldStart": {
       "type": "boolean"
@@ -1399,6 +1444,9 @@
     "discussion-metadata.json#/principal": {
       "ref": "principal.json"
     },
+    "discussion-metadata.json#/questionId": {
+      "type": "string"
+    },
     "discussion-metadata.json#/ratification": {
       "ref": "#/definitions/Ratification"
     },
@@ -1448,6 +1496,24 @@
       "type": "string"
     },
     "discussion-metadata.json#/signal": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/signalEvidence": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/signalKind": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/signalReason": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/signalStatement": {
+      "type": "string"
+    },
+    "discussion-metadata.json#/signalTerminal": {
+      "type": "boolean"
+    },
+    "discussion-metadata.json#/signalTo": {
       "type": "string"
     },
     "discussion-metadata.json#/sourceThreadId": {

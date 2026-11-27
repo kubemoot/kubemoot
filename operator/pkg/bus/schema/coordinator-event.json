@@ -9,7 +9,7 @@
     "eventId": { "type": "string", "description": "A natural key: the same decision has the same id however often it is written. Also the Nats-Msg-Id header, so the stream drops a duplicate." },
     "type": {
       "type": "string",
-      "enum": ["thread_opened", "phase_entered", "subcommittee_convened", "evaluation_started", "review_started", "signal_applied", "failure_recorded", "settled", "synthesis_started", "synthesis_done", "thread_reopened", "thread_closed", "coordinator_resumed"],
+      "enum": ["thread_opened", "phase_entered", "subcommittee_convened", "evaluation_started", "review_started", "signal_applied", "failure_recorded", "settled", "synthesis_started", "synthesis_done", "thread_reopened", "thread_closed", "coordinator_resumed", "question_asked", "question_answered"],
       "description": "What was decided. A later version may add types."
     },
     "threadId": { "type": "string", "description": "The thread." },
@@ -21,7 +21,7 @@
   "definitions": {
     "CoordinatorEventFields": {
       "type": "object",
-      "description": "The fields of an event. thread_opened: crew, conversationId, userQuery, primaryChannel, source, openedAt, phaseStartedAt. phase_entered: phase, phaseStartedAt, phaseBeforePause, advisoryPending, reason. subcommittee_convened: path, members, brief, sharedBrief, memberTasks, taskFallbacks, ignoredTasks, technologies, skills, confidence, primaryChannel, tokens. evaluation_started: roster, startedAt. review_started: roster, pending. signal_applied: agent, signal, messageId, deadlineAt, researcher, capacityReason, tooLargeModel, model, lastSignalAt. failure_recorded: agent, cause, synthesized, failedSources, messageId, lastSignalAt. settled: phase, basis, counts. synthesis_started: agrees, concerns, standAsides. synthesis_done: outcome, channel, response, tokens, promptTooLarge. thread_reopened: phaseStartedAt, roster. thread_closed: reason, channel, advisoryPending. coordinator_resumed: fromSeq, resumedAt, coordinator. thread_opened also carries requestSeq. Any event may carry discussSeq.",
+      "description": "The fields of an event. thread_opened: crew, conversationId, userQuery, primaryChannel, source, openedAt, phaseStartedAt. phase_entered: phase, phaseStartedAt, phaseBeforePause, advisoryPending, reason. subcommittee_convened: path, members, brief, sharedBrief, memberTasks, taskFallbacks, ignoredTasks, technologies, skills, confidence, primaryChannel, tokens. evaluation_started: roster, startedAt. review_started: roster, pending. signal_applied: agent, signal, messageId, deadlineAt, researcher, capacityReason, tooLargeModel, model, lastSignalAt. failure_recorded: agent, cause, synthesized, failedSources, messageId, lastSignalAt. settled: phase, basis, counts. synthesis_started: agrees, concerns, standAsides. synthesis_done: outcome, channel, response, tokens, promptTooLarge. thread_reopened: phaseStartedAt, roster. thread_closed: reason, channel, advisoryPending. coordinator_resumed: fromSeq, resumedAt, coordinator. question_asked: questionId, asker, target, question, relayed, deadlineAt (the target's, when relayed), refusal (when not), lastSignalAt. question_answered: questionId, asker, target, question, signal, deadlineAt (the asker's, unless the answer is a failure), lastSignalAt. signal_applied also carries revises. thread_opened also carries requestSeq. Any event may carry discussSeq.",
       "properties": {
         "crew": { "type": ["string", "null"], "description": "The crew." },
         "conversationId": { "type": ["string", "null"], "description": "The conversation the thread belongs to." },
@@ -54,10 +54,17 @@
         "agent": { "type": "string", "description": "The agent a signal or failure is about." },
         "signal": {
           "type": "string",
-          "enum": ["triaging", "evaluating", "waiting", "waking", "ready", "agree", "concern", "block", "stand_aside"],
-          "description": "The signal applied. Aliases are folded: contribution is agree, decline is stand_aside. Heartbeats are not recorded."
+          "enum": ["triaging", "evaluating", "waiting", "waking", "ready", "agree", "concern", "block", "stand_aside", "failure", "signal"],
+          "description": "The signal applied. Aliases are folded: contribution is agree, decline is stand_aside. Heartbeats are not recorded. On question_answered: the signal the answer was sent as, failure included."
         },
         "messageId": { "type": "string", "description": "The bus message that carried the signal; its content is read from the discussion stream." },
+        "questionId": { "type": "string", "description": "On question_asked and question_answered: the clarifying question." },
+        "asker": { "type": "string", "description": "On question_asked and question_answered: the agent that asked." },
+        "target": { "type": "string", "description": "On question_asked and question_answered: the agent asked to recheck." },
+        "question": { "type": "string", "description": "On question_asked and question_answered: the question, as the asker stated it." },
+        "relayed": { "type": "boolean", "description": "On question_asked: true when the question went to the agent asked; false when it became the asker's concern." },
+        "refusal": { "type": "string", "enum": ["round_off", "round_limit", "unknown_agent", "self", "busy"], "description": "On question_asked that was not relayed: the archetype allows no rounds, the thread used its rounds, the question names no agent of the crew, it names the asker, or an agent involved is already in a question." },
+        "revises": { "type": "boolean", "description": "On signal_applied: the signal answers a clarifying question and replaces the agent's earlier verdict." },
         "deadlineAt": { "type": "integer", "description": "The agent's deadline after the signal, in milliseconds since the epoch." },
         "researcher": { "type": "boolean", "description": "True when the agent contributes as a researcher, which does not count toward settling." },
         "capacityReason": { "type": "string", "enum": ["accelerator-busy", "gpu-busy", "model-too-large", "prompt-too-large"], "description": "Set on a stand_aside that was for want of an accelerator." },

@@ -217,6 +217,46 @@
       "items": { "type": "string" },
       "description": "The agents the coordinator convened. Absent when every agent may take part."
     },
+    "signalKind": {
+      "type": "string",
+      "description": "On a signal an agent recorded with the signal tool: the kind it passed, one its archetype declares. The message type is what the runtime publishes the kind as (tool_gap as concern, no_data as failure, a kind outside the runtime's table as signal)."
+    },
+    "signalTo": {
+      "type": "string",
+      "description": "On a signal of an addressed kind (a question): the agent it is said to."
+    },
+    "signalStatement": {
+      "type": "string",
+      "description": "On a signal-tool verdict: the claim, concern or question the agent stated. On question_asked and question_answered: the question."
+    },
+    "signalReason": {
+      "type": "string",
+      "description": "On a signal-tool verdict: why, as the agent stated it."
+    },
+    "signalEvidence": {
+      "type": "string",
+      "description": "On a signal-tool verdict: a stored-result key or a short quote the agent gave as evidence."
+    },
+    "signalTerminal": {
+      "type": "boolean",
+      "description": "On a signal message: whether the archetype declares the kind as ending the agent's turn."
+    },
+    "questionId": {
+      "type": "string",
+      "description": "On question_asked and question_answered: the clarifying question."
+    },
+    "askedBy": {
+      "type": "string",
+      "description": "On question_asked and question_answered: the agent that asked."
+    },
+    "answeredBy": {
+      "type": "string",
+      "description": "On question_asked and question_answered: the agent asked to recheck."
+    },
+    "answers": {
+      "type": "string",
+      "description": "On an agent's signal sent while it rechecks: the questionId it answers. Its finding replaces its earlier one."
+    },
     "ratifies": {
       "type": "integer",
       "description": "On an agree, concern, block or failure sent in answer to a draft: the round of the draft it answers. The coordinator counts such a signal only in RATIFY and only for the current round; it is a verdict on the draft, not evidence."
