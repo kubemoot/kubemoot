@@ -438,7 +438,9 @@ spec:
                     description: |-
                       AnswerMean is the mean score of the judged iterations, 0 to 100, rounded:
                       every iteration counts once, whichever scenario it belongs to. Mean is the
-                      mean of the scenario scores. Absent until an iteration is judged.
+                      mean of the scenario scores. Absent until an iteration is judged, and when a
+                      judged scenario has no per-answer record (a run judged before answers were
+                      kept).
                     format: int32
                     maximum: 100
                     minimum: 0
@@ -490,34 +492,13 @@ spec:
                       description: FitnessJudgeScore is the judge's verdict on one
                         scenario.
                       properties:
-                        answerScores:
-                          description: |-
-                            AnswerScores is the score of each iteration, 0 to 100, rounded, in
-                            iteration order (the first entry is the first iteration that has a
-                            transcript). A consensus-gated iteration scores 0. Capped at 30 entries.
-                          items:
-                            format: int32
-                            type: integer
-                          maxItems: 30
-                          type: array
-                          x-kubernetes-list-type: atomic
                         answers:
                           description: |-
                             Answers is how many iterations of the scenario were scored, consensus-gated
-                            ones included. It can exceed the length of answerScores, which is capped.
+                            ones included. The score of each iteration is in the judge checkpoint in
+                            the object store, not here.
                           format: int32
                           type: integer
-                        fabricatedIterations:
-                          description: |-
-                            FabricatedIterations lists the iteration numbers of the flagged answers,
-                            capped at 30 entries.
-                          items:
-                            format: int32
-                            minimum: 1
-                            type: integer
-                          maxItems: 30
-                          type: array
-                          x-kubernetes-list-type: atomic
                         fabrications:
                           description: |-
                             Fabrications is how many of the scenario's answers the judge flagged as

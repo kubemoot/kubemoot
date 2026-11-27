@@ -38,7 +38,6 @@ import (
 	"net"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -193,7 +192,11 @@ type deferredScoreCache struct {
 	// Answers holds the judge's verdict on each iteration of a scored scenario,
 	// in iteration order: its score, fabrication flag and whether it was gated.
 	// Absent in a checkpoint written before answers were kept.
-	Answers  map[string][]answerRecord `json:"answers,omitempty"`
+	Answers map[string][]answerRecord `json:"answers,omitempty"`
+	// Parts holds the answers of a scenario that has more than one comparison
+	// document, as each document is scored, so a failed later document does not
+	// discard the earlier ones. It is cleared when the scenario is scored.
+	Parts    map[string][]answerRecord `json:"parts,omitempty"`
 	Complete bool                      `json:"complete"`
 }
 
@@ -224,6 +227,9 @@ func (c *deferredScoreCache) ensureMaps() {
 	}
 	if c.Answers == nil {
 		c.Answers = map[string][]answerRecord{}
+	}
+	if c.Parts == nil {
+		c.Parts = map[string][]answerRecord{}
 	}
 }
 
@@ -275,7 +281,7 @@ func mentionsContextExceeded(s string) bool {
 
 // answerScore is one per-answer entry of the batch verdict.
 type answerScore struct {
-	Index       int     `json:"index"`
+	Index       *int    `json:"index"` // nil when the judge left it out
 	Score       float64 `json:"score"`
 	Fabrication bool    `json:"fabrication"`
 	Reason      string  `json:"reason"`
@@ -320,7 +326,7 @@ func coerceSingleVerdict(obj string, bv *batchVerdict) {
 	if reason == "" {
 		reason = sv.Reason
 	}
-	bv.Scores = []answerScore{{Index: 0, Score: *sv.Score, Fabrication: sv.Fabrication, Reason: reason}}
+	bv.Scores = []answerScore{{Score: *sv.Score, Fabrication: sv.Fabrication, Reason: reason}}
 	bv.Total = 1
 }
 
@@ -408,6 +414,9 @@ type judgeStream struct {
 // final synthesis plus the tool-derived evidence behind it (matches the judge
 // crew's expected per-answer shape).
 type judgeAnswer struct {
+	// Index is the answer's position in the document; the judge echoes it as the
+	// index of that answer's score.
+	Index     int      `json:"index"`
 	Synthesis string   `json:"synthesis"`
 	Evidence  []string `json:"evidence"`
 }
@@ -439,7 +448,7 @@ func buildComparisonDoc(store objectStore, prefix string, scriptIdx int, keyword
 	if lErr != nil {
 		return judgeWork{}, fmt.Errorf("list transcripts: %w", lErr)
 	}
-	sort.Slice(keys, func(i, j int) bool { return iterationNumber(keys[i]) < iterationNumber(keys[j]) })
+	keys = transcriptKeysInOrder(keys)
 	cd := judgeComparisonDoc{Answers: []judgeAnswer{}}
 	var work judgeWork
 	var items []answerOf
@@ -596,6 +605,7 @@ func dispatchScenario(ctx context.Context, hc *http.Client, endpoint, comparison
 func postJudgeDiscussion(ctx context.Context, hc *http.Client, endpoint, comparisonDoc string) (string, error) {
 	msg := "Judge this fitness scenario. The comparison document follows as JSON: score every answer's " +
 		"synthesis against the reference, verifying each claim against that answer's evidence. " +
+		"Each answer carries an index; give each score the index of the answer it scores. " +
 		"Output only the verdict JSON.\n\n" + comparisonDoc
 	body, _ := json.Marshal(map[string]string{jsonKeyMessage: msg})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -889,7 +899,7 @@ func (p *judgePass) judgeWindow(ctx context.Context, keyword string) int {
 // maxJudgeAttempts.
 func (p *judgePass) judgeAndRecord(ctx context.Context, scenario, keyword, ep string, work judgeWork) scenarioOutcome {
 	p.beginAttempt(scenario)
-	recs, jErr := p.judgeBatches(ctx, scenario, ep, work)
+	jErr := p.judgeBatches(ctx, scenario, ep, work)
 	if jErr != nil && ctx.Err() != nil && !errors.Is(jErr, errJudgeInputTooLarge) {
 		// The pass was cut off (batch budget or shutdown), not the judge failing:
 		// the interrupted dispatch does not count against the scenario.
@@ -906,9 +916,10 @@ func (p *judgePass) judgeAndRecord(ctx context.Context, scenario, keyword, ep st
 		p.log.Info("deferred judge: dispatch failed", "scenario", scenario, "keyword", keyword, "err", jErr.Error())
 		return p.failedAttempt(scenario, jErr)
 	}
-	recs = append(recs, work.gatedRecords()...)
+	recs := append(p.cache.Parts[scenario], work.gatedRecords()...)
 	sortAnswers(recs)
 	quality, reason := answersMean(recs), answersReason(recs)
+	delete(p.cache.Parts, scenario)
 	p.cache.setAnswers(scenario, recs)
 	p.recordScore(scenario, quality, reason)
 	logScenarioScored(p.log, scenario, quality, reason)
@@ -916,24 +927,63 @@ func (p *judgePass) judgeAndRecord(ctx context.Context, scenario, keyword, ep st
 }
 
 // judgeBatches dispatches each document in turn (serially, as the judge shares the
-// accelerators) and returns a record per judged answer. A document the judge
+// accelerators) and keeps the records of each document in the checkpoint as it is
+// scored, so a later failure, or a cut-off pass, keeps the earlier documents and
+// the next attempt scores only the iterations still missing. A document the judge
 // returned no verdict for after the retries scores 0 for its answers, with the
 // reason; any other failure ends the scenario's attempt.
-func (p *judgePass) judgeBatches(ctx context.Context, scenario, ep string, work judgeWork) ([]answerRecord, error) {
-	var recs []answerRecord
+func (p *judgePass) judgeBatches(ctx context.Context, scenario, ep string, work judgeWork) error {
+	p.cache.ensureMaps()
 	for i, b := range work.Batches {
+		if p.partsScored(scenario, b.Iterations) {
+			continue
+		}
 		bv, err := p.dispatchWithRetries(ctx, scenario, ep, b.Doc)
+		var recs []answerRecord
 		switch {
 		case errors.Is(err, errJudgeNoVerdict):
 			p.log.Info(logMsgScenarioScored, "scenario", scenario, "batch", i+1, "quality", 0.0, "reason", "no-verdict-after-retries")
-			recs = append(recs, zeroRecords(b.Iterations, reasonNoVerdict)...)
+			recs = zeroRecords(b.Iterations, reasonNoVerdict)
 		case err != nil:
-			return nil, err
+			return err
 		default:
-			recs = append(recs, assignAnswerScores(bv, b.Iterations)...)
+			recs = assignAnswerScores(bv, b.Iterations)
+		}
+		p.keepParts(scenario, recs)
+	}
+	return nil
+}
+
+// partsScored reports whether every iteration is already scored in the
+// scenario's checkpointed parts.
+func (p *judgePass) partsScored(scenario string, iterations []int) bool {
+	have := map[int]bool{}
+	for _, r := range p.cache.Parts[scenario] {
+		have[r.Iteration] = true
+	}
+	for _, it := range iterations {
+		if !have[it] {
+			return false
 		}
 	}
-	return recs, nil
+	return true
+}
+
+// keepParts adds a scored document's records to the scenario's parts (replacing
+// any earlier record of the same iteration) and persists the checkpoint.
+func (p *judgePass) keepParts(scenario string, recs []answerRecord) {
+	replaced := map[int]bool{}
+	for _, r := range recs {
+		replaced[r.Iteration] = true
+	}
+	kept := make([]answerRecord, 0, len(p.cache.Parts[scenario])+len(recs))
+	for _, r := range p.cache.Parts[scenario] {
+		if !replaced[r.Iteration] {
+			kept = append(kept, r)
+		}
+	}
+	p.cache.Parts[scenario] = append(kept, recs...)
+	p.persist(false)
 }
 
 // dispatchWithRetries calls the judge, retrying only on errJudgeNoVerdict.
@@ -1006,6 +1056,7 @@ func (p *judgePass) failedAttempt(scenario string, cause error) scenarioOutcome 
 func (p *judgePass) markUnjudged(scenario, reason string) {
 	p.cache.ensureMaps()
 	p.cache.Unjudged[scenario] = reason
+	delete(p.cache.Parts, scenario)
 	p.persist(false)
 	p.publishStatus()
 }

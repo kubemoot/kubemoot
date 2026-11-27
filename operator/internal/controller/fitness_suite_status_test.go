@@ -40,14 +40,9 @@ func maximalResults(n int) (*kubemootv1alpha1.FitnessJudgeStatus, []kubemootv1al
 	reason := strings.Repeat("\U0001F600", kubemootv1alpha1.MaxJudgeReasonLength)
 	for i := range n {
 		name := statusName(fmt.Sprintf("%03d-%s", i, strings.Repeat("\U0001F600", kubemootv1alpha1.MaxStatusNameLength)))
-		answerScores := make([]int32, kubemootv1alpha1.MaxStatusAnswers)
-		fabricated := make([]int32, kubemootv1alpha1.MaxStatusAnswers)
-		for j := range answerScores {
-			answerScores[j], fabricated[j] = 100, math.MaxInt32
-		}
 		js.Scores = append(js.Scores, kubemootv1alpha1.FitnessJudgeScore{
 			Scenario: name, Score: 100, Reason: reason, Answers: math.MaxInt32, Gated: math.MaxInt32,
-			Fabrications: math.MaxInt32, AnswerScores: answerScores, FabricatedIterations: fabricated,
+			Fabrications: math.MaxInt32,
 		})
 		scenarios = append(scenarios, kubemootv1alpha1.SuiteScenarioResult{
 			Name: name, Iterations: 1000, Passed: 400, Failed: 300, Errored: 300,
@@ -363,8 +358,8 @@ func TestMaximalStatusStaysUnderBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(raw) >= 900*1024 {
-		t.Errorf("worst-case status is %d bytes, want under 900 KiB", len(raw))
+	if len(raw) >= 700*1024 {
+		t.Errorf("worst-case status is %d bytes, want under 700 KiB", len(raw))
 	}
 	t.Logf("worst-case results: %d bytes for %d scenarios", len(raw), kubemootv1alpha1.MaxStatusScenarios)
 
@@ -374,7 +369,6 @@ func TestMaximalStatusStaysUnderBound(t *testing.T) {
 		name := fmt.Sprintf("scenario-%03d-%s", i, strings.Repeat("n", 17))
 		js.Scores = append(js.Scores, kubemootv1alpha1.FitnessJudgeScore{
 			Scenario: name, Score: 87, Reason: strings.Repeat("r", 200), Answers: 15, Fabrications: 1,
-			AnswerScores: []int32{90, 85, 100, 70, 90, 85, 100, 70, 90, 85, 100, 70, 90, 85, 100}, FabricatedIterations: []int32{4},
 		})
 		scenarios = append(scenarios, kubemootv1alpha1.SuiteScenarioResult{Name: name, Iterations: 15, Passed: 12, Failed: 2, Errored: 1, MeanDurationMs: 95000, AssertionsPassed: 70, AssertionsTotal: 75})
 	}

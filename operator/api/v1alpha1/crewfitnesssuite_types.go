@@ -299,18 +299,14 @@ type SuiteArtifactRef struct {
 // object, so every list here is capped. At MaxStatusScenarios entries with
 // typical names (about 30 characters) and full reasons, status.judge.scores
 // and status.scenarios add about 125 KiB; even at the field maximums (names of
-// 253 bytes, reasons of 200 4-byte characters, MaxStatusAnswers iteration scores
-// and flags on every scenario) they stay under 900 KiB, below the 1 MiB an
-// object should stay under in etcd.
+// 253 bytes, reasons of 200 4-byte characters) they stay under 450 KiB, well
+// below the 1 MiB an object should stay under in etcd.
 const (
 	// MaxStatusScenarios caps status.judge.scores and status.scenarios. The
 	// first MaxStatusScenarios distinct testRefs in spec order are listed;
 	// aggregate counts (judged, total, mean, zeros, judgedAnswers, answerMean,
 	// fabrications) cover every scenario.
 	MaxStatusScenarios = 300
-	// MaxStatusAnswers caps the per-iteration lists of one scenario in
-	// status.judge.scores (answerScores, fabricatedIterations).
-	MaxStatusAnswers = 30
 	// MaxStatusNameLength caps a scenario name in status, in bytes; the
 	// operator cuts a longer testRef on a character boundary.
 	MaxStatusNameLength = 253
@@ -357,17 +353,10 @@ type FitnessJudgeScore struct {
 	Reason string `json:"reason,omitempty"`
 
 	// Answers is how many iterations of the scenario were scored, consensus-gated
-	// ones included. It can exceed the length of answerScores, which is capped.
+	// ones included. The score of each iteration is in the judge checkpoint in
+	// the object store, not here.
 	// +optional
 	Answers int32 `json:"answers,omitempty"`
-
-	// AnswerScores is the score of each iteration, 0 to 100, rounded, in
-	// iteration order (the first entry is the first iteration that has a
-	// transcript). A consensus-gated iteration scores 0. Capped at 30 entries.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=30
-	AnswerScores []int32 `json:"answerScores,omitempty"`
 
 	// Gated is how many of the scenario's iterations failed the consensus floor
 	// or returned an empty answer and so scored 0 without a judge call.
@@ -378,14 +367,6 @@ type FitnessJudgeScore struct {
 	// fabricated.
 	// +optional
 	Fabrications int32 `json:"fabrications,omitempty"`
-
-	// FabricatedIterations lists the iteration numbers of the flagged answers,
-	// capped at 30 entries.
-	// +optional
-	// +listType=atomic
-	// +kubebuilder:validation:MaxItems=30
-	// +kubebuilder:validation:items:Minimum=1
-	FabricatedIterations []int32 `json:"fabricatedIterations,omitempty"`
 }
 
 // FitnessJudgeUnjudged is a scenario the judge gave up on, with the reason.
@@ -441,7 +422,9 @@ type FitnessJudgeStatus struct {
 
 	// AnswerMean is the mean score of the judged iterations, 0 to 100, rounded:
 	// every iteration counts once, whichever scenario it belongs to. Mean is the
-	// mean of the scenario scores. Absent until an iteration is judged.
+	// mean of the scenario scores. Absent until an iteration is judged, and when a
+	// judged scenario has no per-answer record (a run judged before answers were
+	// kept).
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=100
