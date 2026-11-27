@@ -262,6 +262,18 @@ function judgeResources<T extends Named>(
 /** A model server that is ready but holds no model right now is idle: models load on demand. */
 const idleWithoutModels = (s: ModelServer): Judged => ((s.status?.capacity?.loadedModels?.length ?? 0) === 0 ? { health: 'idle' } : OK);
 
+/**
+ * Model servers: one with no ready endpoint (phase Unavailable) is idle, a state and not a problem;
+ * only Failed is down.
+ */
+function judgeServers(servers: readonly ModelServer[]): Judged[] {
+	return servers.flatMap((s) =>
+		!s.status?.ready && s.status?.phase === 'Unavailable'
+			? [{ health: 'idle' }]
+			: judgeResources([s], 'Model server', '/modelservers', idleWithoutModels)
+	);
+}
+
 /** An MCP server that reports Ready but has fewer replicas available than it asks for is degraded. */
 function replicasShort(s: MCPServer): Judged {
 	// A server the operator does not run (it points at an endpoint) has no replicas to count.
@@ -465,7 +477,7 @@ function judgeAll(data: OverviewData): Judgments {
 	return {
 		nodes: over(data.nodes, (n) => judgeNodes(n, measured)),
 		crews: over(data.crews, (c) => judgeResources(c, 'Crew', '/crews')),
-		servers: over(data.modelServers, (s) => judgeResources(s, 'Model server', '/modelservers', idleWithoutModels)),
+		servers: over(data.modelServers, judgeServers),
 		models: modelsJudged(data),
 		embeddings: over(data.embeddingModels, (m) => judgeResources(m, 'Embedding model', '/embeddingmodels')),
 		mcp: over(data.mcpServers, (s) => judgeResources(s, 'MCP server', '/mcpservers', replicasShort)),

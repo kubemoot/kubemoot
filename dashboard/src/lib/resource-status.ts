@@ -1,6 +1,8 @@
 // How a Kubemoot resource's status maps to the StatusBadge states, shared by the
 // resource cards and the detail pages so the two views always agree.
 
+import type { BadgeStatus } from './status.js';
+
 export type ReadinessStatus = 'success' | 'error' | 'pending';
 
 /** Mark shown for an unset value in tables and info rows (an em dash). */
@@ -50,4 +52,13 @@ export function readyCountStatus(
 export function yesNo(flag: boolean | undefined): string {
 	if (flag === undefined) return NO_VALUE;
 	return flag ? 'Yes' : 'No';
+}
+
+/** The phase of a model server with no ready endpoint: a state, not a fault. */
+export const UNAVAILABLE_PHASE = 'Unavailable';
+
+/** A model server's badge: Unavailable is neutral, Failed is an error, ready is success. */
+export function modelServerStatus(status: { ready?: boolean; phase?: string } | undefined): BadgeStatus {
+	if (status?.phase === UNAVAILABLE_PHASE && !status.ready) return 'unknown';
+	return readinessStatus(status, 'Failed');
 }

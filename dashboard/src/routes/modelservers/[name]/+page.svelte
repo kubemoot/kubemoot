@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { errorOnFailure, loadingOnStart } from '#lib/client/refresh-state.js';
-	import { readinessStatus } from '#lib/resource-status.js';
+	import { modelServerStatus } from '#lib/resource-status.js';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -60,7 +60,7 @@
 	const accelerator = $derived(server && view ? serverAccelerator(server, view.nodes, view.holdersByNode, measuredUse(view.use)) : undefined);
 	const acceleratorBars = $derived([accelerator?.busy, accelerator?.memory].filter((b) => b !== undefined));
 
-	const status = $derived(readinessStatus(server?.status, 'Failed'));
+	const status = $derived(modelServerStatus(server?.status));
 
 	const capacity = $derived(server?.status?.capacity);
 	const calibration = $derived(server?.status?.calibration);

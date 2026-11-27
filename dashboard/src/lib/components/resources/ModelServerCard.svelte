@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { formatBytes, formatMiB } from '#lib/format.js';
 	import { acceleratorMemoryTotalMiB, acceleratorMemoryUsedMiB, loadedAcceleratorMemory } from '#lib/accelerator-capacity.js';
-	import { readinessStatus } from '#lib/resource-status.js';
+	import { modelServerStatus } from '#lib/resource-status.js';
 	import { resolve } from '$app/paths';
 	import type { ModelServer, ModelServerLoadedModel } from '#lib/types/kubemoot.js';
 	import ResourceCard from './ResourceCard.svelte';
@@ -24,7 +24,7 @@
 		return () => clearInterval(tick);
 	});
 
-	const status = $derived(readinessStatus(server.status, 'Failed'));
+	const status = $derived(modelServerStatus(server.status));
 
 	const statusLabel = $derived(server.status?.phase || 'Unknown');
 	const capacity = $derived(server.status?.capacity);

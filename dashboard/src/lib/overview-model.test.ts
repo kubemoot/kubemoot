@@ -265,6 +265,19 @@ describe('needs attention', () => {
 		]);
 	});
 
+	it('does not name a model server that is Unavailable, and only Failed is down', () => {
+		const servers = [
+			server('rig1', { ready: false, phase: 'Unavailable', message: 'no ready endpoints' }),
+			server('rig0', { ready: false, phase: 'Failed', message: 'engine unreachable' })
+		];
+		const o = buildOverview(data({ modelServers: servers as never }), NOW);
+		expect(o.attention.map((a) => a.subject)).toEqual(['Model server rig0']);
+		expect(tile(o, 'modelservers').health).toBe('down');
+		const quiet = buildOverview(data({ modelServers: [servers[0]] as never }), NOW);
+		expect(quiet.attention).toEqual([]);
+		expect(tile(quiet, 'modelservers').health).toBe('idle');
+	});
+
 	it('names a crew that is not Ready', () => {
 		const o = buildOverview(data({ crews: [{ metadata: meta('pilot', 'crew-pilot'), spec: {}, status: { ready: false, phase: 'Pending' } }] as never }), NOW);
 		expect(o.attention[0]).toMatchObject({ health: 'degraded', subject: 'Crew pilot', problem: 'Not Ready (Pending)', link: { path: '/crews/pilot', search: '?namespace=crew-pilot' } });
