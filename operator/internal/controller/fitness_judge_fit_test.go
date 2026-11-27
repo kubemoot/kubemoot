@@ -360,15 +360,16 @@ func TestBuildComparisonDocFitsTheJudgeWindow(t *testing.T) {
 		`{"type":"synthesis","content":"` + fitSynthesis + `"},{"type":"done"}]}`
 	store := fakeStore{objs: map[string][]byte{testRunPrefix + "s0-i1.json": []byte(transcript)}}
 
-	whole, _, _, err := buildComparisonDoc(store, testRunPrefix, 0, testVerdictReflects, 0, logr.Discard())
-	if err != nil || len(whole) < 77_000 {
-		t.Fatalf("unknown window: err %v, document %d bytes; want the whole 77 KB document", err, len(whole))
+	wholeWork, err := buildComparisonDoc(store, testRunPrefix, 0, testVerdictReflects, 0, logr.Discard())
+	if err != nil || len(wholeWork.Batches) != 1 || len(wholeWork.Batches[0].Doc) < 77_000 {
+		t.Fatalf("unknown window: err %v, work %d batches; want the whole 77 KB document", err, len(wholeWork.Batches))
 	}
 	budget, _ := judgeDocBudgetChars(16384)
-	fitted, total, answers, err := buildComparisonDoc(store, testRunPrefix, 0, testVerdictReflects, 16384, logr.Discard())
-	if err != nil || total != 1 || answers != 1 {
-		t.Fatalf("fitted: err %v total %d answers %d", err, total, answers)
+	fittedWork, err := buildComparisonDoc(store, testRunPrefix, 0, testVerdictReflects, 16384, logr.Discard())
+	if err != nil || fittedWork.Total != 1 || fittedWork.answers() != 1 {
+		t.Fatalf("fitted: err %v total %d answers %d", err, fittedWork.Total, fittedWork.answers())
 	}
+	fitted := fittedWork.Batches[0].Doc
 	if len(fitted) > budget {
 		t.Errorf("document is %d chars, budget %d", len(fitted), budget)
 	}

@@ -252,35 +252,86 @@ func judgeStatusFor(suite *kubemootv1alpha1.CrewFitnessSuite, cache deferredScor
 	if js.Phase == kubemootv1alpha1.FitnessJudgePhaseSkipped {
 		return js
 	}
-	var sum float64
+	agg := judgeAggregate{}
 	for _, ref := range distinctTestRefs(suite.Spec.Scripts) {
 		q, scored := cache.Scores[ref]
 		if !scored {
 			continue
 		}
-		score := roundScore(q)
-		js.Judged++
-		sum += q
-		if score == 0 {
-			js.Zeros++
-		}
+		score := agg.add(q, cache.Answers[ref])
 		if len(js.Scores) < kubemootv1alpha1.MaxStatusScenarios {
-			js.Scores = append(js.Scores, kubemootv1alpha1.FitnessJudgeScore{
-				Scenario: statusName(ref),
-				Score:    score,
-				Reason:   oneLineReason(cache.Reasons[ref]),
-			})
+			js.Scores = append(js.Scores, judgeScoreFor(ref, score, cache))
 		}
 	}
+	agg.applyTo(js)
 	js.Unjudged = unjudgedStatus(suite.Spec.Scripts, cache)
 	js.Total = max(int32(cache.Total), js.Judged+int32(len(cache.Unjudged)))
-	if js.Judged > 0 {
-		js.Mean = ptr.To(roundScore(sum / float64(js.Judged)))
-	}
 	if js.Phase == kubemootv1alpha1.FitnessJudgePhaseComplete {
 		js.CompletedAt = completedAt(suite.Status.Judge, now)
 	}
 	return js
+}
+
+// judgeAggregate sums what the judged scenarios hold, for the aggregate fields of
+// status.judge.
+type judgeAggregate struct {
+	scenarios, zeros, answers, fabrications int32
+	scenarioSum, answerSum                  float64
+}
+
+// add counts one judged scenario with its quality and answers and returns the
+// scenario's rounded score.
+func (a *judgeAggregate) add(quality float64, recs []answerRecord) int32 {
+	score := roundScore(quality)
+	a.scenarios++
+	a.scenarioSum += quality
+	if score == 0 {
+		a.zeros++
+	}
+	for _, r := range recs {
+		a.answers++
+		a.answerSum += r.Score
+		if r.Fabrication {
+			a.fabrications++
+		}
+	}
+	return score
+}
+
+// applyTo sets the counts and means on js. The means are absent until something
+// is judged.
+func (a judgeAggregate) applyTo(js *kubemootv1alpha1.FitnessJudgeStatus) {
+	js.Judged, js.Zeros = a.scenarios, a.zeros
+	js.JudgedAnswers, js.Fabrications = a.answers, a.fabrications
+	if a.scenarios > 0 {
+		js.Mean = ptr.To(roundScore(a.scenarioSum / float64(a.scenarios)))
+	}
+	if a.answers > 0 {
+		js.AnswerMean = ptr.To(roundScore(a.answerSum / float64(a.answers)))
+	}
+}
+
+// judgeScoreFor is the status entry of one judged scenario: its score and reason,
+// and what the judge gave each iteration (scores capped at MaxStatusAnswers).
+func judgeScoreFor(ref string, score int32, cache deferredScoreCache) kubemootv1alpha1.FitnessJudgeScore {
+	out := kubemootv1alpha1.FitnessJudgeScore{
+		Scenario: statusName(ref),
+		Score:    score,
+		Reason:   oneLineReason(cache.Reasons[ref]),
+	}
+	recs := cache.Answers[ref]
+	t := tallyAnswers(recs)
+	out.Answers, out.Gated, out.Fabrications = t.answers, t.gated, t.fabrications
+	for _, r := range recs {
+		if len(out.AnswerScores) < kubemootv1alpha1.MaxStatusAnswers {
+			out.AnswerScores = append(out.AnswerScores, roundScore(r.Score))
+		}
+	}
+	out.FabricatedIterations = t.fabricatedIterations[:min(len(t.fabricatedIterations), kubemootv1alpha1.MaxStatusAnswers)]
+	if len(out.FabricatedIterations) == 0 {
+		out.FabricatedIterations = nil
+	}
+	return out
 }
 
 // unjudgedStatus lists the scenarios the judge gave up on in spec order, capped at

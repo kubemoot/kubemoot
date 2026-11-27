@@ -434,15 +434,37 @@ spec:
                   Judge reports the deferred judge pass over this run. Absent when no
                   artifact store is configured.
                 properties:
+                  answerMean:
+                    description: |-
+                      AnswerMean is the mean score of the judged iterations, 0 to 100, rounded:
+                      every iteration counts once, whichever scenario it belongs to. Mean is the
+                      mean of the scenario scores. Absent until an iteration is judged.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
                   completedAt:
                     description: CompletedAt is when the operator recorded the pass
                       as complete.
                     format: date-time
                     type: string
+                  fabrications:
+                    description: |-
+                      Fabrications is the number of judged answers the judge flagged as
+                      fabricated, over every judged scenario.
+                    format: int32
+                    type: integer
                   judged:
                     description: |-
                       Judged is the number of scenarios scored so far. Unjudged scenarios are
                       not counted.
+                    format: int32
+                    type: integer
+                  judgedAnswers:
+                    description: |-
+                      JudgedAnswers is the number of iterations scored so far, over every judged
+                      scenario, consensus-gated iterations included (they score 0). Judged
+                      counts scenarios; this counts the answers behind them.
                     format: int32
                     type: integer
                   mean:
@@ -468,6 +490,46 @@ spec:
                       description: FitnessJudgeScore is the judge's verdict on one
                         scenario.
                       properties:
+                        answerScores:
+                          description: |-
+                            AnswerScores is the score of each iteration, 0 to 100, rounded, in
+                            iteration order (the first entry is the first iteration that has a
+                            transcript). A consensus-gated iteration scores 0. Capped at 30 entries.
+                          items:
+                            format: int32
+                            type: integer
+                          maxItems: 30
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        answers:
+                          description: |-
+                            Answers is how many iterations of the scenario were scored, consensus-gated
+                            ones included. It can exceed the length of answerScores, which is capped.
+                          format: int32
+                          type: integer
+                        fabricatedIterations:
+                          description: |-
+                            FabricatedIterations lists the iteration numbers of the flagged answers,
+                            capped at 30 entries.
+                          items:
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          maxItems: 30
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        fabrications:
+                          description: |-
+                            Fabrications is how many of the scenario's answers the judge flagged as
+                            fabricated.
+                          format: int32
+                          type: integer
+                        gated:
+                          description: |-
+                            Gated is how many of the scenario's iterations failed the consensus floor
+                            or returned an empty answer and so scored 0 without a judge call.
+                          format: int32
+                          type: integer
                         reason:
                           description: Reason is the judge's rationale on one line,
                             cut to 200 characters.

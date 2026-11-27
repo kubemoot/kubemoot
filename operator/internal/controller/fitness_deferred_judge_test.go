@@ -54,11 +54,11 @@ func TestDispatchScenario_ReadsDelayedSynthesis(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	doc := `{"question":"q","reference":"r","answers":[{"synthesis":"a","evidence":[]}],"gated":0,"total":1}`
-	quality, _, err := dispatchScenario(ctx, &http.Client{}, srv.URL, doc)
+	bv, err := dispatchScenario(ctx, &http.Client{}, srv.URL, doc)
 	if err != nil {
 		t.Fatalf("dispatchScenario errored on a delayed-but-valid stream: %v", err)
 	}
-	if quality != 90 {
+	if quality := answersMean(assignAnswerScores(bv, []int{1})); quality != 90 {
 		t.Errorf("quality = %v, want 90 (0.9/1 * 100)", quality)
 	}
 }
@@ -82,7 +82,7 @@ func TestDispatchScenario_ContextDeadlineReturnsError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	doc := `{"question":"q","reference":"r","answers":[{"synthesis":"a","evidence":[]}],"gated":0,"total":1}`
-	_, _, err := dispatchScenario(ctx, &http.Client{}, srv.URL, doc)
+	_, err := dispatchScenario(ctx, &http.Client{}, srv.URL, doc)
 	if err == nil {
 		t.Fatal("expected an error when the dispatch context deadline fires before synthesis")
 	}
@@ -112,17 +112,17 @@ func TestBuildComparisonDoc(t *testing.T) {
 		pfx + "s1-i1.json": []byte(good), // different scenario, must be excluded
 	}}
 
-	doc, total, answers, err := buildComparisonDoc(store, pfx, 0, testVerdictReflects, 0, logr.Discard())
+	work, err := buildComparisonDoc(store, pfx, 0, testVerdictReflects, 0, logr.Discard())
 	if err != nil {
 		t.Fatalf("buildComparisonDoc error: %v", err)
 	}
-	if total != 2 {
-		t.Errorf("total = %d, want 2 (only s0 iterations)", total)
+	if work.Total != 2 {
+		t.Errorf("total = %d, want 2 (only s0 iterations)", work.Total)
 	}
-	if answers != 1 {
-		t.Errorf("answers = %d, want 1 (empty-synthesis run gated)", answers)
+	if work.answers() != 1 || len(work.Batches) != 1 || len(work.Gated) != 1 || work.Gated[0] != 2 {
+		t.Errorf("work = %+v, want one answer (iteration 1) and iteration 2 gated (empty synthesis)", work)
 	}
-	assertComparisonDocJSON(t, doc)
+	assertComparisonDocJSON(t, work.Batches[0].Doc)
 }
 
 // assertComparisonDocJSON checks the judge comparison document built from one good and one gated run.
@@ -144,6 +144,23 @@ func assertComparisonDocJSON(t *testing.T, doc string) {
 	if len(parsed.Answers[0].Evidence) != 1 || parsed.Answers[0].Evidence[0] != "k8s (agree): pod X is crashlooping" {
 		t.Errorf("evidence = %v, want the agent-prefixed finding", parsed.Answers[0].Evidence)
 	}
+}
+
+// parseScenarioQuality reads a verdict the way the judge pass does and returns the
+// mean of its answers, 0-100, over the judge's stated total (an answer the verdict
+// does not score counts 0), with the most diagnostic reason.
+func parseScenarioQuality(synthesis string) (float64, string, error) {
+	bv, err := parseVerdict(synthesis)
+	if err != nil {
+		return 0, "", err
+	}
+	n := max(len(bv.Scores), int(bv.Total))
+	iterations := make([]int, n)
+	for i := range iterations {
+		iterations[i] = i + 1
+	}
+	recs := assignAnswerScores(bv, iterations)
+	return answersMean(recs), answersReason(recs), nil
 }
 
 // TestParseScenarioQuality covers the batched verdict → scenario quality math:

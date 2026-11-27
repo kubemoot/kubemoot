@@ -59,7 +59,7 @@ func judgeOnce(t *testing.T, p *judgePass, endpoint string) scenarioOutcome {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return p.judgeAndRecord(ctx, scenarioB, testVerdictReflects, endpoint, "{}")
+	return p.judgeAndRecord(ctx, scenarioB, testVerdictReflects, endpoint, oneDocWork("{}"))
 }
 
 func TestJudgedOnTheFirstTryCountsOneAttempt(t *testing.T) {
@@ -242,7 +242,7 @@ func TestInterruptedDispatchIsNotChargedToTheScenario(t *testing.T) {
 	p := newTestJudgePass(fakeStore{objs: map[string][]byte{}})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // the pass is cut off before the dispatch can finish
-	if out := p.judgeAndRecord(ctx, scenarioB, testVerdictReflects, srv.URL, "{}"); out != scenarioBudgetExhausted {
+	if out := p.judgeAndRecord(ctx, scenarioB, testVerdictReflects, srv.URL, oneDocWork("{}")); out != scenarioBudgetExhausted {
 		t.Fatalf("outcome %v, want budget exhausted", out)
 	}
 	if p.cache.Attempts[scenarioB] != 0 || len(p.cache.Unjudged) != 0 {

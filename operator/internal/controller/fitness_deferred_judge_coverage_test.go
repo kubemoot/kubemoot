@@ -180,7 +180,7 @@ func TestDispatchScenarioNoSynthesisIsTransientError(t *testing.T) {
 	defer srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, _, err := dispatchScenario(ctx, &http.Client{}, srv.URL, "doc")
+	_, err := dispatchScenario(ctx, &http.Client{}, srv.URL, "doc")
 	if err == nil {
 		t.Fatal("expected a 'no synthesis verdict received' error")
 	}
@@ -225,7 +225,7 @@ func TestJudgeAndRecordSuccessRecordsQuality(t *testing.T) {
 	p := newTestJudgePass(store)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if out := p.judgeAndRecord(ctx, "scenario-b", testVerdictReflects, srv.URL, "{}"); out != scenarioHandled {
+	if out := p.judgeAndRecord(ctx, "scenario-b", testVerdictReflects, srv.URL, oneDocWork("{}")); out != scenarioHandled {
 		t.Fatalf("expected scenarioHandled, got %v", out)
 	}
 	if p.cache.Scores["scenario-b"] != 100 {
