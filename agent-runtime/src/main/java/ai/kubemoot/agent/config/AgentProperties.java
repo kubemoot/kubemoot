@@ -280,6 +280,21 @@ public interface AgentProperties {
         Optional<String> ratifyRoster();
 
         /**
+         * The kinds of signal the crew's archetype declares, as a JSON list of
+         * {@code {name, meaning, terminal, addressed}}. Set on every agent
+         * (KUBEMOOT_DISCUSS_SIGNALS) from the archetype; absent means the signal tool is not
+         * offered and a verdict is read from the reply's opening words.
+         */
+        Optional<String> signals();
+
+        /**
+         * Most clarifying questions relayed per thread (0 turns the round off, so a question is
+         * recorded as a concern). Set on the coordinator (KUBEMOOT_DISCUSS_RECHECK_MAX_ROUNDS)
+         * from the archetype's recheck block; absent means 1.
+         */
+        Optional<Integer> recheckMaxRounds();
+
+        /**
          * Max re-prompts the synthesis makes when its draft under-enumerates an
          * inventory answer (lists fewer entities than the gathered data contains).
          * The completeness contract names the omitted entries and asks for the full

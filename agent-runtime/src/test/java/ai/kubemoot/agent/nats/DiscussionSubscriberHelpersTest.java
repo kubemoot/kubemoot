@@ -361,6 +361,12 @@ class DiscussionSubscriberHelpersTest {
 
     static AgentProperties stubProperties(String agentName, String channels,
                                                     String jsConsumer, boolean hasTriageEndpoint) {
+        return stubProperties(agentName, channels, jsConsumer, hasTriageEndpoint, null);
+    }
+
+    /** As above, with the archetype's signals ({@code KUBEMOOT_DISCUSS_SIGNALS}); null when it declares none. */
+    static AgentProperties stubProperties(String agentName, String channels, String jsConsumer,
+                                          boolean hasTriageEndpoint, String signalsJson) {
         return new AgentProperties() {
             @Override public ai.kubemoot.agent.config.AgentProperties.Scheduler scheduler() { return ai.kubemoot.agent.TestStubs.scheduler(); }
             @Override public Memory memory() { return ai.kubemoot.agent.TestStubs.memory(); }
@@ -417,6 +423,8 @@ class DiscussionSubscriberHelpersTest {
                 @Override public Optional<String> ratifyEnabled() { return Optional.empty(); }
                 @Override public Optional<Integer> ratifyMaxRounds() { return Optional.empty(); }
                 @Override public Optional<String> ratifyRoster() { return Optional.empty(); }
+                @Override public Optional<String> signals() { return Optional.ofNullable(signalsJson); }
+                @Override public Optional<Integer> recheckMaxRounds() { return Optional.empty(); }
                 @Override public int advisoryTimeoutSeconds() { return 10; }
                 @Override public int evaluationTimeoutSeconds() { return 300; }
                 @Override public int reviewTimeoutSeconds() { return 15; }
