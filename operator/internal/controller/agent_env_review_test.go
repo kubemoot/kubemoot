@@ -147,14 +147,14 @@ func TestResumeDomains_ReachTheResumeTheHashAndTheEmbeddedText(t *testing.T) {
 	}
 }
 
-func TestCoordinatorRequests_OnlyCoordinatorsAreEnqueued(t *testing.T) {
+func TestAgentRequests_EveryAgentIsEnqueued(t *testing.T) {
 	tooler := kubemootv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "k8s-nodes", Namespace: testCrewNamespace}}
 	coordinator := *reviewTestCoordinator()
-	reqs := coordinatorRequests([]kubemootv1alpha1.Agent{tooler, coordinator})
-	if len(reqs) != 1 || reqs[0].Name != testRoleCoordinator || reqs[0].Namespace != testCrewNamespace {
-		t.Fatalf("want one request for the coordinator, got %v", reqs)
+	reqs := agentRequests([]kubemootv1alpha1.Agent{tooler, coordinator})
+	if len(reqs) != 2 || reqs[0].Name != "k8s-nodes" || reqs[1].Name != testRoleCoordinator {
+		t.Fatalf("want a request for the tooler and the coordinator, got %v", reqs)
 	}
-	if got := coordinatorRequests(nil); len(got) != 0 {
+	if got := agentRequests(nil); len(got) != 0 {
 		t.Fatalf("no agents: want no requests, got %v", got)
 	}
 }

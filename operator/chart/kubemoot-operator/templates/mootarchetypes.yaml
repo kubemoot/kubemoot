@@ -26,16 +26,31 @@ desired phases. The archetype is cluster-scoped.
     - name: synthesis
       role: closure
       description: "Coordinator synthesizes the deliberation into a response."
+  # The kinds of verdict an agent records with the signal tool. The runtime offers each
+  # agent one tool, signal, whose kinds are these names and whose description carries
+  # these meanings. The runtime knows what each of these names does in a phase; an
+  # archetype may declare other kinds, which are recorded and shown to the synthesis.
   signals:
-    - triaging
-    - evaluating
-    - agree
-    - concern
-    - stand_aside
-    - block
-    - advisory
-    - proposal
-    - consent
+    - name: agree
+      meaning: "Your finding stands: it answers your part of the question from what your tools returned."
+    - name: concern
+      meaning: "A finding on the table, yours or another agent's, is wrong or unverified. Say which claim, why, and what shows it."
+    - name: question
+      meaning: "You doubt a finding and want the agent that made it to recheck. Name that agent in to and ask what to check; it re-runs its assessment and answers, then you signal again."
+      terminal: false
+      addressed: true
+    - name: stand_aside
+      meaning: "You have nothing to add to this question."
+    - name: tool_gap
+      meaning: "Answering needs a tool you do not have. Say which tool."
+    - name: no_data
+      meaning: "Your tools ran but returned errors or nothing usable, so you have no finding. Say what was missing."
+    - name: block
+      meaning: "A finding or the emerging answer contradicts what your tools returned and must not stand."
+  # One clarifying question per thread. 0 turns the round off: a question is then
+  # recorded as a concern.
+  recheck:
+    maxRounds: 1
   # Only the analysts whose declared domains touch the question or the gathered data
   # review. With no match, the best-matching analyst reviews alone. Set convene: all
   # to have every analyst review.

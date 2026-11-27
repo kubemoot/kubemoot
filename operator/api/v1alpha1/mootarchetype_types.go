@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"encoding/json"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -41,11 +43,21 @@ type MootArchetypeSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	Phases []ArchetypePhase `json:"phases"`
 
-	// Signals is the set of signal types agents may emit during a discussion
-	// (e.g., agree, concern, stand_aside, block, advisory). Open string set
-	// — informational. The coordinator implementation interprets these.
+	// Signals are the kinds of verdict an agent may record in a discussion, each with
+	// the meaning the model is shown. The runtime offers every agent of a crew on this
+	// archetype a signal tool whose kinds are these names. Absent, agents record their
+	// verdict as before the tool existed (the reply's opening words).
 	// +optional
-	Signals []string `json:"signals,omitempty"`
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
+	Signals []ArchetypeSignal `json:"signals,omitempty"`
+
+	// Recheck declares the clarifying-question round: an agent that doubts a finding
+	// asks the agent that made it, which re-runs its assessment and answers. Absent
+	// means one round per thread.
+	// +optional
+	Recheck *ArchetypeRecheck `json:"recheck,omitempty"`
 
 	// Review declares which analysts the coordinator convenes for the review
 	// phase. Optional; absent means every analyst reviews.
@@ -79,6 +91,68 @@ type ArchetypePhase struct {
 	// Description is a one-line explanation shown in dashboards.
 	// +optional
 	Description string `json:"description,omitempty"`
+}
+
+// ArchetypeSignal declares one kind of verdict an agent may record.
+type ArchetypeSignal struct {
+	// Name is the kind the agent passes to the signal tool, such as agree or concern.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9_]*$`
+	// +kubebuilder:validation:MaxLength=32
+	Name string `json:"name"`
+
+	// Meaning is what the kind says, in plain words; the model reads it in the
+	// tool's description to choose a kind.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=300
+	Meaning string `json:"meaning"`
+
+	// Terminal is true when the kind ends the agent's turn in the phase, so the
+	// phase can settle on it. A kind that is not terminal (a question) leaves the
+	// agent's turn open.
+	// +kubebuilder:default=true
+	// +optional
+	Terminal *bool `json:"terminal,omitempty"`
+
+	// Addressed is true when the kind is said to one named agent of the crew, so
+	// the tool call must name it (a question to the agent that made a finding).
+	// +optional
+	Addressed bool `json:"addressed,omitempty"`
+}
+
+// UnmarshalJSON accepts the earlier form of a signal, a bare name, as well as the
+// object. An archetype stored before signals were declared keeps decoding; a bare
+// name has no meaning, so it is never offered to a model.
+func (s *ArchetypeSignal) UnmarshalJSON(data []byte) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err == nil {
+		*s = ArchetypeSignal{Name: name}
+		return nil
+	}
+	type plain ArchetypeSignal
+	var p plain
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+	*s = ArchetypeSignal(p)
+	return nil
+}
+
+// IsTerminal reports whether the kind ends the agent's turn; unset means it does.
+func (s ArchetypeSignal) IsTerminal() bool {
+	return s.Terminal == nil || *s.Terminal
+}
+
+// ArchetypeRecheck declares the clarifying-question round.
+type ArchetypeRecheck struct {
+	// MaxRounds is the most questions relayed per thread. 0 turns the round off:
+	// a question is then recorded as a concern.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=5
+	// +kubebuilder:default=1
+	// +optional
+	MaxRounds *int32 `json:"maxRounds,omitempty"`
 }
 
 // ReviewConvene says which analysts review a discussion.

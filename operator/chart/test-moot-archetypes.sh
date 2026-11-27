@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Render test for the MootArchetypes the operator chart ships: consent-3 turns ratification
-# off (it is opt-in); the deprecated consent-3-unratified stays one release and is identical.
+# off (it is opt-in), declares the signal kinds the runtime understands, each with a meaning,
+# and one clarifying-question round; the deprecated consent-3-unratified stays one release
+# and is identical.
 # Needs helm and yq. Run from anywhere: operator/chart/test-moot-archetypes.sh
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -15,7 +17,15 @@ spec() { yq -N -o=json -I=0 "select(.kind == \"MootArchetype\" and .metadata.nam
 [ "$(spec consent-3 '.ratify')" = '{"enabled":false}' ] || fail "consent-3 must set ratify.enabled false"
 [ "$(spec consent-3-unratified '.ratify')" = '{"enabled":false}' ] || fail "consent-3-unratified must set ratify.enabled false"
 case "$(spec consent-3-unratified '.description')" in *DEPRECATED*) ;; *) fail "consent-3-unratified must be marked DEPRECATED";; esac
+signals="$(spec consent-3 '.signals')"
+of_signals() { yq -p=json -o=json -I=0 "$1" <<<"$signals"; }
+want_kinds='["agree","concern","question","stand_aside","tool_gap","no_data","block"]'
+[ "$(of_signals '[.[].name]')" = "$want_kinds" ] || fail "consent-3 must declare the kinds $want_kinds"
+[ "$(of_signals '[.[] | select((.meaning // "") == "")] | length')" = "0" ] || fail "every consent-3 signal needs a meaning"
+[ "$(of_signals '.[] | select(.name == "question") | [.terminal, .addressed]')" = '[false,true]' ] \
+  || fail "question must be addressed and not terminal"
+[ "$(spec consent-3 '.recheck.maxRounds')" = "1" ] || fail "consent-3 must allow one recheck round"
 a="$(spec consent-3 'del(.description)')"
 b="$(spec consent-3-unratified 'del(.description)')"
 [ "$a" = "$b" ] || fail "the deprecated archetype must stay identical to consent-3"
-echo "PASS: consent-3 ships with ratification off; consent-3-unratified is deprecated and identical"
+echo "PASS: consent-3 ships with ratification off, its signals and one recheck round; consent-3-unratified is deprecated and identical"

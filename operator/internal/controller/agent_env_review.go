@@ -68,10 +68,11 @@ func crewArchetypeName(policies []*kubemootv1alpha1.CrewSchedulingPolicy) string
 	return archetypeRefOrDefault(ref)
 }
 
-// enqueueCoordinatorsOnArchetypeChange re-reconciles every coordinator when a
-// MootArchetype changes, so an edited review block reaches the crews that use it.
-// A MootArchetype is cluster-scoped and a cluster has one coordinator per crew.
-func enqueueCoordinatorsOnArchetypeChange(cli client.Client) handler.EventHandler {
+// enqueueAgentsOnArchetypeChange re-reconciles every agent when a MootArchetype
+// changes, so an edited block reaches the crews that use it: the coordinators read
+// review, ratify and recheck, and every agent reads the declared signals. A
+// MootArchetype is cluster-scoped.
+func enqueueAgentsOnArchetypeChange(cli client.Client) handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 		if _, ok := obj.(*kubemootv1alpha1.MootArchetype); !ok {
 			return nil
@@ -81,17 +82,15 @@ func enqueueCoordinatorsOnArchetypeChange(cli client.Client) handler.EventHandle
 			logf.FromContext(ctx).Error(err, "MootArchetype propagation: list agents failed", "archetype", obj.GetName())
 			return nil
 		}
-		return coordinatorRequests(agents.Items)
+		return agentRequests(agents.Items)
 	})
 }
 
-// coordinatorRequests is a reconcile request for each coordinator among agents.
-func coordinatorRequests(agents []kubemootv1alpha1.Agent) []reconcile.Request {
-	var reqs []reconcile.Request
+// agentRequests is a reconcile request for each of agents.
+func agentRequests(agents []kubemootv1alpha1.Agent) []reconcile.Request {
+	reqs := make([]reconcile.Request, 0, len(agents))
 	for i := range agents {
-		if isCoordinator(&agents[i]) {
-			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&agents[i])})
-		}
+		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&agents[i])})
 	}
 	return reqs
 }

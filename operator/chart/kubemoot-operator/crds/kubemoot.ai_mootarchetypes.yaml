@@ -131,6 +131,22 @@ spec:
                     - crew
                     type: string
                 type: object
+              recheck:
+                description: |-
+                  Recheck declares the clarifying-question round: an agent that doubts a finding
+                  asks the agent that made it, which re-runs its assessment and answers. Absent
+                  means one round per thread.
+                properties:
+                  maxRounds:
+                    default: 1
+                    description: |-
+                      MaxRounds is the most questions relayed per thread. 0 turns the round off:
+                      a question is then recorded as a concern.
+                    format: int32
+                    maximum: 5
+                    minimum: 0
+                    type: integer
+                type: object
               review:
                 description: |-
                   Review declares which analysts the coordinator convenes for the review
@@ -167,12 +183,48 @@ spec:
                 type: object
               signals:
                 description: |-
-                  Signals is the set of signal types agents may emit during a discussion
-                  (e.g., agree, concern, stand_aside, block, advisory). Open string set
-                  — informational. The coordinator implementation interprets these.
+                  Signals are the kinds of verdict an agent may record in a discussion, each with
+                  the meaning the model is shown. The runtime offers every agent of a crew on this
+                  archetype a signal tool whose kinds are these names. Absent, agents record their
+                  verdict as before the tool existed (the reply's opening words).
                 items:
-                  type: string
+                  description: ArchetypeSignal declares one kind of verdict an agent
+                    may record.
+                  properties:
+                    addressed:
+                      description: |-
+                        Addressed is true when the kind is said to one named agent of the crew, so
+                        the tool call must name it (a question to the agent that made a finding).
+                      type: boolean
+                    meaning:
+                      description: |-
+                        Meaning is what the kind says, in plain words; the model reads it in the
+                        tool's description to choose a kind.
+                      maxLength: 300
+                      minLength: 1
+                      type: string
+                    name:
+                      description: Name is the kind the agent passes to the signal
+                        tool, such as agree or concern.
+                      maxLength: 32
+                      pattern: ^[a-z][a-z0-9_]*$
+                      type: string
+                    terminal:
+                      default: true
+                      description: |-
+                        Terminal is true when the kind ends the agent's turn in the phase, so the
+                        phase can settle on it. A kind that is not terminal (a question) leaves the
+                        agent's turn open.
+                      type: boolean
+                  required:
+                  - meaning
+                  - name
+                  type: object
+                maxItems: 16
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               stateMachine:
                 description: |-
                   StateMachine declares the legal phase transitions. Optional; absence
