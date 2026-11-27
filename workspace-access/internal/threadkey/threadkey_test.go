@@ -1,6 +1,8 @@
 package threadkey
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -89,5 +91,38 @@ func TestResolveAll(t *testing.T) {
 	_, err = scoped().ResolveAll(map[string]string{"x": "ns/crew/other/agent/001-y"})
 	if err == nil || !strings.Contains(err.Error(), `artifacts["x"]`) {
 		t.Fatalf("want an error naming the table, got %v", err)
+	}
+}
+
+// TestSharedVectors runs the prefixes and keys the gateway and the code sandbox run too.
+func TestSharedVectors(t *testing.T) {
+	raw, err := os.ReadFile("../../../test/fixtures/workspace-prefix-vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Prefixes []struct {
+			Value string `json:"value"`
+			Valid bool   `json:"valid"`
+		} `json:"prefixes"`
+		KeysPrefix string `json:"keysPrefix"`
+		Keys       []struct {
+			Key       string `json:"key"`
+			Threadkey string `json:"threadkey"`
+		} `json:"keys"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range v.Prefixes {
+		if got := FromMeta(map[string]any{MetaKey: p.Value}).Prefix() != ""; got != p.Valid {
+			t.Errorf("prefix %q: valid = %v, want %v", p.Value, got, p.Valid)
+		}
+	}
+	sc := FromMeta(map[string]any{MetaKey: v.KeysPrefix})
+	for _, k := range v.Keys {
+		if _, err := sc.Resolve(k.Key); (err == nil) != (k.Threadkey == "ok") {
+			t.Errorf("key %q: threadkey = %v, want %s", k.Key, err, k.Threadkey)
+		}
 	}
 }

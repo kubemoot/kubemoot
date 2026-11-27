@@ -1,0 +1,36 @@
+{
+  "comment": "Thread prefixes and keys that every reader of the workspacePrefix _meta entry must treat alike: the MCP gateway (RequesterMeta.validWorkspacePrefix), workspace-access (internal/threadkey) and the code sandbox (internal/inputs). The two intended differences are in the keys: workspace-access also accepts a pattern (*) and a one-part key, and passes them on; the code sandbox names single stored results only, so it refuses both.",
+  "prefixes": [
+    {"value": "ns/crew/thread-a/", "valid": true},
+    {"value": "crew-homelab-pilot/homelab-pilot/0071d018-24cb-4532-a560-fc12a788e654/", "valid": true},
+    {"value": "a.b/c_d/e-f/", "valid": true},
+    {"value": ".../x/y/", "valid": true},
+    {"value": "", "valid": false},
+    {"value": "ns/crew/thread", "valid": false},
+    {"value": "ns/crew/", "valid": false},
+    {"value": "ns/crew/thread/extra/", "valid": false},
+    {"value": "ns/../thread/", "valid": false},
+    {"value": "ns/./thread/", "valid": false},
+    {"value": "ns//thread/", "valid": false},
+    {"value": "/crew/thread/", "valid": false},
+    {"value": "ns/crew/*/", "valid": false},
+    {"value": "ns/crew/thr ead/", "valid": false},
+    {"value": "ns/crew/thréad/", "valid": false}
+  ],
+  "keysPrefix": "ns/crew/thread-a/",
+  "keys": [
+    {"key": "agent/001-x", "threadkey": "ok", "inputs": "ok"},
+    {"key": "ns/crew/thread-a/agent/001-x", "threadkey": "ok", "inputs": "ok"},
+    {"key": "agent/*-x", "threadkey": "ok", "inputs": "refused", "difference": "a pattern is for the read tools"},
+    {"key": "001-x", "threadkey": "ok", "inputs": "refused", "difference": "a one-part key passes through the read tools"},
+    {"key": "ns/crew/thread-b/agent/001-x", "threadkey": "refused", "inputs": "refused"},
+    {"key": "ns/other-crew/thread-a/agent/001-x", "threadkey": "refused", "inputs": "refused"},
+    {"key": "a/b/c", "threadkey": "refused", "inputs": "refused"},
+    {"key": "../other/001-x", "threadkey": "refused", "inputs": "refused"},
+    {"key": "./001-x", "threadkey": "refused", "inputs": "refused"},
+    {"key": "agent//001-x", "threadkey": "refused", "inputs": "refused"},
+    {"key": "/etc/passwd", "threadkey": "refused", "inputs": "refused"},
+    {"key": "ns/crew/thread-a/../thread-b/agent/001-x", "threadkey": "refused", "inputs": "refused"},
+    {"key": "ns/crew/thread-a/agent//001-x", "threadkey": "refused", "inputs": "refused"}
+  ]
+}
