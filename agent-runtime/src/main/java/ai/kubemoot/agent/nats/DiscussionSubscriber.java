@@ -1706,6 +1706,36 @@ public class DiscussionSubscriber {
         }
     }
 
+    /** The metadata a published signal carries: who sent it, on which model and accelerator, its timing, and the question it answers. */
+    private Map<String, Object> signalMetadata(String signal, SignalTiming timing, String gpuLabel,
+                                               Map<String, Object> extraMetadata) {
+        var metadata = new HashMap<String, Object>();
+        metadata.put("signal", signal);
+        if (SIGNAL_AGREE.equals(signal)) {
+            metadata.put("toolsUsed", properties.enabledTools().orElse(List.of()));
+        }
+        metadata.put("role", properties.discuss().role());
+        // The configured model until a call has run; extraMetadata names the
+        // model the calls ran on (ModelAttribution) once they have.
+        metadata.put(ModelAttribution.FIELD_MODEL_NAME, properties.model().model());
+        if (gpuLabel != null && !gpuLabel.isEmpty()) {
+            AcceleratorLabels.put(metadata, gpuLabel);
+        }
+        metadata.put("inferenceMs", timing.inferenceMs());
+        metadata.put("inferenceStartMs", timing.inferenceStartMs());
+        metadata.put("inputTokens", timing.inputTokens());
+        metadata.put("outputTokens", timing.outputTokens());
+        metadata.put("totalTokens", timing.inputTokens() + timing.outputTokens());
+        if (extraMetadata != null) {
+            metadata.putAll(extraMetadata);
+        }
+        String answers = answering.get();
+        if (answers != null && TurnSignals.endsRun(signal)) {
+            metadata.put(RecheckText.FIELD_ANSWERS, answers);
+        }
+        return metadata;
+    }
+
     private void publishSignal(String originalSubject, String threadId, String signal, String content,
                                SignalTiming timing, String gpuLabel) {
         publishSignal(originalSubject, threadId, signal, content, timing, gpuLabel, null);
@@ -1720,30 +1750,7 @@ public class DiscussionSubscriber {
             CrewScope scope = natsProvider.scope();
             String channel = scope.channelOf(originalSubject, "general");
 
-            var metadata = new HashMap<String, Object>();
-            metadata.put("signal", signal);
-            if (SIGNAL_AGREE.equals(signal)) {
-                metadata.put("toolsUsed", properties.enabledTools().orElse(List.of()));
-            }
-            metadata.put("role", properties.discuss().role());
-            // The configured model until a call has run; extraMetadata names the
-            // model the calls ran on (ModelAttribution) once they have.
-            metadata.put(ModelAttribution.FIELD_MODEL_NAME, properties.model().model());
-            if (gpuLabel != null && !gpuLabel.isEmpty()) {
-                AcceleratorLabels.put(metadata, gpuLabel);
-            }
-            metadata.put("inferenceMs", timing.inferenceMs());
-            metadata.put("inferenceStartMs", timing.inferenceStartMs());
-            metadata.put("inputTokens", timing.inputTokens());
-            metadata.put("outputTokens", timing.outputTokens());
-            metadata.put("totalTokens", timing.inputTokens() + timing.outputTokens());
-            if (extraMetadata != null) {
-                metadata.putAll(extraMetadata);
-            }
-            String answers = answering.get();
-            if (answers != null && TurnSignals.endsRun(signal)) {
-                metadata.put(RecheckText.FIELD_ANSWERS, answers);
-            }
+            var metadata = signalMetadata(signal, timing, gpuLabel, extraMetadata);
 
             String contentField = truncate(content == null ? "" : content, CONTENT_MAX_CHARS);
 
