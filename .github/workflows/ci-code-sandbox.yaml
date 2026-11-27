@@ -62,8 +62,17 @@ jobs:
         working-directory: code-sandbox
         run: ../.github/scripts/golangci-lint.sh
 
+      # Ubuntu's AppArmor refuses unprivileged user namespaces, which the confinement tests need.
+      # The GitHub-hosted runner allows them for this job and requires the tests to run; the cluster
+      # runners are pods without user namespaces, so the confinement tests skip there.
+      - name: Allow user namespaces for the confinement tests
+        if: github.event_name == 'pull_request'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Run tests
         working-directory: code-sandbox
+        env:
+          REQUIRE_CONFINEMENT: ${{ github.event_name == 'pull_request' && '1' || '' }}
         run: go test ./...
 
       # The interpreter above is the Python the image pins (code-sandbox/image/buildpacks.env);
