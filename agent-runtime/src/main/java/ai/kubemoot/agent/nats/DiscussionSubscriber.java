@@ -156,8 +156,12 @@ public class DiscussionSubscriber {
     private SkillBodyLoader skillBodyLoader;
     /** The kinds of signal the crew's archetype declares; empty when the signal tool is not offered. */
     private final DeclaredSignals declaredSignals;
-    /** The question each thread's recheck turn answers, by thread; its signals carry it as metadata.answers. */
-    private final ConcurrentHashMap<String, String> answering = new ConcurrentHashMap<>();
+    /**
+     * The question the recheck turn running on this thread answers; its verdict carries it as
+     * metadata.answers. Bound to the turn's own thread, so another run on the same discussion
+     * thread never counts as the answer.
+     */
+    private final ThreadLocal<String> answering = new ThreadLocal<>();
 
     private final ConcurrentHashMap<String, List<ThreadMessage>> threadContext = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, List<String>> threadTechnologies = new ConcurrentHashMap<>();
@@ -795,11 +799,33 @@ public class DiscussionSubscriber {
      */
     private void evaluateAndRespond(String subject, String threadId, String conversation,
                                     boolean explicitlySelected) {
+        evaluateSelected(subject, threadId, conversation, explicitlySelected);
+    }
+
+    /** The work of one turn; it may throw, and {@link #runTurn} turns that into the turn's failure. */
+    @FunctionalInterface
+    interface TurnBody {
+        void run() throws Exception;
+    }
+
+    /**
+     * Runs one turn of this agent on a thread: evaluation, ratification or recheck. A turn sends
+     * one terminal signal; when the body throws before it did, {@code onFailure} sends the failure.
+     * Whatever the outcome, the turn's bookkeeping ends here: a plan made at selection that the
+     * first call did not use is released, and the triage call's model is forgotten.
+     */
+    private void runTurn(String threadId, String stage, TurnBody body,
+                         java.util.function.Consumer<Exception> onFailure) {
+        evaluations.put(threadId, false);
         try {
-            evaluateSelected(subject, threadId, conversation, explicitlySelected);
+            body.run();
+        } catch (Exception e) {
+            log.warn("{} of thread {} by {} failed: {}", stage, threadId, properties.agentName(), LogContent.reason(e));
+            if (!Boolean.TRUE.equals(evaluations.get(threadId))) {
+                onFailure.accept(e);
+            }
         } finally {
-            // Whatever the outcome (answered, stood aside, failed), a plan made at
-            // selection that the first call did not use is released here.
+            evaluations.remove(threadId);
             chatService.releasePlan(threadId);
             triageUses.remove(threadId);
         }
@@ -817,20 +843,17 @@ public class DiscussionSubscriber {
             return;
         }
         long startMs = System.currentTimeMillis();
-        var heartbeat = startHeartbeat(subject, threadId);
-        try {
-            var result = runMullingInference(conversation + "\n\n" + RatifyText.ratifierInstruction(
-                    chatService.systemPromptMentions(RatifyText.MODULE_SENTINEL)), threadId,
-                    new ThreadCapacityWait(subject, threadId));
-            publishRatification(subject, threadId, round, draftId, result, startMs);
-        } catch (Exception e) {
-            log.warn("Agent {} could not ratify round {} of thread {}: {}", properties.agentName(), round, threadId,
-                    LogContent.reason(e));
-            publishRatifyFailure(subject, threadId, round, draftId, e, startMs);
-        } finally {
-            heartbeat.cancel(false);
-            chatService.releasePlan(threadId);
-        }
+        runTurn(threadId, "Ratification round " + round, () -> {
+            var heartbeat = startHeartbeat(subject, threadId);
+            try {
+                var result = runMullingInference(conversation + "\n\n" + RatifyText.ratifierInstruction(
+                        chatService.systemPromptMentions(RatifyText.MODULE_SENTINEL)), threadId,
+                        new ThreadCapacityWait(subject, threadId));
+                publishRatification(subject, threadId, round, draftId, result, startMs);
+            } finally {
+                heartbeat.cancel(false);
+            }
+        }, e -> publishRatifyFailure(subject, threadId, round, draftId, e, startMs));
     }
 
     /** Publishes the verdict in the model's reply, or a failure when the reply holds none. */
@@ -884,43 +907,38 @@ public class DiscussionSubscriber {
     // Visible for testing
     void evaluateSelected(String subject, String threadId, String conversation,
                           boolean explicitlySelected) {
-        evaluations.put(threadId, false);
-        try {
-            if (closedThreads.contains(threadId)) {
-                log.debug("Thread {} closed before evaluation — {} standing aside", threadId, properties.agentName());
-                publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", SignalTiming.NONE, "none");
-                return;
-            }
+        // Like a failed triage or mulling call: a failure signal with its cause, not a stand-aside.
+        runTurn(threadId, "Evaluation", () -> evaluate(subject, threadId, conversation, explicitlySelected),
+                e -> publishExceptionAsFailure(subject, threadId, e, "Evaluation", 0L, System.currentTimeMillis(),
+                        NOT_PLACED));
+    }
 
-            commitToThread(threadId, conversation);
-            String triageGpuLabel = AcceleratorLabels.fromEndpoint(chatService.getTriageEndpoint());
-            publishSignal(subject, threadId, "triaging", "Queued for triage assessment",
-                    SignalTiming.of(0, System.currentTimeMillis()), NOT_PLACED, plannedTriageModel());
-
-            long triageStartMs = System.currentTimeMillis();
-            ChatService.SimpleLlmResult triage = runTriage(subject, threadId, conversation, triageGpuLabel,
-                    triageStartMs);
-            if (triage == null) return;
-            var outcome = TriageOutcome.of(triage, SignalTiming.of(System.currentTimeMillis() - triageStartMs,
-                    triageStartMs), triageGpuLabel);
-
-            if (standsAsideAfterTriage(subject, threadId, outcome, explicitlySelected)) return;
-
-            if (triage.modelUse() != null) {
-                triageUses.put(threadId, triage.modelUse());
-            }
-            runMullingPhase(subject, threadId, conversation, outcome.timing().inferenceMs(), triageStartMs);
-
-        } catch (Exception e) {
-            // Like a failed triage or mulling call: a failure signal with its cause, not a stand-aside.
-            // An evaluation sends one terminal signal: when a step already sent it, only the log says more.
-            log.warn("Failed to evaluate thread {}: {}", threadId, LogContent.reason(e));
-            if (!Boolean.TRUE.equals(evaluations.get(threadId))) {
-                publishExceptionAsFailure(subject, threadId, e, "Evaluation", 0L, System.currentTimeMillis(), NOT_PLACED);
-            }
-        } finally {
-            evaluations.remove(threadId);
+    /** The evaluation turn: triage, then the full tool-calling evaluation when the agent goes on. */
+    private void evaluate(String subject, String threadId, String conversation, boolean explicitlySelected) {
+        if (closedThreads.contains(threadId)) {
+            log.debug("Thread {} closed before evaluation — {} standing aside", threadId, properties.agentName());
+            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, "", SignalTiming.NONE, "none");
+            return;
         }
+
+        commitToThread(threadId, conversation);
+        String triageGpuLabel = AcceleratorLabels.fromEndpoint(chatService.getTriageEndpoint());
+        publishSignal(subject, threadId, "triaging", "Queued for triage assessment",
+                SignalTiming.of(0, System.currentTimeMillis()), NOT_PLACED, plannedTriageModel());
+
+        long triageStartMs = System.currentTimeMillis();
+        ChatService.SimpleLlmResult triage = runTriage(subject, threadId, conversation, triageGpuLabel,
+                triageStartMs);
+        if (triage == null) return;
+        var outcome = TriageOutcome.of(triage, SignalTiming.of(System.currentTimeMillis() - triageStartMs,
+                triageStartMs), triageGpuLabel);
+
+        if (standsAsideAfterTriage(subject, threadId, outcome, explicitlySelected)) return;
+
+        if (triage.modelUse() != null) {
+            triageUses.put(threadId, triage.modelUse());
+        }
+        runMullingPhase(subject, threadId, conversation, outcome.timing().inferenceMs(), triageStartMs);
     }
 
     /**
@@ -1061,21 +1079,16 @@ public class DiscussionSubscriber {
         String instruction = asked ? RecheckText.recheckInstruction(recheck.askedBy())
                 : RecheckText.answeredInstruction(recheck.answeredBy());
         if (asked && !recheck.questionId().isEmpty()) {
-            answering.put(threadId, recheck.questionId());
+            answering.set(recheck.questionId());
         }
-        evaluations.put(threadId, false);
         long startMs = System.currentTimeMillis();
         try {
-            runMullingPhase(subject, threadId, evaluation.conversation() + "\n\n" + instruction, 0L, startMs);
-        } catch (Exception e) {
-            log.warn("Recheck turn failed for thread {}: {}", threadId, LogContent.reason(e));
-            if (!Boolean.TRUE.equals(evaluations.get(threadId))) {
-                publishExceptionAsFailure(subject, threadId, e, "Recheck", 0L, startMs, NOT_PLACED);
-            }
+            runTurn(threadId, "Recheck",
+                    () -> runMullingPhase(subject, threadId, evaluation.conversation() + "\n\n" + instruction, 0L,
+                            startMs),
+                    e -> publishExceptionAsFailure(subject, threadId, e, "Recheck", 0L, startMs, NOT_PLACED));
         } finally {
-            answering.remove(threadId);
-            evaluations.remove(threadId);
-            chatService.releasePlan(threadId);
+            answering.remove();
         }
     }
 
@@ -1727,8 +1740,8 @@ public class DiscussionSubscriber {
             if (extraMetadata != null) {
                 metadata.putAll(extraMetadata);
             }
-            String answers = answering.get(threadId);
-            if (answers != null && endsEvaluation(signal)) {
+            String answers = answering.get();
+            if (answers != null && TurnSignals.endsRun(signal)) {
                 metadata.put(RecheckText.FIELD_ANSWERS, answers);
             }
 
@@ -1746,7 +1759,7 @@ public class DiscussionSubscriber {
 
             String publishSubject = scope.discussSubject(channel, threadId);
             publishTraced(conn, publishSubject, signal, message);
-            if (endsEvaluation(signal)) {
+            if (TurnSignals.endsRun(signal)) {
                 evaluations.computeIfPresent(threadId, (id, answered) -> true);
             }
             log.info("Published {} signal to {} for thread {}", signal, publishSubject, threadId);
@@ -1754,18 +1767,6 @@ public class DiscussionSubscriber {
         } catch (Exception e) {
             log.warn("Failed to publish {} signal: {}", signal, LogContent.reason(e));
         }
-    }
-
-    /**
-     * True for the signals that end an agent's evaluation run, as opposed to progress signals: the
-     * terminal verdicts, a question (the agent waits for its answer), and a declared kind.
-     */
-    private static boolean endsEvaluation(String signal) {
-        return switch (signal) {
-            case SIGNAL_AGREE, SIGNAL_CONCERN, SIGNAL_BLOCK, SIGNAL_STAND_ASIDE, "decline", SIGNAL_FAILURE,
-                 SignalVerdicts.MSG_QUESTION, SignalVerdicts.MSG_DECLARED -> true;
-            default -> false;
-        };
     }
 
     /**
