@@ -33,6 +33,14 @@ final class CoordinatorWire {
     static final String CAUSE = "cause";
     static final String REASON = "reason";
     static final String CHANNEL = "channel";
+    // --- fields of question_asked and question_answered, and of a signal that answers a question ---
+    static final String QUESTION_ID = "questionId";
+    static final String ASKER = "asker";
+    static final String TARGET = "target";
+    static final String QUESTION = "question";
+    static final String REFUSAL = "refusal";
+    /** On signal_applied: the signal answers a clarifying question, so it replaces the agent's earlier verdict. */
+    static final String REVISES = "revises";
 
     // --- values of the synthesis_done outcome that are not the synthesis call's ---
     /** Tools ran and the discussion held no fact, so the answer says no data was obtained and the model was not called. */

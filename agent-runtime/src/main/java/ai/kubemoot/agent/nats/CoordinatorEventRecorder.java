@@ -249,6 +249,50 @@ final class CoordinatorEventRecorder {
         });
     }
 
+    /**
+     * An agent asked a clarifying question. Relayed ({@code refusal} empty): the agent asked is
+     * pending until {@code deadlineAt}. Refused: {@code refusal} says why and the question is the
+     * asker's concern, which ends its turn.
+     */
+    boolean questionAsked(ThreadState s, RecheckState.Question q, String refusal, long deadlineAt) {
+        return write(s, () -> {
+            ObjectNode d = question(q);
+            d.put("relayed", refusal.isEmpty());
+            if (refusal.isEmpty()) {
+                d.put(DEADLINE_AT, deadlineAt);
+            } else {
+                d.put(REFUSAL, refusal);
+            }
+            putTime(d, LAST_SIGNAL_AT, s.lastSignalReceived);
+            return emit(s, QUESTION_ASKED, keyed(s, "question/" + q.id() + "/asked"), d);
+        });
+    }
+
+    /**
+     * The agent asked answered with {@code signal}. A failure leaves the question as the asker's
+     * concern; any other answer wakes the asker, pending until {@code deadlineAt}.
+     */
+    boolean questionAnswered(ThreadState s, RecheckState.Question q, long deadlineAt) {
+        return write(s, () -> {
+            ObjectNode d = question(q);
+            d.put(SIGNAL, q.answerSignal());
+            if (!FAILURE.equals(q.answerSignal())) {
+                d.put(DEADLINE_AT, deadlineAt);
+            }
+            putTime(d, LAST_SIGNAL_AT, s.lastSignalReceived);
+            return emit(s, QUESTION_ANSWERED, keyed(s, "question/" + q.id() + "/answered"), d);
+        });
+    }
+
+    private ObjectNode question(RecheckState.Question q) {
+        ObjectNode d = mapper.createObjectNode();
+        d.put(QUESTION_ID, q.id());
+        d.put(ASKER, q.asker());
+        d.put(TARGET, q.target());
+        d.put(QUESTION, q.text());
+        return d;
+    }
+
     /** A waking or ready signal from an agent starting up put it on the thread's pending list. */
     boolean wake(ThreadState s, String agent, String signal, long deadlineAt) {
         return write(s, () -> {
@@ -433,6 +477,9 @@ final class CoordinatorEventRecorder {
             d.put(DEADLINE_AT, deadline);
         }
         signalDetails(d, s, agent, signal, msg);
+        if (!msg.path("metadata").path(RecheckText.FIELD_ANSWERS).asText("").isEmpty()) {
+            d.put(REVISES, true);
+        }
         return emit(s, SIGNAL_APPLIED, keyed(s, "signal/" + agent + "/" + messageKey(s, agent, messageId, msg)), d);
     }
 

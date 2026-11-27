@@ -51,6 +51,7 @@ final class ThreadRebuilder {
         state.synthesisInputTokens = log.synthesisIn;
         state.synthesisOutputTokens = log.synthesisOut;
         state.answer = log.answer;
+        state.recheck.copyFrom(log.recheck);
         return state;
     }
 

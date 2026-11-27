@@ -260,6 +260,14 @@ class BusContractTest {
                     "{\"messageId\":\"m-" + type + "\",\"metadata\":{\"model\":\"m:14b\",\"reason\":\"model-too-large\","
                             + "\"failedTool\":\"pods_top\"}}"));
         }
+        recorder.signalApplied(s, "metrics", "agree", MAPPER.readTree(
+                "{\"messageId\":\"m-revised\",\"metadata\":{\"answers\":\"t1/0/q1\"}}"));
+        var round = new RecheckState();
+        var asked = round.ask("t1/0", "workloads", "metrics", "recheck the count?", 1, java.util.Set.of("metrics"));
+        recorder.questionAsked(s, asked.question(), "", 4_000L);
+        var refused = round.ask("t1/0", "workloads", "nobody", "and this?", 1, java.util.Set.of("metrics"));
+        recorder.questionAsked(s, refused.question(), refused.refusal().id(), 0L);
+        recorder.questionAnswered(s, round.answer(asked.question().id(), "metrics", "agree", "7 nodes"), 5_000L);
         recorder.wake(s, "metrics", "waking", 2_000L);
         recorder.wake(s, "metrics", "ready", 3_000L);
         recorder.timedOut(s, "workloads");
@@ -269,10 +277,31 @@ class BusContractTest {
         recorder.closed(s, "synthesized", "general");
         recorder.reopened(s);
 
-        assertEquals(12, log.events().stream().map(CoordinatorEvent::type).distinct().count(),
+        assertEquals(14, log.events().stream().map(CoordinatorEvent::type).distinct().count(),
                 "the script writes every event type");
         for (CoordinatorEvent event : log.events()) {
             assertConforms("coordinator-event.json", event.toJson(MAPPER));
+        }
+    }
+
+    @Test
+    void everySignalToolVerdictMatchesTheContract() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = subscriber(conn, mock(ChatService.class));
+        var result = new ChatService.ChatResult("c", "the finding", MODEL, "t1", 10, 5, "server-b", "warm");
+        var kinds = List.of("agree", "concern", "question", "stand_aside", "tool_gap", "no_data", "block", "vote");
+
+        for (String kind : kinds) {
+            var call = new ai.kubemoot.agent.signal.SignalCall(kind, "question".equals(kind) ? "k8s-nodes" : "",
+                    "the statement", "the reason", "ns/crew/t1/a/001-x");
+            sub.classifyAndPublishResult(SUBJECT, "t1", result, new DiscussionSubscriber.SignalTiming(100, 1, 10, 5),
+                    "4090", call);
+        }
+
+        var payloads = ArgumentCaptor.forClass(byte[].class);
+        verify(conn, times(kinds.size())).publish(anyString(), payloads.capture());
+        for (byte[] payload : payloads.getAllValues()) {
+            assertConforms(MESSAGE, MAPPER.readTree(payload));
         }
     }
 
@@ -322,6 +351,14 @@ class BusContractTest {
 
     private static Schema schema(String file) {
         return registry.getSchema(SchemaLocation.of(BASE + file));
+    }
+
+    /** Asserts that a discussion message another test captured matches the contract. */
+    static void assertMessageConforms(JsonNode node) throws IOException {
+        if (registry == null) {
+            loadSchemas();
+        }
+        assertConforms(MESSAGE, node);
     }
 
     /** Asserts that node matches the schema in file and carries only declared fields. */

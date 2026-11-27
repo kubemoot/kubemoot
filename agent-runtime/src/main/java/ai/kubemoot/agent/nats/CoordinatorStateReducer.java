@@ -35,7 +35,9 @@ final class CoordinatorStateReducer {
             Map.entry(SYNTHESIS_DONE, CoordinatorStateReducer::synthesisDone),
             Map.entry(THREAD_REOPENED, CoordinatorStateReducer::threadReopened),
             Map.entry(THREAD_CLOSED, CoordinatorStateReducer::threadClosed),
-            Map.entry(COORDINATOR_RESUMED, CoordinatorStateReducer::resumed));
+            Map.entry(COORDINATOR_RESUMED, CoordinatorStateReducer::resumed),
+            Map.entry(QUESTION_ASKED, CoordinatorStateReducer::questionAsked),
+            Map.entry(QUESTION_ANSWERED, CoordinatorStateReducer::questionAnswered));
 
     private static final Map<String, BiConsumer<CoordinatorThreadState, CoordinatorEvent>> SIGNALS = Map.ofEntries(
             Map.entry(TRIAGING, CoordinatorStateReducer::triaging),
@@ -223,6 +225,8 @@ final class CoordinatorStateReducer {
             s.waiting.remove(agent(e));
         }
         s.failure.put(agent(e), text(d, CAUSE));
+        // A failed agent answers no question; the concern it leaves comes as question_answered.
+        s.recheck.abandonedBy(agent(e));
         d.path(FAILED_SOURCES).forEach(n -> s.failedSources.add(n.asText()));
         s.lastSignalAt = instant(d, LAST_SIGNAL_AT);
         s.recordTerminal(agent(e));
@@ -277,10 +281,81 @@ final class CoordinatorStateReducer {
 
     /** The step every terminal signal takes: the agent is no longer pending or waiting, and the phase roster hears it. */
     private static void endTurn(CoordinatorThreadState s, CoordinatorEvent e) {
+        if (e.data().path(REVISES).asBoolean(false)) {
+            // An answer to a clarifying question replaces the agent's earlier verdict.
+            s.agree.remove(agent(e));
+            s.concern.remove(agent(e));
+            s.block.remove(agent(e));
+            s.standAside.remove(agent(e));
+        }
         s.pending.remove(agent(e));
         s.waiting.remove(agent(e));
         s.lastSignalAt = instant(e.data(), LAST_SIGNAL_AT);
         s.recordTerminal(agent(e));
+        // An asker that signals after its question was answered is done with the question.
+        s.recheck.settle(agent(e));
+    }
+
+    /**
+     * A clarifying question: relayed, the asker's run ended and the agent asked is pending;
+     * refused, the question is the asker's concern and its turn ends.
+     */
+    private static void questionAsked(CoordinatorThreadState s, CoordinatorEvent e) {
+        JsonNode d = e.data();
+        String asker = text(d, ASKER);
+        if (asker == null) {
+            return;
+        }
+        s.recheck.settle(asker);
+        s.pending.remove(asker);
+        s.waiting.remove(asker);
+        s.lastSignalAt = instant(d, LAST_SIGNAL_AT);
+        boolean relayed = d.path("relayed").asBoolean(false);
+        s.recheck.restore(question(d, asker), relayed);
+        if (relayed) {
+            pendingUntil(s, text(d, TARGET), d);
+            return;
+        }
+        questionAsConcern(s, asker, d);
+    }
+
+    /** The question an event names, as the round holds it. */
+    private static RecheckState.Question question(JsonNode d, String asker) {
+        String target = text(d, TARGET);
+        String text = text(d, QUESTION);
+        return new RecheckState.Question(text(d, QUESTION_ID), asker, target == null ? "" : target,
+                text == null ? "" : text, null, null);
+    }
+
+    /** An answer: a failure leaves the question as the asker's concern; any other answer makes the asker pending. */
+    private static void questionAnswered(CoordinatorThreadState s, CoordinatorEvent e) {
+        JsonNode d = e.data();
+        String asker = text(d, ASKER);
+        if (asker == null) {
+            return;
+        }
+        s.lastSignalAt = instant(d, LAST_SIGNAL_AT);
+        String signal = text(d, SIGNAL);
+        s.recheck.answer(text(d, QUESTION_ID), text(d, TARGET), signal, "");
+        if (FAILURE.equals(signal)) {
+            questionAsConcern(s, asker, d);
+            return;
+        }
+        pendingUntil(s, asker, d);
+    }
+
+    private static void questionAsConcern(CoordinatorThreadState s, String asker, JsonNode d) {
+        s.recheck.settle(asker);
+        s.concern.putIfAbsent(asker, text(d, QUESTION_ID));
+        s.pending.remove(asker);
+        s.recordTerminal(asker);
+    }
+
+    private static void pendingUntil(CoordinatorThreadState s, String agent, JsonNode d) {
+        JsonNode at = d.path(DEADLINE_AT);
+        if (agent != null && at.isNumber()) {
+            s.pending.put(agent, at.asLong());
+        }
     }
 
     /** Sets the agent's deadline when the event carries one. */
