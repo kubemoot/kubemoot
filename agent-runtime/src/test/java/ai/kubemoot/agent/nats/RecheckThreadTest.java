@@ -281,6 +281,122 @@ class RecheckThreadTest extends CoordinatorThreadTestBase {
     }
 
     @Test
+    void aQuestionAfterTheReviewIsTheAskersConcernAndOpensNoRound() throws Exception {
+        toReview(WRONG);
+        send(THREAD, ANALYST, "agree", "checked", null);
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        await(() -> state().phase == DiscussionOrchestrator.Phase.CLOSED, "the thread did not close: " + timeline);
+
+        ask(ANALYST, METRICS);
+
+        assertTrue(publishedOfType("question_asked").isEmpty(), "nothing is relayed after the review");
+        assertFalse(state().recheck.inProgress(), "no round opens that nothing would close");
+        assertTrue(state().concernSignals.get(ANALYST).contains("Unanswered question to k8s-metrics"));
+    }
+
+    @Test
+    void aQuestionDuringSynthesisOrRatificationIsRefusedForThePhase() throws Exception {
+        for (var phase : List.of(DiscussionOrchestrator.Phase.SYNTHESIZING, DiscussionOrchestrator.Phase.RATIFY,
+                DiscussionOrchestrator.Phase.PAUSED)) {
+            var thread = new DiscussionOrchestrator.ThreadState("t-" + phase);
+            thread.phase = phase;
+            var msg = MAPPER.readTree("{\"messageType\":\"question\",\"metadata\":{\"signalTo\":\"k8s-metrics\","
+                    + "\"signalStatement\":\"recheck?\"}}");
+
+            orchestrator.handleAgentSignal(thread, ANALYST, "question", "recheck?", msg);
+
+            assertFalse(thread.recheck.inProgress(), phase + ": no round opens");
+            assertTrue(thread.concernSignals.get(ANALYST).contains("not gathering or reviewing"), phase.name());
+            assertFalse(thread.pendingEvaluations.containsKey(METRICS));
+        }
+        assertTrue(publishedOfType("question_asked").isEmpty(), "nothing is relayed");
+    }
+
+    @Test
+    void anAskerThatCrashesWhileTheAgentRechecksLeavesNothingOpen() throws Exception {
+        toReview(WRONG);
+        ask(ANALYST, METRICS);
+
+        send(THREAD, ANALYST, "failure", "model server down", null);
+
+        assertFalse(state().recheck.inProgress(), "the crashed asker's question is dropped");
+        agreesNow(THREAD, "live and rebuilt state agree when the asker fails");
+        assertFalse(ThreadRebuilder.build(CoordinatorStateReducer.reduce(forThread(THREAD))).recheck.inProgress());
+
+        answer(METRICS, "concern", REVISED);
+
+        assertTrue(publishedOfType("question_answered").isEmpty(), "nobody to wake");
+        assertEquals(WRONG, state().agreeSignals.get(METRICS), "a late answer is a plain signal, not a revision");
+    }
+
+    @Test
+    void anAnswerAfterTheQuestionTimedOutIsAPlainLateSignal() throws Exception {
+        toReview(WRONG);
+        when(triageModel.timeoutSeconds()).thenReturn(-1);
+        ask(ANALYST, METRICS);
+        checkWithoutSettling();
+        String concern = state().concernSignals.get(ANALYST);
+
+        answer(METRICS, "concern", REVISED);
+
+        assertEquals(WRONG, state().agreeSignals.get(METRICS), "the earlier finding is not dropped");
+        assertEquals(concern, state().concernSignals.get(ANALYST), "the timeout concern stays");
+        assertTrue(publishedOfType("question_answered").isEmpty());
+        assertTrue(forThread(THREAD).stream().noneMatch(e -> e.data().path("revises").asBoolean(false)),
+                "the log records no revision");
+    }
+
+    @Test
+    void aQuestionLoggedButNeverSentExpiresAfterARestart() throws Exception {
+        toReview(WRONG);
+        ask(ANALYST, METRICS);
+        // The coordinator stops between logging the question and sending it: a new one rebuilds the thread.
+        var logged = CoordinatorStateReducer.reduce(forThread(THREAD));
+        var rebuilt = ThreadRebuilder.build(logged);
+        orchestrator.registerResumed(rebuilt);
+        assertTrue(logged.pending.containsKey(METRICS), "the log keeps the agent asked pending");
+        orchestrator.rearmDeadlines(rebuilt, logged.pending, logged.lastEventAt.toEpochMilli(),
+                System.currentTimeMillis() - 36_000_000L);
+
+        orchestrator.checkThreadTransition(rebuilt, Instant.now().plusSeconds(60));
+
+        assertFalse(rebuilt.recheck.inProgress(), "the deadline ends the question");
+        assertTrue(rebuilt.concernSignals.get(ANALYST).contains("did not answer"));
+    }
+
+    @Test
+    void theAskersDeadlineAfterTheAnswerEndsTheRound() throws Exception {
+        toReview(WRONG);
+        ask(ANALYST, METRICS);
+        when(triageModel.timeoutSeconds()).thenReturn(-1);
+        answer(METRICS, "agree", REVISED);
+
+        checkWithoutSettling();
+
+        assertFalse(state().recheck.inProgress(), "an asker that missed its deadline settles nothing open");
+        assertTrue(state().failureSignals.containsKey(ANALYST));
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        assertTrue(state().phase != DiscussionOrchestrator.Phase.REVIEW, "the review settled on state");
+    }
+
+    @Test
+    void theAgentAskedMayAskBackInTheSameTurnWhenRoundsRemain() throws Exception {
+        maxRounds = 2;
+        build(true);
+        toReview(WRONG);
+        ask(ANALYST, METRICS);
+        answer(METRICS, "agree", REVISED);
+        send(THREAD, ANALYST, "agree", "7 nodes checks out", null);
+
+        ask(METRICS, ANALYST);
+
+        assertEquals(2, publishedOfType("question_asked").size());
+        assertEquals(List.of(ANALYST), MAPPER.convertValue(
+                publishedOfType("question_asked").get(1).body().path("metadata").path("innerCircle"), List.class));
+        assertTrue(state().pendingEvaluations.containsKey(ANALYST));
+    }
+
+    @Test
     void theFastPathWaitsWhileAQuestionIsOpen() {
         var thread = new DiscussionOrchestrator.ThreadState("t-fast");
         thread.agreeSignals.put(METRICS, "a");

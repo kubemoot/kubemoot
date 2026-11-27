@@ -346,7 +346,9 @@ final class CoordinatorStateReducer {
 
     private static void questionAsConcern(CoordinatorThreadState s, String asker, JsonNode d) {
         s.recheck.settle(asker);
-        s.concern.putIfAbsent(asker, text(d, QUESTION_ID));
+        String concern = RecheckText.unansweredConcern(text(d, TARGET), text(d, QUESTION), text(d, REASON));
+        s.concern.merge(asker, concern, (earlier, added) -> earlier + "\n\n" + added);
+        s.questionConcerns.merge(asker, concern, (earlier, added) -> earlier + "\n\n" + added);
         s.pending.remove(asker);
         s.recordTerminal(asker);
     }

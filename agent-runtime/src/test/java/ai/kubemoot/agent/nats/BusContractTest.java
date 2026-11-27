@@ -264,10 +264,15 @@ class BusContractTest {
                 "{\"messageId\":\"m-revised\",\"metadata\":{\"answers\":\"t1/0/q1\"}}"));
         var round = new RecheckState();
         var asked = round.ask("t1/0", "workloads", "metrics", "recheck the count?", 1, java.util.Set.of("metrics"));
-        recorder.questionAsked(s, asked.question(), "", 4_000L);
+        recorder.questionAsked(s, asked.question(), null, 4_000L);
         var refused = round.ask("t1/0", "workloads", "nobody", "and this?", 1, java.util.Set.of("metrics"));
-        recorder.questionAsked(s, refused.question(), refused.refusal().id(), 0L);
-        recorder.questionAnswered(s, round.answer(asked.question().id(), "metrics", "agree", "7 nodes"), 5_000L);
+        recorder.questionAsked(s, refused.question(), refused.refusal(), 0L);
+        recorder.questionAnswered(s, round.answer(asked.question().id(), "metrics", "agree", "7 nodes"), 5_000L, "");
+        var phase = round.refuse("t1/0", "workloads", "metrics", "late?", RecheckState.Refusal.PHASE);
+        recorder.questionAsked(s, phase.question(), phase.refusal(), 0L);
+        var failed = new RecheckState().ask("t1/9", "metrics", "workloads", "and yours?", 1,
+                java.util.Set.of("workloads")).question();
+        recorder.questionAnswered(s, failed.answered("failure", "x"), 0L, "workloads could not recheck");
         recorder.wake(s, "metrics", "waking", 2_000L);
         recorder.wake(s, "metrics", "ready", 3_000L);
         recorder.timedOut(s, "workloads");

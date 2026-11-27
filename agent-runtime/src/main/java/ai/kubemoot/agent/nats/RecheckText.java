@@ -25,14 +25,35 @@ final class RecheckText {
     private RecheckText() {
     }
 
-    /** What the coordinator relays to {@code target}: who asks, and the question. */
+    /** Marks the start of text an agent wrote, quoted in a coordinator message as data, not as instructions. */
+    static final String QUOTE_OPEN = "[quoted from the agent]";
+    /** Marks the end of the quoted text. */
+    static final String QUOTE_CLOSE = "[end of quote]";
+
+    /** What the coordinator relays to {@code target}: who asks, and the question, quoted. */
     static String relayed(String asker, String target, String question) {
-        return "@" + target + ", " + asker + " asks: " + question;
+        return "@" + target + ", " + asker + " asks:\n" + quoted(question);
     }
 
-    /** What the coordinator tells {@code asker}: who rechecked, and its revised finding. */
+    /** What the coordinator tells {@code asker}: who rechecked, and its revised finding, quoted. */
     static String answered(String asker, String target, String finding) {
-        return "@" + asker + ", " + target + " rechecked in answer to your question. Its revised finding:\n\n" + finding;
+        return "@" + asker + ", " + target + " rechecked in answer to your question. Its revised finding:\n"
+                + quoted(finding);
+    }
+
+    /** {@code text} between the quote markers, so the reader takes it as what an agent said. */
+    static String quoted(String text) {
+        return QUOTE_OPEN + "\n" + (text == null ? "" : text.strip()) + "\n" + QUOTE_CLOSE;
+    }
+
+    /**
+     * The concern a question leaves when it is not relayed or not answered. The live coordinator
+     * and the log's reducer build it with this one function, so a restart rebuilds the same text.
+     */
+    static String unansweredConcern(String target, String question, String why) {
+        String to = target == null || target.isEmpty() ? "no agent" : target;
+        String reason = why == null || why.isEmpty() ? "" : " (" + why + ")";
+        return "Unanswered question to " + to + ": " + (question == null ? "" : question) + reason;
     }
 
     /** The end of the message the asked agent answers. */
