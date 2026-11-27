@@ -214,6 +214,14 @@ class DiscussionSubscriberHelpersTest {
     }
 
     @Test
+    void manyReasoningBlocksAreSkippedInLinearTime() {
+        var reply = "<think></think>".repeat(50_000) + "CONCERN: the count is unverified";
+        assertTimeoutPreemptively(java.time.Duration.ofSeconds(2),
+                () -> assertEquals("the count is unverified", DiscussionSubscriber.statedConcern(reply)));
+        assertNull(DiscussionSubscriber.statedConcern("<think>never closed CONCERN: x"));
+    }
+
+    @Test
     void aMidTextConcernReplyStaysAnAgree() throws Exception {
         var conn = mock(Connection.class);
         var sub = createSubscriberWithConnection(conn);
