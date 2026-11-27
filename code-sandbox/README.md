@@ -64,15 +64,26 @@ is started in its own user and mount namespace (`internal/confine`, through a re
   cannot plant a link or alter a result), or an empty directory for a call with no discussion.
 - The run directory's parent, the temporary root, is a private tmpfs holding only that run's directory, so
   concurrent programs cannot read each other's inputs.
-- No capabilities remain, so no mount can be undone, and the server's `/proc` entries are out of reach.
-- `internal/inputs` refuses a symbolic link anywhere in a key's path; the copy opens with `O_NOFOLLOW`, takes
-  regular files only, and caps an input at 64 MiB and a call's inputs at 256 MiB.
+- No capabilities remain, so no mount can be undone (umount, a read-write remount, and a nested user namespace
+  that remounts are tested), and the program runs in its own pid namespace with a fresh `/proc`, so the server and
+  other runs are not listed. A host that refuses the `/proc` mount keeps the old one, where the kernel's ptrace
+  rules deny every entry of a process in another user namespace.
+- `internal/inputs` opens each input once, every path component relative to the one before it with
+  `O_NOFOLLOW`, so a symbolic link anywhere in the path (also the thread's folder) is refused and the file that
+  was checked is the file that is copied. It takes regular files only and caps an input at 64 MiB and a call's
+  inputs at 256 MiB. A thread folder that is a link, or has a link in its path, shows the program an empty workspace.
+- The private temporary directory is a tmpfs of `SANDBOX_TMP_SIZE` (default `256m`). Its pages count against the
+  pod's memory limit while a run holds them, so the worst case is the size times the concurrent runs. The run's own
+  directory, where the program starts, is on the pod's disk and is not size-capped: bound it with the pod's
+  ephemeral-storage limit.
 
 This needs user namespaces and mounts. gVisor allows them (checked on the homelab's gVisor). A plain runtime with the
 default `RuntimeDefault` seccomp profile blocks them, and then every `execute_code` call fails with an error that
 names the cause until `SANDBOX_CONFINEMENT=off`. Off means no isolation between discussions or between concurrent
-runs. A helper failure is a tool error, never a program exit code. The server refuses to start when a volume named
-`workspace` or `artifacts` is mounted somewhere it does not hide: list the path in `SANDBOX_WORKSPACE_DIRS`.
+runs. A helper failure is a tool error, never a program exit code. At startup only, the server refuses to start when a
+volume whose mount path is named `workspace` or `artifacts` is mounted somewhere it does not hide (it finds
+volumes by that name, not by content; a volume mounted under another name is not found): list the path in
+`SANDBOX_WORKSPACE_DIRS`.
 
 ## How a program runs
 
@@ -124,6 +135,7 @@ once.
 | `MAX_OUTPUT_BYTES` | `65536` | cap on each of stdout and stderr |
 | `SANDBOX_TMPDIR` | OS default | where run directories are created |
 | `SANDBOX_CONFINEMENT` | on | `off` removes all isolation between discussions and runs; use it only where the pod's workspace holds one discussion's data, or the runtime blocks user namespaces |
+| `SANDBOX_TMP_SIZE` | `256m` | size of each run's private temporary directory (tmpfs, in memory) |
 | `SANDBOX_WORKSPACE_DIRS` | empty | more workspace mount paths to hide, comma separated |
 | `WORKSPACE_DIR` | `/kubemoot/workspace` | the workspace mount a program is kept out of (`ARTIFACT_DIR` is read too; `/artifacts` is always included) |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http`; any other value stops the server at start |
