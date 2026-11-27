@@ -123,6 +123,7 @@ func withAnswers(base judgeComparisonDoc, items []answerOf, keepCounts bool) jud
 	cd.Answers = make([]judgeAnswer, len(items))
 	for i, it := range items {
 		cd.Answers[i] = it.answer
+		cd.Answers[i].Index = i
 	}
 	if !keepCounts {
 		cd.Gated, cd.Total = 0, len(items)
@@ -154,26 +155,27 @@ func packAnswers(base judgeComparisonDoc, items []answerOf, budgetChars int) [][
 	return append(groups, cur)
 }
 
-// assignAnswerScores turns one verdict into a record per answer of its batch. The
-// verdict's index k scores the batch's k-th answer. A judge that leaves the
-// indexes out or repeats them, but returns one score per answer, is read by
-// position. An answer the verdict does not score counts 0, with the reason.
+// assignAnswerScores turns one verdict into a record per answer of its batch. Each
+// answer in the document carries its position as an index, which the judge echoes
+// on its score. The indexes are used only when they are exactly the document's:
+// one score per answer, every score with an index, no index repeated or out of
+// range. Otherwise the scores are read by position, but only when there is one
+// per answer. Otherwise no score can be tied to an answer, and every answer counts
+// 0 with the reason.
 func assignAnswerScores(bv batchVerdict, iterations []int) []answerRecord {
-	scored := make([]*answerScore, len(iterations))
-	byIndex := 0
-	for i := range bv.Scores {
-		s := &bv.Scores[i]
-		if s.Index >= 0 && s.Index < len(scored) && scored[s.Index] == nil {
-			scored[s.Index] = s
-			byIndex++
+	n := len(iterations)
+	scored := make([]*answerScore, n)
+	switch {
+	case echoesEveryIndex(bv.Scores, n):
+		for i := range bv.Scores {
+			scored[*bv.Scores[i].Index] = &bv.Scores[i]
 		}
-	}
-	if byIndex != len(iterations) && len(bv.Scores) == len(iterations) {
+	case len(bv.Scores) == n:
 		for i := range bv.Scores {
 			scored[i] = &bv.Scores[i]
 		}
 	}
-	out := make([]answerRecord, len(iterations))
+	out := make([]answerRecord, n)
 	for i, it := range iterations {
 		out[i] = answerRecord{Iteration: it, Reason: reasonNoAnswerScore}
 		if s := scored[i]; s != nil {
@@ -185,6 +187,35 @@ func assignAnswerScores(bv batchVerdict, iterations []int) []answerRecord {
 			}
 		}
 	}
+	return out
+}
+
+// echoesEveryIndex reports whether the scores carry exactly the indexes 0 to n-1,
+// each once.
+func echoesEveryIndex(scores []answerScore, n int) bool {
+	if len(scores) != n {
+		return false
+	}
+	seen := make([]bool, n)
+	for _, s := range scores {
+		if s.Index == nil || *s.Index < 0 || *s.Index >= n || seen[*s.Index] {
+			return false
+		}
+		seen[*s.Index] = true
+	}
+	return true
+}
+
+// transcriptKeysInOrder keeps the keys that are iteration transcripts and orders
+// them by iteration number (not by name, which puts iteration 10 before 2).
+func transcriptKeysInOrder(keys []string) []string {
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if iterationNumber(k) > 0 {
+			out = append(out, k)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return iterationNumber(out[i]) < iterationNumber(out[j]) })
 	return out
 }
 
@@ -215,12 +246,22 @@ func answersMean(recs []answerRecord) float64 {
 }
 
 // answersReason is the most diagnostic reason of the records: that of the
-// lowest-scoring answer that has one.
+// lowest-scoring judged answer that has one. The reason of a gated answer is the
+// fallback, for a scenario with no judged answer.
 func answersReason(recs []answerRecord) string {
+	if reason := lowestReason(recs, false); reason != "" {
+		return reason
+	}
+	return lowestReason(recs, true)
+}
+
+// lowestReason is the reason of the lowest-scoring record that has one, among
+// the gated records or among the judged ones.
+func lowestReason(recs []answerRecord, gated bool) string {
 	reason := ""
 	lowest := math.MaxFloat64
 	for _, r := range recs {
-		if r.Reason != "" && r.Score <= lowest {
+		if r.Gated == gated && r.Reason != "" && r.Score <= lowest {
 			lowest = r.Score
 			reason = r.Reason
 		}
@@ -231,7 +272,6 @@ func answersReason(recs []answerRecord) string {
 // answerTally counts what a scenario's records hold.
 type answerTally struct {
 	answers, gated, fabrications int32
-	fabricatedIterations         []int32
 }
 
 func tallyAnswers(recs []answerRecord) answerTally {
@@ -242,7 +282,6 @@ func tallyAnswers(recs []answerRecord) answerTally {
 		}
 		if r.Fabrication {
 			t.fabrications++
-			t.fabricatedIterations = append(t.fabricatedIterations, int32(r.Iteration))
 		}
 	}
 	return t

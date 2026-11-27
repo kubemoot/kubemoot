@@ -275,8 +275,8 @@ func judgeStatusFor(suite *kubemootv1alpha1.CrewFitnessSuite, cache deferredScor
 // judgeAggregate sums what the judged scenarios hold, for the aggregate fields of
 // status.judge.
 type judgeAggregate struct {
-	scenarios, zeros, answers, fabrications int32
-	scenarioSum, answerSum                  float64
+	scenarios, withoutAnswers, zeros, answers, fabrications int32
+	scenarioSum, answerSum                                  float64
 }
 
 // add counts one judged scenario with its quality and answers and returns the
@@ -287,6 +287,9 @@ func (a *judgeAggregate) add(quality float64, recs []answerRecord) int32 {
 	a.scenarioSum += quality
 	if score == 0 {
 		a.zeros++
+	}
+	if len(recs) == 0 {
+		a.withoutAnswers++
 	}
 	for _, r := range recs {
 		a.answers++
@@ -306,31 +309,22 @@ func (a judgeAggregate) applyTo(js *kubemootv1alpha1.FitnessJudgeStatus) {
 	if a.scenarios > 0 {
 		js.Mean = ptr.To(roundScore(a.scenarioSum / float64(a.scenarios)))
 	}
-	if a.answers > 0 {
+	if a.answers > 0 && a.withoutAnswers == 0 {
 		js.AnswerMean = ptr.To(roundScore(a.answerSum / float64(a.answers)))
 	}
 }
 
 // judgeScoreFor is the status entry of one judged scenario: its score and reason,
-// and what the judge gave each iteration (scores capped at MaxStatusAnswers).
+// and how many iterations the judge scored, gated or flagged as fabricated. Each
+// iteration's own score stays in the judge checkpoint.
 func judgeScoreFor(ref string, score int32, cache deferredScoreCache) kubemootv1alpha1.FitnessJudgeScore {
 	out := kubemootv1alpha1.FitnessJudgeScore{
 		Scenario: statusName(ref),
 		Score:    score,
 		Reason:   oneLineReason(cache.Reasons[ref]),
 	}
-	recs := cache.Answers[ref]
-	t := tallyAnswers(recs)
+	t := tallyAnswers(cache.Answers[ref])
 	out.Answers, out.Gated, out.Fabrications = t.answers, t.gated, t.fabrications
-	for _, r := range recs {
-		if len(out.AnswerScores) < kubemootv1alpha1.MaxStatusAnswers {
-			out.AnswerScores = append(out.AnswerScores, roundScore(r.Score))
-		}
-	}
-	out.FabricatedIterations = t.fabricatedIterations[:min(len(t.fabricatedIterations), kubemootv1alpha1.MaxStatusAnswers)]
-	if len(out.FabricatedIterations) == 0 {
-		out.FabricatedIterations = nil
-	}
 	return out
 }
 

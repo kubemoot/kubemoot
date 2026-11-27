@@ -154,12 +154,14 @@ func parseScenarioQuality(synthesis string) (float64, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	n := max(len(bv.Scores), int(bv.Total))
-	iterations := make([]int, n)
+	iterations := make([]int, len(bv.Scores))
 	for i := range iterations {
 		iterations[i] = i + 1
 	}
 	recs := assignAnswerScores(bv, iterations)
+	for i := len(recs); i < int(bv.Total); i++ { // answers the verdict counts but does not score
+		recs = append(recs, answerRecord{Iteration: i + 1})
+	}
 	return answersMean(recs), answersReason(recs), nil
 }
 
