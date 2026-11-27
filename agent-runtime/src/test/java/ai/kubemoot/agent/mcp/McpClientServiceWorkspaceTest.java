@@ -131,12 +131,12 @@ class McpClientServiceWorkspaceTest {
     }
 
     @Test
-    void executeCodeGetsItsShortArtifactPathsWrittenOut() {
+    void executeCodeIsSentItsCodeAsWrittenAndTheThreadInMeta() {
+        String code = "print(open('/kubemoot/workspace/k8s-workloads/002-resources_list').read())";
         try (var scope = WorkspaceScope.bind(PREFIX)) {
-            service.callTool("execute_code", Map.of("language", "python",
-                    "code", "print(open('/artifacts/k8s-workloads/002-resources_list').read())"));
+            service.callTool("execute_code", Map.of("language", "python", "code", code));
         }
-        assertEquals("print(open('/kubemoot/workspace/" + PREFIX + "k8s-workloads/002-resources_list').read())",
-                argumentsSentFor("execute_code").get("code"));
+        assertEquals(code, argumentsSentFor("execute_code").get("code"), "the sandbox shows the thread at the path");
+        assertEquals(Map.of("workspacePrefix", PREFIX), metaSentFor("execute_code"));
     }
 }
