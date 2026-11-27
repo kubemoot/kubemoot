@@ -29,7 +29,9 @@ final class RecheckState {
         /** The question is addressed to the asker itself. */
         SELF("the question is addressed to the agent that asked it"),
         /** The agent asked is busy answering or asking another question. */
-        BUSY("the agent asked is already in a clarifying question");
+        BUSY("the agent asked is already in a clarifying question"),
+        /** The thread is past the phases where findings are rechecked (or paused or closed). */
+        PHASE("the discussion is not gathering or reviewing findings now");
 
         private final String text;
 
@@ -84,6 +86,20 @@ final class RecheckState {
         Refusal refusal = refusal(question, maxRounds, crew);
         record(question, refusal == null);
         return new Decision(question, refusal);
+    }
+
+    /** Records a question refused for {@code refusal} without checking it: kept for the synthesis, never open. */
+    synchronized Decision refuse(String idPrefix, String asker, String target, String text, Refusal refusal) {
+        var question = new Question(idPrefix + "/q" + (asked + 1), asker, target == null ? "" : target,
+                text == null ? "" : text, null, null);
+        record(question, false);
+        return new Decision(question, refusal);
+    }
+
+    /** True when the question {@code questionId} is open, addressed to {@code agent}, and not yet answered. */
+    synchronized boolean isOpenTo(String questionId, String agent) {
+        var q = questionId == null ? null : openById.get(questionId);
+        return q != null && !q.isAnswered() && q.target().equals(agent);
     }
 
     /**

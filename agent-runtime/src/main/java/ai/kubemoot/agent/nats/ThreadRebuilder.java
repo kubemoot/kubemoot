@@ -52,6 +52,8 @@ final class ThreadRebuilder {
         state.synthesisOutputTokens = log.synthesisOut;
         state.answer = log.answer;
         state.recheck.copyFrom(log.recheck);
+        // A concern a question left has its text in the log, not on the bus.
+        state.concernSignals.putAll(log.questionConcerns);
         return state;
     }
 
