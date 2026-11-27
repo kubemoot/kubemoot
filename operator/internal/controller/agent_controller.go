@@ -1119,6 +1119,7 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 		env = append(env, r.coordinatorLeaseEnvVars()...)
 		env = append(env, r.coordinatorReviewEnvVars(ctx, agent)...)
 		env = append(env, r.coordinatorRatifyEnvVars(ctx, agent)...)
+		env = append(env, r.coordinatorRecheckEnvVars(ctx, agent)...)
 		// If the crew declares any analyst-role agent, the coordinator must run
 		// the REVIEW phase (where analysts self-select) rather than taking the
 		// single-agree fast path that skips it.
@@ -1130,6 +1131,8 @@ func (r *AgentReconciler) agentDiscussRoleEnvVars(ctx context.Context, agent *ku
 	// coordinator convenes it, it answers, and its signals carry role=researcher,
 	// which the coordinator folds into the synthesis without counting them toward
 	// settling. Disabling the subscriber left a convened researcher silent.
+	// Every agent records its verdict with the signal tool its crew's archetype declares.
+	env = append(env, r.agentSignalEnvVars(ctx, agent)...)
 	// DiscussChannels feeds the orchestrator/subscriber's NATS subscription set.
 	if len(agent.Spec.DiscussChannels) > 0 {
 		env = append(env, corev1.EnvVar{Name: "KUBEMOOT_DISCUSS_CHANNELS", Value: strings.Join(agent.Spec.DiscussChannels, ",")})
@@ -1361,7 +1364,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// review block reaches the crews that use it. See agent_env_review.go.
 		Watches(
 			&kubemootv1alpha1.MootArchetype{},
-			enqueueCoordinatorsOnArchetypeChange(mgr.GetClient()),
+			enqueueAgentsOnArchetypeChange(mgr.GetClient()),
 			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
 		).
 		// Re-reconcile an Agent when a PromptModule it references changes so an
