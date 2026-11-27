@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kubemoot/kubemoot/code-sandbox/internal/confine"
+	"github.com/kubemoot/kubemoot/code-sandbox/internal/inputs"
 	"github.com/kubemoot/kubemoot/code-sandbox/internal/runner"
 	"github.com/kubemoot/kubemoot/code-sandbox/internal/server"
 )
@@ -29,6 +31,9 @@ func fatal(err error) {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == confine.Arg {
+		confine.Main(os.Args[2:]) // a program's confining helper, not the server
+	}
 	log.SetOutput(os.Stderr) // in stdio mode stdout carries the MCP protocol
 	transport, err := parseTransport(os.Getenv("MCP_TRANSPORT"))
 	if err != nil {
@@ -42,14 +47,41 @@ func main() {
 		Timeout:   time.Duration(envInt("EXECUTION_TIMEOUT", defaultTimeoutSeconds)) * time.Second,
 		MaxOutput: envInt("MAX_OUTPUT_BYTES", defaultMaxOutputBytes),
 		TempDir:   os.Getenv("SANDBOX_TMPDIR"),
+
+		WorkspaceDirs: workspaceDirs(),
+		Unconfined:    os.Getenv("SANDBOX_CONFINEMENT") == confinementOff,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	log.Printf("code-sandbox up: languages=%v timeout=%s maxOutput=%d transport=%s port=%d",
-		runner.Names(), r.Timeout, r.MaxOutput, transport, port)
-	if err := serve(ctx, transport, &server.Server{Runner: r}, port); err != nil && ctx.Err() == nil {
+	log.Printf("code-sandbox up: languages=%v timeout=%s maxOutput=%d transport=%s port=%d workspace=%v confined=%t",
+		runner.Names(), r.Timeout, r.MaxOutput, transport, port, r.WorkspaceDirs, !r.Unconfined)
+	srv := &server.Server{Runner: r, Inputs: inputs.Resolver{Roots: r.WorkspaceDirs}}
+	if err := serve(ctx, transport, srv, port); err != nil && ctx.Err() == nil {
 		fatal(err)
 	}
+}
+
+const (
+	defaultWorkspaceDir = "/kubemoot/workspace"
+	// legacyWorkspaceDir is the old mount name, which a crew may still mount beside the new one.
+	legacyWorkspaceDir = "/artifacts"
+	confinementOff     = "off"
+)
+
+// workspaceDirs are the paths the workspace volume may be mounted at: the one workspace-access
+// stages into (WORKSPACE_DIR, or its old name ARTIFACT_DIR) and the old /artifacts.
+func workspaceDirs() []string {
+	dir := os.Getenv("WORKSPACE_DIR")
+	if dir == "" {
+		dir = os.Getenv("ARTIFACT_DIR")
+	}
+	if dir == "" {
+		dir = defaultWorkspaceDir
+	}
+	if dir == legacyWorkspaceDir {
+		return []string{dir}
+	}
+	return []string{dir, legacyWorkspaceDir}
 }
 
 // envInt reads a positive integer from the environment, or returns def.
