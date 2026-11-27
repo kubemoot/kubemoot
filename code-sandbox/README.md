@@ -67,7 +67,12 @@ is started in its own user and mount namespace (`internal/confine`, through a re
 - No capabilities remain, so no mount can be undone (umount, a read-write remount, and a nested user namespace
   that remounts are tested), and the program runs in its own pid namespace with a fresh `/proc`, so the server and
   other runs are not listed. A host that refuses the `/proc` mount keeps the old one, where the kernel's ptrace
-  rules deny every entry of a process in another user namespace.
+  rules deny every entry of a process in another user namespace; the server logs that once, and
+  `SANDBOX_REQUIRE_PROC=1` makes it a failure instead.
+- The discussion's folder is opened by the helper itself, inside the new mount namespace, one component at a time
+  without following a link, and the open directory is what is mounted (`fchdir`, then a bind of `.`), so a link
+  swapped in at any moment is never shown: the program sees the real folder or an empty one. A descriptor opened by
+  the server cannot be used, because it belongs to the server's mount namespace.
 - `internal/inputs` opens each input once, every path component relative to the one before it with
   `O_NOFOLLOW`, so a symbolic link anywhere in the path (also the thread's folder) is refused and the file that
   was checked is the file that is copied. It takes regular files only and caps an input at 64 MiB and a call's
@@ -135,6 +140,7 @@ once.
 | `MAX_OUTPUT_BYTES` | `65536` | cap on each of stdout and stderr |
 | `SANDBOX_TMPDIR` | OS default | where run directories are created |
 | `SANDBOX_CONFINEMENT` | on | `off` removes all isolation between discussions and runs; use it only where the pod's workspace holds one discussion's data, or the runtime blocks user namespaces |
+| `SANDBOX_REQUIRE_PROC` | unset | any value: refuse to run a program whose `/proc` cannot be replaced, instead of logging it once |
 | `SANDBOX_TMP_SIZE` | `256m` | size of each run's private temporary directory (tmpfs, in memory) |
 | `SANDBOX_WORKSPACE_DIRS` | empty | more workspace mount paths to hide, comma separated |
 | `WORKSPACE_DIR` | `/kubemoot/workspace` | the workspace mount a program is kept out of (`ARTIFACT_DIR` is read too; `/artifacts` is always included) |

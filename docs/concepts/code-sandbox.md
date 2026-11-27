@@ -73,6 +73,10 @@ mount namespace:
 - The program holds no capabilities, so it cannot undo any mount, and the server's own processes (their
   environment, file descriptors and working directory) are out of its reach.
 - The program runs in its own pid namespace with a fresh `/proc`, so the server and other runs are not listed.
+  A host that refuses the `/proc` mount keeps the old one, where the kernel's ptrace rules still deny other
+  processes; the server logs that once, and `SANDBOX_REQUIRE_PROC=1` refuses to run instead.
+- The discussion's folder is opened and mounted from inside the program's own namespace without following a link,
+  so a folder swapped for a link at any moment shows the program the real folder or an empty one.
 - The server opens an input once, each path component relative to the one before it and never through a
   link, so the file it checked is the file it copies; it takes regular files only and caps one input at 64 MiB
   and all inputs of a call at 256 MiB. A discussion folder that is a link shows the program an empty workspace.
