@@ -1,6 +1,8 @@
 package inputs
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,5 +103,80 @@ func TestPrefixFromMeta(t *testing.T) {
 	}
 	if PrefixFromMeta(nil) != "" || PrefixFromMeta(map[string]any{MetaKey: 7}) != "" {
 		t.Error("a missing or non-string entry is no thread")
+	}
+}
+
+func TestPlantedLinksAreRefused(t *testing.T) {
+	r := fixture(t)
+	root := r.Roots[1]
+	otherFile := filepath.Join(root, other, key)
+	if err := os.Symlink(otherFile, filepath.Join(root, mine, "k8s-config", "003-planted")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, other, "k8s-config"), filepath.Join(root, mine, "linked-agent")); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"k8s-config/003-planted", "linked-agent/001-resources_get"} {
+		_, err := r.Resolve(mine, []string{k})
+		if !errors.Is(err, ErrLink) {
+			t.Errorf("key %q: want a refusal for the link, got %v", k, err)
+		}
+	}
+	if _, err := r.Resolve(mine, []string{key}); err != nil {
+		t.Errorf("a plain file still resolves: %v", err)
+	}
+}
+
+func TestADirectoryIsNotAResult(t *testing.T) {
+	r := fixture(t)
+	if err := os.MkdirAll(filepath.Join(r.Roots[1], mine, "k8s-config", "004-dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Resolve(mine, []string{"k8s-config/004-dir"}); err == nil {
+		t.Fatal("a directory is not a stored result")
+	}
+}
+
+type vectors struct {
+	Prefixes []struct {
+		Value string `json:"value"`
+		Valid bool   `json:"valid"`
+	} `json:"prefixes"`
+	KeysPrefix string `json:"keysPrefix"`
+	Keys       []struct {
+		Key    string `json:"key"`
+		Inputs string `json:"inputs"`
+	} `json:"keys"`
+}
+
+// TestSharedVectors runs the prefixes and keys the gateway and workspace-access run too.
+func TestSharedVectors(t *testing.T) {
+	raw, err := os.ReadFile("../../../test/fixtures/workspace-prefix-vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v vectors
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range v.Prefixes {
+		if got := PrefixFromMeta(map[string]any{MetaKey: p.Value}) != ""; got != p.Valid {
+			t.Errorf("prefix %q: valid = %v, want %v", p.Value, got, p.Valid)
+		}
+	}
+	root := t.TempDir()
+	file := filepath.Join(root, v.KeysPrefix, "agent", "001-x")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := Resolver{Roots: []string{root}}
+	for _, k := range v.Keys {
+		_, err := r.Resolve(v.KeysPrefix, []string{k.Key})
+		if (err == nil) != (k.Inputs == "ok") {
+			t.Errorf("key %q: inputs = %v, want %s", k.Key, err, k.Inputs)
+		}
 	}
 }

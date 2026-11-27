@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -24,10 +25,17 @@ import (
 const Arg = "--code-sandbox-confine"
 
 const (
-	flagMount = "--mount"
-	flagEnd   = "--"
+	flagMount   = "--mount"
+	flagPrivate = "--private"
+	flagEnd     = "--"
 	// exitConfine is the exit code of a helper that could not set the view up.
 	exitConfine = 125
+	// FailurePrefix starts the message a helper writes to stderr when it could not set the view up.
+	FailurePrefix = "code-sandbox: the workspace could not be hidden from the program"
+	// ExitCode is the exit code of a helper that could not set the view up.
+	ExitCode = exitConfine
+	// tempSize limits the private temporary directory a program gets.
+	tempSize = "size=256m,mode=1777"
 	// capLimit bounds the capability numbers tried when the bounding set is emptied.
 	capLimit = 64
 )
@@ -39,8 +47,10 @@ type Mount struct {
 }
 
 // Command is the argument list that starts argv confined by mounts, run through the binary self.
-func Command(self string, mounts []Mount, argv []string) []string {
-	out := []string{self, Arg}
+// The run directory (the helper's working directory) becomes the only entry of its parent, which is
+// replaced by a private temporary directory, so concurrent programs cannot see each other's files.
+func Command(self string, mounts []Mount, runDir string, argv []string) []string {
+	out := []string{self, Arg, flagPrivate, runDir}
 	for _, m := range mounts {
 		out = append(out, flagMount, m.Path, m.View)
 	}
@@ -67,17 +77,17 @@ func Attr() *syscall.SysProcAttr {
 // with the program. It returns only by exiting, with exitConfine and a message when it could not.
 func Main(args []string) {
 	if err := run(args); err != nil {
-		fmt.Fprintf(os.Stderr, "code-sandbox: the workspace could not be hidden from the program: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", FailurePrefix, err)
 		os.Exit(exitConfine)
 	}
 }
 
 func run(args []string) error {
-	mounts, argv, err := parse(args)
+	mounts, runDir, argv, err := parse(args)
 	if err != nil {
 		return err
 	}
-	if err := apply(mounts); err != nil {
+	if err := apply(mounts, runDir); err != nil {
 		return err
 	}
 	if err := dropCapabilities(); err != nil {
@@ -91,22 +101,25 @@ func run(args []string) error {
 }
 
 // parse reads what Command wrote, after the Arg itself.
-func parse(args []string) ([]Mount, []string, error) {
-	var mounts []Mount
+func parse(args []string) (mounts []Mount, runDir string, argv []string, err error) {
+	if len(args) < 2 || args[0] != flagPrivate {
+		return nil, "", nil, errors.New("no run directory")
+	}
+	runDir, args = args[1], args[2:]
 	for len(args) > 0 && args[0] == flagMount {
 		if len(args) < 3 {
-			return nil, nil, errors.New("incomplete mount")
+			return nil, "", nil, errors.New("incomplete mount")
 		}
 		mounts = append(mounts, Mount{Path: args[1], View: args[2]})
 		args = args[3:]
 	}
 	if len(args) < 2 || args[0] != flagEnd {
-		return nil, nil, errors.New("no program to run")
+		return nil, "", nil, errors.New("no program to run")
 	}
-	return mounts, args[1:], nil
+	return mounts, runDir, args[1:], nil
 }
 
-func apply(mounts []Mount) error {
+func apply(mounts []Mount, runDir string) error {
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return fmt.Errorf("make the mounts private: %w", err)
 	}
@@ -115,7 +128,27 @@ func apply(mounts []Mount) error {
 			return err
 		}
 	}
-	return nil
+	return privateTemp(runDir)
+}
+
+// privateTemp replaces the run directory's parent with an empty temporary directory that holds only the
+// run directory. The helper's working directory is the run directory, and "." still names it after the
+// parent is covered, so it is the source of the bind.
+func privateTemp(runDir string) error {
+	parent := filepath.Dir(runDir)
+	if !filepath.IsAbs(runDir) || parent == "/" || parent == "." {
+		return fmt.Errorf("run directory %q has no private parent", runDir)
+	}
+	if err := unix.Mount("tmpfs", parent, "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, tempSize); err != nil {
+		return fmt.Errorf("private %s: %w", parent, err)
+	}
+	if err := os.Mkdir(runDir, 0o700); err != nil {
+		return err
+	}
+	if err := unix.Mount(".", runDir, "", unix.MS_BIND, ""); err != nil {
+		return fmt.Errorf("bind %s: %w", runDir, err)
+	}
+	return os.Chdir(runDir)
 }
 
 func show(m Mount) error {
@@ -127,6 +160,25 @@ func show(m Mount) error {
 	}
 	if err := unix.Mount(m.View, m.Path, "", unix.MS_BIND, ""); err != nil {
 		return fmt.Errorf("show %s at %s: %w", m.View, m.Path, err)
+	}
+	return readOnly(m.Path)
+}
+
+// lockedFlags are the mount flags a remount in a user namespace must keep as the mount has them.
+const lockedFlags = unix.MS_NOSUID | unix.MS_NODEV | unix.MS_NOEXEC |
+	unix.MS_NOATIME | unix.MS_NODIRATIME | unix.MS_RELATIME
+
+// readOnly remounts a bind mount read-only, so a program cannot plant a link or change a stored result
+// in the discussion's folder. The flags the mount already has stay.
+func readOnly(path string) error {
+	var st unix.Statfs_t
+	if err := unix.Statfs(path, &st); err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	flags := uintptr(st.Flags)&lockedFlags | unix.MS_BIND | unix.MS_REMOUNT | unix.MS_RDONLY |
+		unix.MS_NOSUID | unix.MS_NODEV
+	if err := unix.Mount("", path, "", flags, ""); err != nil {
+		return fmt.Errorf("make %s read-only: %w", path, err)
 	}
 	return nil
 }

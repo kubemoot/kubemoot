@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -79,8 +80,9 @@ type Runner struct {
 type Option func(*job)
 
 type job struct {
-	inputs []inputs.Input
-	thread string
+	inputs  []inputs.Input
+	thread  string
+	confine bool
 }
 
 // WithInputs stages stored results as files under inputs/ in the program's directory.
@@ -92,7 +94,7 @@ func WithThread(prefix string) Option { return func(j *job) { j.thread = prefix 
 
 // Execute runs code in the given language.
 func (r *Runner) Execute(ctx context.Context, language, code string, opts ...Option) (Result, error) {
-	var j job
+	j := job{confine: true}
 	for _, o := range opts {
 		o(&j)
 	}
@@ -120,36 +122,58 @@ func (r *Runner) withSource(
 	if err := os.WriteFile(file, []byte(code), 0o600); err != nil {
 		return Result{}, err
 	}
-	if err := stage(dir, j.inputs); err != nil {
+	if err := stage(ctx, dir, j.inputs); err != nil {
 		return Result{}, err
 	}
 	cmdline := append(append([]string{}, argv(lang)...), file)
 	attr := &syscall.SysProcAttr{Setpgid: true}
-	if mounts := r.mounts(j); len(mounts) > 0 {
-		cmdline = confine.Command(r.self(), mounts, cmdline)
+	confined := !r.Unconfined && j.confine
+	if confined {
+		mounts, err := r.mounts(j)
+		if err != nil {
+			return Result{}, err
+		}
+		cmdline = confine.Command(r.self(), mounts, dir, cmdline)
 		attr = confine.Attr()
 	}
 	res, err := r.run(ctx, cmdline, dir, attr)
-	if err != nil && attr.Cloneflags != 0 {
-		err = fmt.Errorf("the program could not start with the workspace hidden (this needs user namespaces: "+
-			"run the sandbox under a sandboxed runtime such as gVisor, or set SANDBOX_CONFINEMENT=off): %w", err)
+	if confined {
+		err = confinementError(res, err)
 	}
 	return res, err
 }
 
-// mounts are the views that replace the workspace directories that exist; none when confinement is off.
-func (r *Runner) mounts(j job) []confine.Mount {
-	if r.Unconfined {
-		return nil
+// confinementError turns a helper that could not set the view up, or a program that could not start in
+// the new namespaces, into a tool error rather than the program's own result.
+func confinementError(res Result, err error) error {
+	const hint = "this needs user namespaces and mounts: run the sandbox under a sandboxed runtime such as gVisor, " +
+		"or set SANDBOX_CONFINEMENT=off (which leaves every discussion's files readable to programs)"
+	switch {
+	case err != nil:
+		return fmt.Errorf("the program could not start with the workspace hidden (%s): %w", hint, err)
+	case res.ExitCode == confine.ExitCode && strings.HasPrefix(res.Stderr, confine.FailurePrefix):
+		return fmt.Errorf("%s (%s)", strings.TrimSpace(res.Stderr), hint)
 	}
+	return nil
+}
+
+// mounts are the views that replace the workspace directories that exist. A directory that cannot be
+// examined for a reason other than being absent stops the run: the program must not start with it visible.
+func (r *Runner) mounts(j job) ([]confine.Mount, error) {
 	var out []confine.Mount
 	for _, dir := range r.WorkspaceDirs {
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		info, err := os.Stat(dir)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		case err != nil:
+			return nil, fmt.Errorf("the workspace %s cannot be examined, so it cannot be hidden: %w", dir, err)
+		case !info.IsDir():
 			continue
 		}
 		out = append(out, confine.Mount{Path: dir, View: threadView(dir, j.thread)})
 	}
-	return out
+	return out, nil
 }
 
 // threadView is the discussion's folder under dir, or empty when there is no such folder.
@@ -175,8 +199,15 @@ func (r *Runner) self() string {
 	return self
 }
 
+// MaxInputBytes and MaxTotalBytes cap one staged input and all the inputs of one run.
+const (
+	MaxInputBytes = 64 << 20
+	MaxTotalBytes = 256 << 20
+)
+
 // stage copies each input to inputs/<name> in the run directory, which the program reads as a file.
-func stage(dir string, in []inputs.Input) error {
+func stage(ctx context.Context, dir string, in []inputs.Input) error {
+	budget := int64(MaxTotalBytes)
 	for _, i := range in {
 		if !filepath.IsLocal(i.Name) {
 			return fmt.Errorf("input %q is not a plain name", i.Name)
@@ -185,28 +216,58 @@ func stage(dir string, in []inputs.Input) error {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 			return err
 		}
-		if err := copyFile(i.Source, dest); err != nil {
+		n, err := copyFile(ctx, i.Source, dest, min(int64(MaxInputBytes), budget))
+		if err != nil {
 			return fmt.Errorf("input %q: %w", i.Name, err)
 		}
+		budget -= n
 	}
 	return nil
 }
 
-func copyFile(src, dest string) error {
-	from, err := os.Open(src)
+// copyFile copies a regular file, never following a link, and fails past limit bytes or when ctx ends.
+func copyFile(ctx context.Context, src, dest string, limit int64) (int64, error) {
+	from, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer func() { _ = from.Close() }()
-	to, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	info, err := from.Stat()
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if _, err := io.Copy(to, from); err != nil {
-		_ = to.Close()
-		return err
+	if !info.Mode().IsRegular() {
+		return 0, errors.New("not a regular file")
 	}
-	return to.Close()
+	if info.Size() > limit {
+		return 0, fmt.Errorf("is %d bytes; the limit is %d (per input %d, all inputs %d)",
+			info.Size(), limit, MaxInputBytes, MaxTotalBytes)
+	}
+	to, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return 0, err
+	}
+	n, err := io.Copy(to, io.LimitReader(ctxReader{ctx, from}, limit+1))
+	if cerr := to.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil && n > limit {
+		err = fmt.Errorf("grew past the limit of %d bytes", limit)
+	}
+	return n, err
+}
+
+// ctxReader stops a copy when its context ends.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
 }
 
 func (r *Runner) run(ctx context.Context, argv []string, dir string, attr *syscall.SysProcAttr) (Result, error) {
