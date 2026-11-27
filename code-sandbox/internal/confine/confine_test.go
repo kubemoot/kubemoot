@@ -95,3 +95,21 @@ func TestUnlistedWorkspaceMounts(t *testing.T) {
 		t.Fatalf("listed mounts are fine: %v", got)
 	}
 }
+
+// An unprivileged test process cannot mount /proc, which is the refusal freshProc meets on a host
+// that masks it. Run as root the mount would succeed on the test host itself, so the test does not.
+func TestProcThatCannotBeReplacedFailsWhenRequiredAndIsReportedOtherwise(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("as root the /proc mount would succeed on the test host")
+	}
+	if err := freshProc(true, nil); err == nil || !strings.Contains(err.Error(), "replace /proc") {
+		t.Fatalf("required: got %v, want a replace /proc error", err)
+	}
+	var report strings.Builder
+	if err := freshProc(false, &report); err != nil {
+		t.Fatalf("not required: got %v, want the run to go on", err)
+	}
+	if !strings.HasPrefix(report.String(), ProcNotReplaced+": ") {
+		t.Fatalf("report %q, want it to start with %q", report.String(), ProcNotReplaced)
+	}
+}
