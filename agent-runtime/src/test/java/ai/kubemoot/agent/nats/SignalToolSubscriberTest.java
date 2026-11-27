@@ -184,6 +184,27 @@ class SignalToolSubscriberTest {
     }
 
     @Test
+    void anotherRunOnTheSameThreadNeverCountsAsTheAnswer() throws Exception {
+        var conn = mock(Connection.class);
+        var chat = mock(ChatService.class);
+        var sub = subscriber(conn, chat, SignalTestKinds.CONSENT_3);
+        when(chat.directChat(any(), anyBoolean(), any())).thenAnswer(inv -> {
+            var other = new Thread(() -> sub.classifyAndPublishResult(SUBJECT, "t1", result("an earlier run's finding"),
+                    DiscussionSubscriber.SignalTiming.NONE, "static", null));
+            other.start();
+            other.join();
+            return result("7 nodes");
+        });
+
+        sub.recheckAndRespond(SUBJECT, asked("t1", "t1/0/q1"));
+
+        var verdicts = published(conn).stream().filter(m -> "agree".equals(m.path("messageType").asText())).toList();
+        assertEquals(2, verdicts.size());
+        assertTrue(verdicts.get(0).path("metadata").path("answers").isMissingNode(), "the other run answers nothing");
+        assertEquals("t1/0/q1", verdicts.get(1).path("metadata").path("answers").asText());
+    }
+
+    @Test
     void aFailedRecheckIsAFailureThatNamesTheQuestion() throws Exception {
         var conn = mock(Connection.class);
         var chat = mock(ChatService.class);
