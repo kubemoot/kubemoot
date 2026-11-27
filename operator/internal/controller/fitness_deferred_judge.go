@@ -190,7 +190,11 @@ type deferredScoreCache struct {
 	// Unjudged maps a scenario the judge gave up on to the reason. A scenario is
 	// either scored or unjudged, never both.
 	Unjudged map[string]string `json:"unjudged,omitempty"`
-	Complete bool              `json:"complete"`
+	// Answers holds the judge's verdict on each iteration of a scored scenario,
+	// in iteration order: its score, fabrication flag and whether it was gated.
+	// Absent in a checkpoint written before answers were kept.
+	Answers  map[string][]answerRecord `json:"answers,omitempty"`
+	Complete bool                      `json:"complete"`
 }
 
 // loadDeferredCache reads the checkpoint (empty, not-complete when absent).
@@ -218,6 +222,15 @@ func (c *deferredScoreCache) ensureMaps() {
 	if c.Unjudged == nil {
 		c.Unjudged = map[string]string{}
 	}
+	if c.Answers == nil {
+		c.Answers = map[string][]answerRecord{}
+	}
+}
+
+// setAnswers keeps the per-iteration verdicts of a scored scenario.
+func (c *deferredScoreCache) setAnswers(scenario string, recs []answerRecord) {
+	c.ensureMaps()
+	c.Answers[scenario] = recs
 }
 
 // parseDeferredAssertion pulls the KEYWORD and REFERENCE out of a deferred
@@ -311,69 +324,36 @@ func coerceSingleVerdict(obj string, bv *batchVerdict) {
 	bv.Total = 1
 }
 
-// parseScenarioQuality reads the batched verdict out of a crew's synthesis (after
-// stripping any <think> block) and returns the scenario quality 0-100:
-// 100 × Σ(answer scores) / total, with gated runs contributing 0 within total.
-func parseScenarioQuality(synthesis string) (float64, string, error) {
+// parseVerdict reads the batched verdict out of a crew's synthesis (after
+// stripping any <think> block): one score per answer of the document.
+func parseVerdict(synthesis string) (batchVerdict, error) {
 	clean := deferredThinkBlock.ReplaceAllString(synthesis, "")
 	obj := deferredJSONObject.FindString(clean)
 	if obj == "" {
-		return 0, "", fmt.Errorf("no JSON verdict in crew response")
+		return batchVerdict{}, fmt.Errorf("no JSON verdict in crew response")
 	}
 	var bv batchVerdict
 	if err := json.Unmarshal([]byte(obj), &bv); err != nil {
-		return 0, "", fmt.Errorf("parse verdict JSON: %w", err)
+		return batchVerdict{}, fmt.Errorf("parse verdict JSON: %w", err)
 	}
 	if len(bv.Scores) == 0 {
 		// The fitness-coordinator often emits the single-answer shape {"score",...}
-		// instead of the batch {"scores":[...],"total"} for a one-answer scenario.
+		// instead of the batch {"scores":[...],"total"} for a one-answer document.
 		// Fold it into the batch shape so a real verdict is not discarded as a
 		// no-verdict 0. A genuinely empty verdict has no "score" field and falls
 		// through to errJudgeNoVerdict below.
 		coerceSingleVerdict(obj, &bv)
 	}
-	total := bv.Total
-	if total <= 0 {
+	if bv.Total <= 0 && len(bv.Scores) == 0 {
 		// total<=0 with no scores means the judge returned NOTHING to score. This is
 		// NOT a genuine gated-0 (a gated answer is counted in total and reaches the
-		// score loop below contributing 0); it is the judge crew's own discussion
+		// score loop contributing 0); it is the judge crew's own discussion
 		// flaking. Signal errJudgeNoVerdict so the worker can retry in-pass; only
 		// after bounded retries does the worker accept 0 (with an explanatory reason),
 		// which also avoids the old "re-dispatch a genuinely-empty scenario forever".
-		if len(bv.Scores) == 0 {
-			return 0, "", errJudgeNoVerdict
-		}
-		total = float64(len(bv.Scores))
+		return batchVerdict{}, errJudgeNoVerdict
 	}
-	sum, reason := sumVerdictScores(bv)
-	return math.Max(0, math.Min(100, 100*sum/total)), reason, nil
-}
-
-// sumVerdictScores normalizes each per-answer score, applies the critical-flaw
-// consistency cap, and returns their sum plus the most diagnostic reason (the
-// rationale of the lowest-scoring answer, falling back to any non-empty reason).
-func sumVerdictScores(bv batchVerdict) (sum float64, reason string) {
-	// Capture a representative reason: the rationale of the LOWEST-scoring answer,
-	// which is the most diagnostic ("why did this scenario score where it did").
-	// At n=1 it is simply the single answer's reason.
-	lowestSeen := math.MaxFloat64
-	for _, s := range bv.Scores {
-		sc := normalizeAnswerScore(s.Score, s.Reason)
-		sum += sc
-		if sc <= lowestSeen && s.Reason != "" {
-			lowestSeen = sc
-			reason = s.Reason
-		}
-	}
-	if reason == "" { // no reason on the lowest answer; fall back to any non-empty
-		for _, s := range bv.Scores {
-			if s.Reason != "" {
-				reason = s.Reason
-				break
-			}
-		}
-	}
-	return sum, reason
+	return bv, nil
 }
 
 // normalizeAnswerScore clamps one judge score to 0-1 (tolerating a 0-100 emit)
@@ -449,31 +429,40 @@ type judgeComparisonDoc struct {
 
 // buildComparisonDoc assembles the scoring context for one scenario from its
 // iteration transcripts (which the operator already has in the object store),
-// reproducing what the collect_scenario tool returned crew-side. Returns the
-// marshalled doc, the total iterations found, and the count of judgeable
-// (non-gated) answers. A windowTokens above zero is the judge model's context
-// window: the document's evidence is cut to fit it (see marshalFitted).
-func buildComparisonDoc(store objectStore, prefix string, scriptIdx int, keyword string, windowTokens int, log logr.Logger) (doc string, total, answers int, err error) {
+// reproducing what the collect_scenario tool returned crew-side. Every judgeable
+// (non-gated) iteration is an answer in a document; the gated ones are listed
+// apart. A windowTokens above zero is the judge model's context window: answers
+// that do not fit it together are split over several documents (see planBatches).
+func buildComparisonDoc(store objectStore, prefix string, scriptIdx int, keyword string, windowTokens int, log logr.Logger) (judgeWork, error) {
 	scenarioPrefix := fmt.Sprintf("%ss%d-i", strings.TrimRight(prefix, "/")+"/", scriptIdx)
 	keys, lErr := store.ListObjects(FitnessArtifactsBucket, scenarioPrefix)
 	if lErr != nil {
-		return "", 0, 0, fmt.Errorf("list transcripts: %w", lErr)
+		return judgeWork{}, fmt.Errorf("list transcripts: %w", lErr)
 	}
-	sort.Strings(keys) // stable answer order
+	sort.Slice(keys, func(i, j int) bool { return iterationNumber(keys[i]) < iterationNumber(keys[j]) })
 	cd := judgeComparisonDoc{Answers: []judgeAnswer{}}
+	var work judgeWork
+	var items []answerOf
 	for _, key := range keys {
 		td, ok := loadTranscript(store, key)
 		if !ok {
 			continue
 		}
-		addTranscriptToDoc(&cd, td, keyword)
+		iter := iterationNumber(key)
+		if ans, judged := addTranscriptToDoc(&cd, td, keyword); judged {
+			items = append(items, answerOf{iteration: iter, answer: ans})
+		} else {
+			work.Gated = append(work.Gated, iter)
+		}
 	}
+	work.Total = cd.Total
 	budget, _ := judgeDocBudgetChars(windowTokens)
-	out, mErr := marshalFitted(cd, budget, log)
-	if mErr != nil {
-		return "", 0, 0, mErr
+	batches, pErr := planBatches(cd, items, budget, log)
+	if pErr != nil {
+		return judgeWork{}, pErr
 	}
-	return out, cd.Total, len(cd.Answers), nil
+	work.Batches = batches
+	return work, nil
 }
 
 // loadTranscript reads and unmarshals one iteration transcript, skipping
@@ -495,8 +484,8 @@ func loadTranscript(store objectStore, key string) (transcriptDoc, bool) {
 
 // addTranscriptToDoc folds one iteration transcript into the comparison doc:
 // it fills question/reference once, counts the iteration, and either gates the
-// run (consensus failed or empty synthesis) or appends it as a judgeable answer.
-func addTranscriptToDoc(cd *judgeComparisonDoc, td transcriptDoc, keyword string) {
+// run (consensus failed or empty synthesis) or returns it as a judgeable answer.
+func addTranscriptToDoc(cd *judgeComparisonDoc, td transcriptDoc, keyword string) (judgeAnswer, bool) {
 	cd.Total++
 	if cd.Question == "" {
 		cd.Question = td.Question
@@ -509,9 +498,9 @@ func addTranscriptToDoc(cd *judgeComparisonDoc, td transcriptDoc, keyword string
 	// synthesis, earns 0 quality - counted in total, not handed to the judge.
 	if !consensusOKForJudge(td) || strings.TrimSpace(synth) == "" {
 		cd.Gated++
-		return
+		return judgeAnswer{}, false
 	}
-	cd.Answers = append(cd.Answers, judgeAnswer{Synthesis: synth, Evidence: evidenceFromEvents(td.Events)})
+	return judgeAnswer{Synthesis: synth, Evidence: evidenceFromEvents(td.Events)}, true
 }
 
 // referenceForKeyword pulls the quoted reference from the scenario's
@@ -570,36 +559,36 @@ func evidenceFromEvents(events []transcriptEvent) []string {
 // dispatchScenario asks a judge crew to score ONE fitness scenario. The operator
 // hands the judge the full comparison document (question, reference, answers with
 // evidence, gated, total) IN the message - no tool round-trip - and the judge
-// returns the scenario quality 0-100. See [[Lean Judge Direct Context No Tool Round-Trip]].
-func dispatchScenario(ctx context.Context, hc *http.Client, endpoint, comparisonDoc string) (float64, string, error) {
+// returns one score per answer. See [[Lean Judge Direct Context No Tool Round-Trip]].
+func dispatchScenario(ctx context.Context, hc *http.Client, endpoint, comparisonDoc string) (batchVerdict, error) {
 	convID, err := postJudgeDiscussion(ctx, hc, endpoint, comparisonDoc)
 	if err != nil {
-		return 0, "", err
+		return batchVerdict{}, err
 	}
 	streamURL := strings.TrimRight(endpoint, "/") + "/" + convID + "/stream"
 	st, err := streamJudgeSynthesis(ctx, hc, streamURL)
 	if err != nil {
-		return 0, "", err
+		return batchVerdict{}, err
 	}
 	synthesis := st.synthesis
 	if synthesis == "" {
 		if st.contextExceeded {
-			return 0, "", fmt.Errorf("%w: the judge failed with no synthesis", errJudgeInputTooLarge)
+			return batchVerdict{}, fmt.Errorf("%w: the judge failed with no synthesis", errJudgeInputTooLarge)
 		}
 		// The stream ended (done, EOF, or ctx deadline) with no synthesis. This is a
 		// transient failure (the judge discussion didn't conclude in time), NOT
 		// errJudgeNoVerdict (a COMPLETED discussion whose verdict had total<=0). Keep
 		// it a plain error on purpose: it backs off to the next reconcile pass rather
 		// than entering the in-pass retry loop reserved for the empty-verdict sentinel.
-		return 0, "", fmt.Errorf("no synthesis verdict received")
+		return batchVerdict{}, fmt.Errorf("no synthesis verdict received")
 	}
-	quality, reason, pErr := parseScenarioQuality(synthesis)
+	bv, pErr := parseVerdict(synthesis)
 	if pErr != nil && st.contextExceeded {
 		// A response without a verdict, after the judge reported it ran out of
 		// context, is that failure, not a flake worth retrying.
-		return 0, "", fmt.Errorf("%w: %v", errJudgeInputTooLarge, pErr)
+		return batchVerdict{}, fmt.Errorf("%w: %v", errJudgeInputTooLarge, pErr)
 	}
-	return quality, reason, pErr
+	return bv, pErr
 }
 
 // postJudgeDiscussion opens a judge discussion with the comparison document and
@@ -814,24 +803,25 @@ func (p *judgePass) processScenario(ctx context.Context, idx int) scenarioOutcom
 	}
 	// Build the full comparison document operator-side (no collect_scenario
 	// tool round-trip) and hand it to the judge in the dispatch message.
-	comparisonDoc, total, answers, bErr := buildComparisonDoc(p.store, p.prefix, idx, keyword, p.judgeWindow(ctx, keyword), p.log)
+	work, bErr := buildComparisonDoc(p.store, p.prefix, idx, keyword, p.judgeWindow(ctx, keyword), p.log)
 	if bErr != nil {
 		p.log.Info("deferred judge: build comparison doc failed", "scenario", scenario, "err", bErr.Error())
 		p.beginAttempt(scenario)
 		return p.failedAttempt(scenario, bErr)
 	}
-	if total == 0 {
+	if work.Total == 0 {
 		return scenarioHandled // no transcripts for this scenario yet (gap / not run)
 	}
-	if answers == 0 {
+	if work.answers() == 0 {
 		// Every iteration gated (consensus failed / empty synthesis): quality is
 		// 0 by definition; no judge call needed. Recorded with a reason so it is
 		// distinguishable from a flake.
+		p.cache.setAnswers(scenario, work.gatedRecords())
 		p.recordScore(scenario, 0, "all iterations gated (consensus failed or empty synthesis)")
 		p.log.Info(logMsgScenarioScored, "scenario", scenario, "quality", 0.0, "reason", "all-gated")
 		return scenarioHandled
 	}
-	return p.judgeAndRecord(ctx, scenario, keyword, ep, comparisonDoc)
+	return p.judgeAndRecord(ctx, scenario, keyword, ep, work)
 }
 
 // scenarioKeyword probes the first iteration transcript and returns the DEFER
@@ -891,15 +881,16 @@ func (p *judgePass) judgeWindow(ctx context.Context, keyword string) int {
 	return window
 }
 
-// judgeAndRecord dispatches the comparison document to the judge (with bounded
-// no-verdict retries), records the outcome, and reports the loop disposition.
-// A judge that returns an empty verdict on every in-pass retry is scored 0 with a
-// reason (the judge read the document and found nothing to score); every other
-// failure counts against maxJudgeAttempts.
-func (p *judgePass) judgeAndRecord(ctx context.Context, scenario, keyword, ep, comparisonDoc string) scenarioOutcome {
+// judgeAndRecord dispatches the scenario's comparison documents to the judge (each
+// with bounded no-verdict retries), records every answer's score and the scenario
+// mean, and reports the loop disposition. A document the judge returns an empty
+// verdict for on every in-pass retry scores 0 for its answers with a reason (the
+// judge read it and found nothing to score); every other failure counts against
+// maxJudgeAttempts.
+func (p *judgePass) judgeAndRecord(ctx context.Context, scenario, keyword, ep string, work judgeWork) scenarioOutcome {
 	p.beginAttempt(scenario)
-	quality, reason, jErr := p.dispatchWithRetries(ctx, scenario, ep, comparisonDoc)
-	if jErr != nil && ctx.Err() != nil && !errors.Is(jErr, errJudgeInputTooLarge) && !errors.Is(jErr, errJudgeNoVerdict) {
+	recs, jErr := p.judgeBatches(ctx, scenario, ep, work)
+	if jErr != nil && ctx.Err() != nil && !errors.Is(jErr, errJudgeInputTooLarge) {
 		// The pass was cut off (batch budget or shutdown), not the judge failing:
 		// the interrupted dispatch does not count against the scenario.
 		p.cache.Attempts[scenario]--
@@ -911,19 +902,38 @@ func (p *judgePass) judgeAndRecord(ctx context.Context, scenario, keyword, ep, c
 		p.markUnjudged(scenario, unjudgedReasonTooLarge)
 		p.log.Info("deferred judge: scenario unjudged", "scenario", scenario, "reason", unjudgedReasonTooLarge, "err", jErr.Error())
 		return scenarioHandled
-	case errors.Is(jErr, errJudgeNoVerdict):
-		// Exhausted retries - treat as genuinely empty/gated, but record WHY so
-		// it is not a silent zero and the pass converges.
-		p.recordScore(scenario, 0, "judge returned no verdict after retries (treated as gated/empty)")
-		p.log.Info(logMsgScenarioScored, "scenario", scenario, "quality", 0.0, "reason", "no-verdict-after-retries")
-		return scenarioHandled
 	case jErr != nil:
 		p.log.Info("deferred judge: dispatch failed", "scenario", scenario, "keyword", keyword, "err", jErr.Error())
 		return p.failedAttempt(scenario, jErr)
 	}
+	recs = append(recs, work.gatedRecords()...)
+	sortAnswers(recs)
+	quality, reason := answersMean(recs), answersReason(recs)
+	p.cache.setAnswers(scenario, recs)
 	p.recordScore(scenario, quality, reason)
 	logScenarioScored(p.log, scenario, quality, reason)
 	return scenarioHandled
+}
+
+// judgeBatches dispatches each document in turn (serially, as the judge shares the
+// accelerators) and returns a record per judged answer. A document the judge
+// returned no verdict for after the retries scores 0 for its answers, with the
+// reason; any other failure ends the scenario's attempt.
+func (p *judgePass) judgeBatches(ctx context.Context, scenario, ep string, work judgeWork) ([]answerRecord, error) {
+	var recs []answerRecord
+	for i, b := range work.Batches {
+		bv, err := p.dispatchWithRetries(ctx, scenario, ep, b.Doc)
+		switch {
+		case errors.Is(err, errJudgeNoVerdict):
+			p.log.Info(logMsgScenarioScored, "scenario", scenario, "batch", i+1, "quality", 0.0, "reason", "no-verdict-after-retries")
+			recs = append(recs, zeroRecords(b.Iterations, reasonNoVerdict)...)
+		case err != nil:
+			return nil, err
+		default:
+			recs = append(recs, assignAnswerScores(bv, b.Iterations)...)
+		}
+	}
+	return recs, nil
 }
 
 // dispatchWithRetries calls the judge, retrying only on errJudgeNoVerdict.
@@ -936,17 +946,16 @@ func (p *judgePass) judgeAndRecord(ctx context.Context, scenario, keyword, ep, c
 // WITH a reason, so the run still completes and the 0 is distinguishable from
 // a silent flake. Other errors (network, no synthesis, decode) are left
 // unjudged to retry on a later pass, as before.
-func (p *judgePass) dispatchWithRetries(ctx context.Context, scenario, ep, comparisonDoc string) (float64, string, error) {
+func (p *judgePass) dispatchWithRetries(ctx context.Context, scenario, ep, comparisonDoc string) (batchVerdict, error) {
 	const noVerdictRetries = 3
-	var quality float64
-	var reason string
+	var bv batchVerdict
 	var jErr error
 	for attempt := 0; attempt <= noVerdictRetries; attempt++ {
 		// Per-dispatch deadline: a generous safety ceiling for one GPU-bound judge
 		// discussion, NOT flow control (the SSE read settles on 'done' well before
 		// it). Set above observed judge latency so a normal verdict is never cut off.
 		dctx, dcancel := context.WithTimeout(ctx, judgeDispatchTimeout)
-		quality, reason, jErr = dispatchScenario(dctx, p.hc, ep, comparisonDoc)
+		bv, jErr = dispatchScenario(dctx, p.hc, ep, comparisonDoc)
 		dcancel()
 		if !errors.Is(jErr, errJudgeNoVerdict) {
 			break // success, or a different (retry-next-pass) error
@@ -956,7 +965,7 @@ func (p *judgePass) dispatchWithRetries(ctx context.Context, scenario, ep, compa
 			time.Sleep(3 * time.Second)
 		}
 	}
-	return quality, reason, jErr
+	return bv, jErr
 }
 
 // recordScore writes a scenario's quality (and reason, when non-empty) into the
