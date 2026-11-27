@@ -37,8 +37,41 @@ comes to it:
 3. The compute agent's program reads those files and computes over them locally.
 
 The materializer is the only part of the pod that talks to the bus. The sandbox container
-that runs programs holds no bus credentials and talks to nothing itself. Programs see only
-`/kubemoot/workspace`. Data goes in the program's code or in a file there, never through stdin.
+that runs programs holds no bus credentials and talks to nothing itself. Data goes in the
+program's code or in a file, never through stdin.
+
+### Reading a stored result in full
+
+`execute_code` takes an optional `inputs` list of keys of the discussion's stored results, in the short form
+the discussion's list of stored results shows, `{agent}/{nnn}-{tool}`:
+
+```json
+{"language": "python", "code": "...", "inputs": ["k8s-config/001-resources_get"]}
+```
+
+Each key becomes the file `./inputs/{agent}/{nnn}-{tool}` in the program's directory, a copy of the whole stored
+result. A program counts over all of it, so a count over a stored CSV that sits inside a YAML text field
+is the true count and not a count over the rows an agent had pasted into the code. The program parses the
+format itself: the standard library reads CSV, JSON and, line by line, YAML text.
+
+The keys resolve inside the discussion the call belongs to. The agent runtime names that discussion in the
+call's `_meta` (`workspacePrefix`, the same entry the workspace read tools use), and the key never carries it.
+A key of another discussion, a key that does not exist, a pattern, and any key on a call that is not
+part of a discussion are refused before the program runs, with an error that says which.
+
+### What a program can see of the workspace
+
+The workspace volume holds every discussion's results, and a program runs as the same user as the server
+that reads them, so file permissions cannot separate them. Each program is instead started in its own user and
+mount namespace, in which `/kubemoot/workspace` (and the old `/artifacts` mount) is replaced by the calling
+discussion's own folder: `/kubemoot/workspace/{agent}/{nnn}-{tool}` is the file, and no other discussion's
+file exists. A call outside any discussion sees an empty directory. The program holds no capabilities, so it
+cannot undo the mount, and the server's own processes are out of its reach.
+
+This needs user namespaces. The pod's runtime must allow them: a sandboxed runtime such as gVisor does, and a
+default `RuntimeDefault` seccomp profile on a plain runtime does not. Where they are refused, a run fails with an
+error that names the cause. Setting `SANDBOX_CONFINEMENT=off` runs programs with the whole workspace visible;
+use it only for a pod whose workspace holds one discussion's data.
 
 ## How a run is contained
 

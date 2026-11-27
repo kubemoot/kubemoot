@@ -321,10 +321,10 @@ is three plain name parts. The tool resolves each key inside that thread:
 | A key with an empty, `.` or `..` part | Refused, so a key cannot climb out of the thread. |
 
 Without a thread in `_meta` (a call from outside a discussion), keys are used as given. `execute_code`
-runs in a sandbox that knows no thread, so the runtime writes the thread into each
-`/kubemoot/workspace/{agent}/{nnn}-{tool}` path in the code before the call; a path that already names a
-thread is left alone. Short keys are resolved for the files of the thread the call runs in only; code
-that builds a path to another thread's file by hand can still read it from the sandbox's mount.
+receives the thread in `_meta` too. It takes the keys of the results a program reads in `inputs` and
+resolves them inside the thread, and it shows the program only that thread's folder at
+`/kubemoot/workspace`, so a program that builds a path to another thread's file finds nothing
+([Code sandbox](../code-sandbox/#what-a-program-can-see-of-the-workspace)).
 
 ### The catalog: the complete list of files
 
@@ -831,7 +831,8 @@ programs holds no credentials and talks to nothing itself, and the crew's networ
 limits the pod's egress to the message bus. A **materializer sidecar** (the same
 `workspace-access` binary in its default mode) is the only part of the pod that reads
 NATS. It fetches referenced objects from the store and writes them into a shared local volume under `/kubemoot/workspace`. The sandbox
-reads the materialised file and computes over it locally, then publishes its
+reads the materialised file and computes over it locally (a program names the results it reads in full in
+`execute_code`'s `inputs`, and sees only its own discussion's files), then publishes its
 result through the normal discussion signal path.
 
 Each run happens in a fresh temporary directory that is removed afterwards, with
