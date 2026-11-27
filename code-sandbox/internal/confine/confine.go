@@ -13,29 +13,40 @@ package confine
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/kubemoot/kubemoot/code-sandbox/internal/inputs"
 )
 
 // Arg is the first argument of a re-executed sandbox binary that should confine and then run a program.
 const Arg = "--code-sandbox-confine"
 
 const (
-	flagMount   = "--mount"
-	flagPrivate = "--private"
-	flagEnd     = "--"
+	flagMount    = "--mount"
+	flagPrivate  = "--private"
+	flagTempSize = "--tmpsize"
+	flagRequire  = "--require-proc"
+	flagStatus   = "--status-fd"
+	flagEnd      = "--"
+	// noView is the descriptor number of a Mount that shows an empty directory.
+	noView = -1
 	// exitConfine is the exit code of a helper that could not set the view up.
 	exitConfine = 125
 	// FailurePrefix starts the message a helper writes to stderr when it could not set the view up.
 	FailurePrefix = "code-sandbox: the workspace could not be hidden from the program"
 	// ExitCode is the exit code of a helper that could not set the view up.
-	ExitCode     = exitConfine
-	flagTempSize = "--tmpsize"
+	ExitCode = exitConfine
+	// ProcNotReplaced starts the report the helper writes to the status descriptor when /proc is not replaced.
+	ProcNotReplaced = "proc-not-replaced"
 	// capLimit bounds the capability numbers tried when the bounding set is emptied.
 	capLimit = 64
 )
@@ -46,19 +57,42 @@ var sizePattern = regexp.MustCompile(`^[0-9]+[kKmMgG]?$`)
 // ValidSize reports whether s is a size the private temporary directory accepts, like 256m.
 func ValidSize(s string) bool { return sizePattern.MatchString(s) }
 
-// Mount replaces the directory Path with View for the program; an empty View shows an empty directory.
+// Mount replaces the workspace directory Path with its folder Thread, "ns/crew/thread" (empty for none).
+// The helper opens that folder itself, in its own mount namespace, one component at a time without
+// following a link, and mounts the open directory, so a link planted at any moment cannot change what is
+// shown: a folder that is, or sits behind, a link, or is missing, shows an empty directory. (A descriptor
+// the parent opened cannot be mounted: it belongs to the parent's mount namespace.)
 type Mount struct {
-	Path string
-	View string
+	Path   string
+	Thread string
 }
 
-// Command is the argument list that starts argv confined by mounts, run through the binary self.
-// The run directory (the helper's working directory) becomes the only entry of its parent, which is
-// replaced by a private temporary directory, so concurrent programs cannot see each other's files.
-func Command(self string, mounts []Mount, runDir, tempSize string, argv []string) []string {
-	out := []string{self, Arg, flagTempSize, tempSize, flagPrivate, runDir}
-	for _, m := range mounts {
-		out = append(out, flagMount, m.Path, m.View)
+// NoFD is the status descriptor of a run that has none.
+const NoFD = noView
+
+// Spec is everything the helper needs before it runs the program.
+type Spec struct {
+	Mounts []Mount
+	// RunDir is the helper's working directory; it becomes the only entry of its parent, which is
+	// replaced by a private temporary directory, so concurrent programs cannot see each other's files.
+	RunDir string
+	// TempSize is the size of that temporary directory, like 256m.
+	TempSize string
+	// RequireProc makes a /proc that cannot be replaced a failure instead of a report.
+	RequireProc bool
+	// StatusFD is the descriptor the helper reports to, or NoView for none.
+	StatusFD int
+}
+
+// Command is the argument list that starts argv confined by spec, run through the binary self.
+func Command(self string, spec Spec, argv []string) []string {
+	out := []string{self, Arg, flagTempSize, spec.TempSize, flagPrivate, spec.RunDir,
+		flagStatus, strconv.Itoa(spec.StatusFD)}
+	if spec.RequireProc {
+		out = append(out, flagRequire)
+	}
+	for _, m := range spec.Mounts {
+		out = append(out, flagMount, m.Path, m.Thread)
 	}
 	out = append(out, flagEnd)
 	return append(out, argv...)
@@ -89,78 +123,132 @@ func Main(args []string) {
 }
 
 func run(args []string) error {
-	p, err := parse(args)
+	spec, argv, err := parse(args)
 	if err != nil {
 		return err
 	}
-	if err := apply(p); err != nil {
+	status := statusFile(spec.StatusFD)
+	if err := apply(spec, status); err != nil {
 		return err
 	}
+	closeDescriptors(spec)
 	if err := dropCapabilities(); err != nil {
 		return err
 	}
-	path, err := exec.LookPath(p.argv[0])
+	path, err := exec.LookPath(argv[0])
 	if err != nil {
 		return err
 	}
-	return syscall.Exec(path, p.argv, os.Environ())
+	return syscall.Exec(path, argv, os.Environ())
 }
 
-// plan is what Command wrote: the views, the run directory and the size of its private parent, and the program.
-type plan struct {
-	mounts   []Mount
-	runDir   string
-	tempSize string
-	argv     []string
+func statusFile(fd int) *os.File {
+	if fd == noView {
+		return nil
+	}
+	return os.NewFile(uintptr(fd), "status")
+}
+
+// closeDescriptors closes the descriptor the parent passed, so the program inherits none of it.
+func closeDescriptors(spec Spec) {
+	if spec.StatusFD != noView {
+		_ = unix.Close(spec.StatusFD)
+	}
 }
 
 // parse reads what Command wrote, after the Arg itself.
-func parse(args []string) (plan, error) {
-	var p plan
-	if len(args) < 4 || args[0] != flagTempSize || args[2] != flagPrivate {
-		return p, errors.New("no run directory")
+func parse(args []string) (Spec, []string, error) {
+	spec, args, err := parseHead(args)
+	if err != nil {
+		return spec, nil, err
 	}
-	p.tempSize, p.runDir, args = args[1], args[3], args[4:]
-	if !sizePattern.MatchString(p.tempSize) {
-		return p, fmt.Errorf("temporary directory size %q is not a number with an optional k, m or g", p.tempSize)
-	}
-	for len(args) > 0 && args[0] == flagMount {
-		if len(args) < 3 {
-			return p, errors.New("incomplete mount")
-		}
-		p.mounts = append(p.mounts, Mount{Path: args[1], View: args[2]})
-		args = args[3:]
+	spec.Mounts, args, err = parseMounts(args)
+	if err != nil {
+		return spec, nil, err
 	}
 	if len(args) < 2 || args[0] != flagEnd {
-		return p, errors.New("no program to run")
+		return spec, nil, errors.New("no program to run")
 	}
-	p.argv = args[1:]
-	return p, nil
+	return spec, args[1:], nil
 }
 
-func apply(p plan) error {
+// parseHead reads the temporary directory size, run directory, status descriptor and the proc requirement.
+func parseHead(args []string) (Spec, []string, error) {
+	spec := Spec{StatusFD: noView}
+	if len(args) < 6 || args[0] != flagTempSize || args[2] != flagPrivate || args[4] != flagStatus {
+		return spec, nil, errors.New("no run directory")
+	}
+	spec.TempSize, spec.RunDir = args[1], args[3]
+	if !sizePattern.MatchString(spec.TempSize) {
+		return spec, nil, fmt.Errorf("temporary directory size %q is not a number with an optional k, m or g", spec.TempSize)
+	}
+	fd, err := strconv.Atoi(args[5])
+	if err != nil {
+		return spec, nil, fmt.Errorf("status descriptor %q: %w", args[5], err)
+	}
+	spec.StatusFD, args = fd, args[6:]
+	if len(args) > 0 && args[0] == flagRequire {
+		spec.RequireProc, args = true, args[1:]
+	}
+	return spec, args, nil
+}
+
+// parseMounts reads the --mount groups at the start of args and returns them with the rest.
+func parseMounts(args []string) ([]Mount, []string, error) {
+	var mounts []Mount
+	for len(args) > 0 && args[0] == flagMount {
+		if len(args) < 3 {
+			return nil, nil, errors.New("incomplete mount")
+		}
+		mounts = append(mounts, Mount{Path: args[1], Thread: args[2]})
+		args = args[3:]
+	}
+	return mounts, args, nil
+}
+
+func apply(spec Spec, status *os.File) error {
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
 		return fmt.Errorf("make the mounts private: %w", err)
 	}
-	for _, m := range p.mounts {
-		if err := show(m); err != nil {
+	runFD, err := unix.Open(".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("open the run directory: %w", err)
+	}
+	defer func() { _ = unix.Close(runFD) }()
+	for _, m := range spec.Mounts {
+		if err := show(m, runFD); err != nil {
 			return err
 		}
 	}
-	if err := privateTemp(p.runDir, p.tempSize); err != nil {
+	if err := unix.Fchdir(runFD); err != nil {
 		return err
 	}
-	freshProc()
-	return nil
+	if err := privateTemp(spec.RunDir, spec.TempSize); err != nil {
+		return err
+	}
+	var report io.Writer
+	if status != nil {
+		report = status
+	}
+	return freshProc(spec.RequireProc, report)
 }
 
 // freshProc mounts a /proc that lists only the processes of the program's own pid namespace, so the
-// server and other runs are not named there at all. A host that refuses the mount leaves the old /proc,
-// where the kernel's ptrace rules still deny every entry of a process in another user namespace.
-func freshProc() {
-	if err := unix.Mount("proc", "/proc", "proc", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, ""); err != nil {
-		fmt.Fprintf(os.Stderr, "code-sandbox: /proc is not replaced: %v\n", err)
+// server and other runs are not named there at all. When the host refuses the mount the old /proc stays,
+// where the kernel's ptrace rules still deny every entry of a process in another user namespace. That is
+// reported on status (the server logs it), or is a failure when require is set.
+func freshProc(require bool, status io.Writer) error {
+	err := unix.Mount("proc", "/proc", "proc", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, "")
+	switch {
+	case err == nil:
+		return nil
+	case require:
+		return fmt.Errorf("replace /proc: %w", err)
 	}
+	if status != nil {
+		_, _ = fmt.Fprintf(status, "%s: %v\n", ProcNotReplaced, err)
+	}
+	return nil
 }
 
 // privateTemp replaces the run directory's parent with an empty temporary directory that holds only the
@@ -184,17 +272,36 @@ func privateTemp(runDir, size string) error {
 	return os.Chdir(runDir)
 }
 
-func show(m Mount) error {
-	if m.View == "" {
+// show replaces m.Path with the thread's folder, opened here without following a link and entered with
+// fchdir, so no path is resolved a second time, and makes it read-only. The run directory descriptor runFD
+// returns the helper to where it was. Anything but a plain folder shows an empty directory.
+func show(m Mount, runFD int) error {
+	dir, err := openThread(m)
+	if err != nil {
 		if err := unix.Mount("tmpfs", m.Path, "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "size=4k,mode=0555"); err != nil {
 			return fmt.Errorf("hide %s: %w", m.Path, err)
 		}
 		return nil
 	}
-	if err := unix.Mount(m.View, m.Path, "", unix.MS_BIND, ""); err != nil {
-		return fmt.Errorf("show %s at %s: %w", m.View, m.Path, err)
+	defer func() { _ = dir.Close() }()
+	if err := unix.Fchdir(int(dir.Fd())); err != nil {
+		return fmt.Errorf("enter the folder of %s: %w", m.Path, err)
+	}
+	if err := unix.Mount(".", m.Path, "", unix.MS_BIND, ""); err != nil {
+		return fmt.Errorf("show the folder at %s: %w", m.Path, err)
+	}
+	if err := unix.Fchdir(runFD); err != nil {
+		return err
 	}
 	return readOnly(m.Path)
+}
+
+// openThread opens the folder of m, or fails when there is none, it is not plain, or the thread is not a path.
+func openThread(m Mount) (*os.File, error) {
+	if m.Thread == "" || !filepath.IsLocal(m.Thread) {
+		return nil, errors.New("no folder")
+	}
+	return inputs.OpenDir(m.Path, strings.Split(strings.TrimSuffix(m.Thread, "/"), "/"))
 }
 
 // lockedFlags are the mount flags a remount in a user namespace must keep as the mount has them.

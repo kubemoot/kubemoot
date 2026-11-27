@@ -1,6 +1,7 @@
 package confine
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,33 +14,55 @@ const (
 )
 
 func TestCommandAndParseRoundTrip(t *testing.T) {
-	mounts := []Mount{{Path: "/kubemoot/workspace", View: "/kubemoot/workspace/ns/crew/t1"}, {Path: legacy}}
-	cmd := Command("/bin/self", mounts, "/tmp/code-sandbox-1", "64m", []string{python, "main.py"})
+	spec := Spec{
+		Mounts:      []Mount{{Path: "/kubemoot/workspace", Thread: "ns/crew/t1/"}, {Path: legacy}},
+		RunDir:      "/tmp/code-sandbox-1",
+		TempSize:    "64m",
+		RequireProc: true,
+		StatusFD:    3,
+	}
+	cmd := Command("/bin/self", spec, []string{python, "main.py"})
 	if cmd[0] != "/bin/self" || cmd[1] != Arg {
 		t.Fatalf("command starts %v", cmd[:2])
 	}
-	p, err := parse(cmd[2:])
+	got, argv, err := parse(cmd[2:])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.runDir != "/tmp/code-sandbox-1" || p.tempSize != "64m" || !reflect.DeepEqual(p.mounts, mounts) ||
-		!reflect.DeepEqual(p.argv, []string{python, "main.py"}) {
-		t.Fatalf("parsed %+v", p)
+	if !reflect.DeepEqual(got, spec) || !reflect.DeepEqual(argv, []string{python, "main.py"}) {
+		t.Fatalf("parsed %+v %v", got, argv)
 	}
 }
 
 func TestParseRefusesMalformedArguments(t *testing.T) {
+	head := []string{flagTempSize, "1m", flagPrivate, runDir, flagStatus, "-1"}
+	with := func(rest ...string) []string { return append(append([]string{}, head...), rest...) }
 	for name, args := range map[string][]string{
-		"no program":       {flagTempSize, "1m", flagPrivate, runDir, flagEnd},
-		"no separator":     {flagTempSize, "1m", flagPrivate, runDir, python},
-		"incomplete mount": {flagTempSize, "1m", flagPrivate, runDir, flagMount, "/a"},
-		"bad size":         {flagTempSize, "1m,uid=0", flagPrivate, runDir, flagEnd, python},
+		"no program":       with(flagEnd),
+		"no separator":     with(python),
+		"incomplete mount": with(flagMount, "/a"),
+		"bad size":         {flagTempSize, "1m,uid=0", flagPrivate, runDir, flagStatus, "-1", flagEnd, python},
+		"bad status":       {flagTempSize, "1m", flagPrivate, runDir, flagStatus, "x", flagEnd, python},
 		"no run directory": {flagEnd, python},
 		"empty":            {},
 	} {
-		if _, err := parse(args); err == nil {
+		if _, _, err := parse(args); err == nil {
 			t.Errorf("%s: want an error", name)
 		}
+	}
+}
+
+// TestFreshProcReportsOrFailsClosed needs a process that may not mount /proc, so it is skipped for root.
+func TestFreshProcReportsOrFailsClosed(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root could mount /proc")
+	}
+	var report strings.Builder
+	if err := freshProc(false, &report); err != nil || !strings.HasPrefix(report.String(), ProcNotReplaced) {
+		t.Fatalf("a refused mount is reported and the run goes on: err %v report %q", err, report.String())
+	}
+	if err := freshProc(true, nil); err == nil {
+		t.Fatal("a refused mount must fail when /proc is required")
 	}
 }
 

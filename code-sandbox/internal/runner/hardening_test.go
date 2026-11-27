@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -203,9 +204,11 @@ func TestAnotherLiveRunsProcEntriesAreDenied(t *testing.T) {
 
 func TestProgramSeesOnlyItsOwnProcesses(t *testing.T) {
 	r := confined(t, workspace(t))
+	var logged []string
+	r.Logf = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
 	res := execute(t, r, "bash", "ls /proc | grep -c '^[0-9]'; echo $$")
-	if strings.Contains(res.Stderr, "/proc is not replaced") {
-		t.Skip("this host keeps the old /proc; the ptrace rules apply instead")
+	if len(logged) > 0 {
+		skipOrFail(t, "this host keeps the old /proc; the ptrace rules apply instead: %v", logged)
 	}
 	lines := strings.Fields(res.Stdout)
 	if len(lines) != 2 {
@@ -215,6 +218,49 @@ func TestProgramSeesOnlyItsOwnProcesses(t *testing.T) {
 	pid, _ := strconv.Atoi(lines[1])
 	if count == 0 || count > 5 || pid > 5 {
 		t.Fatalf("the program should list a few processes of its own pid namespace: %d listed, shell pid %d", count, pid)
+	}
+}
+
+func TestProcReportReachesTheServerOnce(t *testing.T) {
+	fake := filepath.Join(t.TempDir(), "helper.sh")
+	script := "#!/bin/sh\necho 'proc-not-replaced: boom' >&3\nexit 0\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := newRunner(t)
+	r.Self = fake
+	var logged []string
+	r.Logf = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+	for i := 0; i < 3; i++ {
+		if _, err := r.Execute(context.Background(), "bash", "true"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(logged) != 1 || !strings.Contains(logged[0], "boom") || !strings.Contains(logged[0], "SANDBOX_REQUIRE_PROC") {
+		t.Fatalf("the report should be logged once with its cause: %v", logged)
+	}
+}
+
+func TestFolderSwappedForALinkBeforeTheHelperStartsShowsNoLinkTarget(t *testing.T) {
+	ws := workspace(t)
+	r := confined(t, ws)
+	r.beforeStart = func() {
+		a := filepath.Join(ws, threadA)
+		if err := os.Rename(a, a[:len(a)-1]+".real"); err != nil {
+			t.Error(err)
+			return
+		}
+		if err := os.Symlink(filepath.Join(ws, threadB), a[:len(a)-1]); err != nil {
+			t.Error(err)
+		}
+	}
+	res, err := r.Execute(context.Background(), "bash", "ls -A "+ws+" | wc -l; cat "+ws+"/k8s-config/* 2>&1",
+		WithThread(threadA))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res.Stdout, "other discussion") {
+		t.Fatalf("the link's target was shown to the program:\n%s", res.Stdout)
 	}
 }
 

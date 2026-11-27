@@ -50,20 +50,21 @@ func OpenFile(root string, parts []string) (*os.File, error) {
 	return f, nil
 }
 
-// CheckDir reports whether the parts name a directory under root with no symbolic link in the path.
-func CheckDir(root string, parts []string) error {
+// OpenDir opens the directory the parts name under root, with no symbolic link in the path. The caller
+// closes it.
+func OpenDir(root string, parts []string) (*os.File, error) {
 	dir, err := unix.Open(root, openDirFlags, 0)
 	if err != nil {
-		return linkOrErr(err, root)
+		return nil, linkOrErr(err, root)
 	}
 	for _, part := range parts {
 		fd, err := openPart(dir, part, openDirFlags)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		dir = fd
 	}
-	return unix.Close(dir)
+	return os.NewFile(uintptr(dir), strings.Join(parts, "/")), nil
 }
 
 // openPart opens one component relative to the directory dir and closes dir, whether or not it succeeds.
