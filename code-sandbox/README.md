@@ -40,18 +40,36 @@ The models decide what to compute; the sandbox makes the numbers real.
 
 | tool | input | result |
 |------|-------|--------|
-| `execute_code` | `language` (`python` or `bash`), `code`, optional `filename` | stdout, stderr, exit code, execution time |
+| `execute_code` | `language` (`python` or `bash`), `code`, optional `filename`, optional `inputs` | stdout, stderr, exit code, execution time |
 | `validate_code` | same | whether the syntax is valid, and the errors if not |
 
 The `execute_code` description tells the model that a program cannot fetch data,
-so the model looks to other agents for it.
+so the model looks to other agents for it, and that it can read a stored result of its discussion in full by key.
+
+### Inputs: a stored result by key
+
+`inputs` lists keys of the calling discussion's stored results, `{agent}/{nnn}-{tool}` as the discussion's list of
+stored results shows them. Each becomes the file `./inputs/{agent}/{nnn}-{tool}`, a copy of the whole result, so a
+program counts over every row. The discussion comes from the call's `_meta.workspacePrefix`
+(`{namespace}/{crew}/{thread}/`, set by the agent runtime and relayed by the gateway), never from the key. A key of
+another discussion, an unknown key, a pattern, more than 32 keys, or any key on a call with no discussion is refused
+before the program runs (`internal/inputs`). Its prefix rules mirror workspace-access's `internal/threadkey`.
+
+### What a program sees of the workspace
+
+The workspace volume holds every discussion's results and a program runs as the server's user, so a program is
+started in its own user and mount namespace (`internal/confine`, through a re-executed copy of this binary) where
+`/kubemoot/workspace` and the old `/artifacts` mount show only the calling discussion's folder, or an empty directory
+for a call with no discussion. The program keeps no capabilities, so it cannot undo the mount. This needs user
+namespaces, which gVisor allows and a plain runtime's default seccomp profile does not: a run that cannot start says
+so. A mount that is absent needs no confinement.
 
 ## How a program runs
 
 - In a new temporary directory, which is also its `HOME`, removed afterwards.
 - With no stdin: a read returns end of input at once, so a program that expects
   piped data fails fast instead of waiting. Data goes in the code or in a file
-  under `/kubemoot/workspace`.
+  named in `inputs`, or under `/kubemoot/workspace` (the calling discussion's files).
 - In its own process group. At the time limit the whole group is killed, and
   anything a finished program left running in the background is killed too.
 - With stdout and stderr each capped; the result says when output was cut.
@@ -95,6 +113,8 @@ once.
 | `EXECUTION_TIMEOUT` | `30` | seconds a program may run |
 | `MAX_OUTPUT_BYTES` | `65536` | cap on each of stdout and stderr |
 | `SANDBOX_TMPDIR` | OS default | where run directories are created |
+| `SANDBOX_CONFINEMENT` | on | `off` leaves the whole workspace visible to programs; use it only where the workspace holds one discussion's data |
+| `WORKSPACE_DIR` | `/kubemoot/workspace` | the workspace mount a program is kept out of (`ARTIFACT_DIR` is read too; `/artifacts` is always included) |
 | `MCP_TRANSPORT` | `stdio` | `stdio` or `http`; any other value stops the server at start |
 | `PORT` | `3000` | the listening port, in `http` mode only; a value that is not a number from 1 to 65535 stops the server at start |
 
