@@ -613,6 +613,7 @@
       "type": "string",
       "enum": [
         "busy",
+        "phase",
         "round_limit",
         "round_off",
         "self",
