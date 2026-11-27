@@ -117,3 +117,24 @@ func TestBuildResumeText_Minimal(t *testing.T) {
 		t.Error("empty keywords should not appear")
 	}
 }
+
+// TestHashResumes_EveryDeclaredFieldCounts: changing any declared field of a
+// resume changes the hash, so the indexer re-embeds it.
+func TestHashResumes_EveryDeclaredFieldCounts(t *testing.T) {
+	base := AgentResume{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler,
+		Summary: "s", Keywords: []string{"k"}, Tools: []string{"t"}, Channels: []string{"c"}}
+	want := HashResumes([]AgentResume{base})
+	changes := map[string]func(r *AgentResume){
+		"summary":    func(r *AgentResume) { r.Summary = "s2" },
+		"keywords":   func(r *AgentResume) { r.Keywords = []string{"k2"} },
+		"tool names": func(r *AgentResume) { r.Tools = []string{"t2"} },
+		"channels":   func(r *AgentResume) { r.Channels = []string{"c2"} },
+	}
+	for field, change := range changes {
+		r := base
+		change(&r)
+		if HashResumes([]AgentResume{r}) == want {
+			t.Errorf("changing %s must change the resume hash", field)
+		}
+	}
+}

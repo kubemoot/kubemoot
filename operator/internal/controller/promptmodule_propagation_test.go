@@ -69,6 +69,29 @@ func TestPromptModuleEnqueueScopesToReferencingAgents(t *testing.T) {
 	}
 }
 
+// TestPromptModuleEditDoesNotReachTheCoordinator: resumes carry only declared
+// fields, so editing a module that a crew's agent references enqueues that agent
+// and not the crew's coordinator.
+func TestPromptModuleEditDoesNotReachTheCoordinator(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := kubemootv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add scheme: %v", err)
+	}
+	worker := mkAgentWithPrompts("k8s-config", "worker")
+	worker.Labels = map[string]string{labelCrew: selCrew}
+	coordinator := mkAgentWithPrompts("pilot-coordinator", "coordinator-answer")
+	coordinator.Labels = map[string]string{labelCrew: selCrew}
+	coordinator.Spec.DiscussRole = roleCoordinator
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(worker, coordinator).Build()
+
+	got := mapPromptModuleToAgentRequests(context.Background(), cli, &kubemootv1alpha1.PromptModule{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker", Namespace: testCrewNamespace},
+	})
+	if len(got) != 1 || got[0].Name != "k8s-config" {
+		t.Errorf("want only k8s-config enqueued, got %v", got)
+	}
+}
+
 // TestComputeDeploymentHashIncludesPromptHash: a change to the prompt-hash pod
 // template annotation changes the deployment hash, so a PromptModule-only edit
 // triggers a Deployment update and rolls the pod.
