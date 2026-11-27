@@ -670,9 +670,16 @@ func (r *ModelServerReconciler) updateStatusReason(ctx context.Context, server *
 	return r.writeStatus(ctx, server, ready, phase, reason, message, nil)
 }
 
+// writeStatus records the phase, the Ready condition (with its reason) and the
+// message, then publishes the server's state. A server that is not ready drops
+// what only a live server can state (see dropLiveCapacity), whichever exit
+// of the reconcile got here, so no reader takes old capacity as live.
 func (r *ModelServerReconciler) writeStatus(ctx context.Context, server *aiv1alpha1.ModelServer, ready bool, phase, reason, message string, waiting error) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	setCalibratedCondition(server, waiting)
+	if !ready {
+		dropLiveCapacity(server)
+	}
 
 	server.Status.Ready = ready
 	server.Status.Phase = phase
@@ -996,7 +1003,8 @@ func (r *ModelServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// from the Service's ports, so a change to the Service reconciles it.
 		Watches(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(r.servicesToServers)).
 		// Its endpoints say whether anything runs behind the Service.
-		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(r.endpointSlicesToServers)).
+		Watches(&discoveryv1.EndpointSlice{}, handler.EnqueueRequestsFromMapFunc(r.endpointSlicesToServers),
+			builder.WithPredicates(endpointReadinessChanged())).
 		// A server's catalog merges the Model objects in its namespace that name it,
 		// so adding, changing or removing one reconciles the server at once.
 		Watches(&aiv1alpha1.Model{}, handler.EnqueueRequestsFromMapFunc(modelToServer),

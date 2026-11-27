@@ -32,6 +32,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
@@ -221,20 +223,195 @@ func TestServerReturningToReadyRestoresCapacity(t *testing.T) {
 }
 
 func TestHasReadyEndpoint(t *testing.T) {
-	notReady := false
+	notReady, ready := false, true
+	ep := func(r *bool) discoveryv1.Endpoint {
+		return discoveryv1.Endpoint{Conditions: discoveryv1.EndpointConditions{Ready: r}}
+	}
+	slice := func(eps ...discoveryv1.Endpoint) discoveryv1.EndpointSlice {
+		return discoveryv1.EndpointSlice{Endpoints: eps}
+	}
 	cases := map[string]struct {
 		slices []discoveryv1.EndpointSlice
 		want   bool
 	}{
-		"none":               {nil, false},
-		"empty slice":        {[]discoveryv1.EndpointSlice{{}}, false},
-		"not ready":          {[]discoveryv1.EndpointSlice{{Endpoints: []discoveryv1.Endpoint{{Conditions: discoveryv1.EndpointConditions{Ready: &notReady}}}}}, false},
-		"readiness unstated": {[]discoveryv1.EndpointSlice{{Endpoints: []discoveryv1.Endpoint{{}}}}, true},
+		"none":                     {nil, false},
+		"empty slice":              {[]discoveryv1.EndpointSlice{slice()}, false},
+		"not ready":                {[]discoveryv1.EndpointSlice{slice(ep(&notReady))}, false},
+		"ready":                    {[]discoveryv1.EndpointSlice{slice(ep(&ready))}, true},
+		"readiness unstated":       {[]discoveryv1.EndpointSlice{slice(ep(nil))}, true},
+		"one not ready, one ready": {[]discoveryv1.EndpointSlice{slice(ep(&notReady)), slice(ep(&ready))}, true},
 	}
 	for name, tc := range cases {
 		if got := hasReadyEndpoint(tc.slices); got != tc.want {
 			t.Errorf("%s: got %v want %v", name, got, tc.want)
 		}
+	}
+}
+
+func nodeWith(name string, unschedulable bool, conds ...corev1.NodeCondition) *corev1.Node {
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec:       corev1.NodeSpec{Unschedulable: unschedulable},
+		Status:     corev1.NodeStatus{Conditions: conds},
+	}
+}
+
+func podOn(name, node string, phase corev1.PodPhase, labels map[string]string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS1, Labels: labels},
+		Spec:       corev1.PodSpec{NodeName: node},
+		Status:     corev1.PodStatus{Phase: phase},
+	}
+}
+
+func TestNodeIsReady(t *testing.T) {
+	cases := map[string]struct {
+		node *corev1.Node
+		want bool
+	}{
+		"ready":              {nodeWith("n", false, corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionTrue}), true},
+		"not ready":          {nodeWith("n", false, corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse}), false},
+		"unknown":            {nodeWith("n", false, corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionUnknown}), false},
+		"no Ready condition": {nodeWith("n", false, corev1.NodeCondition{Type: corev1.NodeDiskPressure, Status: corev1.ConditionFalse}), false},
+		"no conditions":      {nodeWith("n", false), false},
+	}
+	for name, tc := range cases {
+		if got := nodeIsReady(tc.node); got != tc.want {
+			t.Errorf("%s: got %v want %v", name, got, tc.want)
+		}
+	}
+}
+
+func TestDescribePodNamesAnUnreadyOrCordonedNode(t *testing.T) {
+	readyNode := corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionTrue}
+	scheme := refScheme(t)
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		nodeWith("cordoned", true, readyNode),
+		nodeWith("fine", false, readyNode),
+		nodeWith("down", false, corev1.NodeCondition{Type: corev1.NodeReady, Status: corev1.ConditionFalse}),
+	).Build()
+	r := &ModelServerReconciler{Client: cli, Scheme: scheme}
+	cases := map[string]struct {
+		node string
+		want string
+	}{
+		"unscheduled":   {"", "pod p is Pending"},
+		"node missing":  {"gone", "pod p is Pending"},
+		"healthy node":  {"fine", "pod p is Pending"},
+		"cordoned node": {"cordoned", "pod p is Pending on node cordoned, which is cordoned"},
+		"unready node":  {"down", "pod p is Pending on node down, which is not ready"},
+	}
+	for name, tc := range cases {
+		if got := r.describePod(context.Background(), podOn("p", tc.node, corev1.PodPending, nil)); got != tc.want {
+			t.Errorf("%s: got %q want %q", name, got, tc.want)
+		}
+	}
+}
+
+func TestBackingDetail(t *testing.T) {
+	labels := map[string]string{"app": unavailableApp}
+	svc := func(selector map[string]string) *corev1.Service {
+		s := refService1(8000)
+		s.Spec.Selector = selector
+		return s
+	}
+	cases := map[string]struct {
+		svc  *corev1.Service
+		pods []client.Object
+		want string
+	}{
+		"no selector":     {svc(nil), nil, ""},
+		"no matching pod": {svc(labels), []client.Object{podOn("other", "", corev1.PodRunning, map[string]string{"app": "x"})}, "; no pod matches its selector"},
+		"several, sorted": {svc(labels), []client.Object{
+			podOn("b", "", corev1.PodRunning, labels), podOn("a", "", corev1.PodPending, labels),
+		}, "; pod a is Pending; pod b is Running"},
+	}
+	scheme := refScheme(t)
+	for name, tc := range cases {
+		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.pods...).Build()
+		r := &ModelServerReconciler{Client: cli, Scheme: scheme}
+		if got := r.backingDetail(context.Background(), tc.svc); got != tc.want {
+			t.Errorf("%s: got %q want %q", name, got, tc.want)
+		}
+	}
+}
+
+func TestNoReadyEndpointsIsFalseWhenTheServiceOrSlicesCannotBeRead(t *testing.T) {
+	scheme := refScheme(t)
+	ctx := context.Background()
+
+	missing := &ModelServerReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), Scheme: scheme}
+	if msg, none := missing.noReadyEndpoints(ctx, refServer()); none {
+		t.Errorf("an unreadable Service is not a Service without endpoints: %q", msg)
+	}
+
+	listErr := fake.NewClientBuilder().WithScheme(scheme).WithObjects(refService1(8000)).
+		WithInterceptorFuncs(interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*discoveryv1.EndpointSliceList); ok {
+				return fmt.Errorf("list refused")
+			}
+			return c.List(ctx, list, opts...)
+		}}).Build()
+	r := &ModelServerReconciler{Client: listErr, Scheme: scheme}
+	if msg, none := r.noReadyEndpoints(ctx, refServer()); none {
+		t.Errorf("slices that cannot be listed are not missing endpoints: %q", msg)
+	}
+
+	servers := &ModelServerReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), Scheme: scheme}
+	srv := refServer()
+	srv.Spec.ServiceRef = nil
+	if _, none := servers.noReadyEndpoints(ctx, srv); none {
+		t.Error("a server without serviceRef has no Service to check")
+	}
+}
+
+func TestServerStillPendingOrMissingItsServiceDropsLiveCapacity(t *testing.T) {
+	seeded := func() *aiv1alpha1.ModelServer {
+		p := refServer()
+		p.Status.Capacity = &aiv1alpha1.DiscoveredCapacity{
+			AgentCount: 2, LoadedModels: []aiv1alpha1.LoadedModel{{Name: vllmModel14}},
+		}
+		return p
+	}
+	cases := map[string]struct {
+		objs  []client.Object
+		phase string
+	}{
+		"pending, no port reports a model": {[]client.Object{refService1(8000), refSlice(true)}, statePending},
+		"service missing":                  {nil, phaseFailed},
+	}
+	for name, tc := range cases {
+		got := reconcileOnce(t, seeded(), tc.objs...)
+		if got.Status.Phase != tc.phase {
+			t.Fatalf("%s: phase %q, want %q", name, got.Status.Phase, tc.phase)
+		}
+		if c := got.Status.Capacity; c != nil && (len(c.LoadedModels) != 0 || c.AgentCount != 0) {
+			t.Errorf("%s: live capacity kept: %+v", name, c)
+		}
+		if state := buildServerState(got); state.Ready || len(state.LoadedModels) != 0 {
+			t.Errorf("%s: published state = ready %v loaded %v", name, state.Ready, state.LoadedModels)
+		}
+	}
+}
+
+func TestEndpointReadinessChangedPassesOnlyReadinessChanges(t *testing.T) {
+	ready, notReady := true, false
+	slice := func(r *bool, addr string) *discoveryv1.EndpointSlice {
+		s := refSlice(true)
+		s.Endpoints = []discoveryv1.Endpoint{{Addresses: []string{addr}, Conditions: discoveryv1.EndpointConditions{Ready: r}}}
+		return s
+	}
+	p := endpointReadinessChanged()
+	if !p.Update(event.UpdateEvent{ObjectOld: slice(&ready, "10.0.0.1"), ObjectNew: slice(&notReady, "10.0.0.1")}) {
+		t.Error("a readiness change must pass")
+	}
+	if p.Update(event.UpdateEvent{ObjectOld: slice(&ready, "10.0.0.1"), ObjectNew: slice(&ready, "10.0.0.2")}) {
+		t.Error("an address change is not a readiness change")
+	}
+	unlabeled := refSlice(true)
+	unlabeled.Labels = nil
+	if p.Create(event.CreateEvent{Object: unlabeled}) || !p.Create(event.CreateEvent{Object: refSlice(true)}) {
+		t.Error("only slices of a Service pass")
 	}
 }
 

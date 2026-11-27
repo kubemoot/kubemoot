@@ -19,31 +19,25 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	aiv1alpha1 "github.com/kubemoot/kubemoot/operator/api/v1alpha1"
 )
 
-// The reasons a vLLM server that is not ready gives for it.
-const (
-	// phaseUnavailable is a server whose Service has no ready endpoint: nothing
-	// runs behind it, so there is nothing to probe. It is a state, not a fault.
-	phaseUnavailable = "Unavailable"
-	// reasonNoReadyEndpoints is the Ready condition's reason for phaseUnavailable.
-	reasonNoReadyEndpoints = "NoReadyEndpoints"
-	// reasonProbeFailed is the Ready condition's reason for a server whose
-	// endpoints are ready but whose probe fails.
-	reasonProbeFailed = "ProbeFailed"
-)
-
 // hasReadyEndpoint reports whether any slice lists an endpoint that is ready. An
 // endpoint that does not state readiness counts as ready, as Kubernetes defines it.
+// A terminating endpoint reports not ready, so a pod that is shutting down does not
+// keep the server available.
 func hasReadyEndpoint(slices []discoveryv1.EndpointSlice) bool {
 	for i := range slices {
 		for _, ep := range slices[i].Endpoints {
@@ -154,7 +148,34 @@ func (r *ModelServerReconciler) endpointSlicesToServers(ctx context.Context, obj
 	if name == "" {
 		return nil
 	}
-	svc := &corev1.Service{}
-	svc.Name, svc.Namespace = name, obj.GetNamespace()
-	return r.servicesToServers(ctx, svc)
+	return r.serversForService(ctx, types.NamespacedName{Namespace: obj.GetNamespace(), Name: name})
+}
+
+// endpointReadinessChanged passes an EndpointSlice of a Service, and on update only
+// when what an endpoint says about its readiness changed (ready, serving or
+// terminating), not when its addresses or metadata did.
+func endpointReadinessChanged() predicate.Predicate {
+	ofService := func(o client.Object) bool { return o.GetLabels()[discoveryv1.LabelServiceName] != "" }
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return ofService(e.Object) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return ofService(e.Object) },
+		GenericFunc: func(e event.GenericEvent) bool { return ofService(e.Object) },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSlice, ok1 := e.ObjectOld.(*discoveryv1.EndpointSlice)
+			newSlice, ok2 := e.ObjectNew.(*discoveryv1.EndpointSlice)
+			if !ok1 || !ok2 || !ofService(newSlice) {
+				return false
+			}
+			return !reflect.DeepEqual(endpointConditions(oldSlice), endpointConditions(newSlice))
+		},
+	}
+}
+
+// endpointConditions lists the readiness conditions of a slice's endpoints in order.
+func endpointConditions(slice *discoveryv1.EndpointSlice) []discoveryv1.EndpointConditions {
+	out := make([]discoveryv1.EndpointConditions, len(slice.Endpoints))
+	for i := range slice.Endpoints {
+		out[i] = slice.Endpoints[i].Conditions
+	}
+	return out
 }

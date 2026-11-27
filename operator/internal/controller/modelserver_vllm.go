@@ -46,7 +46,6 @@ func (r *ModelServerReconciler) reconcileVLLM(ctx context.Context, server *aiv1a
 	}
 
 	if message, none := r.noReadyEndpoints(ctx, server); none {
-		dropLiveCapacity(server)
 		log.Info("No ready endpoint behind the Service", "server", server.Name)
 		return r.updateStatusReason(ctx, server, false, phaseUnavailable, reasonNoReadyEndpoints, message)
 	}
@@ -62,7 +61,6 @@ func (r *ModelServerReconciler) reconcileVLLM(ctx context.Context, server *aiv1a
 	snap, err := r.probeSnapshot(ctx, server, httpClient)
 	if err != nil {
 		log.Error(err, "No vLLM server answered", "server", server.Name)
-		dropLiveCapacity(server)
 		return r.updateStatusReason(ctx, server, false, phaseFailed, reasonProbeFailed, fmt.Sprintf("No vLLM server answered: %v", err))
 	}
 
