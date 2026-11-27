@@ -63,15 +63,27 @@ part of a discussion are refused before the program runs, with an error that say
 
 The workspace volume holds every discussion's results, and a program runs as the same user as the server
 that reads them, so file permissions cannot separate them. Each program is instead started in its own user and
-mount namespace, in which `/kubemoot/workspace` (and the old `/artifacts` mount) is replaced by the calling
-discussion's own folder: `/kubemoot/workspace/{agent}/{nnn}-{tool}` is the file, and no other discussion's
-file exists. A call outside any discussion sees an empty directory. The program holds no capabilities, so it
-cannot undo the mount, and the server's own processes are out of its reach.
+mount namespace:
 
-This needs user namespaces. The pod's runtime must allow them: a sandboxed runtime such as gVisor does, and a
-default `RuntimeDefault` seccomp profile on a plain runtime does not. Where they are refused, a run fails with an
-error that names the cause. Setting `SANDBOX_CONFINEMENT=off` runs programs with the whole workspace visible;
-use it only for a pod whose workspace holds one discussion's data.
+- `/kubemoot/workspace` (and the old `/artifacts` mount) is replaced by the calling discussion's own folder,
+  mounted read-only, so a program cannot plant a link or change a stored result. A call outside any discussion
+  sees an empty directory.
+- The temporary directory that holds the run is replaced by a private one that holds only this run's directory,
+  so programs of concurrent calls cannot read each other's inputs or code.
+- The program holds no capabilities, so it cannot undo any mount, and the server's own processes (their
+  environment, file descriptors and working directory) are out of its reach.
+- The server copies an input only from a regular file with no symbolic link in its path, never follows a
+  link, and caps one input at 64 MiB and all inputs of a call at 256 MiB.
+
+**This needs user namespaces and mounts.** A sandboxed runtime such as gVisor allows both (the combination
+of a user namespace, a bind mount, a read-only remount and a private temporary directory is exercised on the
+homelab's gVisor). A plain runtime with the default `RuntimeDefault` seccomp profile blocks user namespaces: there
+every `execute_code` call fails, with an error that names the cause, until you set `SANDBOX_CONFINEMENT=off`.
+With confinement off a program can read every discussion's files in the volume and every other run's files, so
+there is no isolation between discussions: use it only for a pod whose workspace holds one discussion's data.
+
+The server refuses to start when a volume named `workspace` or `artifacts` is mounted at a path it does not
+hide. Name that path in `SANDBOX_WORKSPACE_DIRS` (comma separated) or set `WORKSPACE_DIR`.
 
 ## How a run is contained
 
