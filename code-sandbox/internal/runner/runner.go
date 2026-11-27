@@ -9,12 +9,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"syscall"
 	"time"
+
+	"github.com/kubemoot/kubemoot/code-sandbox/internal/confine"
+	"github.com/kubemoot/kubemoot/code-sandbox/internal/inputs"
 )
 
 // Language says how to run and how to syntax-check a source file.
@@ -61,20 +65,47 @@ type Runner struct {
 	MaxOutput int
 	// TempDir is where each run's directory is created; empty means the OS default.
 	TempDir string
+	// WorkspaceDirs are the workspace volume's mount paths. A directory that exists is hidden from
+	// the program: it sees the calling discussion's own folder there, or an empty one.
+	WorkspaceDirs []string
+	// Unconfined leaves the workspace visible to the program. It is for a pod without the
+	// namespaces confinement needs; the program then reads every discussion's files.
+	Unconfined bool
+	// Self is the sandbox binary that confines the program; empty means this executable.
+	Self string
 }
 
+// Option adjusts one run.
+type Option func(*job)
+
+type job struct {
+	inputs []inputs.Input
+	thread string
+}
+
+// WithInputs stages stored results as files under inputs/ in the program's directory.
+func WithInputs(in []inputs.Input) Option { return func(j *job) { j.inputs = in } }
+
+// WithThread names the discussion the program runs for, as "{namespace}/{crew}/{thread}/". Its folder
+// of the workspace is what the program sees in place of the whole workspace.
+func WithThread(prefix string) Option { return func(j *job) { j.thread = prefix } }
+
 // Execute runs code in the given language.
-func (r *Runner) Execute(ctx context.Context, language, code string) (Result, error) {
-	return r.withSource(ctx, language, code, func(l Language) []string { return l.Run })
+func (r *Runner) Execute(ctx context.Context, language, code string, opts ...Option) (Result, error) {
+	var j job
+	for _, o := range opts {
+		o(&j)
+	}
+	return r.withSource(ctx, language, code, func(l Language) []string { return l.Run }, j)
 }
 
 // Validate syntax-checks code in the given language without running it.
 func (r *Runner) Validate(ctx context.Context, language, code string) (Result, error) {
-	return r.withSource(ctx, language, code, func(l Language) []string { return l.Check })
+	return r.withSource(ctx, language, code, func(l Language) []string { return l.Check }, job{})
 }
 
 func (r *Runner) withSource(
-	ctx context.Context, language, code string, argv func(Language) []string,
+	ctx context.Context, language, code string, argv func(Language) []string, j job,
 ) (Result, error) {
 	lang, ok := Languages[language]
 	if !ok {
@@ -89,10 +120,96 @@ func (r *Runner) withSource(
 	if err := os.WriteFile(file, []byte(code), 0o600); err != nil {
 		return Result{}, err
 	}
-	return r.run(ctx, append(append([]string{}, argv(lang)...), file), dir)
+	if err := stage(dir, j.inputs); err != nil {
+		return Result{}, err
+	}
+	cmdline := append(append([]string{}, argv(lang)...), file)
+	attr := &syscall.SysProcAttr{Setpgid: true}
+	if mounts := r.mounts(j); len(mounts) > 0 {
+		cmdline = confine.Command(r.self(), mounts, cmdline)
+		attr = confine.Attr()
+	}
+	res, err := r.run(ctx, cmdline, dir, attr)
+	if err != nil && attr.Cloneflags != 0 {
+		err = fmt.Errorf("the program could not start with the workspace hidden (this needs user namespaces: "+
+			"run the sandbox under a sandboxed runtime such as gVisor, or set SANDBOX_CONFINEMENT=off): %w", err)
+	}
+	return res, err
 }
 
-func (r *Runner) run(ctx context.Context, argv []string, dir string) (Result, error) {
+// mounts are the views that replace the workspace directories that exist; none when confinement is off.
+func (r *Runner) mounts(j job) []confine.Mount {
+	if r.Unconfined {
+		return nil
+	}
+	var out []confine.Mount
+	for _, dir := range r.WorkspaceDirs {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			continue
+		}
+		out = append(out, confine.Mount{Path: dir, View: threadView(dir, j.thread)})
+	}
+	return out
+}
+
+// threadView is the discussion's folder under dir, or empty when there is no such folder.
+func threadView(dir, thread string) string {
+	if thread == "" || !filepath.IsLocal(thread) {
+		return ""
+	}
+	view := filepath.Join(dir, thread)
+	if info, err := os.Stat(view); err != nil || !info.IsDir() {
+		return ""
+	}
+	return view
+}
+
+func (r *Runner) self() string {
+	if r.Self != "" {
+		return r.Self
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return os.Args[0]
+	}
+	return self
+}
+
+// stage copies each input to inputs/<name> in the run directory, which the program reads as a file.
+func stage(dir string, in []inputs.Input) error {
+	for _, i := range in {
+		if !filepath.IsLocal(i.Name) {
+			return fmt.Errorf("input %q is not a plain name", i.Name)
+		}
+		dest := filepath.Join(dir, "inputs", i.Name)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+			return err
+		}
+		if err := copyFile(i.Source, dest); err != nil {
+			return fmt.Errorf("input %q: %w", i.Name, err)
+		}
+	}
+	return nil
+}
+
+func copyFile(src, dest string) error {
+	from, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = from.Close() }()
+	to, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(to, from); err != nil {
+		_ = to.Close()
+		return err
+	}
+	return to.Close()
+}
+
+func (r *Runner) run(ctx context.Context, argv []string, dir string, attr *syscall.SysProcAttr) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
 
@@ -104,7 +221,7 @@ func (r *Runner) run(ctx context.Context, argv []string, dir string) (Result, er
 	cmd.Stdin = nil // os/exec connects the null device: a read sees end of input
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = attr
 	cmd.Cancel = func() error { return killGroup(cmd) }
 	// A background child that keeps stdout open gets this long before the pipes close.
 	cmd.WaitDelay = 250 * time.Millisecond
