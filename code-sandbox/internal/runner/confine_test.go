@@ -43,9 +43,19 @@ func confined(t *testing.T, ws string) *Runner {
 	r.Timeout = 20 * time.Second
 	probe, err := r.Execute(context.Background(), "bash", "true", WithThread(threadA))
 	if err != nil || probe.ExitCode != 0 {
-		t.Skipf("this host does not allow the user namespaces confinement needs: %v %+v", err, probe)
+		skipOrFail(t, "this host does not allow the user namespaces confinement needs: %v %+v", err, probe)
 	}
 	return r
+}
+
+// skipOrFail skips a confinement test on a host without user namespaces, and fails it where CI or
+// REQUIRE_CONFINEMENT says the host must have them, so a missing capability cannot pass silently.
+func skipOrFail(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("CI") != "" || os.Getenv("REQUIRE_CONFINEMENT") != "" {
+		t.Fatalf(format, args...)
+	}
+	t.Skipf(format, args...)
 }
 
 func TestProgramSeesOnlyItsOwnDiscussionInTheWorkspace(t *testing.T) {
@@ -76,12 +86,20 @@ func TestProgramWithoutADiscussionSeesAnEmptyWorkspace(t *testing.T) {
 func TestProgramCannotGetTheWorkspaceBackOrReachTheServer(t *testing.T) {
 	ws := workspace(t)
 	r := confined(t, ws)
+	t.Setenv("SANDBOX_TEST_SECRET", "server-environment-secret")
+	pid := itoa(os.Getpid())
 	code := "umount " + ws + " 2>&1; mount --bind / /mnt 2>&1; ls " + ws + "/ns 2>&1; " +
-		"cat /proc/" + itoa(os.Getpid()) + "/root" + ws + "/" + threadB + "k8s-config/001-resources_get 2>&1; " +
+		"cat /proc/" + pid + "/root" + ws + "/" + threadB + "k8s-config/001-resources_get 2>&1; " +
+		"cat /proc/" + pid + "/environ 2>&1; ls /proc/" + pid + "/fd 2>&1; ls /proc/" + pid + "/cwd/ 2>&1; " +
 		"grep -c '^CapEff:\\s*0*$' /proc/self/status"
 	res := execute(t, r, "bash", code)
-	if strings.Contains(res.Stdout, "other discussion") {
-		t.Fatalf("another discussion's file was readable:\n%s", res.Stdout)
+	for _, leak := range []string{"other discussion", "server-environment-secret"} {
+		if strings.Contains(res.Stdout, leak) {
+			t.Fatalf("the server's %q was readable:\n%s", leak, res.Stdout)
+		}
+	}
+	if strings.Count(res.Stdout, "Permission denied")+strings.Count(res.Stdout, "No such file") < 4 {
+		t.Fatalf("the server's /proc entries should be out of reach:\n%s", res.Stdout)
 	}
 	if !strings.HasSuffix(strings.TrimSpace(res.Stdout), "1") {
 		t.Fatalf("the program still holds capabilities:\n%s", res.Stdout)

@@ -154,7 +154,7 @@ func TestProgramCannotReadOtherDiscussionsFilesByPath(t *testing.T) {
 		"print(os.path.exists('" + ws + "/" + threadB + hostKey + "'))\n"
 	res := callInThread(t, s, threadA, codeArgs("python", code))
 	if res.IsError && strings.Contains(allText(res), "user namespaces") {
-		t.Skip("this host does not allow user namespaces")
+		skipOrFail(t, "this host does not allow user namespaces")
 	}
 	if got := allText(res); !strings.Contains(got, "['k8s-config']") || !strings.Contains(got, "False") {
 		t.Fatalf("the program should see only its own discussion:\n%s", got)
@@ -181,4 +181,13 @@ func TestExecuteSchemaOffersInputsAndKeepsTheLanguageEnum(t *testing.T) {
 			t.Errorf("%s: inputs offered = %v", tool.Name, has)
 		}
 	}
+}
+
+// skipOrFail skips on a host without user namespaces, and fails where CI or REQUIRE_CONFINEMENT says it must have them.
+func skipOrFail(t *testing.T, msg string) {
+	t.Helper()
+	if os.Getenv("CI") != "" || os.Getenv("REQUIRE_CONFINEMENT") != "" {
+		t.Fatal(msg)
+	}
+	t.Skip(msg)
 }

@@ -7,10 +7,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -53,6 +55,12 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if !r.Unconfined {
+		if extra := confine.UnlistedWorkspaceMountsOfHost(r.WorkspaceDirs); len(extra) > 0 {
+			fatal(fmt.Errorf("a workspace volume is mounted at %v, which a program would see; "+
+				"name it in WORKSPACE_DIR or SANDBOX_WORKSPACE_DIRS (or set SANDBOX_CONFINEMENT=off)", extra))
+		}
+	}
 	log.Printf("code-sandbox up: languages=%v timeout=%s maxOutput=%d transport=%s port=%d workspace=%v confined=%t",
 		runner.Names(), r.Timeout, r.MaxOutput, transport, port, r.WorkspaceDirs, !r.Unconfined)
 	srv := &server.Server{Runner: r, Inputs: inputs.Resolver{Roots: r.WorkspaceDirs}}
@@ -69,8 +77,19 @@ const (
 )
 
 // workspaceDirs are the paths the workspace volume may be mounted at: the one workspace-access
-// stages into (WORKSPACE_DIR, or its old name ARTIFACT_DIR) and the old /artifacts.
+// stages into (WORKSPACE_DIR, or its old name ARTIFACT_DIR), the old /artifacts, and any named in
+// SANDBOX_WORKSPACE_DIRS (comma separated).
 func workspaceDirs() []string {
+	dirs := baseWorkspaceDirs()
+	for _, extra := range strings.Split(os.Getenv("SANDBOX_WORKSPACE_DIRS"), ",") {
+		if extra = strings.TrimSpace(extra); extra != "" {
+			dirs = append(dirs, extra)
+		}
+	}
+	return dirs
+}
+
+func baseWorkspaceDirs() []string {
 	dir := os.Getenv("WORKSPACE_DIR")
 	if dir == "" {
 		dir = os.Getenv("ARTIFACT_DIR")

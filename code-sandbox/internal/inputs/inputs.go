@@ -11,6 +11,7 @@
 package inputs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,12 +86,41 @@ func (r Resolver) one(prefix, key string) (Input, error) {
 		return Input{}, err
 	}
 	for _, root := range r.Roots {
-		path := filepath.Join(root, prefix, name)
-		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+		path, err := plainFile(root, strings.Split(prefix+name, "/"))
+		switch {
+		case err == nil:
 			return Input{Name: name, Source: path}, nil
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return Input{}, fmt.Errorf("inputs: %q is refused: %w", key, err)
 		}
 	}
 	return Input{}, fmt.Errorf("inputs: no stored result %q in this discussion; keys look like %s", key, example)
+}
+
+// ErrLink is the refusal of a path that has a symbolic link in it.
+var ErrLink = errors.New("a symbolic link is in its path")
+
+// plainFile is the path of the regular file the parts name under root, when no part of the path is a
+// symbolic link and the last is a regular file. A link could point at another discussion's file.
+func plainFile(root string, parts []string) (string, error) {
+	path := root
+	for i, part := range parts {
+		path = filepath.Join(path, part)
+		info, err := os.Lstat(path)
+		switch {
+		case err != nil:
+			return "", err
+		case info.Mode()&os.ModeSymlink != 0:
+			return "", ErrLink
+		case i < len(parts)-1 && !info.IsDir():
+			return "", fmt.Errorf("%s is not a directory: %w", part, os.ErrNotExist)
+		case i == len(parts)-1 && !info.Mode().IsRegular():
+			return "", fmt.Errorf("it is not a regular file: %w", os.ErrNotExist)
+		}
+	}
+	return path, nil
 }
 
 // shortKey is the {agent}/{nnn}-{tool} form of a key, refusing a key of another thread.
