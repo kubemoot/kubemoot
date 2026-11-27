@@ -221,17 +221,20 @@ A `question` from agent A to agent X, in EVALUATING or REVIEW, is relayed rather
 | Message | Sent by | Wakes | Carries |
 |---------|---------|-------|---------|
 | `question` | A | nobody | `metadata.signalTo` (X), `signalStatement` (the question), `signalReason` |
-| `question_asked` | coordinator | X (`innerCircle: [X]`) | `questionId`, `askedBy` (A), `answeredBy` (X), `signalStatement`; content `@X, A asks: ...` |
+| `question_asked` | coordinator | X (`innerCircle: [X]`) | `questionId`, `askedBy` (A), `answeredBy` (X), `signalStatement`; content `@X, A asks:` and the question between `[quoted from the agent]` and `[end of quote]` |
 | X's verdict | X | nobody | its new finding and verdict, with `metadata.answers` set to the `questionId` |
-| `question_answered` | coordinator | A (`innerCircle: [A]`) | `questionId`, `askedBy`, `answeredBy`; content is X's revised finding |
+| `question_answered` | coordinator | A (`innerCircle: [A]`) | `questionId`, `askedBy`, `answeredBy`; content is X's revised finding, quoted the same way |
 | A's verdict | A | nobody | A's verdict after checking again |
 
 X re-runs its assessment with its tools, without triage. Its verdict replaces its earlier one in
 what the coordinator weighs, and the synthesis is told its earlier finding was replaced; the bus
 keeps both messages, so the transcript shows the exchange. The coordinator log records
 `question_asked` and `question_answered` events. A question the coordinator does not relay (no
-round left, `recheck.maxRounds: 0`, an agent not in the crew, the asker itself, or an agent
-already in a question) is recorded as A's `concern`, and so is a question X fails to answer.
+round left, `recheck.maxRounds: 0`, an agent not in the crew, the asker itself, an agent
+already in a question, or a thread that is not in EVALUATING or REVIEW) is recorded as A's
+`concern`, and so is a question X fails to answer. If A fails while X rechecks, the question is
+dropped, and X's later answer counts as an ordinary late signal; so does an answer to a question
+that already timed out.
 
 Timeouts exist only as safety nets. The normal path is driven by signal state: each
 phase has a roster (the selected Toolers in EVALUATING, the woken Analysts in REVIEW, the contributors in RATIFY),
@@ -354,8 +357,8 @@ Every message is an event:
 | `evaluation_started` | the evaluation clock resets after `advisory_ready` | `roster` (who EVALUATING waits for) |
 | `review_started` | `review_ready` is sent | `roster` (the analysts woken), `pending` (each with its deadline) |
 | `signal_applied` | a signal changes the thread: `triaging`, `evaluating`, `waiting`, `waking`, `ready`, `agree`, `concern`, `block`, `stand_aside` | `agent`, `signal`, `messageId`, `deadlineAt`, for a stand-aside for want of an accelerator `capacityReason`, and `revises: true` when the signal answers a clarifying question and replaces the agent's earlier verdict |
-| `question_asked` | an agent asks another to recheck | `questionId`, `asker`, `target`, `relayed`; when relayed `deadlineAt` (the target's), when not `refusal` (`round_off`, `round_limit`, `unknown_agent`, `self` or `busy`) and the question is the asker's concern |
-| `question_answered` | the agent asked answers | `questionId`, `asker`, `target`, `signal` (its answer), and `deadlineAt` (the asker's) unless the answer is a `failure`, which leaves the question as the asker's concern |
+| `question_asked` | an agent asks another to recheck | `questionId`, `asker`, `target`, `relayed`; when relayed `deadlineAt` (the target's), when not `refusal` (`round_off`, `round_limit`, `unknown_agent`, `self`, `busy` or `phase`) and `reason`, and the question is the asker's concern |
+| `question_answered` | the agent asked answers | `questionId`, `asker`, `target`, `signal` (its answer), and `deadlineAt` (the asker's) unless the answer is a `failure`, which leaves the question as the asker's concern, with `reason` |
 | `failure_recorded` | an agent reports `failure`, or its deadline passes and the coordinator records one | `agent`, `cause` (`reported` or `evaluation_timeout`), `synthesized`, `failedSources` |
 | `settled` | a phase ends | `phase`, `basis` (`roster_signalled`, `fast_path`, `quiet` or `no_pending`), `counts` |
 | `synthesis_started` | the synthesis call begins | the signal counts |
