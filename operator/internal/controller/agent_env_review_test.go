@@ -166,6 +166,6 @@ func TestHashResumes_NoDomainsAddNothingToTheHash(t *testing.T) {
 	}
 	const golden = "1e7b2a391bf124a7f07b12eb0de41585c1d0bcea340a2894c2edcd32e3dc6b8c" // the hash of these resumes with no domains declared; domains add to it only when declared
 	if got := HashResumes(resumes); got != golden {
-		t.Fatalf("a crew that declares no domains must keep its resume hash: want %s, got %s", golden, got)
+		t.Fatalf("declaring no domains must add nothing to the resume hash: want %s, got %s", golden, got)
 	}
 }
