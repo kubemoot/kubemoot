@@ -94,7 +94,7 @@ func TestExecuteCodeDescriptionSaysItCannotFetch(t *testing.T) {
 	}
 	description, found := "", false
 	for _, tool := range list.Tools {
-		if tool.Name == "execute_code" {
+		if tool.Name == toolExecute {
 			description, found = tool.Description, true
 			break
 		}
@@ -102,7 +102,7 @@ func TestExecuteCodeDescriptionSaysItCannotFetch(t *testing.T) {
 	if !found {
 		t.Fatal("execute_code is not listed")
 	}
-	for _, want := range []string{"files other agents stored", "/kubemoot/workspace", "cannot fetch data",
+	for _, want := range []string{"read a stored result of this discussion in full", "inputs", "./inputs/", "all of that file", "refused", "cannot fetch data",
 		"no network", "no cluster API", "no kubectl", "no credentials", "stdin",
 		"coreutils", "date", "time zone database"} {
 		if !strings.Contains(description, want) {
@@ -137,7 +137,7 @@ func TestExecuteReadingStdinFinishes(t *testing.T) {
 
 func TestExecuteFailureShowsStderrAndExitCode(t *testing.T) {
 	s := newServer(t)
-	res, out, err := s.execute(context.Background(), nil, CodeIn{Language: "bash", Code: "echo broken >&2; exit 2"})
+	res, out, err := s.execute(context.Background(), nil, ExecuteIn{CodeIn: CodeIn{Language: "bash", Code: "echo broken >&2; exit 2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestExecuteFailureShowsStderrAndExitCode(t *testing.T) {
 func TestExecuteTimeoutIsReported(t *testing.T) {
 	s := newServer(t)
 	s.Runner.Timeout = 300 * time.Millisecond
-	res, out, err := s.execute(context.Background(), nil, CodeIn{Language: "bash", Code: "sleep 30"})
+	res, out, err := s.execute(context.Background(), nil, ExecuteIn{CodeIn: CodeIn{Language: "bash", Code: "sleep 30"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestExecuteTimeoutIsReported(t *testing.T) {
 func TestExecuteTruncationIsReported(t *testing.T) {
 	s := newServer(t)
 	s.Runner.MaxOutput = 10
-	res, _, err := s.execute(context.Background(), nil, CodeIn{Language: "python", Code: "print('y' * 100)"})
+	res, _, err := s.execute(context.Background(), nil, ExecuteIn{CodeIn: CodeIn{Language: "python", Code: "print('y' * 100)"}})
 	if err != nil {
 		t.Fatal(err)
 	}

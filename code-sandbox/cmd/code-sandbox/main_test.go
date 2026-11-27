@@ -11,3 +11,19 @@ func TestEnvInt(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceDirsFollowTheEnvironment(t *testing.T) {
+	t.Setenv("WORKSPACE_DIR", "")
+	t.Setenv("ARTIFACT_DIR", "")
+	if got := workspaceDirs(); len(got) != 2 || got[0] != "/kubemoot/workspace" || got[1] != "/artifacts" {
+		t.Errorf("default = %v", got)
+	}
+	t.Setenv("ARTIFACT_DIR", "/old")
+	if got := workspaceDirs(); got[0] != "/old" {
+		t.Errorf("the old variable name = %v", got)
+	}
+	t.Setenv("WORKSPACE_DIR", "/artifacts")
+	if got := workspaceDirs(); len(got) != 1 || got[0] != "/artifacts" {
+		t.Errorf("legacy path named once = %v", got)
+	}
+}

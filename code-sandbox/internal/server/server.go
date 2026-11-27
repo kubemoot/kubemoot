@@ -11,12 +11,18 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/kubemoot/kubemoot/code-sandbox/internal/inputs"
 	"github.com/kubemoot/kubemoot/code-sandbox/internal/runner"
 )
+
+// toolExecute is the name of the tool that runs a program.
+const toolExecute = "execute_code"
 
 // Server holds the runner the tools use.
 type Server struct {
 	Runner *runner.Runner
+	// Inputs finds the stored results a program names in execute_code's inputs.
+	Inputs inputs.Resolver
 }
 
 // CodeIn is the input of both tools.
@@ -24,6 +30,12 @@ type CodeIn struct {
 	Language string `json:"language" jsonschema:"the language of the code"`
 	Code     string `json:"code" jsonschema:"the source code"`
 	Filename string `json:"filename,omitempty" jsonschema:"an optional name for the program, shown in the result"`
+}
+
+// ExecuteIn is the input of execute_code: the program and the stored results it reads.
+type ExecuteIn struct {
+	CodeIn
+	Inputs []string `json:"inputs,omitempty" jsonschema:"keys of this discussion's stored results the program reads in full, like k8s-config/001-resources_get; each is the file ./inputs/<key>"` //nolint:lll // one struct tag
 }
 
 // RunOut is the structured result of execute_code.
@@ -41,14 +53,18 @@ type CheckOut struct {
 }
 
 // executeCodeDescription is what a model reads about execute_code. It says where
-// the data comes from (the code itself, or files other agents stored that are
-// staged under /kubemoot/workspace) and what the program cannot reach, so a model does not
-// expect the sandbox to fetch data.
+// the data comes from (the code itself, or the stored results of this discussion that the
+// program reads in full by key) and what the program cannot reach, so a model does not
+// expect the sandbox to fetch data and does not count over a few rows it pasted.
 const executeCodeDescription = "Run a short program and return its stdout, stderr, and exit code. " +
 	"Python 3 with the standard library only, or bash with coreutils, " +
 	"including date and the time zone database for time-zone conversion and date arithmetic. " +
-	"It computes over data you put in the code or over the files other agents stored in this discussion, " +
-	"which are staged under /kubemoot/workspace. " +
+	"A program can read a stored result of this discussion in full: name its key in inputs, " +
+	"for example inputs: [\"k8s-config/001-resources_get\"], and the program opens the file " +
+	"./inputs/k8s-config/001-resources_get. Count, filter and total over all of that file, " +
+	"not over rows you copied from a slice; a result in a format the file has (CSV text inside YAML, JSON) " +
+	"is parsed by the program itself. Only this discussion's results can be named; a key of another " +
+	"discussion or one that does not exist is refused. " +
 	"It cannot fetch data: no network, no cluster API, no kubectl, and no credentials. " +
 	"Nothing arrives on stdin."
 
@@ -59,7 +75,11 @@ func (s *Server) MCP() (*mcp.Server, error) {
 		return nil, err
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "code-sandbox", Version: "v1"}, nil)
-	mcp.AddTool(srv, &mcp.Tool{Name: "execute_code", InputSchema: schema,
+	execSchema, err := executeSchema(schema)
+	if err != nil {
+		return nil, err
+	}
+	mcp.AddTool(srv, &mcp.Tool{Name: toolExecute, InputSchema: execSchema,
 		Description: executeCodeDescription}, s.execute)
 	mcp.AddTool(srv, &mcp.Tool{Name: "validate_code", InputSchema: schema,
 		Description: "Check a program's syntax without running it."}, s.validate)
@@ -80,8 +100,29 @@ func inputSchema() (*jsonschema.Schema, error) {
 	return schema, nil
 }
 
-func (s *Server) execute(ctx context.Context, _ *mcp.CallToolRequest, in CodeIn) (*mcp.CallToolResult, RunOut, error) {
-	res, err := s.Runner.Execute(ctx, in.Language, in.Code)
+// executeSchema is the ExecuteIn schema with the language limited to the supported ones.
+func executeSchema(base *jsonschema.Schema) (*jsonschema.Schema, error) {
+	schema, err := jsonschema.For[ExecuteIn](nil)
+	if err != nil {
+		return nil, err
+	}
+	schema.Properties["language"].Enum = base.Properties["language"].Enum
+	return schema, nil
+}
+
+func (s *Server) execute(
+	ctx context.Context, req *mcp.CallToolRequest, in ExecuteIn,
+) (*mcp.CallToolResult, RunOut, error) {
+	var meta map[string]any
+	if req != nil && req.Params != nil {
+		meta = req.Params.GetMeta()
+	}
+	prefix := inputs.PrefixFromMeta(meta)
+	staged, err := s.Inputs.Resolve(prefix, in.Inputs)
+	if err != nil {
+		return nil, RunOut{}, err
+	}
+	res, err := s.Runner.Execute(ctx, in.Language, in.Code, runner.WithInputs(staged), runner.WithThread(prefix))
 	if err != nil {
 		return nil, RunOut{}, err
 	}
