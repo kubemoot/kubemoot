@@ -54,6 +54,11 @@ public class DiscussionSubscriber {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     private static final String NOTHING_TO_ADD = "NOTHING_TO_ADD";
+    // A reply that opens (after any reasoning block) with "CONCERN:" or "CONCERN -" states a concern;
+    // group 1 is everything after the prefix.
+    private static final java.util.regex.Pattern CONCERN_REPLY = java.util.regex.Pattern.compile(
+            "^\\s*(?:<think>.*?</think>\\s*)*\\**concern\\s*(?::|-(?=\\s))\\**\\s*(.+)$",
+            java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL);
     /** Signal metadata: the stored tool calls the agent read, as keys and key patterns. */
     private static final String SIGNAL_AGREE = "agree";
     private static final String SIGNAL_CONCERN = "concern";
@@ -1401,6 +1406,14 @@ public class DiscussionSubscriber {
             return;
         }
 
+        var concern = statedConcern(content);
+        if (concern != null) {
+            log.info("Agent {} raised a concern for thread {}", properties.agentName(), threadId);
+            publishSignal(subject, threadId, SIGNAL_CONCERN, contribution(concern, result.files()), timing, gpuLabel,
+                    ModelAttribution.withEarlierCall(findingMetadata(result), triageUse));
+            return;
+        }
+
         // Legacy: older tool-loop exhaustion produced a stand_aside with this
         // sentinel string. The new path throws ToolCallFailure (caught above
         // in runMullingPhase) so this branch is only hit if older callers
@@ -1414,6 +1427,23 @@ public class DiscussionSubscriber {
 
         publishSignal(subject, threadId, SIGNAL_AGREE, contribution(content, result.files()), timing, gpuLabel,
                 ModelAttribution.withEarlierCall(findingMetadata(result), triageUse));
+    }
+
+    /**
+     * The text of a reply that opens with the CONCERN prefix (the claim and its evidence), or null when
+     * the reply does not open with it. A reply that only mentions the word later stays an agree.
+     */
+    // Visible for testing
+    static String statedConcern(String content) {
+        if (content == null) {
+            return null;
+        }
+        var m = CONCERN_REPLY.matcher(content);
+        if (!m.matches()) {
+            return null;
+        }
+        var text = m.group(1).strip();
+        return text.isEmpty() ? null : text;
     }
 
     /**

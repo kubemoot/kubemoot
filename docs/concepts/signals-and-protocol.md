@@ -19,6 +19,23 @@ is no central controller issuing commands.
 | `block` | A strong objection that should stop the answer as it stands. |
 | `failure` | The agent tried and could not complete - surfaced as a first-class signal, not hidden behind silence. |
 
+## How an agent writes its signal
+
+The runtime reads the first line of an agent's reply to choose the signal:
+
+| Reply starts with | Signal published |
+|-------------------|------------------|
+| `NOTHING_TO_ADD` | `stand_aside` |
+| `TOOL_GAP: <the missing tool>` | `concern`, whose content is the tool need |
+| `CONCERN: <the claim, why it is wrong or unverified, and your source>` | `concern`, whose content is that text and the rest of the reply |
+| anything else | `agree` |
+
+The `CONCERN:` prefix is case-insensitive, may follow a reasoning block and blank space, and
+may also be written `CONCERN -`. A reply that only mentions the word later in its text stays an
+`agree`. The `concern` carries the same model and accelerator attribution and the same file
+descriptions as an `agree`. A concern raised while the crew reviews is weighed in the review summary
+the coordinator reads, and the discussion does not settle early while a concern stands.
+
 Treating **failure as signal** is deliberate. An agent that fails a tool call or
 cannot reach a source says so, so the coordinator can route around it, rather than
 standing aside silently and letting the crew mistake "no answer" for "no objection."

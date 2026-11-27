@@ -183,6 +183,48 @@ class DiscussionSubscriberHelpersTest {
     }
 
     @Test
+    void aConcernPrefixIsPublishedAsAConcernWithItsEvidence() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+        var result = new ChatService.ChatResult("c", "concern: k8s-config listed 3 retired hosts\nSource: node list",
+                "m", "t1", 1, 1, "s", "", null, null, "[CALL key=k tool=t]");
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        var msg = published(conn, 1).get(0);
+        assertEquals("concern", msg.path("messageType").asText());
+        assertTrue(msg.path("content").asText().startsWith("k8s-config listed 3 retired hosts\nSource: node list"));
+        assertTrue(msg.path("content").asText().contains("[CALL key=k"), "file descriptions ride along");
+    }
+
+    @Test
+    void aConcernAfterAThinkBlockAndWhitespaceIsAConcern() {
+        assertEquals("the claim is wrong", DiscussionSubscriber.statedConcern(
+                "  \n<think>maybe CONCERN</think>\n\n  **CONCERN:** the claim is wrong"));
+        assertEquals("a claim", DiscussionSubscriber.statedConcern("CONCERN - a claim"));
+    }
+
+    @Test
+    void theWordConcernElsewhereIsNotAConcern() {
+        assertNull(DiscussionSubscriber.statedConcern("I agree. My only concern: none."));
+        assertNull(DiscussionSubscriber.statedConcern("Concerns about cost were checked."));
+        assertNull(DiscussionSubscriber.statedConcern("CONCERN:"));
+        assertNull(DiscussionSubscriber.statedConcern("CONCERN-free result"));
+        assertNull(DiscussionSubscriber.statedConcern(null));
+    }
+
+    @Test
+    void aMidTextConcernReplyStaysAnAgree() throws Exception {
+        var conn = mock(Connection.class);
+        var sub = createSubscriberWithConnection(conn);
+        var result = new ChatService.ChatResult("c", "All nodes are healthy. No concern here.", "m", "t1", 1, 1, "s", "");
+
+        sub.classifyAndPublishResult(SUBJECT_T1, "t1", result, DiscussionSubscriber.SignalTiming.NONE, "static");
+
+        assertEquals("agree", published(conn, 1).get(0).path("messageType").asText());
+    }
+
+    @Test
     void aStandAsideDropsTheFileDescriptions() throws Exception {
         var conn = mock(Connection.class);
         var sub = createSubscriberWithConnection(conn);
