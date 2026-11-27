@@ -46,9 +46,9 @@ class NatsKVSourceLoaderTest {
         assertTrue(text.contains("Keywords: kubernetes, pods"), "should contain keywords");
         assertTrue(text.contains("Tools: kubectl_get, kubectl_describe"), "should contain tools");
         assertTrue(text.contains("Channels: infrastructure"), "should contain channels");
-        assertTrue(text.contains("System prompt:"), "should contain the system prompt label");
-        assertTrue(text.contains("WHEN asked about pods THEN list them with status"),
-                "should embed the agent's full system prompt for richer ranking");
+        assertFalse(text.contains("System prompt:"), "the system prompt is not embedded");
+        assertFalse(text.contains("WHEN asked about pods THEN list them with status"),
+                "a resume that still carries prompt text must not embed it");
     }
 
     @Test
@@ -65,7 +65,7 @@ class NatsKVSourceLoaderTest {
         assertFalse(text.contains("Description:"), "empty description should not appear");
         assertFalse(text.contains("Keywords:"), "empty keywords should not appear");
         assertFalse(text.contains("Tools:"), "empty tools should not appear");
-        assertFalse(text.contains("System prompt:"), "absent prompt should not appear");
+        assertFalse(text.contains("System prompt:"), "no prompt section");
     }
 
     @Test

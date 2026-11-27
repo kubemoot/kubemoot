@@ -117,13 +117,10 @@ question. The rest see the broadcast go by and take no action.
 
 ### How the subcommittee is chosen
 
-Selection is driven by each agent's **resume** - its description, keywords, tools,
-role, and discussion channels, plus the text of the agent's **own prompt modules**: the
-`PromptModule`s that no other agent in the crew references. Modules several agents share
-(the discussion protocol, the response style) say the same thing in every resume, so they
-stay out of it; they would only make the resumes look alike. A change to a `PromptModule`
-re-reconciles the coordinator of the crews whose agents use it, so the resumes follow the
-module text. At crew-reconcile time the operator compiles a resume
+Selection is driven by each agent's **resume** - its description, triage summary,
+keywords, tools, role, and discussion channels. The prompt text is not part of it: a long
+prompt buries the short statement of what the agent answers and pulls the vector ranking
+toward the prompt's vocabulary. At crew-reconcile time the operator compiles a resume
 for every agent, writes the set to a NATS KV bucket keyed by namespace and crew, and
 provisions a per-crew `RAGSource` that embeds each resume into its own vector
 collection, itself keyed by namespace and crew so the same crew name in two

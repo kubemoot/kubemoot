@@ -191,7 +191,9 @@ public class NatsKVSourceLoader implements SourceLoader {
     /**
      * Build a human-readable text representation of an agent resume,
      * matching the format from the operator's BuildResumeText() in
-     * kubemoot/operator/internal/controller/resume_hash.go.
+     * kubemoot/operator/internal/controller/resume_hash.go. Only the declared
+     * fields are embedded: a long system prompt would bury the short statement of
+     * what the agent answers and pull the ranking toward the prompt's vocabulary.
      */
     String buildResumeText(Map<String, Object> resume) {
         StringJoiner joiner = new StringJoiner("\n");
@@ -203,12 +205,6 @@ public class NatsKVSourceLoader implements SourceLoader {
         addList(joiner, "Keywords: ", resume.get("keywords"));
         addList(joiner, "Tools: ", resume.get("tools"));
         addList(joiner, "Channels: ", resume.get("channels"));
-
-        // The agent's full system prompt - the richest statement of what it does -
-        // folded in LAST so it adds semantic signal for top-K ranking without
-        // displacing the structured fields above. Embed-only: the resume query
-        // returns agent names, so this never reaches a triage LLM prompt.
-        addText(joiner, "System prompt:\n", (String) resume.get("prompt"));
 
         return joiner.toString();
     }

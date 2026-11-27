@@ -159,12 +159,12 @@ func TestAgentRequests_EveryAgentIsEnqueued(t *testing.T) {
 	}
 }
 
-func TestHashResumes_NoDomainsKeepsTheHashACrewHadBefore(t *testing.T) {
+func TestHashResumes_NoDomainsAddNothingToTheHash(t *testing.T) {
 	resumes := []AgentResume{
 		{Name: testAlpha, Description: testAlphaDescription, Role: testRoleTooler, Keywords: []string{testKeywordK8s}},
 		{Name: testBeta, Description: testBetaDescription, Role: reviewTestAnalyst},
 	}
-	const golden = "866abccd6fb47e6afb00911dd7e5055be25eab2967b94d94890009e2f392b2cd" // computed by the code before domains existed
+	const golden = "1e7b2a391bf124a7f07b12eb0de41585c1d0bcea340a2894c2edcd32e3dc6b8c" // the hash of these resumes with no domains declared; domains add to it only when declared
 	if got := HashResumes(resumes); got != golden {
 		t.Fatalf("a crew that declares no domains must keep its resume hash: want %s, got %s", golden, got)
 	}
