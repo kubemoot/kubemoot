@@ -148,6 +148,7 @@ func TestInputsOutsideADiscussionAreRefused(t *testing.T) {
 
 func TestProgramCannotReadOtherDiscussionsFilesByPath(t *testing.T) {
 	s, _ := withWorkspace(t)
+	s.Runner.Unconfined = false // confinement is what this test checks; it skips where the host lacks it
 	ws := s.Runner.WorkspaceDirs[0]
 	code := "import os\n" +
 		"print(sorted(os.listdir('" + ws + "')))\n" +
