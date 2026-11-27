@@ -18,10 +18,50 @@ is no central controller issuing commands.
 | `stand_aside` | No relevant contribution; abstain without blocking. With `metadata.reason` set to `accelerator-busy`, `model-too-large`, or `prompt-too-large`, the agent was willing but could not get an accelerator (see below). |
 | `block` | A strong objection that should stop the answer as it stands. |
 | `failure` | The agent tried and could not complete - surfaced as a first-class signal, not hidden behind silence. |
+| `question` | A clarifying question to the agent that made a finding, named in `metadata.signalTo`. Not terminal: the asker signals again once it is answered (see [Clarifying questions](../consensus-model/#clarifying-questions)). |
 
-## How an agent writes its signal
+The kinds an agent can choose from come from its crew's archetype
+([`signals`](../../reference/mootarchetype/#signals)), not from the runtime and not from a
+prompt. The `consent-3` archetype declares `agree`, `concern`, `question`, `stand_aside`,
+`tool_gap`, `no_data` and `block`.
 
-The runtime reads the first line of an agent's reply to choose the signal:
+## How an agent records its verdict
+
+Every agent in a discussion is offered one built-in tool, `signal`, next to its MCP tools. The
+agent records its verdict by calling it. Its reply text stays its finding: the call says what
+the agent concludes, the reply says what it found.
+
+The tool's parameters are generated from the archetype's declared kinds:
+
+| Parameter | Required | What it holds |
+|-----------|----------|---------------|
+| `kind` | yes | One of the archetype's names. The tool's description lists each name with its meaning. |
+| `to` | for an addressed kind | The agent the signal is said to, by name. Offered only when the archetype declares an addressed kind (`question` in `consent-3`). |
+| `statement` | yes | The claim, concern or question, in a sentence or two. |
+| `reason` | no | Why, from the agent's results. |
+| `evidence` | no | A stored-result key, or a short quote from a result. |
+
+A call with a kind the archetype does not declare, or an addressed kind without `to`, is
+answered with what to fix and records nothing, so the model can call again. When an agent
+calls the tool more than once in a turn, its last valid call is its verdict. The call is not a
+tool call of the agent's work: it is not stored as a result and is not part of a Tooler's
+posted output.
+
+The runtime publishes each kind it knows by a small table (see the
+[MootArchetype reference](../../reference/mootarchetype/#signals)): `agree`, `concern`,
+`stand_aside` and `block` as themselves, `question` as `question`, `tool_gap` as a `concern`
+whose content is the missing tool, and `no_data` as a `failure` with `failureType:
+gather_failed`, the same as a failed gather. A `concern`, `block` or `question` posts the
+statement, reason and evidence first and the finding after them. A kind outside the table is
+published as a `signal` message. Every verdict carries `metadata.signalKind` (the declared name),
+and when given `signalTo`, `signalStatement`, `signalReason` and `signalEvidence`.
+
+### Reading the verdict from the reply (deprecated)
+
+When the archetype declares no signals, or the model does not call the tool, the runtime reads
+the first line of the agent's reply to choose the signal, as it did before the tool existed.
+This path is kept so crews keep working while their prompts move to the tool; it is
+**deprecated** and will be removed once crews record their verdict with the tool.
 
 | Reply starts with | Signal published |
 |-------------------|------------------|
@@ -29,6 +69,9 @@ The runtime reads the first line of an agent's reply to choose the signal:
 | `TOOL_GAP: <the missing tool>` | `concern`, whose content is the tool need |
 | `CONCERN: <the claim, why it is wrong or unverified, and your source>` | `concern`, whose content is that text and the rest of the reply |
 | anything else | `agree` |
+
+A Tooler whose final answer is exactly `NO_DATA` (or `NO_DATA: reason`) publishes a `failure`
+with `failureType: gather_failed`.
 
 The `CONCERN:` prefix is case-insensitive, may follow a reasoning block and blank space, and
 may also be written `CONCERN -`. A reply that only mentions the word later in its text stays an
@@ -156,7 +199,8 @@ In plain terms, the flow is:
 1. **ADVISORY** - the coordinator generates the framing advisory and selects the
    Tooler subcommittee; Toolers acknowledge with `triaging`.
 2. **EVALUATING** - selected Toolers call their domain MCP tools and publish findings,
-   each carrying a signal.
+   each carrying a signal. An agent that doubts a finding may ask the agent that made it to
+   recheck (see [The question round](#the-question-round)).
 3. **REVIEW** - Analysts (if the crew has them) reason over the Toolers' gathered data
    and contribute interpretive findings before synthesis. The coordinator wakes the
    Analysts the archetype's `review` setting names, by declared domain
@@ -169,6 +213,25 @@ In plain terms, the flow is:
    rounds are used up, releasing the answer with any standing objections attached (see
    [Ratification](../consensus-model/#ratification)).
 6. **CLOSED** - the answer has been delivered and the thread is clean.
+
+### The question round
+
+A `question` from agent A to agent X, in EVALUATING or REVIEW, is relayed rather than settled:
+
+| Message | Sent by | Wakes | Carries |
+|---------|---------|-------|---------|
+| `question` | A | nobody | `metadata.signalTo` (X), `signalStatement` (the question), `signalReason` |
+| `question_asked` | coordinator | X (`innerCircle: [X]`) | `questionId`, `askedBy` (A), `answeredBy` (X), `signalStatement`; content `@X, A asks: ...` |
+| X's verdict | X | nobody | its new finding and verdict, with `metadata.answers` set to the `questionId` |
+| `question_answered` | coordinator | A (`innerCircle: [A]`) | `questionId`, `askedBy`, `answeredBy`; content is X's revised finding |
+| A's verdict | A | nobody | A's verdict after checking again |
+
+X re-runs its assessment with its tools, without triage. Its verdict replaces its earlier one in
+what the coordinator weighs, and the synthesis is told its earlier finding was replaced; the bus
+keeps both messages, so the transcript shows the exchange. The coordinator log records
+`question_asked` and `question_answered` events. A question the coordinator does not relay (no
+round left, `recheck.maxRounds: 0`, an agent not in the crew, the asker itself, or an agent
+already in a question) is recorded as A's `concern`, and so is a question X fails to answer.
 
 Timeouts exist only as safety nets. The normal path is driven by signal state: each
 phase has a roster (the selected Toolers in EVALUATING, the woken Analysts in REVIEW, the contributors in RATIFY),
@@ -290,7 +353,9 @@ Every message is an event:
 | `subcommittee_convened` | the advisory step ends | `path` (`reasoning`, `fallback`, `broadcast` or `direct`), `members`, `brief` (one text for display), `sharedBrief`, `memberTasks`, `taskFallbacks`, `ignoredTasks` (see [one task per member](../../user-guides/compose-a-crew/#one-task-per-member)), `skills`, `confidence`, `tokens` |
 | `evaluation_started` | the evaluation clock resets after `advisory_ready` | `roster` (who EVALUATING waits for) |
 | `review_started` | `review_ready` is sent | `roster` (the analysts woken), `pending` (each with its deadline) |
-| `signal_applied` | a signal changes the thread: `triaging`, `evaluating`, `waiting`, `waking`, `ready`, `agree`, `concern`, `block`, `stand_aside` | `agent`, `signal`, `messageId`, `deadlineAt`, and for a stand-aside for want of an accelerator `capacityReason` |
+| `signal_applied` | a signal changes the thread: `triaging`, `evaluating`, `waiting`, `waking`, `ready`, `agree`, `concern`, `block`, `stand_aside` | `agent`, `signal`, `messageId`, `deadlineAt`, for a stand-aside for want of an accelerator `capacityReason`, and `revises: true` when the signal answers a clarifying question and replaces the agent's earlier verdict |
+| `question_asked` | an agent asks another to recheck | `questionId`, `asker`, `target`, `relayed`; when relayed `deadlineAt` (the target's), when not `refusal` (`round_off`, `round_limit`, `unknown_agent`, `self` or `busy`) and the question is the asker's concern |
+| `question_answered` | the agent asked answers | `questionId`, `asker`, `target`, `signal` (its answer), and `deadlineAt` (the asker's) unless the answer is a `failure`, which leaves the question as the asker's concern |
 | `failure_recorded` | an agent reports `failure`, or its deadline passes and the coordinator records one | `agent`, `cause` (`reported` or `evaluation_timeout`), `synthesized`, `failedSources` |
 | `settled` | a phase ends | `phase`, `basis` (`roster_signalled`, `fast_path`, `quiet` or `no_pending`), `counts` |
 | `synthesis_started` | the synthesis call begins | the signal counts |
@@ -313,6 +378,10 @@ A few rules hold for every event:
   deadline in the log is the last one an event set.
 - **A log that is down never silences the crew.** An event that cannot be written leaves
   the thread unlogged and does not hold back its effects. See [Write-ahead](#write-ahead).
+- **An open question is not rebuilt.** The events restore who is pending and the concerns a
+  refused or failed question left, not the question itself: after a restart, the target's
+  answer still replaces its earlier verdict, but the asker is not woken again, and the phase
+  settles on its safety net without the asker's second signal.
 - **The state rebuilds from the events.** Applying a thread's events in order, and skipping
   any event whose `eventId` was already applied, gives the state the coordinator held at
   the last event: the phase and its clock, the convened agents, the roster and who has
