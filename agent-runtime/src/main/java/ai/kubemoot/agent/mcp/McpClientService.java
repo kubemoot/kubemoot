@@ -250,7 +250,7 @@ public class McpClientService {
 
         log.debug("Calling tool {} on server {}", actualToolName, serverName);
         var request = McpSchema.CallToolRequest.builder(actualToolName)
-                .arguments(WorkspaceScope.argumentsFor(actualToolName, arguments));
+                .arguments(arguments);
         var meta = mergeMeta(null, callMeta(actualToolName));
         if (!meta.isEmpty()) {
             request.meta(meta);
@@ -317,7 +317,7 @@ public class McpClientService {
         log.debug("Calling tool {} via gateway REST API", toolName);
 
         try {
-            var result = gatewayClient.callTool(toolName, WorkspaceScope.argumentsFor(toolName, arguments),
+            var result = gatewayClient.callTool(toolName, arguments,
                     callMeta(toolName));
             if (result == null) {
                 return new ToolResult(toolName, false, null, "Gateway returned null response");
