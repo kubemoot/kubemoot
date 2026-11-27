@@ -132,6 +132,7 @@ func run(args []string) error {
 		return err
 	}
 	closeStatus(status)
+	closeInherited()
 	if err := dropCapabilities(); err != nil {
 		return err
 	}
@@ -148,6 +149,21 @@ func statusFile(fd int) *os.File {
 	}
 	return os.NewFile(uintptr(fd), "status")
 }
+
+// closeInherited closes every descriptor above stderr, so a program never inherits one the helper's
+// own parent left open without close-on-exec. It falls back to closing them one at a time where the
+// host lacks close_range.
+func closeInherited() {
+	if err := unix.CloseRange(3, ^uint(0), 0); err == nil {
+		return
+	}
+	for fd := 3; fd < maxInheritedFD; fd++ {
+		_ = unix.Close(fd)
+	}
+}
+
+// maxInheritedFD bounds the fallback loop of closeInherited.
+const maxInheritedFD = 4096
 
 // closeStatus closes the descriptor the parent passed, through its one *os.File, so the program
 // inherits none of it and no finalizer closes the same number again later.

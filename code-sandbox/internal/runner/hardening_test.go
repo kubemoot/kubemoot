@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/kubemoot/kubemoot/code-sandbox/internal/inputs"
 )
 
@@ -299,6 +301,15 @@ func TestTemporaryDirectorySizeIsASetting(t *testing.T) {
 
 func TestProgramInheritsOnlyItsStandardDescriptors(t *testing.T) {
 	r := confined(t, workspace(t))
+	// A descriptor the server's own parent left open without close-on-exec, as a CI runner does.
+	leak, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = leak.Close() }()
+	if _, err := unix.FcntlInt(leak.Fd(), unix.F_SETFD, 0); err != nil {
+		t.Fatal(err)
+	}
 	code := "import os\nopen_fds = []\nfor fd in range(3, 256):\n" +
 		"    try:\n        os.fstat(fd)\n        open_fds.append(fd)\n    except OSError:\n        pass\n" +
 		"print(open_fds)\n"
