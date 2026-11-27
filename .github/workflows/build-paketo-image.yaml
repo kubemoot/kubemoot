@@ -76,7 +76,7 @@ jobs:
         uses: ./.github/actions/install-kubectl
 
       - name: Set up the build helpers
-        uses: kubemoot/release-actions/setup@899dec57c20fafcccae4120d20bfd88e454f0a0f # v0.12.2
+        uses: kubemoot/release-actions/setup@035c1e196695046c33180fe840c641276a3eff3a # v0.12.3
 
       - name: Check the inputs
         env:
