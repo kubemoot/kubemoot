@@ -159,9 +159,11 @@ The archetype's [`recheck.maxRounds`](../../reference/mootarchetype/#recheck) (d
 the most questions relayed per thread; `0` turns the round off.
 
 **When a question is not relayed.** A question past the round limit, with the round off, to an
-agent not in the crew, to the asker itself, or to an agent already in a question is recorded
-as the asker's `concern`, with the question as its text, and the asker's turn ends. So is a
-question whose agent fails or misses its deadline. The doubt stays on the table for the
+agent not in the crew, to the asker itself, to an agent already in a question, or asked after
+the crew has stopped gathering and reviewing (during synthesis, ratification, or on a paused or
+closed thread) is recorded as the asker's `concern`, with the question as its text, and the
+asker's turn ends. So is a question whose agent fails or misses its deadline. An asker that fails
+drops its own question. The doubt stays on the table for the
 synthesis; it is never dropped.
 
 **State-driven.** Every step waits on a message, never on a clock. The deadlines are safety nets
