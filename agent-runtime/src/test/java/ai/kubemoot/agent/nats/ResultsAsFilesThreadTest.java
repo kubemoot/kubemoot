@@ -126,6 +126,7 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
         send(THREAD, "k8s-metrics", "agree", "11 pods", null);
         send(THREAD, "k8s-workloads", "agree", contributionOfWorkloads, null);
         settle(THREAD, EVALUATION_TO_REVIEW);
+        fetched.clear(); // the review reads the calls it shows; the tests below count what the synthesis reads
     }
 
     private String synthesisPrompt() {
@@ -253,6 +254,7 @@ class ResultsAsFilesThreadTest extends CoordinatorThreadTestBase {
             send(THREAD, agreeAgentAndText[i], "agree", agreeAgentAndText[i + 1], null);
         }
         settle(THREAD, EVALUATION_TO_REVIEW);
+        fetched.clear(); // the review reads the calls it shows; the tests count what the synthesis reads
         send(THREAD, "k8s-analyst", "stand_aside", "", null);
         settle(THREAD, REVIEW_TO_SYNTHESIS);
         awaitTypes(THREAD, 1, "synthesis_done");
