@@ -275,7 +275,7 @@ public class DiscussionOrchestrator {
     // fast path that skips it. Set by the operator (KUBEMOOT_DISCUSS_HAS_ANALYSTS).
     private final boolean hasAnalysts;
     // Which analysts review, as the crew's consensus archetype declares it
-    // (KUBEMOOT_DISCUSS_REVIEW_CONVENE, _FALLBACK and _GENERALISTS, set by the operator).
+    // (KUBEMOOT_DISCUSS_REVIEW_CONVENE, _FALLBACK, _GENERALISTS and _ORDER, set by the operator).
     private final ReviewConvening.Policy reviewPolicy;
     /** Whether and how the contributors ratify the draft (KUBEMOOT_DISCUSS_RATIFY_*, set by the operator). */
     private final RatifyPolicy ratifyPolicy;
@@ -402,7 +402,7 @@ public class DiscussionOrchestrator {
         this.hasAnalysts = properties.discuss().hasAnalysts();
         this.reviewPolicy = ReviewConvening.policy(
                 properties.discuss().reviewConvene(), properties.discuss().reviewFallback(),
-                properties.discuss().reviewGeneralists());
+                properties.discuss().reviewGeneralists(), properties.discuss().reviewOrder());
         this.ratifyPolicy = RatifyPolicy.of(properties.discuss().ratifyEnabled(),
                 properties.discuss().ratifyMaxRounds(), properties.discuss().ratifyRoster());
         this.recheckMaxRounds = recheckRounds(properties.discuss().recheckMaxRounds());
@@ -1891,7 +1891,7 @@ public class DiscussionOrchestrator {
         // the exact bug); it waits for its own roster. Advances to SYNTHESIZING.
         table.put(Phase.REVIEW, (state, now, elapsed) -> settlePhase(state, now, elapsed,
                 new PhaseSettle(minReviewSeconds, 0, false, false,
-                        () -> transitionToSynthesis(state))));
+                        () -> finishReviewPass(state))));
         // RATIFY: roster-gated; closes or revises the moment every ratifier has answered.
         table.put(Phase.RATIFY, (state, now, elapsed) -> settleRatify(state));
         return table;
@@ -2835,10 +2835,46 @@ public class DiscussionOrchestrator {
         var analystCircle = plan.circle();
         log.info("Thread {} - review convened by {} ({}): {}", state.threadId, plan.basis(),
                 reviewPolicy.convene(), analystCircle.isEmpty() ? "every analyst" : analystCircle);
-        boolean logged = seedReviewRoster(state, reviewersFor(analystCircle, analysts), System.currentTimeMillis());
+        var passes = reviewPasses(reviewersFor(analystCircle, analysts));
+        state.reviewSecondPass = passes.second();
+        boolean logged = seedReviewRoster(state, passes.first(), System.currentTimeMillis());
         enterReview(state);
         if (!logged) return;
-        publishReviewReady(state, analystCircle);
+        publishReviewReady(state, passes.second().isEmpty() ? analystCircle : passes.first());
+    }
+
+    /** The passes the archetype's review order makes of the convened reviewers (see {@link ReviewConvening#passes}). */
+    // Visible for testing
+    ReviewConvening.Passes reviewPasses(Collection<String> reviewers) {
+        try {
+            String raw = loadCrewResumes();
+            JsonNode resumes = raw == null || raw.isBlank() ? null : mapper.readTree(raw);
+            return ReviewConvening.passes(reviewPolicy, reviewers, resumes);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.warn("Thread - review order could not read the crew resumes ({}); reviewing together",
+                    e.getMessage());
+            return new ReviewConvening.Passes(List.copyOf(reviewers), List.of());
+        }
+    }
+
+    /**
+     * The review roster has signalled (an agree, a concern, a failure, or the deadline's failure, whichever
+     * came, with no clarifying question open). With a second pass waiting, the domain analysts are woken
+     * now and see what the first pass found; otherwise the thread goes to synthesis.
+     */
+    // Visible for testing
+    void finishReviewPass(ThreadState state) {
+        var next = state.reviewSecondPass;
+        if (next.isEmpty()) {
+            transitionToSynthesis(state);
+            return;
+        }
+        state.reviewSecondPass = List.of();
+        log.info("Thread {} - first review pass done, convening {}", state.threadId, next);
+        boolean logged = seedReviewRoster(state, next, System.currentTimeMillis());
+        state.phaseStarted = Instant.now();
+        metrics.setPendingEvaluations(state.pendingEvaluations.size());
+        if (logged) publishReviewReady(state, List.copyOf(next));
     }
 
     /** The thread moves to REVIEW: the roster is seeded, the phase begins. */
@@ -5837,6 +5873,8 @@ public class DiscussionOrchestrator {
         volatile String synthesisInput = "";
         /** Why these analysts were convened for review (see ReviewConvening); null before review. */
         volatile String reviewBasis;
+        /** The analysts convened once the first review pass has replied (see ReviewConvening.Order); empty when none. */
+        volatile List<String> reviewSecondPass = List.of();
 
         // Agents that have published an evaluating signal but not yet a terminal signal.
         // Map: agentName → deadline epoch ms (P90 + grace). The settle timer must not fire

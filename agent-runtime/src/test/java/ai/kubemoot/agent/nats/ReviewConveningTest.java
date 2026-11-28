@@ -245,6 +245,64 @@ class ReviewConveningTest {
                 Optional.empty(), Optional.empty(), Optional.empty()).generalists());
     }
 
+    private static final ReviewConvening.Policy GENERALISTS_FIRST = new ReviewConvening.Policy(
+            ReviewConvening.Convene.DOMAIN, ReviewConvening.Fallback.PRIMARY, ReviewConvening.Generalists.ALWAYS,
+            ReviewConvening.Order.GENERALISTS_FIRST);
+    private static final String ORDER_CREW = """
+            [{"name":"compute","role":"analyst"},
+             {"name":"k8s-advisor","role":"analyst","domains":["kubernetes"]},
+             {"name":"proxmox-advisor","role":"analyst","domains":["proxmox"]}]
+            """;
+
+    @Test
+    void passes_generalistsFirstSplitsTheReviewersByDeclaredDomain() throws Exception {
+        var passes = ReviewConvening.passes(GENERALISTS_FIRST,
+                List.of(K8S_ADVISOR, "compute", PROXMOX_ADVISOR), MAPPER.readTree(ORDER_CREW));
+
+        assertEquals(List.of("compute"), passes.first());
+        assertEquals(List.of(K8S_ADVISOR, PROXMOX_ADVISOR), passes.second());
+    }
+
+    @Test
+    void passes_togetherIsOnePass() throws Exception {
+        var passes = ReviewConvening.passes(DOMAIN_PRIMARY,
+                List.of(K8S_ADVISOR, "compute"), MAPPER.readTree(ORDER_CREW));
+
+        assertEquals(List.of(K8S_ADVISOR, "compute"), passes.first());
+        assertTrue(passes.second().isEmpty());
+    }
+
+    @Test
+    void passes_aSingleKindOfReviewerIsOnePass() throws Exception {
+        var onlyDomain = ReviewConvening.passes(GENERALISTS_FIRST, List.of(K8S_ADVISOR), MAPPER.readTree(ORDER_CREW));
+        var onlyGeneralist = ReviewConvening.passes(GENERALISTS_FIRST, List.of("compute"), MAPPER.readTree(ORDER_CREW));
+
+        assertEquals(List.of(K8S_ADVISOR), onlyDomain.first());
+        assertTrue(onlyDomain.second().isEmpty());
+        assertEquals(List.of("compute"), onlyGeneralist.first());
+        assertTrue(onlyGeneralist.second().isEmpty());
+    }
+
+    @Test
+    void passes_withNoResumesEveryReviewerIsAGeneralistAndItIsOnePass() {
+        var passes = ReviewConvening.passes(GENERALISTS_FIRST, List.of("a", "b"), null);
+
+        assertEquals(List.of("a", "b"), passes.first());
+        assertTrue(passes.second().isEmpty());
+    }
+
+    @Test
+    void policyReadsTheOrderAndAnythingElseKeepsTogether() {
+        assertEquals(ReviewConvening.Order.GENERALISTS_FIRST, ReviewConvening.policy(Optional.of("domain"),
+                Optional.of("primary"), Optional.of("always"), Optional.of(" generalistsFirst ")).order());
+        for (var value : List.of(Optional.of("together"), Optional.of("bogus"), Optional.<String>empty())) {
+            assertEquals(ReviewConvening.Order.TOGETHER, ReviewConvening.policy(Optional.of("domain"),
+                    Optional.of("primary"), Optional.of("always"), value).order());
+        }
+        assertEquals(ReviewConvening.Order.TOGETHER, ReviewConvening.policy(
+                Optional.of("domain"), Optional.of("primary")).order());
+    }
+
     @Test
     void tokensAreLowerCaseAlphanumericWordsWithoutOneLetterFragments() {
         assertEquals(Set.of("proxmox", "ve"), ReviewConvening.tokens("Proxmox-VE 8"));

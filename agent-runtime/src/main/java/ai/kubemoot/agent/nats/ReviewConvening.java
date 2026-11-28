@@ -42,14 +42,30 @@ final class ReviewConvening {
      */
     enum Generalists { ALWAYS, SELECTED }
 
+    /**
+     * Whether the convened analysts review at once ({@code TOGETHER}) or the generalists review first and
+     * the analysts that declare a domain after every generalist has replied ({@code GENERALISTS_FIRST}).
+     */
+    enum Order { TOGETHER, GENERALISTS_FIRST }
+
     /** The archetype's review declaration. */
-    record Policy(Convene convene, Fallback fallback, Generalists generalists) {
+    record Policy(Convene convene, Fallback fallback, Generalists generalists, Order order) {
         static final Policy LEGACY = new Policy(Convene.ALL, Fallback.PRIMARY);
 
         Policy(Convene convene, Fallback fallback) {
             this(convene, fallback, Generalists.ALWAYS);
         }
+
+        Policy(Convene convene, Fallback fallback, Generalists generalists) {
+            this(convene, fallback, generalists, Order.TOGETHER);
+        }
     }
+
+    /**
+     * The passes of a review: the analysts convened first, and the ones convened once every one of
+     * those has replied. {@code second} is empty when the review is one pass.
+     */
+    record Passes(List<String> first, List<String> second) {}
 
     /**
      * The analysts to convene. {@code circle} is empty when every analyst is convened (review_ready
@@ -57,6 +73,7 @@ final class ReviewConvening {
      */
     record Plan(List<String> circle, String basis) {}
 
+    private static final String ORDER_GENERALISTS_FIRST = "generalistsFirst";
     static final String BASIS_ALL = "all";
     static final String BASIS_SELECTED = "selected";
     static final String BASIS_DOMAIN = "domain";
@@ -77,11 +94,37 @@ final class ReviewConvening {
 
     /** The policy from the three environment values; a missing or unknown value keeps today's behavior. */
     static Policy policy(Optional<String> convene, Optional<String> fallback, Optional<String> generalists) {
+        return policy(convene, fallback, generalists, Optional.empty());
+    }
+
+    /** The policy from the four environment values; a missing or unknown value keeps today's behavior. */
+    static Policy policy(Optional<String> convene, Optional<String> fallback, Optional<String> generalists,
+                         Optional<String> order) {
         var conveneMode = BASIS_DOMAIN.equalsIgnoreCase(convene.orElse("").strip()) ? Convene.DOMAIN : Convene.ALL;
         var fallbackMode = "all".equalsIgnoreCase(fallback.orElse("").strip()) ? Fallback.ALL : Fallback.PRIMARY;
         var generalistMode = BASIS_SELECTED.equalsIgnoreCase(generalists.orElse("").strip())
                 ? Generalists.SELECTED : Generalists.ALWAYS;
-        return new Policy(conveneMode, fallbackMode, generalistMode);
+        var orderMode = ORDER_GENERALISTS_FIRST.equalsIgnoreCase(order.orElse("").strip())
+                ? Order.GENERALISTS_FIRST : Order.TOGETHER;
+        return new Policy(conveneMode, fallbackMode, generalistMode, orderMode);
+    }
+
+    /**
+     * Splits the convened {@code reviewers} into the passes the policy's order asks for. With
+     * {@link Order#GENERALISTS_FIRST} the reviewers that declare no domain come first and the others
+     * second; when either group is empty, or the order is {@link Order#TOGETHER}, it is one pass.
+     */
+    static Passes passes(Policy policy, Collection<String> reviewers, JsonNode resumes) {
+        var all = List.copyOf(reviewers);
+        if (policy.order() != Order.GENERALISTS_FIRST) return new Passes(all, List.of());
+        var terms = termsByAgent(resumes);
+        var generalists = new ArrayList<String>();
+        var domain = new ArrayList<String>();
+        for (String name : all) {
+            (terms.getOrDefault(name, Set.of()).isEmpty() ? generalists : domain).add(name);
+        }
+        if (generalists.isEmpty() || domain.isEmpty()) return new Passes(all, List.of());
+        return new Passes(List.copyOf(generalists), List.copyOf(domain));
     }
 
     /**
