@@ -313,6 +313,15 @@ An empty `agree`, a `stand_aside`, a `decline`, a `failure`, the coordinator's o
 advisory, the review list) and the user's question hold no facts. A `concern` counts, because its
 text is usually a `TOOL_GAP:` that the model path turns into a hint about the missing tool.
 
+### How a gap is decided
+
+When the answer closes, the coordinator classifies a gap from the declared signals alone: with no
+agent agreeing, a `concern` is a tool gap, a `failure` is an infrastructure gap, and stand-asides
+(or a low triage confidence) are a tooler gap. It does not read the text of the answer. A crew whose
+agents all stood aside therefore gets the tooler-gap hint, and the onboarding offer where onboarding
+is on, even when the synthesizer answered from general knowledge; an answer that merely mentions
+onboarding no longer raises a gap by itself.
+
 ## The coordinator log
 
 The coordinator decides things no agent message records: which agents it convened, which

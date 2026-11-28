@@ -137,6 +137,18 @@ class DiscussionOrchestratorAnswerWordingTest {
     }
 
     @Test
+    void standAsidesWithADirectAnswer_stillGetTheToolerGapHint() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.standAsideSignals.add("tooler");
+
+        String response = "A pod is the smallest deployable unit.";
+        String answer = publish(state, response);
+
+        assertTrue(answer.startsWith(response), answer);
+        assertTrue(answer.contains("reply: `onboard <domain>`"), answer);
+    }
+
+    @Test
     void noGap_changesNothing() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
 
