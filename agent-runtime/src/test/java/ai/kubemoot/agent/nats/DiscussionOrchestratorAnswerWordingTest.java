@@ -127,6 +127,7 @@ class DiscussionOrchestratorAnswerWordingTest {
     @Test
     void aToolerGap_keepsTheOnboardingHintWithoutOperatorWording() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.standAsideSignals.add("tooler");
 
         String response = "No tooler covers this; you could onboard one.";
         String answer = publish(state, response);

@@ -1550,17 +1550,6 @@ public class DiscussionSubscriber {
             return;
         }
 
-        // Legacy: older tool-loop exhaustion produced a stand_aside with this
-        // sentinel string. The new path throws ToolCallFailure (caught above
-        // in runMullingPhase) so this branch is only hit if older callers
-        // bypass the throw path. Kept for backwards-compat; new code paths
-        // surface as failure signals.
-        if (content.contains("unable to complete the request within the allowed number of tool calls")) {
-            log.info("Agent {} exhausted tool loop for thread {} — standing aside (legacy)", properties.agentName(), threadId);
-            publishSignal(subject, threadId, SIGNAL_STAND_ASIDE, content, timing, gpuLabel, ranOn);
-            return;
-        }
-
         publishSignal(subject, threadId, SIGNAL_AGREE, contribution(content, result.files()), timing, gpuLabel,
                 ModelAttribution.withEarlierCall(findingMetadata(result), triageUse));
     }

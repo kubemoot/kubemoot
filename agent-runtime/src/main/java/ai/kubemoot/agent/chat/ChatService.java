@@ -1399,18 +1399,14 @@ public class ChatService {
 
     /**
      * True when an agent's tool-free answer is an echo of its instructions rather than a
-     * real answer: it repeats a fixed instruction phrase, or half or more of its lines
-     * are lines of the agent's own system prompt. Small models sometimes parrot their
+     * real answer: half or more of its lines are lines of the agent's own system prompt. Small models sometimes parrot their
      * prompt instead of answering, and publishing that corrupts the discussion. An answer
      * that quotes another document, such as the lines of a specification it reviews, is
      * not an echo even when those lines are written in ADL.
      */
     static boolean isInstructionEcho(String text, String ownPrompt) {
         if (text == null || text.isBlank()) return false;
-        String t = text.toLowerCase();
-        return t.contains("write the final answer to the user")
-                || t.contains("using only the tool results shown above")
-                || mostlyCopiedFrom(text, ownPrompt);
+        return mostlyCopiedFrom(text, ownPrompt);
     }
 
     /** Lines shorter than this are too generic to count as copied. */

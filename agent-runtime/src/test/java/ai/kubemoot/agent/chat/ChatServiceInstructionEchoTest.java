@@ -31,8 +31,8 @@ class ChatServiceInstructionEchoTest {
     }
 
     @Test
-    void detectsPlainRecoveryEcho() {
-        assertTrue(ChatService.isInstructionEcho(
+    void aFixedPhraseAloneIsNotAnEcho() {
+        assertFalse(ChatService.isInstructionEcho(
                 "Write the final answer to the user's question now, using only the tool results shown above.", OWN_PROMPT));
     }
 
