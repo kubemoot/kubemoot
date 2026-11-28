@@ -1633,7 +1633,7 @@ public class ChatService {
     }
 
     /**
-     * What an agent that ran out of turns did: any text its last turn wrote, labelled unfinished,
+     * What an agent that ran out of turns did: the latest text it wrote (cut to {@link #MAX_UNFINISHED_TEXT_CHARS}), labelled unfinished,
      * then the descriptions of its tool calls (the same ones a finished finding carries). Empty
      * when it wrote nothing and made no call; nothing is summarized or invented.
      */
@@ -1641,7 +1641,8 @@ public class ChatService {
         var work = new StringBuilder();
         String text = state.lastModelText();
         if (!text.isEmpty()) {
-            work.append("Unfinished text from its last turn (not a final answer):\n").append(text);
+            work.append("Unfinished text from its latest reply (not a final answer):\n")
+                    .append(truncate(text, MAX_UNFINISHED_TEXT_CHARS));
         }
         if (state.ledger != null && state.ledger.holdsOutput()) {
             if (work.length() > 0) {
@@ -1847,6 +1848,8 @@ public class ChatService {
     private static final int MAX_GATHER_ERROR_CHARS = 300;
     /** Longest failed-gather reason, all failed calls together. */
     private static final int MAX_GATHER_FAILED_REASON_CHARS = 1000;
+    /** Room for the unfinished text an agent at its turn limit keeps; its call lines are kept whole. */
+    private static final int MAX_UNFINISHED_TEXT_CHARS = 2000;
     /** A result longer than this is data, not a bare error message, whatever it starts with. */
     private static final int MAX_ERROR_TEXT_CHARS = 1000;
     /** Openings of a plain-text tool error (lower case); data is JSON or a table and starts otherwise. */
