@@ -70,6 +70,8 @@ This path is kept so crews keep working while their prompts move to the tool; it
 | `CONCERN: <the claim, why it is wrong or unverified, and your source>` | `concern`, whose content is that text and the rest of the reply |
 | anything else | `agree` |
 
+An agent that reaches its tool-loop iteration limit publishes a `failure` with `failureType: iterations_exhausted`. Its content says it did not finish within its turn limit, then keeps what it did: any text from its last turn labelled unfinished, and its call lines, so reviewers can open its working.
+
 A Tooler whose final answer is exactly `NO_DATA` (or `NO_DATA: reason`) publishes a `failure`
 with `failureType: gather_failed`.
 
