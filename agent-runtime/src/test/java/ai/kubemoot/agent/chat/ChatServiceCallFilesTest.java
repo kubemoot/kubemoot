@@ -341,7 +341,7 @@ class ChatServiceCallFilesTest {
                 () -> service().callWithToolLoop(question(), chatModel, "s", "test", false, 0L, ledger));
 
         String content = failure.postedContent();
-        assertTrue(content.contains("Unfinished text from its last turn (not a final answer):\nthe count is 3"),
+        assertTrue(content.contains("Unfinished text from its latest reply (not a final answer):\nthe count is 3"),
                 content);
         assertTrue(content.indexOf("the count is 3") < content.indexOf("[CALL key="), content);
     }
@@ -353,6 +353,41 @@ class ChatServiceCallFilesTest {
 
         assertEquals("", failure.unfinishedWork());
         assertEquals(failure.getMessage(), failure.postedContent());
+    }
+
+    @Test
+    void unfinishedTextIsCappedAndLabelledFirst() {
+        registerTools(r -> "{\"items\":[{\"a\":1}]}", "pods_list");
+        modelNeverFinishes("w".repeat(10_000));
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service().callWithToolLoop(question(), chatModel, "s", "test", false, 0L, ledger));
+
+        String work = failure.unfinishedWork();
+        assertTrue(work.startsWith("Unfinished text from its latest reply (not a final answer):\n"), work);
+        assertTrue(work.indexOf("[CALL key=") - work.indexOf('\n') < 2_200, "the text is capped before the calls");
+        assertTrue(work.contains("[CALL key=test-agent/001-pods_list"), "the call lines are kept whole");
+    }
+
+    @Test
+    void unfinishedTextIsKeptWhenTheLoopHasNoLedger() {
+        registerTools(r -> "{\"items\":[]}", "pods_list");
+        modelNeverFinishes("partial count 2");
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service().callWithToolLoop(question(), chatModel, "s", "test", false, 0L, null));
+
+        assertEquals("Unfinished text from its latest reply (not a final answer):\npartial count 2",
+                failure.unfinishedWork());
+    }
+
+    @Test
+    void aFailureBuiltWithNullWorkHasNoWork() {
+        var failure = new ToolCallFailure(ToolCallFailure.FailureType.ITERATIONS_EXHAUSTED, null, null, 8, "m", null);
+
+        assertEquals("", failure.unfinishedWork());
+        assertEquals("m", failure.postedContent());
     }
 
     @Test

@@ -369,6 +369,20 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
     }
 
     @Test
+    void aTurnLimitFailureKeepsItsStatementAndCallLinesInAReview() {
+        String call = "[CALL key=r9 tool=execute_code call=r9.call args=print(1) bytes=1]";
+        var failure = new ai.kubemoot.agent.chat.ToolCallFailure(
+                ai.kubemoot.agent.chat.ToolCallFailure.FailureType.ITERATIONS_EXHAUSTED, null, null, 10,
+                "Did not finish within its turn limit of 10 tool-loop iterations; this is not a final answer.",
+                "Unfinished text from its latest reply (not a final answer):\n" + "x".repeat(2000) + "\n\n" + call);
+
+        String cut = DiscussionOrchestrator.cutKeepingCalls(failure.postedContent());
+
+        assertTrue(cut.contains("not a final answer"), cut);
+        assertTrue(cut.endsWith(call), cut);
+    }
+
+    @Test
     void aLongFindingKeepsItsCallLinesPastTheCut() {
         String call = "[CALL key=r9 tool=execute_code call=r9.call args=print(1) bytes=1]";
         String finding = "x".repeat(3000) + "\n" + call;
