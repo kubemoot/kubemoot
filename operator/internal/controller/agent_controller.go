@@ -933,7 +933,6 @@ func (r *AgentReconciler) buildEnvVars(ctx context.Context, agent *kubemootv1alp
 	env = append(env, r.otlpEnvVars()...)
 	ws := r.workspaceFor(ctx, agent)
 	env = append(env, agentModelEnvVars(agent, ws.tools)...)
-	env = append(env, workspaceAccessEnvVar(ws.decision)...)
 	env = append(env, agentDiscussRelevanceEnvVars(agent)...)
 	env = append(env, r.agentDiscussRoleEnvVars(ctx, agent, crew)...)
 	env = append(env, r.agentGatewayEnvVars(ctx, agent)...)

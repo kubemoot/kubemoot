@@ -996,12 +996,12 @@ spec:
                   access:
                     description: |-
                       Access is none, read, write or readWrite. Left out, the Crew's defaultAccess applies, then
-                      the KubemootConfig's, and with none declared the agent behaves as before: it stores every
-                      tool result and reads the workspace only through the tools in its enabledTools.
+                      the KubemootConfig's, and with none declared the agent reads the workspace only
+                      through the tools in its enabledTools. The access governs what the agent may read of other
+                      agents' stored results; the agent's own calls are always kept.
                       A declared access is authoritative: workspace tools the access does not allow are disabled
-                      even when enabledTools names them. In 0.94 read is enforced through the agent's tool list
-                      and write by the agent-runtime, which stores nothing without write access. NATS does not
-                      enforce either yet; that lands with NATS user provisioning.
+                      even when enabledTools names them. In 0.94 read is enforced through the agent's tool list.
+                      NATS does not enforce it yet; that lands with NATS user provisioning.
                     enum:
                     - none
                     - read

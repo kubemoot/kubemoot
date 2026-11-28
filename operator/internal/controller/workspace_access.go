@@ -9,14 +9,14 @@ You may obtain a copy of the License at
 */
 
 // workspace_access.go turns the workspace access an Agent, its Crew or KubemootConfig declares
-// into what the agent gets: its tool lists, the KUBEMOOT_WORKSPACE_ACCESS the runtime reads,
-// and its status. This file is the one place that decides access, and Reconcile resolves it once
-// per pass (withWorkspace) so the env, the contract and the status cannot disagree.
+// into what the agent gets: its tool lists and its status. This file is the one place that decides access, and Reconcile resolves it once
+// per pass (withWorkspace) so the tool lists, the contract and the status cannot disagree.
 //
-// In 0.94 read is enforced through the agent's tool list and write by the agent-runtime, which
-// stores nothing without write access. NATS permissions (mesh.PermissionsFor) describe the
-// matching grants, but nothing provisions NATS users from them yet, so NATS does not enforce
-// either until user provisioning lands. Other routes read the workspace regardless of the tool
+// In 0.94 read is enforced through the agent's tool list. The access governs only what an agent
+// may read of other agents' stored results: every agent's own calls are always kept in the
+// workspace, so nothing an agent did is hidden. NATS permissions (mesh.PermissionsFor) describe
+// the read grants, but nothing provisions NATS users from them yet, so NATS does not enforce
+// them until user provisioning lands. Other routes read the workspace regardless of the tool
 // list: the code sandbox's /kubemoot/workspace mount (the materializer sidecar copies every object of its
 // namespace), the coordinator's review catalog of keys, and direct MCP mode, where tool names
 // carry a server prefix (server.tool) and so are not matched by the workspace tool names here.
@@ -29,7 +29,6 @@ import (
 	"slices"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -53,10 +52,6 @@ const (
 	reasonWorkspaceAccessDeclared = "Declared"
 	reasonWorkspaceToolsOverruled = "ToolsOverruled"
 	reasonNoWorkspaceServer       = "NoWorkspaceServer"
-
-	// workspaceAccessEnv is the variable the agent-runtime reads to decide whether it stores
-	// tool results. Absent means implicit: store, as before.
-	workspaceAccessEnv = "KUBEMOOT_WORKSPACE_ACCESS"
 )
 
 // workspaceQueryTool is the one tool that replaces the four retired query tools.
@@ -227,14 +222,6 @@ func (r *AgentReconciler) resolveWorkspace(ctx context.Context, agent *kubemootv
 	}
 	d := resolveWorkspaceAccess(declared, crewAccess, configAccess)
 	return workspaceResolution{decision: d, tools: applyWorkspaceAccess(agent.Spec.EnabledTools, agent.Spec.DisabledTools, d, engine)}
-}
-
-// workspaceAccessEnvVar is the access the agent-runtime reads; implicit sets nothing.
-func workspaceAccessEnvVar(d workspaceDecision) []corev1.EnvVar {
-	if d.implicit() {
-		return nil
-	}
-	return []corev1.EnvVar{{Name: workspaceAccessEnv, Value: string(d.access)}}
 }
 
 // hasWorkspaceServer reports whether the namespace has an MCPServer that selects the workspace
