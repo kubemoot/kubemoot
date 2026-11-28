@@ -180,6 +180,18 @@ spec:
                     - always
                     - selected
                     type: string
+                  order:
+                    default: together
+                    description: |-
+                      Order is "together" (every convened analyst reviews at once) or "generalistsFirst"
+                      (the convened analysts that declare no domain review first; the convened analysts
+                      that declare a domain review after every generalist has replied, with the
+                      generalists' findings and the working behind them in front of them). One pass runs
+                      when the convened analysts are all generalists or all domain analysts.
+                    enum:
+                    - together
+                    - generalistsFirst
+                    type: string
                 type: object
               signals:
                 description: |-

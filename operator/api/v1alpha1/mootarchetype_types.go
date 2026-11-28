@@ -167,6 +167,19 @@ type ReviewFallback string
 // +kubebuilder:validation:Enum=always;selected
 type ReviewGeneralists string
 
+// ReviewOrder says whether the convened analysts review together or the generalists first.
+// +kubebuilder:validation:Enum=together;generalistsFirst
+type ReviewOrder string
+
+const (
+	// ReviewOrderTogether convenes every reviewer at once.
+	ReviewOrderTogether ReviewOrder = "together"
+	// ReviewOrderGeneralistsFirst convenes the analysts that declare no domain first; the
+	// analysts that declare a domain are convened once every generalist has replied, and see
+	// the generalists' findings and stored working.
+	ReviewOrderGeneralistsFirst ReviewOrder = "generalistsFirst"
+)
+
 const (
 	// ReviewGeneralistsAlways has an analyst that declares no domain review every discussion.
 	ReviewGeneralistsAlways ReviewGeneralists = "always"
@@ -209,6 +222,15 @@ type ArchetypeReview struct {
 	// +kubebuilder:default=always
 	// +optional
 	Generalists ReviewGeneralists `json:"generalists,omitempty"`
+
+	// Order is "together" (every convened analyst reviews at once) or "generalistsFirst"
+	// (the convened analysts that declare no domain review first; the convened analysts
+	// that declare a domain review after every generalist has replied, with the
+	// generalists' findings and the working behind them in front of them). One pass runs
+	// when the convened analysts are all generalists or all domain analysts.
+	// +kubebuilder:default=together
+	// +optional
+	Order ReviewOrder `json:"order,omitempty"`
 }
 
 // RatifyRoster says who ratifies the draft.

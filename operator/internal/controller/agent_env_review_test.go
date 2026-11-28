@@ -90,6 +90,18 @@ func TestReviewEnvVars_GeneralistsBecomesAVariableOnlyWhenSet(t *testing.T) {
 	}
 }
 
+func TestReviewEnvVars_OrderBecomesAVariableOnlyWhenSet(t *testing.T) {
+	got := reviewEnvVars(&kubemootv1alpha1.ArchetypeReview{Order: kubemootv1alpha1.ReviewOrderGeneralistsFirst})
+	if len(got) != 1 || got[0].Name != envReviewOrder || got[0].Value != "generalistsFirst" {
+		t.Fatalf("unexpected variables: %v", got)
+	}
+	for _, v := range reviewEnvVars(&kubemootv1alpha1.ArchetypeReview{Convene: kubemootv1alpha1.ReviewConveneDomain}) {
+		if v.Name == envReviewOrder {
+			t.Fatalf("order unset must set no variable, got %v", v)
+		}
+	}
+}
+
 func TestCrewArchetypeName_FirstPolicyThatNamesOneWinsOtherwiseTheDefault(t *testing.T) {
 	named := reviewTestPolicyFor(reviewTestPanel)
 	unset := reviewTestPolicyFor("")
