@@ -14,7 +14,7 @@ is no central controller issuing commands.
 | Signal | Meaning |
 |--------|---------|
 | `agree` | This contribution supports the emerging answer. |
-| `concern` | A reservation that should be weighed before the crew settles. |
+| `concern` | A reservation that should be weighed before the crew settles. In `consent-3` it can name the agent whose claim it doubts in `metadata.signalTo`: that agent is then asked to recheck, as for a `question` (see [Clarifying questions](../consensus-model/#clarifying-questions)). A concern naming no agent stays a note on the table. |
 | `stand_aside` | No relevant contribution; abstain without blocking. With `metadata.reason` set to `accelerator-busy`, `model-too-large`, or `prompt-too-large`, the agent was willing but could not get an accelerator (see below). |
 | `block` | A strong objection that should stop the answer as it stands. |
 | `failure` | The agent tried and could not complete - surfaced as a first-class signal, not hidden behind silence. |
@@ -36,12 +36,12 @@ The tool's parameters are generated from the archetype's declared kinds:
 | Parameter | Required | What it holds |
 |-----------|----------|---------------|
 | `kind` | yes | One of the archetype's names. The tool's description lists each name with its meaning. |
-| `to` | for an addressed kind | The agent the signal is said to, by name. Offered only when the archetype declares an addressed kind (`question` in `consent-3`). |
+| `to` | for a `question`; optional for a `concern` | The agent the signal is said to, by name. Offered only when the archetype declares an addressed kind (`question` and `concern` in `consent-3`). A concern that names an agent starts that agent's recheck; without `to` it is a note. |
 | `statement` | yes | The claim, concern or question, in a sentence or two. |
 | `reason` | no | Why, from the agent's results. |
 | `evidence` | no | A stored-result key, or a short quote from a result. |
 
-A call with a kind the archetype does not declare, or an addressed kind without `to`, is
+A call with a kind the archetype does not declare, or a `question` without `to`, is
 answered with what to fix and records nothing, so the model can call again. When an agent
 calls the tool more than once in a turn, its last valid call is its verdict. The call is not a
 tool call of the agent's work: it is not stored as a result and is not part of a Tooler's
@@ -220,7 +220,7 @@ In plain terms, the flow is:
 
 ### The question round
 
-A `question` from agent A to agent X, in EVALUATING or REVIEW, is relayed rather than settled:
+A `question` from agent A to agent X, in EVALUATING or REVIEW, is relayed rather than settled. So is a `concern` from A that names X in `to`, when the archetype declares `concern` as starting a recheck (`startsRecheck`): the agent publishes it as the same `question` message, with the concern's statement as the question.
 
 | Message | Sent by | Wakes | Carries |
 |---------|---------|-------|---------|

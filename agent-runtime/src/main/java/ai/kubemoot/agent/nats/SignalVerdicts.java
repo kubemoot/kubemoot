@@ -68,6 +68,18 @@ final class SignalVerdicts {
 
     /** The message for {@code call} with {@code finding}; {@code terminal} is the archetype's flag for its kind. */
     static Verdict of(SignalCall call, Finding finding, boolean terminal) {
+        return of(call, finding, terminal, false);
+    }
+
+    /**
+     * As {@link #of(SignalCall, Finding, boolean)}; {@code startsRecheck} is the archetype's flag for
+     * the kind: a concern that names an agent is then published as the question that asks that agent
+     * to recheck. A concern naming no agent stays a concern.
+     */
+    static Verdict of(SignalCall call, Finding finding, boolean terminal, boolean startsRecheck) {
+        if (startsRecheck && call.effect() == SignalEffect.CONCERN && !call.to().isEmpty()) {
+            return BY_EFFECT.get(SignalEffect.QUESTION).apply(call, finding);
+        }
         var verdict = BY_EFFECT.get(call.effect()).apply(call, finding);
         if (call.effect() == SignalEffect.DECLARED) {
             verdict.metadata().put(FIELD_TERMINAL, terminal);

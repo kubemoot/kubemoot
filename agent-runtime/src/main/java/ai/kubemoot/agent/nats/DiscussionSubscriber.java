@@ -1498,7 +1498,8 @@ public class DiscussionSubscriber {
                                 SignalTiming timing, String gpuLabel, ai.kubemoot.agent.chat.ModelUse triageUse) {
         var finding = new SignalVerdicts.Finding(result == null ? "" : result.response(),
                 result == null ? "" : result.files());
-        var published = SignalVerdicts.of(verdict, finding, declaredSignals.isTerminal(verdict.kind()));
+        var published = SignalVerdicts.of(verdict, finding, declaredSignals.isTerminal(verdict.kind()),
+                declaredSignals.startsRecheck(verdict.kind()));
         var meta = new HashMap<String, Object>(ModelAttribution.withEarlierCall(findingMetadata(result), triageUse));
         meta.putAll(published.metadata());
         log.info("Agent {} signalled {} for thread {}", properties.agentName(), verdict.kind(), threadId);

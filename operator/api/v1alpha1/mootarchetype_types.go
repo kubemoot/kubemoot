@@ -119,6 +119,15 @@ type ArchetypeSignal struct {
 	// the tool call must name it (a question to the agent that made a finding).
 	// +optional
 	Addressed bool `json:"addressed,omitempty"`
+
+	// StartsRecheck is true when the kind, said to a named agent, starts that agent's
+	// recheck: the agent is asked to run its assessment again and answer, and the agent
+	// that said the kind signals again. It applies within recheck.maxRounds. The kind
+	// stays a note on the table when it names no agent, names one that is not in the
+	// crew, or no round is left. A kind that is not addressed ignores it. Unset keeps
+	// the earlier behavior: only a question starts a recheck.
+	// +optional
+	StartsRecheck bool `json:"startsRecheck,omitempty"`
 }
 
 // UnmarshalJSON accepts the earlier form of a signal, a bare name, as well as the

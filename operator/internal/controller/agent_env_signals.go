@@ -21,12 +21,13 @@ import (
 )
 
 const (
-	envDiscussSignals    = "KUBEMOOT_DISCUSS_SIGNALS"
-	envRecheckMaxRounds  = "KUBEMOOT_DISCUSS_RECHECK_MAX_ROUNDS"
-	signalFieldName      = "name"
-	signalFieldMeaning   = "meaning"
-	signalFieldTerminal  = "terminal"
-	signalFieldAddressed = "addressed"
+	envDiscussSignals        = "KUBEMOOT_DISCUSS_SIGNALS"
+	envRecheckMaxRounds      = "KUBEMOOT_DISCUSS_RECHECK_MAX_ROUNDS"
+	signalFieldName          = "name"
+	signalFieldMeaning       = "meaning"
+	signalFieldTerminal      = "terminal"
+	signalFieldAddressed     = "addressed"
+	signalFieldStartsRecheck = "startsRecheck"
 )
 
 // agentSignalEnvVars gives every agent of a crew the kinds of signal its archetype
@@ -62,10 +63,11 @@ func signalEnvVars(signals []kubemootv1alpha1.ArchetypeSignal) []corev1.EnvVar {
 			continue
 		}
 		declared = append(declared, map[string]any{
-			signalFieldName:      s.Name,
-			signalFieldMeaning:   s.Meaning,
-			signalFieldTerminal:  s.IsTerminal(),
-			signalFieldAddressed: s.Addressed,
+			signalFieldName:          s.Name,
+			signalFieldMeaning:       s.Meaning,
+			signalFieldTerminal:      s.IsTerminal(),
+			signalFieldAddressed:     s.Addressed,
+			signalFieldStartsRecheck: s.StartsRecheck,
 		})
 	}
 	if len(declared) == 0 {

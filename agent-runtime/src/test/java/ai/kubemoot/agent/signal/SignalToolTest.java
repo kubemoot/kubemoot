@@ -89,4 +89,20 @@ class SignalToolTest {
         var outcome = tool.record("{\"kind\":\"agree\",\"statement\":\"" + "x".repeat(5000) + "\"}");
         assertEquals(SignalTool.MAX_ARGUMENT_CHARS, outcome.call().statement().length());
     }
+
+    @Test
+    void anAddressedConcernMayNameTheAgentItDoubtsAndStaysANoteWithout() {
+        var named = new SignalTool(SignalTestKinds.consent3ConcernRecheck());
+        var withTo = named.record("{\"kind\":\"concern\",\"to\":\"k8s-nodes\",\"statement\":\"100 nodes?\"}");
+        assertTrue(withTo.recorded());
+        assertEquals("k8s-nodes", withTo.call().to());
+        var without = named.record("{\"kind\":\"concern\",\"statement\":\"100 nodes?\"}");
+        assertTrue(without.recorded(), "a concern naming no agent is a note on the table");
+        assertEquals("", without.call().to());
+        var to = named.spec().parameters().properties().get("to").description();
+        assertTrue(to.contains("Required for: question."), to);
+        assertTrue(to.contains("For concern, name the agent whose claim you doubt"), to);
+        assertTrue(named.record("{\"kind\":\"question\",\"statement\":\"recheck?\"}").response().contains("error"),
+                "a question still needs to");
+    }
 }

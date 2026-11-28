@@ -13,7 +13,7 @@ import java.util.Optional;
 
 /**
  * The kinds of signal the crew's archetype declares, as the operator hands them to each agent in
- * {@code KUBEMOOT_DISCUSS_SIGNALS}: a JSON list of {@code {name, meaning, terminal, addressed}}.
+ * {@code KUBEMOOT_DISCUSS_SIGNALS}: a JSON list of {@code {name, meaning, terminal, addressed, startsRecheck}}.
  * Empty when the archetype declares none, and the agent then records its verdict as it did before
  * the signal tool existed.
  */
@@ -67,7 +67,8 @@ public final class DeclaredSignals {
             return;
         }
         byName.putIfAbsent(name, new DeclaredSignal(name, meaning,
-                node.path("terminal").asBoolean(true), node.path("addressed").asBoolean(false)));
+                node.path("terminal").asBoolean(true), node.path("addressed").asBoolean(false),
+                node.path("startsRecheck").asBoolean(false)));
     }
 
     /** True when the archetype declares no kind. */
@@ -83,6 +84,12 @@ public final class DeclaredSignals {
     /** The declared kinds, in the order the archetype declares them. */
     public List<DeclaredSignal> all() {
         return List.copyOf(byName.values());
+    }
+
+    /** True when the kind named {@code name} is declared and starts the recheck of the agent it names. */
+    public boolean startsRecheck(String name) {
+        var s = find(name);
+        return s != null && s.startsRecheck();
     }
 
     /** True when the kind named {@code name} is declared and ends the agent's turn. */

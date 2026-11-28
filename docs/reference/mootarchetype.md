@@ -41,7 +41,9 @@ spec:
     - name: agree
       meaning: "Your finding stands."
     - name: concern
-      meaning: "A finding on the table is wrong or unverified."
+      meaning: "A finding on the table is wrong or unverified. Name in to the agent whose claim you doubt."
+      addressed: true
+      startsRecheck: true
     - name: question
       meaning: "Ask the agent that made a finding to recheck it."
       terminal: false
@@ -184,14 +186,15 @@ calling the tool; its reply text stays its finding. See
 | `name` | string | required | The kind, as the agent passes it: lower case letters, digits and underscores, at most 32 characters. Unique in the list. |
 | `meaning` | string | required | What the kind says, in plain words, at most 300 characters. The model reads it to choose a kind. |
 | `terminal` | bool | `true` | Whether the kind ends the agent's turn in the phase, so the phase can settle on it. A question is not terminal: the asker's turn stays open until it signals again. |
-| `addressed` | bool | `false` | Whether the kind is said to one named agent. The tool then requires `to`, the agent's name. |
+| `addressed` | bool | `false` | Whether the kind is said to one named agent. The tool then requires `to`, the agent's name; for a `concern` `to` is optional, and a concern naming no agent is a note on the table. |
+| `startsRecheck` | bool | `false` | Whether the kind, said to a named agent, starts that agent's recheck: the agent is asked to run its assessment again and answer, and the agent that said the kind signals again. It runs within [`recheck.maxRounds`](#recheck); a kind that names no agent or an unknown one, or with no round left, stays a note on the table. Ignored on a kind that is not addressed. Unset keeps today's behavior: only a `question` starts a recheck. |
 
 The runtime knows what these names do in a phase:
 
 | Name | Published as | What the coordinator does |
 |------|--------------|---------------------------|
 | `agree` | `agree` | Counts the finding as standing. |
-| `concern` | `concern` | Weighs the objection; the phase does not take the early settle while it stands. |
+| `concern` | `concern`, or `question` when it names an agent and the kind has `startsRecheck` | Weighs the objection; the phase does not take the early settle while it stands. A concern that starts a recheck is relayed like a question and settles as the asker's verdict after the answer. |
 | `question` | `question` | Starts the [clarifying-question round](../../concepts/consensus-model/#clarifying-questions). |
 | `stand_aside` | `stand_aside` | Counts the agent as having nothing to add. |
 | `tool_gap` | `concern` whose content is the missing tool | Weighs it as a concern and feeds gap detection. |
@@ -223,7 +226,7 @@ spec:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `maxRounds` | int, 0 to 5 | `1` | Most clarifying questions the coordinator relays per thread. `0` turns the round off: a question is then recorded as the asker's concern. |
+| `maxRounds` | int, 0 to 5 | `1` | Most clarifying questions the coordinator relays per thread, whether started by a `question` or by a concern that starts a recheck. `0` turns the round off: either is then recorded as the asker's concern. |
 
 The operator gives the value to the crew's coordinator as `KUBEMOOT_DISCUSS_RECHECK_MAX_ROUNDS`.
 
