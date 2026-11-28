@@ -96,8 +96,10 @@ final class ToolCallLedger {
             return null;
         }
         String working = storeWorking(call, key, maxChars);
-        calls.add(ToolCallRecord.stored(key, working, call.tool(), call.arguments(), body.length, shape.rows(), error,
-                storedType(shape, cut), cut ? List.of() : shape.columns(), cut ? null : inlineOf(text, error)));
+        var outcome = new ToolCallRecord.Outcome(body.length, shape.rows(), error, storedType(shape, cut),
+                cut ? List.of() : shape.columns());
+        calls.add(ToolCallRecord.stored(key, working, call.tool(), call.arguments(), outcome,
+                cut ? null : inlineOf(text, error)));
         return key;
     }
 
@@ -225,10 +227,11 @@ final class ToolCallLedger {
      * followed by its result when the result was small enough to post), and one line saying where
      * the results and the workings are. A call line names its working's key ({@code call=}) beside
      * the summary of its arguments, and both are dropped together when the room is short: the
-     * closing line says how a working's key is made from the result's. Arguments are summarized, then dropped, then the last calls without data are
-     * replaced by a count, so the descriptions, with the empty-result blocks (which are protocol
-     * text and always posted), never pass {@link #MAX_MANIFEST_CHARS}; results with data come on
-     * top, within the room of the contribution ({@link CallManifest#MAX_INLINE_CHARS}).
+     * closing line says how a working's key is made from the result's. Arguments are summarized,
+     * then dropped, then the last calls without data are replaced by a count, so the descriptions,
+     * with the empty-result blocks (which are protocol text and always posted), never pass
+     * {@link #MAX_MANIFEST_CHARS}; results with data come on top, within the room of the
+     * contribution ({@link CallManifest#MAX_INLINE_CHARS}).
      */
     String manifest() {
         String prefix = prefix();

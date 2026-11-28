@@ -131,6 +131,8 @@ public class NatsCallArtifactStore implements CallArtifactStore {
             String part = headers.containsKey(CallHeaders.WORKING_OF) ? "call" : "result";
             var meta = ObjectMeta.builder(key).description(tool + " " + part).headers(natsHeaders(headers)).build();
             conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET).put(meta, new ByteArrayInputStream(body));
+            // A working is announced like a result: the materializer follows the notice to put the
+            // object where execute_code inputs read it.
             conn.publish(natsProvider.scope().artifactSubject(threadId),
                     mapper.writeValueAsBytes(Map.of("artifact", reference(agent, tool, key, body.length, headers))));
             log.info("Stored {} call {} ({} bytes) as workspace artifact {}", tool, part, body.length, key);

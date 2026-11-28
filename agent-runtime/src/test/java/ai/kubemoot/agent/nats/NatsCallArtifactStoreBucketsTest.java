@@ -64,6 +64,20 @@ class NatsCallArtifactStoreBucketsTest {
     }
 
     @Test
+    void aWorkingIsAnnouncedToo() throws Exception {
+        when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(mock(ObjectStore.class));
+        String key = "ns-a/homelab-pilot/t1/k8s/001-execute_code";
+
+        assertTrue(store.put("t1", "k8s", "execute_code", key + ".call", "print(1)".getBytes(),
+                Map.of(ai.kubemoot.agent.chat.CallHeaders.WORKING_OF, key)));
+
+        var body = ArgumentCaptor.forClass(byte[].class);
+        verify(conn).publish(any(String.class), body.capture());
+        assertTrue(new String(body.getValue()).contains("\"key\":\"" + key + ".call\""),
+                "the sandbox's materializer follows the notice, so execute_code inputs can open the program");
+    }
+
+    @Test
     void theBucketIsCreatedWithTheTtlUnderTheWorkspaceName() throws Exception {
         when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(mock(ObjectStore.class));
 
