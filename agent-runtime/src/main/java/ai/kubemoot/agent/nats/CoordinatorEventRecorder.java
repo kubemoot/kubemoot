@@ -295,6 +295,9 @@ final class CoordinatorEventRecorder {
         d.put(ASKER, q.asker());
         d.put(TARGET, q.target());
         d.put(QUESTION, q.text());
+        if (!q.finding().isEmpty()) {
+            d.put(FINDING, q.finding());
+        }
         return d;
     }
 

@@ -102,28 +102,43 @@ public final class SignalTool {
     }
 
     /** What {@code to} says: required for the kinds that must name an agent, optional for the kinds that may. */
-    private static String toDescription(List<String> required, List<String> optional) {
+    private static String toDescription(List<String> required, List<String> optional, List<String> rechecking) {
         var text = new StringBuilder("The agent the signal is said to, by name.");
         if (!required.isEmpty()) {
             text.append(" Required for: ").append(String.join(", ", required)).append('.');
         }
-        if (!optional.isEmpty()) {
-            text.append(" For ").append(String.join(", ", optional))
+        if (!rechecking.isEmpty()) {
+            text.append(" For ").append(String.join(", ", rechecking))
                     .append(", name the agent whose claim you doubt, and it is asked to recheck it.");
         }
+        if (!optional.isEmpty()) {
+            text.append(" For ").append(String.join(", ", optional))
+                    .append(", you may name the agent whose claim you doubt.");
+        }
         return text.toString();
+    }
+
+    /** A concern may name an agent; any other addressed kind must. A kind that starts a recheck says the agent is asked. */
+    private static void sortAddressed(DeclaredSignal s, List<String> required, List<String> optional,
+                                      List<String> rechecking) {
+        if (s.effect() != SignalEffect.CONCERN) {
+            required.add(s.name());
+        } else {
+            (s.startsRecheck() ? rechecking : optional).add(s.name());
+        }
     }
 
     private static ToolSpecification buildSpec(DeclaredSignals signals) {
         List<String> kinds = new ArrayList<>();
         List<String> addressed = new ArrayList<>();
         List<String> named = new ArrayList<>();
+        List<String> rechecking = new ArrayList<>();
         var description = new StringBuilder("Record your verdict on the discussion. Call it when your work is done, "
                 + "with the kind that fits; your reply text stays your finding. Kinds:");
         for (DeclaredSignal s : signals.all()) {
             kinds.add(s.name());
             if (s.addressed()) {
-                (s.effect() == SignalEffect.CONCERN ? named : addressed).add(s.name());
+                sortAddressed(s, addressed, named, rechecking);
             }
             description.append("\n- ").append(s.name()).append(": ").append(s.meaning());
         }
@@ -132,8 +147,8 @@ public final class SignalTool {
                 .addStringProperty(STATEMENT, "The claim, concern or question, in a sentence or two.")
                 .addStringProperty(REASON, "Why, from your results.")
                 .addStringProperty(EVIDENCE, "Optional: a stored-result key, or a short quote from a result.");
-        if (!addressed.isEmpty() || !named.isEmpty()) {
-            parameters.addStringProperty(TO, toDescription(addressed, named));
+        if (!addressed.isEmpty() || !named.isEmpty() || !rechecking.isEmpty()) {
+            parameters.addStringProperty(TO, toDescription(addressed, named, rechecking));
         }
         return ToolSpecification.builder()
                 .name(NAME)

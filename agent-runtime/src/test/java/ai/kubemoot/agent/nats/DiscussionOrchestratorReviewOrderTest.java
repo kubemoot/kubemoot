@@ -416,4 +416,19 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
         assertFalse(first.contains("[WORKING of 11 pods"), "a finding without calls shows nothing");
         assertEquals(DiscussionOrchestrator.Phase.REVIEW, phase("t20"), "an unreadable working never blocks the review");
     }
+
+    @Test
+    void theObjectionsGetTheWorkingBeforeTheAgreesSpendTheRoom() {
+        var state = new DiscussionOrchestrator.ThreadState("t30");
+        var big = ReviewWorking.of((key, max) -> new ReviewWorking.Stored("x".repeat(max), max));
+        for (int i = 0; i < 14; i++) {
+            state.agreeSignals.put("agent-" + i, "ok [CALL key=agent-" + i + "/001-run tool=run call=agent-" + i + "/001-run.call]");
+        }
+        state.concernSignals.put("doubter", "wrong [CALL key=doubter/001-run tool=run call=doubter/001-run.call]");
+
+        String summary = DiscussionOrchestrator.reviewSummary(state, big);
+
+        assertTrue(summary.contains("[WORKING of doubter/001-run]"), "the concern's working is shown");
+        assertTrue(summary.contains("more call"), "the agrees that did not fit are counted");
+    }
 }

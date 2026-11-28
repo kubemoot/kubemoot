@@ -418,8 +418,13 @@ class RecheckThreadTest extends CoordinatorThreadTestBase {
 
     /** A concern as the agent publishes it: the verdict the signal tool recorded, as the runtime sends it. */
     private void concern(String asker, String to, boolean startsRecheck) throws Exception {
+        concern(asker, to, startsRecheck, new SignalVerdicts.Finding("", ""));
+    }
+
+    private void concern(String asker, String to, boolean startsRecheck, SignalVerdicts.Finding finding)
+            throws Exception {
         var call = new ai.kubemoot.agent.signal.SignalCall("concern", to, QUESTION, "", "");
-        var verdict = SignalVerdicts.of(call, new SignalVerdicts.Finding("", ""), true, startsRecheck);
+        var verdict = SignalVerdicts.of(call, finding, true, startsRecheck);
         var meta = MAPPER.createObjectNode().put("signal", verdict.signal());
         verdict.metadata().forEach((k, v) -> meta.put(k, String.valueOf(v)));
         send(THREAD, asker, verdict.signal(), verdict.content(), meta.toString());
@@ -463,5 +468,34 @@ class RecheckThreadTest extends CoordinatorThreadTestBase {
         assertEquals(1, publishedOfType("question_asked").size(), "maxRounds is 1");
         assertEquals("round_limit", events("question_asked").get(1).data().path("refusal").asText());
         assertTrue(state().concernSignals.containsKey(ANALYST));
+    }
+
+    private static final String CALL = "[CALL key=a/001-run tool=run call=a/001-run.call]";
+
+    @Test
+    void aConcernThatCannotBeRelayedKeepsItsReasoningAndCallLines() throws Exception {
+        toReview(WRONG);
+
+        concern(ANALYST, "k8s-nodez", true, new SignalVerdicts.Finding("my count is 7, from the list", CALL));
+
+        assertTrue(publishedOfType("question_asked").isEmpty());
+        String concern = state().concernSignals.get(ANALYST);
+        assertTrue(concern.contains(QUESTION), concern);
+        assertTrue(concern.contains("my count is 7, from the list"), concern);
+        assertTrue(concern.contains(CALL), concern);
+        assertTrue(concern.contains("[No recheck by k8s-nodez"), concern);
+        agreesNow(THREAD, "the log rebuilds the same concern, call lines included");
+    }
+
+    @Test
+    void aConcernPastTheRoundLimitKeepsItsCallLines() throws Exception {
+        toReview(WRONG);
+        concern(ANALYST, METRICS, true);
+        answer(METRICS, "agree", REVISED);
+
+        concern(ANALYST, WORKLOADS, true, new SignalVerdicts.Finding("see my working", CALL));
+
+        assertTrue(state().concernSignals.get(ANALYST).contains(CALL));
+        agreesNow(THREAD, "the log and the live state agree");
     }
 }

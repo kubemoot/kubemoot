@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.nats;
 
+import ai.kubemoot.agent.signal.SignalEffect;
 import ai.kubemoot.agent.tracing.AgentTrace;
 import ai.kubemoot.agent.tracing.DiscussionSpans;
 import io.opentelemetry.context.Context;
@@ -1494,7 +1495,7 @@ public class DiscussionOrchestrator {
         state.pendingEvaluations.remove(asker);
         state.waitingAgents.remove(asker);
         state.lastSignalReceived = Instant.now();
-        var decision = decideQuestion(state, asker, target, text);
+        var decision = decideQuestion(state, asker, target, text, concernFinding(meta, content));
         var question = decision.question();
         if (!decision.relayed()) {
             log.info("Thread {} - {} asked {}; not relayed ({}), recorded as a concern", state.threadId, asker,
@@ -1512,16 +1513,26 @@ public class DiscussionOrchestrator {
     }
 
     /**
+     * The whole content of a concern that was published as a question (a concern naming the agent
+     * it doubts), so it can stand as it was said when no recheck happens; empty for a plain question.
+     */
+    private static String concernFinding(JsonNode meta, String content) {
+        boolean concern = SignalEffect.of(meta.path(SignalVerdicts.FIELD_KIND).asText("")) == SignalEffect.CONCERN;
+        return concern && content != null ? content : "";
+    }
+
+    /**
      * Findings are rechecked only while the crew gathers and reviews them: a question in any other
      * phase (synthesis, ratification, a closed or paused thread) is refused, so no round opens that
      * nothing would close.
      */
-    private RecheckState.Decision decideQuestion(ThreadState state, String asker, String target, String text) {
+    private RecheckState.Decision decideQuestion(ThreadState state, String asker, String target, String text,
+                                                 String finding) {
         String prefix = state.threadId + "/" + state.trace.round();
         if (state.phase != Phase.EVALUATING && state.phase != Phase.REVIEW) {
-            return state.recheck.refuse(prefix, asker, target, text, RecheckState.Refusal.PHASE);
+            return state.recheck.refuse(prefix, asker, target, text, finding, RecheckState.Refusal.PHASE);
         }
-        return state.recheck.ask(prefix, asker, target, text, recheckMaxRounds, questionTargets(state));
+        return state.recheck.ask(prefix, asker, target, text, finding, recheckMaxRounds, questionTargets(state));
     }
 
     /** The agents a question may name: the crew's toolers and analysts, and every agent that took part in the thread. */
@@ -1611,7 +1622,7 @@ public class DiscussionOrchestrator {
      */
     private void recordQuestionAsConcern(ThreadState state, RecheckState.Question question, String why) {
         String asker = question.asker();
-        String concern = RecheckText.unansweredConcern(question.target(), question.text(), why);
+        String concern = RecheckText.unansweredConcern(question.target(), question.text(), question.finding(), why);
         state.concernSignals.merge(asker, concern, (earlier, added) -> earlier + "\n\n" + added);
         state.recheck.settle(asker);
         state.pendingEvaluations.remove(asker);
@@ -2946,35 +2957,63 @@ public class DiscussionOrchestrator {
      * What the evaluation found, as the review shows it: each agree and concern, cut, with the {@code [CALL ...]}
      * lines of a cut finding kept. In the second pass the first pass's stand-asides, blocks and failures show too.
      */
-    private static String reviewSummary(ThreadState state, ReviewWorking working) {
+    // Visible for testing
+    static String reviewSummary(ThreadState state, ReviewWorking working) {
+        var firstPass = state.reviewFirstPass.get().stream().sorted().toList();
+        var extras = workingOfFindings(state, firstPass, working);
         var out = new StringBuilder();
         for (var agree : state.agreeSignals.entrySet()) {
-            out.append("[").append(agree.getKey()).append("] ").append(shown(agree.getValue(), working)).append("\n\n");
+            out.append("[").append(agree.getKey()).append("] ").append(shown(agree.getValue(), extras, "agree", agree.getKey()))
+                    .append("\n\n");
         }
         for (var concern : state.concernSignals.entrySet()) {
             out.append("[CONCERN from ").append(concern.getKey()).append("] ")
-                    .append(shown(concern.getValue(), working)).append("\n\n");
+                    .append(shown(concern.getValue(), extras, "concern", concern.getKey())).append("\n\n");
         }
-        for (String name : state.reviewFirstPass.get().stream().sorted().toList()) {
+        for (String name : firstPass) {
             if (state.standAsideSignals.contains(name)) out.append("[STAND ASIDE from ").append(name).append("]\n\n");
-            appendFirstPassSignal(out, "BLOCK", name, state.blockSignals, working);
-            appendFirstPassSignal(out, "FAILURE", name, state.failureSignals, working);
+            appendFirstPassSignal(out, "BLOCK", name, state.blockSignals, extras);
+            appendFirstPassSignal(out, "FAILURE", name, state.failureSignals, extras);
         }
         return out.toString();
     }
 
+    /**
+     * The working of the calls each finding names, read in the order a reviewer needs it most, so the
+     * message's room goes to the objections first: concerns, then blocks and failures, then agrees.
+     * Keyed by the kind and the agent.
+     */
+    private static Map<String, String> workingOfFindings(ThreadState state, List<String> firstPass,
+                                                          ReviewWorking working) {
+        var extras = new HashMap<String, String>();
+        addWorking(extras, "concern", state.concernSignals, null, working);
+        addWorking(extras, "BLOCK", state.blockSignals, firstPass, working);
+        addWorking(extras, "FAILURE", state.failureSignals, firstPass, working);
+        addWorking(extras, "agree", state.agreeSignals, null, working);
+        return extras;
+    }
+
+    private static void addWorking(Map<String, String> extras, String kind, Map<String, String> signals,
+                                   List<String> only, ReviewWorking working) {
+        for (var entry : signals.entrySet()) {
+            if (only == null || only.contains(entry.getKey())) {
+                extras.put(kind + "/" + entry.getKey(), working.forFinding(entry.getValue()));
+            }
+        }
+    }
+
     private static void appendFirstPassSignal(StringBuilder out, String label, String name,
-                                              Map<String, String> signals, ReviewWorking working) {
+                                              Map<String, String> signals, Map<String, String> extras) {
         String content = signals.get(name);
         if (content != null) {
             out.append("[").append(label).append(" from ").append(name).append("] ")
-                    .append(shown(content, working)).append("\n\n");
+                    .append(shown(content, extras, label, name)).append("\n\n");
         }
     }
 
     /** A finding as the review shows it: cut, with the working and output of the calls it names below it. */
-    private static String shown(String finding, ReviewWorking working) {
-        return cutKeepingCalls(finding) + working.forFinding(finding);
+    private static String shown(String finding, Map<String, String> extras, String kind, String agent) {
+        return cutKeepingCalls(finding) + extras.getOrDefault(kind + "/" + agent, "");
     }
 
     /** What the review shows of the calls' working: read from the thread's stored files, nothing without a bus. */

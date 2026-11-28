@@ -166,7 +166,8 @@ the most questions relayed per thread; `0` turns the round off.
 agent not in the crew, to the asker itself, to an agent already in a question, or asked after
 the crew has stopped gathering and reviewing (during synthesis, ratification, or on a paused or
 closed thread) is recorded as the asker's `concern`, with the question as its text, and the
-asker's turn ends. So is a question whose agent fails or misses its deadline. An asker that fails
+asker's turn ends. A concern that named the agent it doubts and is not relayed stands as it was
+said, with its reasoning and call lines, followed by a short note that no recheck happened. A question whose agent fails or misses its deadline is recorded the same way. An asker that fails
 drops its own question. The doubt stays on the table for the
 synthesis; it is never dropped.
 
@@ -200,7 +201,10 @@ stays small:
 A cut text ends with `[cut at N of M chars; full text under <key>]`: the reviewer opens that key
 to read the rest. A call whose working or output cannot be read shows `[working unavailable]` or
 `[output unavailable]`, and the review goes on. A finding with no calls shows nothing extra. Both
-review passes show it, and a call shown once in a message is not shown again.
+review passes show it. The room goes to objections first: the working under concerns, blocks and
+failures is read before the working under agrees, so a long run of agreements cannot use it up. A
+call shown once in a message is not shown again; a later finding that names it says
+`[working of <key> shown above]`.
 
 ## Ratification
 

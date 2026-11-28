@@ -49,6 +49,10 @@ final class ReviewWorking {
     /** Shown where a call's output could not be read. */
     static final String OUTPUT_UNAVAILABLE = "[output unavailable]";
 
+    /** The review's own headings: stored text holding one must not pose as it. */
+    private static final java.util.List<String> HEADINGS =
+            java.util.List.of("[WORKING of ", "[OUTPUT of ", "[cut at ", "[working of ");
+
     private static final Pattern WORKING_KEY = Pattern.compile("\\bcall=([^\\]\\s]++)");
 
     /** One stored object read: its text, and its size in bytes (what the store holds, not what was read). */
@@ -84,8 +88,17 @@ final class ReviewWorking {
     /** A message's view of the working stored in the thread under {@code prefix} on {@code conn}. */
     static ReviewWorking of(Connection conn, String prefix) {
         long stop = System.nanoTime() + DEADLINE_NANOS;
-        BooleanSupplier timeUp = () -> System.nanoTime() - stop > 0;
-        return of((key, maxChars) -> readStored(conn, prefix + key, maxChars, timeUp));
+        return of(conn, prefix, () -> System.nanoTime() - stop > 0);
+    }
+
+    /** As {@link #of(Connection, String)}, with {@code timeUp} ending the reads. */
+    static ReviewWorking of(Connection conn, String prefix, BooleanSupplier timeUp) {
+        return of((key, maxChars) -> isInThread(key) ? readStored(conn, prefix + key, maxChars, timeUp) : null);
+    }
+
+    /** A key names a file of this thread only when it is relative and climbs nowhere. */
+    private static boolean isInThread(String key) {
+        return !key.startsWith("/") && !key.contains("..");
     }
 
     private static Stored readStored(Connection conn, String fullKey, int maxChars, BooleanSupplier timeUp) {
@@ -127,6 +140,7 @@ final class ReviewWorking {
         Matcher m = CallManifest.CALL_LINE.matcher(finding);
         while (m.find()) {
             if (!shown.add(m.group(1))) {
+                out.append("[working of ").append(m.group(1)).append(" shown above]\n");
                 continue;
             }
             String block = room < MIN_ROOM_CHARS ? null : callBlock(m.group(1), workingKey(m.group(), m.group(1)));
@@ -204,6 +218,9 @@ final class ReviewWorking {
     /** A working or an output must not pose as the discussion's own lines: a marker of its format is defused. */
     private static String neutral(String text) {
         String out = text;
+        for (String heading : HEADINGS) {
+            out = out.replace(heading, "(" + heading.substring(1));
+        }
         for (String marker : CallManifest.RESULT_MARKERS) {
             out = out.replace(marker, "(" + marker.substring(1));
         }
