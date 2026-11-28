@@ -148,12 +148,20 @@ class DiscussionOrchestratorHelpersTest {
     }
 
     @Test
-    void classifyGap_toolerGap_whenZeroAgreesWithStandAsidesAndGapReport() {
+    void classifyGap_toolerGap_whenZeroAgreesAndEveryAgentStoodAside() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         state.standAsideSignals.add("agent-a");
         state.standAsideSignals.add("agent-b");
         var gap = orchestrator.classifyGap(state, 0);
         assertEquals(DiscussionOrchestrator.GapType.TOOLER_GAP, gap);
+    }
+
+    @Test
+    void classifyGap_toolerGap_evenWhenTheAnswerIsNotAGapReport() {
+        var state = new DiscussionOrchestrator.ThreadState("t1");
+        state.standAsideSignals.add("agent-a");
+        // The answer text is not an input: stand-asides decide, whatever the synthesis says.
+        assertEquals(DiscussionOrchestrator.GapType.TOOLER_GAP, orchestrator.classifyGap(state, 0));
     }
 
     @Test

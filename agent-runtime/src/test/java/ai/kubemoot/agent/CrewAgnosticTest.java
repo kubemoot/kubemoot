@@ -25,9 +25,11 @@ import org.junit.jupiter.api.Test;
  *
  * <ul>
  *   <li>The coaching flags and failure type are gone.</li>
- *   <li>No string literal in the runtime's main sources names a tool, an MCP server, a crew, an
- *       agent or a domain (Kubernetes, Prometheus, accelerator model names). A literal is what
- *       reaches a model, a user or a log, so this holds for every text the runtime sends.</li>
+ *   <li>No string literal in the runtime's Java sources, and no text in its ADL prompts or
+ *       properties, names a tool, an MCP server, a crew, an agent or a domain (Kubernetes,
+ *       Prometheus, accelerator model names). The docs name no removed flag. The scan reads one
+ *       literal at a time: a text built by joining literals with {@code +} or by formatting is
+ *       checked per piece, so a term split across two pieces is not caught.</li>
  * </ul>
  */
 class CrewAgnosticTest {
@@ -77,46 +79,88 @@ class CrewAgnosticTest {
             "resources_list", "pods_list", "fetch-mcp", "execute_code"), Pattern.CASE_INSENSITIVE);
 
     /**
-     * Literals that may match {@link #FORBIDDEN}, each with the reason. A file is listed only when
-     * the match is protocol or a wire contract, never a lesson.
+     * The matched terms a file may carry, each with the reason. An entry is a file and the exact
+     * lower-case token, never a whole file, and fails the test once it stops matching.
      */
-    private static final Map<String, String> ALLOWED = Map.of(
-            "mcp/WorkspaceTools.java",
-            "the registry of the moot's own workspace tools; its code-sandbox name is the one place the"
-                    + " runtime names that tool, and every prompt takes it from here",
-            "chat/ResultType.java",
-            "the media-type profile token 'kubectl-table' is a wire contract shared with the"
-                    + " workspace-access server and its fixtures; renaming it is a change in both components",
-            "chat/NativeSelfTest.java",
-            "a start-up check that the native image detects that same media-type profile token",
-            "nats/RtfmSubscriber.java",
-            "Kubemoot's own documentation-indexing feature talks to its own RAGSource resources and names"
-                    + " the fetch tool; it moves to a PromptModule of the onboarding agent in a follow-up",
-            "nats/CrewScope.java",
-            "the Kubernetes service-account path and environment names the runtime reads to learn its own"
-                    + " namespace; configuration, no text reaches a model");
+    private static final Map<String, Map<String, String>> ALLOWED = Map.of(
+            "mcp/WorkspaceTools.java", Map.of("execute_code",
+                    "the registry of the moot's own workspace tools; the one place the runtime names the"
+                            + " code-sandbox tool, and every prompt takes it from here"),
+            "chat/ResultType.java", Map.of("kubectl",
+                    "the media-type profile token 'kubectl-table' is a wire contract shared with the"
+                            + " workspace-access server and its fixtures; renaming it changes both components"),
+            "chat/NativeSelfTest.java", Map.of("kubectl",
+                    "a start-up check that the native image detects that same media-type profile token"),
+            // Follow-up card: "Onboarding and RTFM Prompts Become PromptModules".
+            "nats/RtfmSubscriber.java", Map.of("fetch-mcp",
+                    "Kubemoot's own documentation-indexing feature names the fetch tool; it becomes a"
+                            + " PromptModule of the onboarding agent (card above)"),
+            "application.properties", Map.of(
+                    "ollama_base_url", "the engine's endpoint setting; configuration, no text reaches a model",
+                    "ollama_chat_model_model_id", "the engine's default model setting; configuration",
+                    "ollama_timeout", "the engine's timeout setting; configuration",
+                    "qwen", "the default model id when no agent sets one; configuration",
+                    "prometheus", "the metrics exporter of the runtime itself; no text reaches a model"),
+            "nats/CrewScope.java", Map.of("kubernetes",
+                    "the service-account path and environment names read to learn the runtime's own"
+                            + " namespace; configuration, no text reaches a model"));
 
     @Test
     void noLiteralInTheRuntimeNamesAToolACrewOrADomain() throws IOException {
         var hits = new ArrayList<String>();
         var used = new java.util.TreeSet<String>();
-        for (Path file : mainFiles(".java")) {
-            String rel = MAIN.relativize(file).toString().replace('\\', '/').replace("ai/kubemoot/agent/", "");
-            for (String literal : literals(Files.readString(file))) {
-                if (FORBIDDEN.matcher(literal).find()) {
-                    if (ALLOWED.containsKey(rel)) {
-                        used.add(rel);
+        for (Path file : mainFiles(".java", ".adl", ".properties")) {
+            String rel = relative(file);
+            String text = Files.readString(file);
+            var pieces = piecesOf(file, text);
+            for (String piece : pieces) {
+                var m = FORBIDDEN.matcher(piece);
+                while (m.find()) {
+                    String token = m.group().toLowerCase(java.util.Locale.ROOT);
+                    if (ALLOWED.getOrDefault(rel, Map.of()).containsKey(token)) {
+                        used.add(rel + " " + token);
                     } else {
-                        hits.add(rel + ": " + abbreviate(literal));
+                        hits.add(rel + " [" + token + "]: " + abbreviate(piece));
                     }
                 }
             }
         }
-        assertTrue(hits.isEmpty(), "the runtime must stay crew agnostic; these literals name a tool, a crew or"
+        assertTrue(hits.isEmpty(), "the runtime must stay crew agnostic; these texts name a tool, a crew or"
                 + " a domain:\n  " + String.join("\n  ", hits));
-        var unused = new java.util.TreeSet<>(ALLOWED.keySet());
+        var unused = new java.util.TreeSet<String>();
+        ALLOWED.forEach((file, tokens) -> tokens.keySet().forEach(t -> unused.add(file + " " + t)));
         unused.removeAll(used);
         assertEquals(Set.of(), unused, "allowlist entries that no longer match anything must be removed");
+    }
+
+    @Test
+    void theDocsNameNoRemovedFlag() throws IOException {
+        var removed = List.of("METRICS_DRILL", "COMPUTE_CONTRACT", "COMPUTE_GROUNDING", "SYNTHESIS_COMPLETENESS");
+        try (Stream<Path> walk = Files.walk(Path.of("../docs"))) {
+            for (Path doc : walk.filter(p -> p.toString().endsWith(".md")).toList()) {
+                String text = Files.readString(doc);
+                for (String name : removed) {
+                    assertFalse(text.contains(name), name + " is still named in " + doc);
+                }
+            }
+        }
+    }
+
+    /** The texts to scan: the literals of Java, the settings (not the comments) of properties, all of an ADL file. */
+    private static List<String> piecesOf(Path file, String text) {
+        if (file.toString().endsWith(".java")) {
+            return literals(text);
+        }
+        if (file.toString().endsWith(".properties")) {
+            return text.lines().filter(l -> !l.stripLeading().startsWith("#")).toList();
+        }
+        return List.of(text);
+    }
+
+    private static String relative(Path file) {
+        String p = file.toString().replace('\\', '/');
+        int at = p.indexOf("ai/kubemoot/agent/");
+        return at >= 0 ? p.substring(at + "ai/kubemoot/agent/".length()) : p.substring(p.indexOf("resources/") + 10);
     }
 
     @Test

@@ -783,8 +783,8 @@ public class DiscussionSubscriber {
             contribute to answering it?
 
             Reply with EXACTLY one of:
-            - CONTRIBUTE — if your tools or knowledge can help answer this question
-            - NOTHING_TO_ADD — if this is outside your expertise or you have nothing useful to add
+            - CONTRIBUTE - if your tools or knowledge can help answer this question
+            - NOTHING_TO_ADD - if this is outside your expertise or you have nothing useful to add
 
             Do not explain your reasoning. Reply with only one of the above.""";
 
