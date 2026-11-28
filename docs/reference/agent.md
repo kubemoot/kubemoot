@@ -79,18 +79,20 @@ Scheduling tools (`set_reminder`, `schedule_followup`, `list_scheduled`, `cancel
 ### `spec.workspace.access`
 Optional. What the agent may do with the discussion's workspace, the scratch data the agents of one discussion share (see [Discussion artifact store](../../concepts/workspace/#workspace-access)). One of:
 
-| Value | Reads the workspace | Stores its tool results |
-|-------|---------------------|-------------------------|
-| `none` | no | no: a large result returns inline under the runtime's budget |
-| `read` | yes | no |
-| `write` | no | yes: for a tooler that fetches and hands off |
-| `readWrite` | yes | yes |
+| Value | Reads the workspace |
+|-------|---------------------|
+| `none` | no |
+| `read` | yes |
+| `write` | no: for a tooler that fetches and hands off |
+| `readWrite` | yes |
 
-Left out, the Crew's `spec.workspace.defaultAccess` applies, then the KubemootConfig's `workspace.defaultAccess`. With none of the three declared the access is implicit: the agent behaves as it always has. It stores every tool result, and it reads the workspace only through the tools its `enabledTools` names.
+Whatever the access, the agent's tool calls are kept in the discussion's workspace, each result and the call itself (its arguments, a program included) under the result's key followed by `.call`, so every agent can review the work behind a finding ([The call is kept](../../concepts/workspace/#the-call-is-kept)).
+
+Left out, the Crew's `spec.workspace.defaultAccess` applies, then the KubemootConfig's `workspace.defaultAccess`. With none of the three declared the access is implicit: the agent reads the workspace only through the tools its `enabledTools` names.
 
 A declared access is authoritative. The operator disables every workspace tool the access does not grant (the `workspace_*` tools and the older `artifact_*` names), even when `enabledTools` names it, and adds the tools a `read` or `readWrite` access grants to a non-empty `enabledTools`. A tool named in `disabledTools` stays denied. The operator sets `KUBEMOOT_WORKSPACE_ACCESS` on the agent runtime.
 
-Read is enforced through the agent's tool list and write by the agent-runtime, which stores nothing without write access. NATS does not enforce either yet: nothing provisions per-agent NATS users, and that enforcement lands with user provisioning. The workspace server scopes reads by discussion, not by agent, so access does not isolate two agents of one crew from each other. Other routes read the workspace whatever the tool list says: the code sandbox's `/kubemoot/workspace` mount (also mounted at `/artifacts`, a second mount of the same volume, for one release; the materializer copies every object of the namespace; a program sees only the calling discussion's folder of it, not other discussions' files), the coordinator's catalog of stored keys (an agent with `none` or `read` still receives it in the discussion), and direct MCP mode, where tool names carry a server prefix (`server.tool`) that the workspace tool names do not match.
+Read is enforced through the agent's tool list. NATS does not enforce read or write yet: nothing provisions per-agent NATS users, and that enforcement lands with user provisioning. The workspace server scopes reads by discussion, not by agent, so access does not isolate two agents of one crew from each other. Other routes read the workspace whatever the tool list says: the code sandbox's `/kubemoot/workspace` mount (also mounted at `/artifacts`, a second mount of the same volume, for one release; the materializer copies every object of the namespace; a program sees only the calling discussion's folder of it, not other discussions' files), the coordinator's catalog of stored keys (an agent with `none` or `read` still receives it in the discussion), and direct MCP mode, where tool names carry a server prefix (`server.tool`) that the workspace tool names do not match.
 
 The `NoWorkspaceServer` check recognizes only an MCPServer that selects the image with `spec.kubemootImage`; a server that names its image directly or an external endpoint is not counted. In a KubemootConfig `workspace.defaultAccess`, omit the field to leave agents implicit; an empty string is refused.
 
@@ -528,7 +530,7 @@ Consumers judge staleness from the record itself: a heartbeat is stale once two 
 | Env Var | Applies To | Source |
 |---------|-----------|--------|
 | `NATS_URL` | All agents | Operator from NATS service |
-| `KUBEMOOT_WORKSPACE_ACCESS` | Agents with a declared workspace access | The resolved `spec.workspace.access` (Agent, then Crew, then KubemootConfig); absent when none is declared. With `none` or `read` the runtime stores no tool results |
+| `KUBEMOOT_WORKSPACE_ACCESS` | Agents with a declared workspace access | The resolved `spec.workspace.access` (Agent, then Crew, then KubemootConfig); absent when none is declared. The runtime keeps every tool call whatever it says |
 | `KUBEMOOT_DISCUSS_CHANNELS` | All agents | `Agent.spec.discussChannels` (comma-separated) |
 | `KUBEMOOT_DISCUSS_COORDINATOR` | Coordinators | Set `true` when `discussRole=coordinator` |
 | `KUBEMOOT_DISCUSS_TOOLER` | All agents | `false` for coordinators and researcher-role agents |

@@ -711,22 +711,41 @@ faster on the large case.
 
 An Agent declares what it may do with the workspace in `spec.workspace.access`; a Crew sets a default for its agents in `spec.workspace.defaultAccess` and a KubemootConfig sets a cluster default in `workspace.defaultAccess`. The closest declaration wins.
 
-| Access | Read tools | Stores its results | NATS publish on the bucket (not yet applied) |
-|--------|------------|--------------------|----------------------------|
-| `none` | no | no, results return inline under the budget | no |
-| `read` | yes | no | no |
-| `write` | no | yes | yes |
-| `readWrite` | yes | yes | yes |
+| Access | Read tools | NATS publish on the bucket (not yet applied) |
+|--------|------------|----------------------------|
+| `none` | no | no |
+| `read` | yes | no |
+| `write` | no | yes |
+| `readWrite` | yes | yes |
 
 A crew that declares nothing keeps today's behavior: every result is stored and the read tools are present when `enabledTools` names them. A tooler that fetches and hands off declares `write`: it stores what it fetched and gets no read tools. The operator reports the resolved access in the Agent's `status.workspace`, and a `WorkspaceAccessResolved` condition when a declared access cannot work as written.
 
-The agent-runtime reads the declared access from `KUBEMOOT_WORKSPACE_ACCESS`. With `none` or `read` it stores nothing: it does not write a file for any tool call, so its calls have no key, and every tool result returns to the model inline under the tool result budget, with a large result cut, exactly as a tool loop does outside a discussion. The agent still lists its calls in its contribution ([Calls of an agent that stores nothing](#calls-of-an-agent-that-stores-nothing)), so the coordinator and the other agents see what it asked and what it got. A raw-output tooler with `none` or `read` has no such list: its contribution is the tool output it gathered. With `write` or `readWrite`, or when the variable is absent, it stores every result as before. A value the runtime does not recognize is logged once and treated as absent, so a typo cannot silence an agent that used to store. An agent with `none` or `read` still receives the coordinator's catalog of stored keys in the discussion; the access limits what it stores and which tools it has, not what the coordinator posts.
+The declared access decides which workspace tools the agent has. It does not decide whether the agent's calls are kept: every agent in a discussion keeps every tool call, its result and the call itself ([The call is kept](#the-call-is-kept)), so the other agents can review the work behind a finding. An agent with `none` or `read` still receives the coordinator's catalog of stored keys in the discussion.
 
-Read is enforced through the agent's tool list, not per caller, and write by the agent-runtime. NATS enforcement lands with NATS user provisioning; the NATS column above is the grant that provisioning will give, and it is not applied yet. The workspace server scopes reads by discussion, so access does not isolate two agents of one crew. The code sandbox's `/kubemoot/workspace` mount, the coordinator's catalog of stored keys, and direct MCP mode (tool names with a `server.` prefix) reach the workspace whatever the tool list says; see [Agent](../../reference/agent/#specworkspaceaccess).
+Read is enforced through the agent's tool list, not per caller. NATS enforcement of write lands with NATS user provisioning; the NATS column above is the grant that provisioning will give, and it is not applied yet. The workspace server scopes reads by discussion, so access does not isolate two agents of one crew. The code sandbox's `/kubemoot/workspace` mount, the coordinator's catalog of stored keys, and direct MCP mode (tool names with a `server.` prefix) reach the workspace whatever the tool list says; see [Agent](../../reference/agent/#specworkspaceaccess).
+
+### The call is kept
+
+A finding's calls are kept, not only their results. Each call's full arguments, exactly as the model sent them (the program of an `execute_code` call, a SQL query, the parameters of a tool), are stored in the discussion's workspace beside the call's result, under the result's key followed by `.call`:
+
+| What | Key |
+|------|-----|
+| The result | `<agent>/<nnn>-<tool>` |
+| The call (its arguments) | `<agent>/<nnn>-<tool>.call` |
+
+The call line of a finding names it, beside the short preview of the arguments:
+
+```
+[CALL key=k8s-workloads/001-execute_code tool=execute_code call=k8s-workloads/001-execute_code.call args={"language":"python","code":"import csv\nrows = list(... (args cut at 60 of 412 chars) type=text/plain bytes=14 rows=unknown error=false]
+```
+
+Any agent in the same discussion opens the program by that key with the workspace tools it already has (`workspace_head`, `workspace_tail`, `workspace_grep`, `workspace_query`), or names it in `execute_code`'s `inputs`, which opens it as the file `./inputs/<key>`. The key is read inside the current discussion; the key of another discussion is refused, as for any result. Nothing else enters an agent's context: the line carries the key, not the program, and a reader opens it only when it wants to see how a number was made. A call line that must drop its arguments to fit the room drops the `call=` field with them; the closing line of the descriptions says that the key is the result's key followed by `.call`.
+
+The arguments are cut at the same size cap as a result, and an argument text over it ends with the cut marker and is stored as `text/plain`. They go through the same writing path as a result: headers are encoded for NATS, and logs name the key and the size, never the text (see [Observability](../../operating/observability/)). A call whose arguments could not be written has `call=unavailable` on its line, and the call and its result are unaffected. The object has no `gen_ai.operation.name` header, so the catalog of stored keys, the keys that read all of a tool's calls as one table (`<prefix>*-<tool>`) and the fitness runner's evidence check never take it for a result. It lives and expires with the thread's other objects.
 
 ### Calls of an agent that stores nothing
 
-An agent with `read` or `none` access lists its tool calls in its contribution the same way a storing agent does, and writes nothing to the workspace. The `[WORKSPACE ...]` header says `stored=no` in place of a prefix. Each call has one line with no key (nothing was stored to read), and its result follows when it fits the same room as a stored agent's:
+Only a runtime that has no workspace store (no NATS connection to write to) lists its calls this way; an agent's declared access no longer causes it. Such an agent lists its tool calls in its contribution the same way a storing agent does, and writes nothing to the workspace. The `[WORKSPACE ...]` header says `stored=no` in place of a prefix. Each call has one line with no key (nothing was stored to read), and its result follows when it fits the same room as a stored agent's:
 
 ```
 [WORKSPACE agent=obs-advisor calls=3 errors=0 stored=no]
