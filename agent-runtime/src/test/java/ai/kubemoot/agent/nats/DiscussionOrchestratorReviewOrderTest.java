@@ -312,6 +312,50 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
         assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
     }
 
+    @Test
+    void aRestartWhoseRosterMatchesNeitherPassWarnsAndReviewsAsOnePass() {
+        var state = restartedThread("r3", Set.of("some-other-analyst"));
+        try (var capture = new ai.kubemoot.agent.logging.LogCapture()) {
+            orchestrator.restoreReviewPasses(state);
+
+            String logged = capture.text();
+            assertTrue(logged.contains("Thread r3") && logged.contains("matches neither"), logged);
+            assertTrue(logged.contains("[some-other-analyst]") && logged.contains("[compute]")
+                    && logged.contains("[k8s-advisor]"), logged);
+        }
+        assertTrue(state.reviewSecondPass.isEmpty());
+        assertTrue(state.reviewFirstPass.isEmpty());
+    }
+
+    @Test
+    void aRestartWhoseRecomputedReviewHasNoSecondPassWarnsAndReviewsAsOnePass() throws Exception {
+        resumes = """
+                [{"name":"k8s-metrics","role":"tooler","domains":["kubernetes"]},
+                 {"name":"k8s-workloads","role":"tooler","domains":["kubernetes"]},
+                 {"name":"k8s-advisor","role":"analyst","domains":["kubernetes"]}]
+                """;
+        rebuild("generalistsFirst");
+        var state = restartedThread("r4", Set.of(COMPUTE));
+        try (var capture = new ai.kubemoot.agent.logging.LogCapture()) {
+            orchestrator.restoreReviewPasses(state);
+
+            String logged = capture.text();
+            assertTrue(logged.contains("Thread r4") && logged.contains("no second pass"), logged);
+            assertTrue(logged.contains("[compute]"), logged);
+        }
+        assertTrue(state.reviewSecondPass.isEmpty());
+    }
+
+    @Test
+    void aRestartOfAReviewThatIsTogetherDoesNotWarn() throws Exception {
+        rebuild("");
+        var state = restartedThread("r5", Set.of(COMPUTE, ADVISOR));
+        try (var capture = new ai.kubemoot.agent.logging.LogCapture()) {
+            orchestrator.restoreReviewPasses(state);
+            assertFalse(capture.text().contains("one pass after the restart"), capture.text());
+        }
+    }
+
     private DiscussionOrchestrator.ThreadState restartedThread(String id, Set<String> roster) {
         var state = new DiscussionOrchestrator.ThreadState(id);
         state.crew = "crew";

@@ -2869,12 +2869,21 @@ public class DiscussionOrchestrator {
         var members = state.phaseRoster.get().members();
         var analysts = analystNamesFromResumes();
         var passes = reviewPasses(reviewersFor(reviewPlan(state, analysts).circle(), analysts), state.threadId);
-        if (passes.second().isEmpty()) return;
-        if (members.equals(Set.copyOf(passes.first()))) {
+        boolean ordered = reviewPolicy.order() == ReviewConvening.Order.GENERALISTS_FIRST;
+        if (passes.second().isEmpty()) {
+            if (ordered) warnSinglePass(state, members, passes, "the recomputed review has no second pass");
+        } else if (members.equals(Set.copyOf(passes.first()))) {
             state.reviewSecondPass = passes.second();
         } else if (members.equals(Set.copyOf(passes.second()))) {
             state.reviewFirstPass = passes.first();
+        } else {
+            warnSinglePass(state, members, passes, "the restored roster matches neither recomputed pass");
         }
+    }
+
+    private void warnSinglePass(ThreadState state, Set<String> members, ReviewConvening.Passes passes, String why) {
+        log.warn("Thread {} - review continues as one pass after the restart: {} (restored roster {}, recomputed passes {} then {})",
+                state.threadId, why, new java.util.TreeSet<>(members), passes.first(), passes.second());
     }
 
     /** The passes the archetype's review order makes of the convened reviewers (see {@link ReviewConvening#passes}). */
