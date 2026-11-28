@@ -95,9 +95,36 @@ final class ToolCallLedger {
             calls.add(ToolCallRecord.notStored(call.tool(), call.arguments(), error));
             return null;
         }
-        calls.add(ToolCallRecord.stored(key, call.tool(), call.arguments(), body.length, shape.rows(), error,
+        String working = storeWorking(call, key, maxChars);
+        calls.add(ToolCallRecord.stored(key, working, call.tool(), call.arguments(), body.length, shape.rows(), error,
                 storedType(shape, cut), cut ? List.of() : shape.columns(), cut ? null : inlineOf(text, error)));
         return key;
+    }
+
+    /**
+     * Store the call's working, its arguments exactly as the model sent them (the program of an
+     * execute_code call, the query, the parameters), beside its result under
+     * {@link CallManifest#workingKeyOf}, cut at the same {@code maxChars} as the result. The object
+     * carries no {@link CallHeaders#OPERATION_NAME}, so the catalogs and the readers of a tool's
+     * calls as one table never take it for a result. Returns the key, or null when the write failed.
+     */
+    private String storeWorking(Call call, String resultKey, int maxChars) {
+        String args = call.arguments() == null ? "" : call.arguments();
+        boolean cut = args.length() > maxChars;
+        byte[] body = (cut ? TextCut.truncate(args, maxChars) : args).getBytes(StandardCharsets.UTF_8);
+        String key = CallManifest.workingKeyOf(resultKey);
+        var h = new LinkedHashMap<String, String>();
+        h.put(CallHeaders.WORKING_OF, resultKey);
+        h.put(CallHeaders.TOOL_NAME, call.tool());
+        h.put(CallHeaders.TOOL_CALL_ID, callId(call, resultKey));
+        h.put(CallHeaders.AGENT_NAME, agent);
+        h.put(CallHeaders.STARTED, call.started().toString());
+        h.put(CallHeaders.BYTES, Integer.toString(body.length));
+        h.put(CallHeaders.CONTENT_TYPE, cut || args.isBlank() ? ResultType.TEXT : ResultType.of(args));
+        if (cut) {
+            h.put(CallHeaders.TRUNCATED, "true");
+        }
+        return store.put(threadId, agent, call.tool(), key, body, h) ? key : null;
     }
 
     /** List a call of an agent that stores nothing: its size and shape, and its result when it fits. Returns null: there is no key. */
@@ -196,7 +223,9 @@ final class ToolCallLedger {
     /**
      * The file descriptions of the agent's contribution: a header line, one line per call (each
      * followed by its result when the result was small enough to post), and one line saying where
-     * the results are. Arguments are summarized, then dropped, then the last calls without data are
+     * the results and the workings are. A call line names its working's key ({@code call=}) beside
+     * the summary of its arguments, and both are dropped together when the room is short: the
+     * closing line says how a working's key is made from the result's. Arguments are summarized, then dropped, then the last calls without data are
      * replaced by a count, so the descriptions, with the empty-result blocks (which are protocol
      * text and always posted), never pass {@link #MAX_MANIFEST_CHARS}; results with data come on
      * top, within the room of the contribution ({@link CallManifest#MAX_INLINE_CHARS}).
@@ -207,7 +236,8 @@ final class ToolCallLedger {
         String head = CallManifest.HEADER_PREFIX + "agent=" + agent + " calls=" + calls.size() + " errors=" + errors
                 + (store == null ? " stored=no" : " prefix=" + prefix) + "]\n";
         String keyHint = prefix.isEmpty() ? "." : "; the key " + prefix + "*-<tool> reads every call of one tool as one table.";
-        String foot = store == null ? "" : "\n" + CallManifest.FOOTER_PREFIX + "; a result not shown above is only in its file. Read a key with "
+        String foot = store == null ? "" : "\n" + CallManifest.FOOTER_PREFIX + "; a result not shown above is only in its file, and "
+                + CallManifest.WORKING_NOTE + ". Read a key with "
                 + WorkspaceTools.QUERY + " (SQL; the columns are listed on the call line, and "
                 + WorkspaceTools.DESCRIBE + " lists every one), "
                 + WorkspaceTools.HEAD + ", " + WorkspaceTools.TAIL + ", " + WorkspaceTools.GREP + ", or "
@@ -298,8 +328,17 @@ final class ToolCallLedger {
                     + " error=" + c.error() + " - "
                     + (c.storeOff() ? CallManifest.NOT_KEPT_NOTE : CallManifest.WRITE_FAILED_NOTE) + "]";
         }
-        var sb = callLine(new StringBuilder(CallManifest.CALL_PREFIX).append(shortKey(c.key())).append(" tool=")
-                .append(c.tool()), c, withArgs);
+        return storedLine(c, withArgs, columnLimit);
+    }
+
+    /** The line of a stored call: its key, its working's key beside its arguments, and its shape. */
+    private String storedLine(ToolCallRecord c, boolean withArgs, int columnLimit) {
+        var sb = new StringBuilder(CallManifest.CALL_PREFIX).append(shortKey(c.key())).append(" tool=").append(c.tool());
+        if (withArgs) {
+            sb.append(' ').append(CallManifest.WORKING_FIELD)
+                    .append(c.workingKey() == null ? CallManifest.WORKING_UNAVAILABLE : shortKey(c.workingKey()));
+        }
+        callLine(sb, c, withArgs);
         if (columnLimit > 0 && !c.columns().isEmpty()) {
             sb.append(ResultType.isJson(c.type()) ? " fields=" : " columns=").append(ColumnNames.list(c.columns(), columnLimit));
         }

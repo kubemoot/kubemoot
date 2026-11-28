@@ -272,7 +272,7 @@ class ToolCallLedgerTest {
 
         assertTrue(manifest.contains("type=text/plain; profile=kubectl-table bytes=") && manifest.contains("columns=name,ready,status]"), manifest);
         assertTrue(manifest.contains("type=application/json bytes=") && manifest.contains("fields=name,taints]"), manifest);
-        assertTrue(manifest.contains("tool=logs args={} type=text/plain bytes=14 rows=unknown error=false]"), manifest);
+        assertTrue(manifest.contains("tool=logs call=agent-x/003-logs.call args={} type=text/plain bytes=14 rows=unknown error=false]"), manifest);
     }
 
     @Test
@@ -351,6 +351,8 @@ class ToolCallLedgerTest {
 
         assertTrue(manifest.length() <= ToolCallLedger.MAX_MANIFEST_CHARS, "length " + manifest.length());
         assertFalse(manifest.contains("args="), manifest);
+        assertFalse(manifest.contains("tool_number_0 call="), "the working's key goes with the arguments: " + manifest);
+        assertTrue(manifest.contains("followed by .call"), "the footer still says where each working is: " + manifest);
         assertTrue(manifest.contains("columns=name,ready,status"), manifest);
     }
 
@@ -371,5 +373,67 @@ class ToolCallLedgerTest {
 
         assertEquals("gen_ai.operation.name", h.keySet().iterator().next());
         assertEquals("tool_error", h.get("error.type"));
+    }
+
+    @Test
+    void theWorkingIsStoredWholeUnderTheResultKeyWithCallAppended() {
+        String program = "{\"language\":\"python\",\"code\":\"" + "x = 1\\n".repeat(200) + "\"}";
+        String key = recordCall("execute_code", program, "1", false);
+
+        assertEquals("ns/crew/th/agent-x/001-execute_code", key);
+        assertEquals(program, store.body(key + ".call"));
+        Map<String, String> h = store.headers.get(key + ".call");
+        assertEquals(key, h.get(CallHeaders.WORKING_OF));
+        assertEquals("execute_code", h.get(CallHeaders.TOOL_NAME));
+        assertEquals("application/json", h.get(CallHeaders.CONTENT_TYPE));
+        assertNull(h.get(CallHeaders.OPERATION_NAME), "a working is not a tool result");
+        assertNull(h.get(CallHeaders.TRUNCATED));
+    }
+
+    @Test
+    void theCallLineNamesTheWorkingKeyRelativeToTheThread() {
+        recordCall("pods_list", "{\"namespace\":\"a\"}", "[]", false);
+
+        String manifest = ledger.manifest();
+
+        assertTrue(manifest.contains("[CALL key=agent-x/001-pods_list tool=pods_list call=agent-x/001-pods_list.call args="),
+                manifest);
+        assertTrue(manifest.contains(CallManifest.WORKING_NOTE), "the footer says what a call= key holds: " + manifest);
+        var m = CallManifest.CALL_LINE.matcher(manifest);
+        assertTrue(m.find());
+        assertEquals("agent-x/001-pods_list", m.group(1), "readers still find the result's key");
+        assertEquals("pods_list", m.group(2));
+    }
+
+    @Test
+    void aWorkingOverTheSizeCapIsCutAndMarkedLikeAResult() {
+        String args = "{\"code\":\"" + "y".repeat(500) + "\"}";
+        String key = ledger.recordCall(new ToolCallLedger.Call("execute_code", "id", args, T0, 1), "ok", false, 100);
+
+        String body = store.body(key + ".call");
+        assertTrue(body.length() < args.length(), body);
+        assertTrue(body.endsWith(TextCut.MARKER), body);
+        assertEquals("true", store.headers.get(key + ".call").get(CallHeaders.TRUNCATED));
+        assertEquals("text/plain", store.headers.get(key + ".call").get(CallHeaders.CONTENT_TYPE),
+                "cut JSON is no longer JSON");
+    }
+
+    @Test
+    void aWorkingThatCannotBeWrittenIsSaidToBeUnavailable() {
+        store.failWorkings = true;
+        String key = recordCall("pods_list", "{}", "[]", false);
+
+        assertNotNull(key, "the result is still stored");
+        assertTrue(ledger.manifest().contains("tool=pods_list call=unavailable args={}"), ledger.manifest());
+    }
+
+    @Test
+    void aWorkingCountsNoCallAndGetsNoNumberOfItsOwn() {
+        recordCall("a", "{}", "[]", false);
+        String second = recordCall("b", "{}", "[]", false);
+
+        assertEquals("ns/crew/th/agent-x/002-b", second);
+        assertEquals(2, ledger.size());
+        assertTrue(ledger.manifest().contains("calls=2 "), ledger.manifest());
     }
 }

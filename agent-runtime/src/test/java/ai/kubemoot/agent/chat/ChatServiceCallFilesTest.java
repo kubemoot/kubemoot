@@ -53,6 +53,7 @@ class ChatServiceCallFilesTest {
         boolean failWrites;
         boolean failReserve;
         String failFor;
+        boolean failWorkings;
 
         @Override
         public String threadPrefix(String threadId) {
@@ -70,7 +71,7 @@ class ChatServiceCallFilesTest {
         @Override
         public boolean put(String threadId, String agent, String tool, String key, byte[] body,
                            Map<String, String> hdrs) {
-            if (failWrites || tool.equals(failFor)) {
+            if (failWrites || tool.equals(failFor) || failWorkings && key.endsWith(CallManifest.WORKING_SUFFIX)) {
                 return false;
             }
             bodies.put(key, body);
@@ -80,6 +81,11 @@ class ChatServiceCallFilesTest {
 
         String body(String key) {
             return new String(bodies.get(key), StandardCharsets.UTF_8);
+        }
+
+        /** The keys of the stored results, in the order written, without the calls' workings. */
+        List<String> results() {
+            return bodies.keySet().stream().filter(k -> !k.endsWith(CallManifest.WORKING_SUFFIX)).toList();
         }
     }
 
@@ -153,8 +159,8 @@ class ChatServiceCallFilesTest {
 
         var result = run(service(), 0);
 
-        assertEquals(1, store.bodies.size());
-        String key = store.bodies.keySet().iterator().next();
+        assertEquals(1, store.results().size());
+        String key = store.results().get(0);
         assertEquals("ns/crew/t1/test-agent/001-pods_list", key);
         assertEquals("{\"items\":[{\"a\":1},{\"a\":2},{\"a\":3}]}", store.body(key), "the tool's own text, no [tool] header");
         var h = store.headers.get(key);
@@ -174,7 +180,7 @@ class ChatServiceCallFilesTest {
         assertFalse(result.contributionIsToolOutput(), "the tooler's own statement leads");
         assertTrue(result.text().startsWith("done\n\n[WORKSPACE agent=test-agent calls=1 errors=0 prefix=test-agent/]"),
                 result.text());
-        assertTrue(result.text().contains("[CALL key=test-agent/001-pods_list tool=pods_list "
+        assertTrue(result.text().contains("[CALL key=test-agent/001-pods_list tool=pods_list call=test-agent/001-pods_list.call "
                 + "args={\"namespace\":\"kube-system\"} type=application/json bytes=" + store.bodies.get(key).length
                 + " rows=3 error=false fields=a]\n[RESULT]\n{\"items\":[{\"a\":1},{\"a\":2},{\"a\":3}]}\n[END RESULT]"),
                 "a small result follows its description whole: " + result.text());
@@ -187,14 +193,14 @@ class ChatServiceCallFilesTest {
 
         var result = run(service(), 0);
 
-        var keys = new ArrayList<>(store.bodies.keySet());
+        var keys = new ArrayList<>(store.results());
         assertEquals(2, keys.size());
         var bad = store.headers.get(keys.get(1));
         assertEquals("true", bad.get(CallHeaders.ERROR));
         assertEquals("tool_error", bad.get(CallHeaders.ERROR_TYPE));
         assertEquals("{\"error\": \"forbidden\"}", store.body(keys.get(1)));
         assertTrue(result.text().contains("calls=2 errors=1"), result.text());
-        assertTrue(result.text().contains("tool=bad args={\"k\":1} type=application/json bytes=22 rows=unknown error=true fields=error]"), result.text());
+        assertTrue(result.text().contains("tool=bad call=test-agent/002-bad.call args={\"k\":1} type=application/json bytes=22 rows=unknown error=true fields=error]"), result.text());
     }
 
     @Test
@@ -239,7 +245,7 @@ class ChatServiceCallFilesTest {
 
         var result = run(service(), 2_000);
 
-        String key = store.bodies.keySet().iterator().next();
+        String key = store.results().get(0);
         String prompt = captured.get(1).toString();
         assertTrue(prompt.contains("Stored as workspace artifact " + key + "."), prompt);
         assertTrue(ToolResultStandIn.isStandIn(prompt));
@@ -271,7 +277,7 @@ class ChatServiceCallFilesTest {
 
         var result = run(service(), 0);
 
-        assertEquals(1, store.bodies.size());
+        assertEquals(1, store.results().size());
         assertTrue(result.text().contains("[CALL key=test-agent/001-pods_list"), result.text());
         assertTrue(result.text().contains("[NOT STORED tool=nodes_list"), result.text());
         assertTrue(result.text().contains("prefix=test-agent/]"), result.text());
@@ -405,7 +411,7 @@ class ChatServiceCallFilesTest {
 
         assertEquals("done", result.response());
         assertTrue(result.files().contains("[CALL key=test-agent/001-pods_list tool=pods_list"), result.files());
-        assertEquals(1, store.bodies.size(), "an agent that is not a tooler stores its calls too");
+        assertEquals(1, store.results().size(), "an agent that is not a tooler stores its calls too");
     }
 
     @Test
