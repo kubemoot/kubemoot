@@ -24,12 +24,14 @@ record ToolCallRecord(Storage storage, String key, String workingKey, String too
         NOT_STORED_BY_DESIGN
     }
 
+    /** What a stored call returned: its size, its row count, whether it failed, its type and its columns. */
+    record Outcome(long bytes, int rows, boolean error, String type, List<String> columns) {}
+
     /** A call stored under {@code key}, its working under {@code workingKey} (null when that write failed). */
-    @SuppressWarnings("java:S107") // one call's description, field by field
-    static ToolCallRecord stored(String key, String workingKey, String tool, String arguments, long bytes, int rows,
-                                 boolean error, String type, List<String> columns, String inline) {
-        return new ToolCallRecord(Storage.STORED, key, workingKey, tool, arguments, bytes, rows, error, type, columns,
-                inline);
+    static ToolCallRecord stored(String key, String workingKey, String tool, String arguments, Outcome outcome,
+                                 String inline) {
+        return new ToolCallRecord(Storage.STORED, key, workingKey, tool, arguments, outcome.bytes(), outcome.rows(),
+                outcome.error(), outcome.type(), outcome.columns(), inline);
     }
 
     /** A call whose agent stores no results: it has no key, and its result is posted when it fits. */
