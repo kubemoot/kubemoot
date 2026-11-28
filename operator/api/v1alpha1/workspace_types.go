@@ -16,22 +16,22 @@ limitations under the License.
 
 package v1alpha1
 
-// WorkspaceAccess says what an agent may do with the discussion's workspace, the scratch data
-// the agents of one discussion share. Left out everywhere, the access is implicit: the agent
-// behaves as it did before access was declared.
+// WorkspaceAccess says what an agent may read of the discussion's workspace, the scratch data
+// the agents of one discussion share. It never decides whether the agent's own tool calls are
+// kept: every call is stored in the workspace, so nothing an agent did is hidden. Left out
+// everywhere, the access is implicit: the agent reads the workspace through the tools it enables.
 // +kubebuilder:validation:Enum=none;read;write;readWrite
 type WorkspaceAccess string
 
 const (
-	// WorkspaceAccessNone gives the agent no workspace: it stores nothing and gets no workspace
-	// tools, and a large tool result returns inline under the runtime's budget.
+	// WorkspaceAccessNone gives the agent no workspace read tools. Its own calls are still kept.
 	WorkspaceAccessNone WorkspaceAccess = "none"
-	// WorkspaceAccessRead gives the agent the workspace read tools. Its own tool results are not stored.
+	// WorkspaceAccessRead gives the agent the workspace read tools. Its own calls are still kept.
 	WorkspaceAccessRead WorkspaceAccess = "read"
-	// WorkspaceAccessWrite stores the agent's large tool results and gives it no read tools. A
-	// tooler that fetches and hands off needs this.
+	// WorkspaceAccessWrite gives the agent no read tools and keeps its calls. A tooler that
+	// fetches and hands off needs this.
 	WorkspaceAccessWrite WorkspaceAccess = "write"
-	// WorkspaceAccessReadWrite stores the agent's tool results and gives it the read tools.
+	// WorkspaceAccessReadWrite keeps the agent's calls and gives it the read tools.
 	WorkspaceAccessReadWrite WorkspaceAccess = "readWrite"
 )
 
@@ -40,7 +40,7 @@ func (a WorkspaceAccess) CanRead() bool {
 	return a == WorkspaceAccessRead || a == WorkspaceAccessReadWrite
 }
 
-// CanWrite reports whether the access includes storing the agent's tool results.
+// CanWrite reports whether the access names write: a declaration for the NATS write grant, not a switch on keeping calls.
 func (a WorkspaceAccess) CanWrite() bool {
 	return a == WorkspaceAccessWrite || a == WorkspaceAccessReadWrite
 }
@@ -48,12 +48,12 @@ func (a WorkspaceAccess) CanWrite() bool {
 // AgentWorkspace declares one Agent's access to the workspace. It overrides the Crew's default.
 type AgentWorkspace struct {
 	// Access is none, read, write or readWrite. Left out, the Crew's defaultAccess applies, then
-	// the KubemootConfig's, and with none declared the agent behaves as before: it stores every
-	// tool result and reads the workspace only through the tools in its enabledTools.
+	// the KubemootConfig's, and with none declared the agent reads the workspace only
+	// through the tools in its enabledTools. The access governs what the agent may read of other
+	// agents' stored results; the agent's own calls are always kept.
 	// A declared access is authoritative: workspace tools the access does not allow are disabled
-	// even when enabledTools names them. In 0.94 read is enforced through the agent's tool list
-	// and write by the agent-runtime, which stores nothing without write access. NATS does not
-	// enforce either yet; that lands with NATS user provisioning.
+	// even when enabledTools names them. In 0.94 read is enforced through the agent's tool list.
+	// NATS does not enforce it yet; that lands with NATS user provisioning.
 	// +optional
 	Access WorkspaceAccess `json:"access,omitempty"`
 }

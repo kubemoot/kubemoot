@@ -224,9 +224,6 @@ func TestAnUndeclaredAgentGetsTodaysEnvAndNoCondition(t *testing.T) {
 	if _, ok := envValue(env, "KUBEMOOT_DISABLED_TOOLS"); ok {
 		t.Error("an undeclared agent gained disabled tools")
 	}
-	if _, ok := envValue(env, workspaceAccessEnv); ok {
-		t.Error("an undeclared agent got KUBEMOOT_WORKSPACE_ACCESS: the runtime would stop storing")
-	}
 	if err := r.Create(ctx, agent); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +235,7 @@ func TestAnUndeclaredAgentGetsTodaysEnvAndNoCondition(t *testing.T) {
 	}
 }
 
-func TestEachAccessSetsTheRuntimeEnvAndToolLists(t *testing.T) {
+func TestEachAccessSetsTheToolListsAndNoRuntimeAccessVariable(t *testing.T) {
 	ctx := context.Background()
 	for _, a := range []kubemootv1alpha1.WorkspaceAccess{
 		kubemootv1alpha1.WorkspaceAccessNone, kubemootv1alpha1.WorkspaceAccessRead,
@@ -246,8 +243,8 @@ func TestEachAccessSetsTheRuntimeEnvAndToolLists(t *testing.T) {
 	} {
 		r := wsFixture(t, "", "")
 		env := r.buildEnvVars(ctx, wsAgent(a, wsDomainTool), &modelPick{}, &modelPick{}, 8080)
-		if v, _ := envValue(env, workspaceAccessEnv); v != string(a) {
-			t.Errorf("%s: %s = %q", a, workspaceAccessEnv, v)
+		if _, ok := envValue(env, "KUBEMOOT_WORKSPACE_ACCESS"); ok {
+			t.Errorf("%s: the runtime keeps every call whatever the access, so it is given no access variable", a)
 		}
 		enabled, _ := envValue(env, "KUBEMOOT_ENABLED_TOOLS")
 		disabled, _ := envValue(env, "KUBEMOOT_DISABLED_TOOLS")
@@ -311,12 +308,13 @@ func TestAnAgentNamingAToolItsAccessForbidsIsToldWhich(t *testing.T) {
 	}
 }
 
-func TestACrewDefaultChangeReachesTheAgentEnv(t *testing.T) {
+func TestACrewDefaultReachesTheAgentToolList(t *testing.T) {
 	ctx := context.Background()
 	r := wsFixture(t, kubemootv1alpha1.WorkspaceAccessNone, "")
 	agent := wsAgent("", wsDomainTool)
-	if v, _ := envValue(r.buildEnvVars(ctx, agent, &modelPick{}, &modelPick{}, 8080), workspaceAccessEnv); v != coreTestNone {
-		t.Errorf("crew default none gave %q", v)
+	env := r.buildEnvVars(ctx, agent, &modelPick{}, &modelPick{}, 8080)
+	if enabled, _ := envValue(env, "KUBEMOOT_ENABLED_TOOLS"); strings.Contains(enabled, wsHeadTool) {
+		t.Errorf("crew default none left the read tool in %q", enabled)
 	}
 }
 
@@ -335,8 +333,8 @@ func TestTheReconcileResolvesTheWorkspaceOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := r.buildEnvVars(ctx, agent, &modelPick{}, &modelPick{}, 8080)
-	if v, _ := envValue(env, workspaceAccessEnv); v != coreTestNone {
-		t.Errorf("env %q: a Crew edit mid-reconcile reached the env", v)
+	if enabled, _ := envValue(env, "KUBEMOOT_ENABLED_TOOLS"); strings.Contains(enabled, wsHeadTool) {
+		t.Errorf("enabled tools %q: a Crew edit mid-reconcile reached the tool list", enabled)
 	}
 	if got := r.workspaceFor(ctx, agent).decision.access; got != kubemootv1alpha1.WorkspaceAccessNone {
 		t.Errorf("status would see %q", got)
