@@ -20,9 +20,10 @@ compute agent writes a short program that reads it and computes the answer. The 
 the program and returns the exact output, the compute agent reports that result, and the
 coordinator uses it.
 
-This is the compute contract, and the runtime enforces it: the compute agent may not state a
-number that did not come from running code. A count that the model read off a list is not an
-answer. A count a program printed is.
+The compute agent's prompt module tells it to report only numbers a program printed. A count
+that the model read off a list is not an answer. A count a program printed is. The runtime does
+not police this: a crew teaches it in the agent's declarations and checks it in the recheck
+round and in fitness.
 
 ## How data reaches it
 

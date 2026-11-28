@@ -50,7 +50,7 @@ class ChatServiceToolerWindowTest {
 
     private ChatService service(int maxIterations) {
         return new ChatService(chatModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
-                ChatServiceToolLoopTest.stubProperties(maxIterations, "tooler", false, true),
+                ChatServiceToolLoopTest.stubProperties(maxIterations, "tooler"),
                 mock(AgentHeartbeatService.class), new ObjectMapper(),
                 null, null, null, null, null, null, null, null, null);
     }

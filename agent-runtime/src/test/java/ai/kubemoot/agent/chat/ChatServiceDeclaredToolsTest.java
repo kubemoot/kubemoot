@@ -68,7 +68,7 @@ class ChatServiceDeclaredToolsTest {
     }
 
     private ChatService service(String role, List<String> enabled, List<String> disabled) {
-        var base = ChatServiceToolLoopTest.stubProperties(3, role, false, false);
+        var base = ChatServiceToolLoopTest.stubProperties(3, role);
         var props = mock(AgentProperties.class, AdditionalAnswers.delegatesTo(base));
         doReturn(enabled.isEmpty() ? Optional.empty() : Optional.of(enabled)).when(props).enabledTools();
         doReturn(disabled.isEmpty() ? Optional.empty() : Optional.of(disabled)).when(props).disabledTools();

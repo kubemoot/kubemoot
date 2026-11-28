@@ -98,7 +98,7 @@ class ChatServiceCallFilesTest {
 
     private ChatService service() {
         var service = new ChatService(chatModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
-                ChatServiceToolLoopTest.stubProperties(8, "tooler", false, false),
+                ChatServiceToolLoopTest.stubProperties(8, "tooler"),
                 mock(AgentHeartbeatService.class), new ObjectMapper(),
                 null, null, null, null, null, null, null, null, null);
         service.callArtifactStore = store;
@@ -492,7 +492,7 @@ class ChatServiceCallFilesTest {
 
     private ChatService serviceWithRole(String role) {
         var service = new ChatService(chatModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
-                ChatServiceToolLoopTest.stubProperties(8, role, false, false),
+                ChatServiceToolLoopTest.stubProperties(8, role),
                 mock(AgentHeartbeatService.class), new ObjectMapper(),
                 null, null, null, null, null, null, null, null, null);
         service.callArtifactStore = store;
@@ -545,14 +545,5 @@ class ChatServiceCallFilesTest {
         assertNull(ToolCallLedger.forLoop(store, null, AGENT, java.util.OptionalLong.empty()));
         assertNull(ToolCallLedger.forLoop(store, " ", AGENT, java.util.OptionalLong.empty()));
         assertNotNull(ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty()));
-    }
-
-    @Test
-    void theManifestLinesAreRecognizedByTheComputeContract() {
-        var messages = new ArrayList<ChatMessage>(List.of(UserMessage.from(
-                "[WORKSPACE agent=a calls=1 errors=0 prefix=ns/crew/t1/a/]\n"
-                        + "[CALL key=ns/crew/t1/a/001-pods_list tool=pods_list args={} bytes=2 rows=0 error=false]")));
-
-        assertEquals(List.of("/kubemoot/workspace/ns/crew/t1/a/001-pods_list"), ChatService.artifactPathsInInput(messages));
     }
 }

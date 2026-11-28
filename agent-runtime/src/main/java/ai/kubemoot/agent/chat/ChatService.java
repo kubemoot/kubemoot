@@ -12,7 +12,6 @@ import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.mcp.WorkspaceTools;
 import ai.kubemoot.agent.mcp.WorkspaceScope;
 import ai.kubemoot.agent.nats.AnswerGrounding;
-import ai.kubemoot.agent.nats.NumberGrounding;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
 import ai.kubemoot.agent.modelserver.ChatModelPool;
@@ -541,41 +540,10 @@ public class ChatService {
     // See [[Tooler Empty-Mulling and Single-Agent Selection Cause Non-Answers]].
     static final int EMPTY_NO_TOOLS_MAX_RETRIES = 3;
 
-    // Compute-role contract: how many times to re-prompt a compute agent that
-    // answered without running execute_code before failing (never emit an
-    // in-head number). See AgentProperties.Discuss.computeContract().
-    static final int MAX_COMPUTE_RETRIES = 2;
-    // Re-prompts for figures no tool result holds (compute grounding) before the answer is withheld.
-    static final int MAX_GROUNDING_RETRIES = 1;
-    // Most characters of tool results kept for the compute grounding check.
-    private static final int MAX_SEEN_RESULT_CHARS = 4_000_000;
-    // The workspace mount, and the [CALL key=...] lines that describe the stored files in a
-    // contribution. The contract uses them to require that the compute agent reads the FILE. The
-    // old mount, /artifacts/, is mounted beside it for one release, so code that opens either path
-    // counts as reading the file.
-    private static final String WORKSPACE_MOUNT = WorkspaceTools.MOUNT + "/";
-    private static final String LEGACY_WORKSPACE_MOUNT = WorkspaceTools.LEGACY_MOUNT + "/";
-    // The workspace read tools read a stored result SERVER-SIDE from its object key - the compute
-    // agent passes key=<key> and the server reads the file, rather than the model authoring
-    // open('/kubemoot/workspace/<key>') in sandbox code (which qwen3:32b flakily skips). A call to any of
-    // these over a result present in the input satisfies the read-the-file half of the contract
-    // exactly as an execute_code that opens /kubemoot/workspace/ does.
-    // Captures the exact object key from a file description "[CALL key=<key> ...]" so the compute
-    // re-prompt can name the precise file at /kubemoot/workspace/<key> rather than a generic "<key>" placeholder.
-    private static final java.util.regex.Pattern WORKSPACE_KEY_PATTERN =
-            java.util.regex.Pattern.compile("\\[CALL key=([^\\]\\s]+)");
-    // A line of the file descriptions in a contribution ("[CALL key=<key> ..."), which names a stored tool result.
-    private static final String CALL_MARKER = CallManifest.CALL_PREFIX;
     // Strips a reasoning model's <think>...</think> block so the no-data sentinel
-    // check sees only the actual answer. See isNoDataDeclaration.
+    // check sees only the actual answer. See declaresGatherFailed.
     private static final java.util.regex.Pattern THINK_BLOCK =
             java.util.regex.Pattern.compile("(?is)<think>.*?</think>");
-    private static final String COMPUTE_CONTRACT_REPROMPT =
-            "You produced an answer without running execute_code. You MUST compute the result by "
-            + "calling execute_code over the data. If a contribution references an artifact file "
-            + "(" + WorkspaceTools.MOUNT + "/<key>), read that FILE in your code - do not answer from the inline "
-            + "preview. Call execute_code now. If there is genuinely no data to compute over, "
-            + "reply with exactly NO_DATA.";
 
     /**
      * Backwards-compat overload — pickMullingChatModel call is hoisted to
@@ -973,20 +941,8 @@ public class ChatService {
         if (toolerRawOutput && state.toolsExecuted) {
             return java.util.Optional.of(toolerRawOutputResult(aiMessage, state, serverName, pickReason));
         }
-        // Compute contract: a compute agent must produce its result by RUNNING
-        // execute_code, and when the data was spilled to an artifact it must read
-        // the materialized FILE - never tally the truncated inline preview. The
-        // helper re-prompts (returns true) or, once the budget is spent, throws.
-        if (computeContractNeedsRetry(aiMessage, state)) {
-            return java.util.Optional.empty();
-        }
-        // Compute grounding: a figure no tool result holds is sent back once, then withheld.
-        var grounded = groundedComputeAnswer(aiMessage, state);
-        if (grounded.isEmpty()) {
-            return java.util.Optional.empty();
-        }
         // No raw-output contract (or no tools ran): this agent reasons to its own answer.
-        return resolveReasonedText(grounded.get(), state, serverName, pickReason);
+        return resolveReasonedText(aiMessage, state, serverName, pickReason);
     }
 
     /**
@@ -1073,137 +1029,6 @@ public class ChatService {
     }
 
     /**
-     * Enforce the compute contract for a no-tool answer turn. Returns true when a
-     * re-prompt was queued (caller continues the loop), false when the contract is
-     * satisfied or not applicable, and throws COMPUTE_CONTRACT_UNSATISFIED once the
-     * retry budget is spent. Two violations are policed: (1) answering with no
-     * tool call at all, and (2) running a tool but never reading the spilled
-     * artifact - the read must be either an artifact read-ops tool over the key
-     * or execute_code that opens /kubemoot/workspace/... (or the old /artifacts/...) An exact NO_DATA / TOOL_GAP answer
-     * is the honest escape.
-     */
-    private boolean computeContractNeedsRetry(AiMessage aiMessage, ToolLoopState state) {
-        if (!properties.discuss().computeContract() || isNoDataDeclaration(aiMessage.text()) || signalsNoFinding()) {
-            return false;
-        }
-        boolean artifactOk = !inputReferencesArtifact(state) || state.codeReferencedArtifact;
-        if (state.toolsExecuted && artifactOk) {
-            return false; // ran code AND (no artifact present OR read the file) -> satisfied
-        }
-        String why = !state.toolsExecuted
-                ? "answered without running a tool"
-                : "ran a tool but did not read the artifact (no read-ops call, no execute_code over /artifacts)";
-        if (state.computeRetries < MAX_COMPUTE_RETRIES) {
-            state.computeRetries++;
-            state.allMessages.add(new UserMessage(buildComputeReprompt(state.allMessages)));
-            log.info("compute-contract: agent {} {} - re-prompt {}/{}",
-                    properties.agentName(), why, state.computeRetries, MAX_COMPUTE_RETRIES);
-            return true;
-        }
-        throw new ToolCallFailure(ToolCallFailure.FailureType.COMPUTE_CONTRACT_UNSATISFIED,
-                null, null, state.computeRetries,
-                "compute agent " + why + " after " + MAX_COMPUTE_RETRIES + " prompts");
-    }
-
-    /**
-     * Compute grounding (KUBEMOOT_DISCUSS_COMPUTE_GROUNDING): the figures of a compute agent's answer
-     * must occur in a result a tool returned to it or in the input it was given (NumberGrounding). A
-     * figure that occurs in neither is sent back once, and when it stays the answer becomes a NO_DATA
-     * statement that reports no figure. Returns empty when a re-prompt was queued (the caller
-     * continues the loop), else the message to answer with: the model's own when it is grounded or the
-     * check is off, or the withheld statement.
-     */
-    private boolean computeGroundingApplies(AiMessage aiMessage, ToolLoopState state) {
-        return properties.discuss().computeGrounding() && state.toolsExecuted
-                && !isNoDataDeclaration(aiMessage.text()) && !signalsNoFinding();
-    }
-
-    private java.util.Optional<AiMessage> groundedComputeAnswer(AiMessage aiMessage, ToolLoopState state) {
-        if (!computeGroundingApplies(aiMessage, state)) {
-            return java.util.Optional.of(aiMessage);
-        }
-        String answer = THINK_BLOCK.matcher(aiMessage.text() == null ? "" : aiMessage.text()).replaceAll(" ");
-        var ungrounded = NumberGrounding.ungrounded(answer, List.of(state.inputText(), state.seenResults.toString()));
-        if (ungrounded.isEmpty()) {
-            return java.util.Optional.of(aiMessage);
-        }
-        if (state.groundingRetries < MAX_GROUNDING_RETRIES) {
-            state.groundingRetries++;
-            state.allMessages.add(new UserMessage(NumberGrounding.reprompt(ungrounded)));
-            log.info("compute-grounding: agent {} stated {} figure(s) no result holds ({}) - re-prompt {}/{}",
-                    properties.agentName(), ungrounded.size(), AnswerGrounding.list(ungrounded),
-                    state.groundingRetries, MAX_GROUNDING_RETRIES);
-            return java.util.Optional.empty();
-        }
-        log.info("compute-grounding: agent {} kept {} figure(s) no result holds ({}) - answer withheld",
-                properties.agentName(), ungrounded.size(), AnswerGrounding.list(ungrounded));
-        return java.util.Optional.of(AiMessage.from(NumberGrounding.withheld(ungrounded)));
-    }
-
-    /** True when any input message carries a file description, i.e. the data the
-     *  compute agent must compute over lives in a stored file. */
-    private static boolean inputReferencesArtifact(ToolLoopState state) {
-        for (var msg : state.allMessages) {
-            String text = inputMessageText(msg);
-            if (text != null && text.contains(CALL_MARKER)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** Text of a message that can carry discussion input. The system prompt is
-     *  excluded: the compute prompt module documents the marker format with an example
-     *  ("[CALL key=&lt;key&gt; ..."), and counting that as a real spill made every
-     *  compute turn look artifact-backed, so a question that carries its own inputs
-     *  could never satisfy the contract. */
-    private static String inputMessageText(ChatMessage msg) {
-        return msg instanceof SystemMessage ? null : messageText(msg);
-    }
-
-    /** Exact /kubemoot/workspace/&lt;key&gt; paths named by file descriptions in the input, so the
-     *  compute re-prompt can point the model at the precise file rather than a
-     *  generic "&lt;key&gt;" placeholder. Order-preserving and de-duplicated. */
-    //  Package-private for unit testing.
-    static java.util.List<String> artifactPathsInInput(java.util.List<ChatMessage> messages) {
-        var paths = new java.util.LinkedHashSet<String>();
-        for (var msg : messages) {
-            String text = inputMessageText(msg);
-            if (text == null) {
-                continue;
-            }
-            var m = WORKSPACE_KEY_PATTERN.matcher(text);
-            while (m.find()) {
-                paths.add(WORKSPACE_MOUNT + m.group(1));
-            }
-        }
-        return new java.util.ArrayList<>(paths);
-    }
-
-    /** The compute re-prompt. Names the EXACT artifact file(s) to read when the
-     *  input carries file descriptions - the flaky failure was qwen3:32b counting the
-     *  truncated inline preview instead of reading the file. Falls back to the
-     *  generic re-prompt when no artifact is referenced (the no-execute_code case).
-     *  Package-private for unit testing. */
-    static String buildComputeReprompt(java.util.List<ChatMessage> messages) {
-        var paths = artifactPathsInInput(messages);
-        if (paths.isEmpty()) {
-            return COMPUTE_CONTRACT_REPROMPT;
-        }
-        String firstKey = paths.get(0).substring(WORKSPACE_MOUNT.length());
-        return "You answered without reading the data FILE. The full data lives in: "
-                + String.join(", ", paths) + ". You MUST read it before answering. PREFERRED: call an "
-                + "artifact read-ops tool with the object key - the server reads the file for you, so "
-                + "you never open a path. Use " + WorkspaceTools.QUERY + " (SQL) for counts and the rows you need, "
-                + WorkspaceTools.GREP + " for membership, " + WorkspaceTools.HEAD + " / " + WorkspaceTools.TAIL
-                + " to read lines, e.g. "
-                + WorkspaceTools.HEAD + "(key=\"" + firstKey + "\", ...); then run execute_code over the returned "
-                + "rows only if more math is needed. ALTERNATIVELY, execute_code that opens the file, "
-                + "e.g. open('" + paths.get(0) + "'). Do NOT answer from the file description - it carries no "
-                + "data. If there is genuinely no data to compute over, reply with exactly NO_DATA.";
-    }
-
-    /**
      * A tooler declares a FAILED gather when its final answer is the NO_DATA
      * sentinel (optionally with a ": reason"): its tools errored or returned no
      * usable data, so it has no findings. The prompt tells toolers to emit this
@@ -1222,12 +1047,6 @@ public class ChatService {
         return answer.equals("NO_DATA") || answer.startsWith("NO_DATA:");
     }
 
-    /** True when this turn's signal call says the agent has no finding (no data, a missing tool, nothing to add). */
-    private static boolean signalsNoFinding() {
-        var scope = SignalScope.current();
-        return scope != null && scope.declaresNoFinding();
-    }
-
     /** Strip a reasoning model's &lt;think&gt; block and normalize, so a sentinel check
      *  sees only the agent's actual answer (shared by the NO_DATA / gap checks). */
     private static String normalizeAnswer(String text) {
@@ -1244,29 +1063,6 @@ public class ChatService {
         return reason.isEmpty()
                 ? "tooler could not gather usable data (its tools errored or returned nothing)"
                 : reason;
-    }
-
-    /**
-     * A compute agent may legitimately answer without running code ONLY to report
-     * that there was nothing to compute. Recognize that honest gap (the prompt is
-     * told to reply NO_DATA; TOOL_GAP is the existing gap signal) so the contract
-     * does not force code when there is genuinely no data.
-     */
-    private static boolean isNoDataDeclaration(String text) {
-        if (text == null) {
-            return false;
-        }
-        // A reasoning model (think=true) emits a <think> block that often MENTIONS
-        // the NO_DATA / TOOL_GAP sentinel while still answering with a number, and
-        // the compute prompt itself is saturated with those tokens. The no-data
-        // escape applies ONLY when the agent's actual ANSWER is the sentinel, so
-        // strip think blocks and require the cleaned answer to BE the token - never
-        // a loose substring of prose that happens to name it.
-        // Exact-match only: the prompt instructs the agent to reply with EXACTLY the
-        // sentinel, so anything more (a number, or prose that merely names the token)
-        // is a real answer the contract must police - never a no-data escape.
-        String answer = normalizeAnswer(text);
-        return answer.equals("NO_DATA") || answer.equals("TOOL_GAP");
     }
 
     /**
@@ -1317,7 +1113,6 @@ public class ChatService {
         var admitted = budget.admit(toolRequest.name(), raw, toolerRawOutput, artifactKey);
         state.allMessages.add(new ToolExecutionResultMessage(
                 toolRequest.id(), toolRequest.name(), admitted.text()));
-        state.noteSeen(admitted.text());
         state.toolsExecuted = true;
         state.toolCalls++;
         if (admitted.replaced()) {
@@ -1334,7 +1129,6 @@ public class ChatService {
             state.recordGatherResult(toolRequest.name(), kept);
             return;
         }
-        recordReadSignals(toolRequest.name(), toolRequest.arguments(), raw, state);
         appendToolOutput(state, toolRequest.name(), kept);
         state.recordGatherResult(toolRequest.name(), raw);
         recordToolFailure(toolRequest.name(), toolRequest.arguments(), raw, false, state);
@@ -1404,28 +1198,6 @@ public class ChatService {
     /** A tooler with output in hand stops gathering once its model repeats an identical call. */
     private static boolean toolerStopsAfterRefusedRepeat(ToolLoopState state, boolean toolerRawOutput) {
         return toolerRawOutput && state.repeatRefused && state.outputChars() > 0;
-    }
-
-    /**
-     * Note whether one tool call was a successful read of the spilled artifact.
-     */
-    private void recordReadSignals(String toolName, String arguments, String result,
-                                            ToolLoopState state) {
-        // Two ways the compute agent legitimately reads the spilled FILE:
-        //   (1) execute_code whose code opens /kubemoot/workspace/<key>, or
-        //   (2) an artifact read-ops tool (workspace_query, workspace_head, workspace_grep, ...) that
-        //       reads the artifact server-side from its key.
-        // A validate_code or a call that merely names /artifacts/ in unrelated args
-        // does NOT count - it must be one of these two real reads.
-        boolean readViaCode = "execute_code".equals(toolName)
-                && arguments != null
-                && (arguments.contains(WORKSPACE_MOUNT) || arguments.contains(LEGACY_WORKSPACE_MOUNT));
-        boolean readViaReadOps = WorkspaceTools.readsData(toolName);
-        // Only a SUCCESSFUL read satisfies the contract - a key-not-found / errored
-        // read-ops or execute_code call must not let the agent answer from nothing.
-        if ((readViaCode || readViaReadOps) && !isToolErrorResult(result)) {
-            state.codeReferencedArtifact = true;
-        }
     }
 
     /**
@@ -1553,21 +1325,6 @@ public class ChatService {
         // The files this loop's tool calls were stored as; null when the loop has no discussion thread.
         ToolCallLedger ledger;
         int emptyNoToolsRetries = 0;
-        int computeRetries = 0;
-        int groundingRetries = 0;
-        // What the tools returned to the model, for the compute grounding check; bounded.
-        final StringBuilder seenResults = new StringBuilder();
-
-        void noteSeen(String text) {
-            if (text != null && seenResults.length() < MAX_SEEN_RESULT_CHARS) {
-                seenResults.append(text, 0, Math.min(text.length(), MAX_SEEN_RESULT_CHARS - seenResults.length()))
-                        .append('\n');
-            }
-        }
-        // True once an execute_code call's arguments referenced the artifact mount
-        // (/kubemoot/workspace/...), i.e. the agent read the materialized FILE rather than
-        // computing over the inline preview. Drives the compute contract.
-        boolean codeReferencedArtifact = false;
 
         // The engine's reported prompt and reply sizes for the last turn, and the
         // message count right after its reply, so the next prompt's size can be
@@ -1581,18 +1338,6 @@ public class ChatService {
         ToolLoopState(List<ChatMessage> messages) {
             this.allMessages = new ArrayList<>(messages);
             this.inputMessages = messages.size();
-        }
-
-        /** The text of the input the loop started with (the question and contributions), not the system prompt. */
-        String inputText() {
-            StringBuilder sb = new StringBuilder();
-            for (ChatMessage m : allMessages.subList(0, inputMessages)) {
-                String text = inputMessageText(m);
-                if (text != null) {
-                    sb.append(text).append('\n');
-                }
-            }
-            return sb.toString();
         }
 
         /**

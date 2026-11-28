@@ -524,7 +524,7 @@ class ChatServiceToolLoopTest {
         when(response.aiMessage()).thenReturn(new AiMessage("ok"));
         when(response.tokenUsage()).thenReturn(new TokenUsage(20, 4));
         when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
-        var props = spy(stubProperties(5, "tooler", false, false));
+        var props = spy(stubProperties(5, "tooler"));
         doReturn(Optional.of("crew-homelab-pilot")).when(props).namespace();
         doReturn(Optional.of("homelab-pilot")).when(props).crew();
         var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator, props,
@@ -550,7 +550,7 @@ class ChatServiceToolLoopTest {
         when(response.aiMessage()).thenReturn(new AiMessage("ok"));
         when(response.tokenUsage()).thenReturn(new TokenUsage(20, 4));
         when(chatModel.chat(any(ChatRequest.class))).thenReturn(response);
-        var props = spy(stubProperties(5, "tooler", false, false));
+        var props = spy(stubProperties(5, "tooler"));
         doReturn(exposeCaller).when(props).exposeCaller();
         var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator, props,
                 heartbeatService, objectMapper, null, null, null, null, null, null, null, null, null);
@@ -575,7 +575,7 @@ class ChatServiceToolLoopTest {
     }
 
     private ChatService serviceExposing(boolean exposeCaller) {
-        var props = spy(stubProperties(5, "tooler", false, false));
+        var props = spy(stubProperties(5, "tooler"));
         doReturn(exposeCaller).when(props).exposeCaller();
         return new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator, props,
                 heartbeatService, objectMapper, null, null, null, null, null, null, null, null, null);
@@ -979,364 +979,6 @@ class ChatServiceToolLoopTest {
 
         assertEquals("Warning events: none in the last hour.", result.response());
         verify(chatModel, times(2)).chat(any(ChatRequest.class)); // empty + recovering retry
-    }
-
-    // --- compute-role mandatory-execute_code contract ---
-
-    @Test
-    void computeContract_answersWithoutCode_reprompted_thenFails() {
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, mock(ToolExecutor.class)));
-        var resp = mock(ChatResponse.class);
-        when(resp.aiMessage()).thenReturn(new AiMessage("There are 5 namespaces."));
-        when(resp.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(resp);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var thrown = assertThrows(ToolCallFailure.class,
-                () -> service.directChat(new ChatService.ChatRequest("c-cc1", "how many namespaces?"), false));
-        assertEquals(ToolCallFailure.FailureType.COMPUTE_CONTRACT_UNSATISFIED, thrown.failureType());
-        // initial attempt + MAX_COMPUTE_RETRIES re-prompts, then fail
-        verify(chatModel, times(ChatService.MAX_COMPUTE_RETRIES + 1)).chat(any(ChatRequest.class));
-    }
-
-    @Test
-    void computeContract_runsCodeThenAnswers_accepted() {
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        var exec = mock(ToolExecutor.class);
-        when(exec.execute(any(), any())).thenReturn("{\"count\": 30}");
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, exec));
-        var call = AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("e1").name("execute_code").arguments("{}").build()));
-        var r1 = mock(ChatResponse.class);
-        when(r1.aiMessage()).thenReturn(call);
-        when(r1.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-        var r2 = mock(ChatResponse.class);
-        when(r2.aiMessage()).thenReturn(new AiMessage("There are 30 namespaces."));
-        when(r2.tokenUsage()).thenReturn(new TokenUsage(60, 12));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(r1, r2);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var result = service.directChat(new ChatService.ChatRequest("c-cc2", "how many namespaces?"), false);
-        assertEquals("There are 30 namespaces.", result.response(),
-                "ran execute_code -> reasoned answer accepted");
-        verify(exec, times(1)).execute(any(), any());
-    }
-
-    @Test
-    void computeContract_declaresNoData_accepted() {
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, mock(ToolExecutor.class)));
-        var resp = mock(ChatResponse.class);
-        when(resp.aiMessage()).thenReturn(new AiMessage("NO_DATA"));
-        when(resp.tokenUsage()).thenReturn(new TokenUsage(20, 3));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(resp);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var result = service.directChat(new ChatService.ChatRequest("c-cc3", "compute"), false);
-        assertTrue(result.response().contains("NO_DATA"), "honest no-data is accepted without code");
-        verify(chatModel, times(1)).chat(any(ChatRequest.class)); // no re-prompt
-    }
-
-    @Test
-    void computeContract_mentionsNoDataInReasoningButAnswersNumber_stillReprompted() {
-        // Regression: a think=true model whose answer NAMES the NO_DATA sentinel
-        // while still producing an in-head number must NOT satisfy the no-data
-        // escape - the contract must still fire (the old loose contains() check
-        // let this through and published the uncomputed number).
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, mock(ToolExecutor.class)));
-        var resp = mock(ChatResponse.class);
-        when(resp.aiMessage()).thenReturn(new AiMessage(
-                "<think>The data is present so this is not NO_DATA.</think>There are 20 namespaces."));
-        when(resp.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(resp);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var thrown = assertThrows(ToolCallFailure.class,
-                () -> service.directChat(new ChatService.ChatRequest("c-cc4", "how many namespaces?"), false));
-        assertEquals(ToolCallFailure.FailureType.COMPUTE_CONTRACT_UNSATISFIED, thrown.failureType());
-        verify(chatModel, times(ChatService.MAX_COMPUTE_RETRIES + 1)).chat(any(ChatRequest.class));
-    }
-
-    @Test
-    void computeContract_declaresNoDataAfterThinkBlock_accepted() {
-        // A genuine no-data answer with a preceding think block is still honored.
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, mock(ToolExecutor.class)));
-        var resp = mock(ChatResponse.class);
-        when(resp.aiMessage()).thenReturn(new AiMessage(
-                "<think>No contribution carried any data to compute over.</think>NO_DATA"));
-        when(resp.tokenUsage()).thenReturn(new TokenUsage(20, 3));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(resp);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var result = service.directChat(new ChatService.ChatRequest("c-cc5", "compute"), false);
-        assertTrue(result.response().contains("NO_DATA"), "honest no-data after a think block is accepted");
-        verify(chatModel, times(1)).chat(any(ChatRequest.class)); // no re-prompt
-    }
-
-    @Test
-    void computeContract_noDataPrefixedProse_stillReprompted() {
-        // Boundary: the no-data escape is EXACT-match only. Prose that merely STARTS
-        // with the sentinel ("NO_DATA was the only clean signal...") is a real answer,
-        // not the sentinel, so the contract must still fire.
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, mock(ToolExecutor.class)));
-        var resp = mock(ChatResponse.class);
-        when(resp.aiMessage()).thenReturn(new AiMessage("NO_DATA was the only clean signal, so 20 namespaces."));
-        when(resp.tokenUsage()).thenReturn(new TokenUsage(40, 8));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(resp);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var thrown = assertThrows(ToolCallFailure.class,
-                () -> service.directChat(new ChatService.ChatRequest("c-cc6", "how many namespaces?"), false));
-        assertEquals(ToolCallFailure.FailureType.COMPUTE_CONTRACT_UNSATISFIED, thrown.failureType());
-        verify(chatModel, times(ChatService.MAX_COMPUTE_RETRIES + 1)).chat(any(ChatRequest.class));
-    }
-
-    @Test
-    void computeContract_codeIgnoresArtifactFile_reprompted_thenFails() {
-        // When the data was spilled to an artifact (marker in the input) but the
-        // executed code embeds the inline preview instead of reading /artifacts/,
-        // the contract must re-prompt - running code is not enough, it must read
-        // the FILE. This is the preview-counting bug the contract exists to stop.
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        var exec = mock(ToolExecutor.class);
-        when(exec.execute(any(), any())).thenReturn("{\"count\": 21}");
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, exec));
-        // execute_code whose arguments embed the preview (no /artifacts/ reference).
-        var previewCall = mock(ChatResponse.class);
-        when(previewCall.aiMessage()).thenReturn(AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("e1").name("execute_code").arguments("{\"code\":\"lines=['ns-a','ns-b']\"}").build())));
-        when(previewCall.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-        var answer = mock(ChatResponse.class);
-        when(answer.aiMessage()).thenReturn(new AiMessage("There are 21 namespaces."));
-        when(answer.tokenUsage()).thenReturn(new TokenUsage(40, 8));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(previewCall, answer, answer, answer);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var msg = "Count namespaces. preview... [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
-        var thrown = assertThrows(ToolCallFailure.class,
-                () -> service.directChat(new ChatService.ChatRequest("c-cc7", msg), false));
-        assertEquals(ToolCallFailure.FailureType.COMPUTE_CONTRACT_UNSATISFIED, thrown.failureType());
-        // 1 preview tool turn + 3 no-tool turns (2 re-prompts + the final fail)
-        verify(chatModel, times(4)).chat(any(ChatRequest.class));
-    }
-
-    @Test
-    void computeContract_threeTurnPath_noCodeThenPreviewThenFile_accepted() {
-        // The worst-case LEGITIMATE path proves MAX_COMPUTE_RETRIES=2 is enough:
-        // turn 1 answers with no code (re-prompt 1), turn 2 runs code over the
-        // preview (re-prompt 2), turn 3 reads /artifacts/ -> accepted on the 3rd try.
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        var exec = mock(ToolExecutor.class);
-        when(exec.execute(any(), any())).thenReturn("{\"count\": 28}");
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, exec));
-
-        var noCode = mock(ChatResponse.class);
-        when(noCode.aiMessage()).thenReturn(new AiMessage("There are 21 namespaces."));
-        when(noCode.tokenUsage()).thenReturn(new TokenUsage(40, 8));
-        var previewCall = mock(ChatResponse.class);
-        when(previewCall.aiMessage()).thenReturn(AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("e1").name("execute_code").arguments("{\"code\":\"lines=['ns-a']\"}").build())));
-        when(previewCall.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-        var previewAnswer = mock(ChatResponse.class);
-        when(previewAnswer.aiMessage()).thenReturn(new AiMessage("Computed 21 from the preview."));
-        when(previewAnswer.tokenUsage()).thenReturn(new TokenUsage(45, 9));
-        var fileCall = mock(ChatResponse.class);
-        when(fileCall.aiMessage()).thenReturn(AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("e2").name("execute_code")
-                .arguments("{\"code\":\"print(sum(1 for _ in open('/artifacts/k1')))\"}").build())));
-        when(fileCall.tokenUsage()).thenReturn(new TokenUsage(55, 11));
-        var finalAnswer = mock(ChatResponse.class);
-        when(finalAnswer.aiMessage()).thenReturn(new AiMessage("There are 28 namespaces."));
-        when(finalAnswer.tokenUsage()).thenReturn(new TokenUsage(60, 12));
-        // no-code answer (re-prompt 1) -> preview tool + answer (re-prompt 2) -> file tool + accepted
-        when(chatModel.chat(any(ChatRequest.class)))
-                .thenReturn(noCode, previewCall, previewAnswer, fileCall, finalAnswer);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var msg = "Count namespaces. preview... [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
-        var result = service.directChat(new ChatService.ChatRequest("c-cc9", msg), false);
-        assertEquals("There are 28 namespaces.", result.response(), "accepted once the code reads the artifact file");
-        verify(chatModel, times(5)).chat(any(ChatRequest.class)); // both re-prompts used, then accepted
-    }
-
-    @Test
-    void computeContract_codeReadsArtifactFile_accepted() {
-        // Same spilled-artifact input, but the code reads /artifacts/k1 -> accepted.
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        var exec = mock(ToolExecutor.class);
-        when(exec.execute(any(), any())).thenReturn("{\"count\": 28}");
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, exec));
-        var fileCall = AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("e1").name("execute_code")
-                .arguments("{\"code\":\"print(sum(1 for _ in open('/artifacts/k1')))\"}").build()));
-        var r2 = mock(ChatResponse.class);
-        when(r2.aiMessage()).thenReturn(new AiMessage("There are 28 namespaces."));
-        when(r2.tokenUsage()).thenReturn(new TokenUsage(60, 12));
-        var r1 = mock(ChatResponse.class);
-        when(r1.aiMessage()).thenReturn(fileCall);
-        when(r1.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(r1, r2);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var msg = "Count namespaces. preview... [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
-        var result = service.directChat(new ChatService.ChatRequest("c-cc8", msg), false);
-        assertEquals("There are 28 namespaces.", result.response(), "read the artifact file -> accepted");
-        verify(exec, times(1)).execute(any(), any());
-    }
-
-    @Test
-    void computeContract_readsArtifactViaReadOps_accepted() {
-        // The reliable path the compute agent is wired for: instead of authoring
-        // open('/artifacts/k1') in sandbox code (which qwen3:32b flakily skips), it
-        // calls an artifact read-ops tool with the object KEY and the server reads the
-        // file. A read-ops call over a spilled artifact satisfies the read half of the
-        // contract exactly as execute_code over /artifacts/ does - no execute_code needed.
-        var toolSpec = ToolSpecification.builder().name("artifact_count").description("count rows in an artifact").build();
-        var exec = mock(ToolExecutor.class);
-        when(exec.execute(any(), any())).thenReturn("{\"count\": 28}");
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, exec));
-        var readOpsCall = AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("a1").name("artifact_count")
-                .arguments("{\"key\":\"k1\",\"pattern\":\".\"}").build()));
-        var r2 = mock(ChatResponse.class);
-        when(r2.aiMessage()).thenReturn(new AiMessage("There are 28 namespaces."));
-        when(r2.tokenUsage()).thenReturn(new TokenUsage(60, 12));
-        var r1 = mock(ChatResponse.class);
-        when(r1.aiMessage()).thenReturn(readOpsCall);
-        when(r1.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(r1, r2);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var msg = "Count namespaces. [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
-        var result = service.directChat(new ChatService.ChatRequest("c-cc10", msg), false);
-        assertEquals("There are 28 namespaces.", result.response(),
-                "a read-ops call over the artifact key satisfies the contract without execute_code");
-        verify(exec, times(1)).execute(any(), any());
-    }
-
-    @Test
-    void computeContract_failedReadOpsCall_doesNotSatisfy_reprompted_thenFails() {
-        // A read-ops call that ERRORS (e.g. key-not-found) must NOT satisfy the
-        // read-the-file half of the contract - otherwise a failed read lets the agent
-        // answer from nothing. The contract must re-prompt and ultimately fail.
-        var toolSpec = ToolSpecification.builder().name("artifact_count").description("count rows").build();
-        var exec = mock(ToolExecutor.class);
-        when(exec.execute(any(), any())).thenReturn("{\"error\": \"key not found\"}");
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, exec));
-        var errorCall = mock(ChatResponse.class);
-        when(errorCall.aiMessage()).thenReturn(AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("a1").name("artifact_count").arguments("{\"key\":\"missing\"}").build())));
-        when(errorCall.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-        var answer = mock(ChatResponse.class);
-        when(answer.aiMessage()).thenReturn(new AiMessage("There are 28 namespaces."));
-        when(answer.tokenUsage()).thenReturn(new TokenUsage(40, 8));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(errorCall, answer, answer, answer);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var service = createService(10, "analyst", true);
-        var msg = "Count namespaces. [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]";
-        var thrown = assertThrows(ToolCallFailure.class,
-                () -> service.directChat(new ChatService.ChatRequest("c-cc11", msg), false));
-        assertEquals(ToolCallFailure.FailureType.COMPUTE_CONTRACT_UNSATISFIED, thrown.failureType(),
-                "an errored read-ops call leaves the contract unsatisfied");
-        // 1 errored read-ops turn + 3 no-tool turns (2 re-prompts + the final fail)
-        verify(chatModel, times(4)).chat(any(ChatRequest.class));
-    }
-
-    @Test
-    void buildComputeReprompt_namesExactArtifactPath() {
-        // The flaky failure: qwen3:32b would not read the spilled file. The re-prompt
-        // must steer to the PREFERRED read-ops path (pass the bare object key to a
-        // read-ops tool, server reads the file) and still offer the exact open() path
-        // as the alternative - both name the precise artifact, no generic placeholder.
-        var msg = dev.langchain4j.data.message.UserMessage.from(
-                "Count namespaces. preview... [CALL key=homelab/conv/k8s-config/list-0 "
-                + "bytes=6032 - full data materialized at /artifacts/homelab/conv/k8s-config/list-0]");
-        String reprompt = ChatService.buildComputeReprompt(java.util.List.of(msg));
-        assertTrue(reprompt.contains("read-ops"),
-                "re-prompt must steer to the artifact read-ops tools");
-        assertTrue(reprompt.contains("workspace_head(key=\"homelab/conv/k8s-config/list-0\""),
-                "re-prompt must give a concrete read-ops example with the bare object key (no /artifacts/ prefix)");
-        assertTrue(reprompt.contains("open('/kubemoot/workspace/homelab/conv/k8s-config/list-0')"),
-                "re-prompt should still offer the exact open() path as the alternative");
-        assertTrue(reprompt.toLowerCase().contains("description"),
-                "re-prompt must warn the model off answering from the file description");
-    }
-
-    @Test
-    void buildComputeReprompt_fallsBackToGenericWithoutArtifact() {
-        // No spill marker (the answered-without-execute_code case): generic re-prompt,
-        // names no specific path.
-        var msg = dev.langchain4j.data.message.UserMessage.from("Count the namespaces in the cluster.");
-        String reprompt = ChatService.buildComputeReprompt(java.util.List.of(msg));
-        assertTrue(reprompt.contains("<key>"),
-                "without an artifact marker the re-prompt is the generic one with the <key> placeholder");
-    }
-
-    @Test
-    void artifactPathsInInput_ignoresSystemPromptMarkerExample() {
-        // The compute prompt documents the marker format ("[CALL key=<key> ..."); that
-        // example is not a spill and must not yield a bogus /artifacts/<key> path.
-        var system = dev.langchain4j.data.message.SystemMessage.from(
-                "a contribution may carry \"[CALL key=<key> bytes=<n> ...]\"");
-        var user = dev.langchain4j.data.message.UserMessage.from("Sum the squares from 1 to 10.");
-        assertTrue(ChatService.artifactPathsInInput(java.util.List.of(system, user)).isEmpty());
-    }
-
-    @Test
-    void computeContract_selfContainedQuestion_systemPromptMarkerExample_accepted(
-            @org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws java.io.IOException {
-        // The system prompt names the marker format, but no input carries a spill. A question
-        // that states its own inputs and runs execute_code (no /artifacts/ read) is accepted
-        // on the first answer, with no re-prompt.
-        var promptFile = dir.resolve("prompt.txt");
-        java.nio.file.Files.writeString(promptFile,
-                "marker form: [CALL key=<key> bytes=<n> ...] read it with the read-ops tools");
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        var exec = mock(ToolExecutor.class);
-        when(exec.execute(any(), any())).thenReturn("{\"stdout\": \"43289913723294\"}");
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, exec));
-        var codeCall = mock(ChatResponse.class);
-        when(codeCall.aiMessage()).thenReturn(AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("e1").name("execute_code").arguments("{\"code\":\"print(sum(i*i for i in range(1,100001) if i%7==0 and i%11))\"}").build())));
-        when(codeCall.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-        var answer = mock(ChatResponse.class);
-        when(answer.aiMessage()).thenReturn(new AiMessage("43289913723294"));
-        when(answer.tokenUsage()).thenReturn(new TokenUsage(40, 8));
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(codeCall, answer);
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-
-        var props = spy(stubProperties(10, "analyst", true, true));
-        doReturn(Optional.of(promptFile.toString())).when(props).systemPromptFile();
-        var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator, props,
-                heartbeatService, objectMapper, null, null, null, null, null, null, null, null, null);
-        var result = service.directChat(new ChatService.ChatRequest("c-cc12",
-                "Compute the sum of squares of integers 1..100000 divisible by 7 but not 11"), false);
-        assertEquals("43289913723294", result.response());
-        verify(chatModel, times(2)).chat(any(ChatRequest.class)); // no re-prompt
-    }
-
-    @Test
-    void artifactPathsInInput_extractsKeyBeforeBytes() {
-        var msg = dev.langchain4j.data.message.UserMessage.from(
-                "x [CALL key=k1 bytes=6032 - full data materialized at /artifacts/k1]");
-        assertEquals(java.util.List.of("/kubemoot/workspace/k1"),
-                ChatService.artifactPathsInInput(java.util.List.of(msg)),
-                "the key must be captured up to the space before bytes=");
     }
 
     private ChatResponse mockResp(AiMessage message) {
@@ -1849,89 +1491,10 @@ class ChatServiceToolLoopTest {
         return createService(maxToolIterations, "tooler");
     }
 
-    // --- compute grounding: a figure no tool result holds is sent back, then withheld ---
-
-    private ChatService groundedComputeService(String... answers) {
-        var toolSpec = ToolSpecification.builder().name("execute_code").description("run code").build();
-        var exec = mock(ToolExecutor.class);
-        when(exec.execute(any(), any())).thenReturn("{\"total\":40}");
-        when(mcpClient.getToolSpecifications()).thenReturn(Map.of(toolSpec, exec));
-        var call = AiMessage.from(List.of(ToolExecutionRequest.builder()
-                .id("e1").name("execute_code").arguments("{\"code\": \"print(1)\"}").build()));
-        var first = mock(ChatResponse.class);
-        when(first.aiMessage()).thenReturn(call);
-        when(first.tokenUsage()).thenReturn(new TokenUsage(50, 10));
-        var replies = new ArrayList<ChatResponse>();
-        for (String answer : answers) {
-            var r = mock(ChatResponse.class);
-            when(r.aiMessage()).thenReturn(new AiMessage(answer));
-            when(r.tokenUsage()).thenReturn(new TokenUsage(60, 12));
-            replies.add(r);
-        }
-        when(chatModel.chat(any(ChatRequest.class))).thenReturn(first, replies.toArray(new ChatResponse[0]));
-        when(ragClient.queryForContext(anyString())).thenReturn("");
-        return createService(10, "analyst", true, true, true);
-    }
-
-    @Test
-    void computeGrounding_figureTheToolReturned_accepted() {
-        var service = groundedComputeService("The total is 40 GiB.");
-        var result = service.directChat(new ChatService.ChatRequest("c-cg1", "total memory?"), false);
-        assertEquals("The total is 40 GiB.", result.response());
-        verify(chatModel, times(2)).chat(any(ChatRequest.class));
-    }
-
-    @Test
-    void computeGrounding_inventedFigure_sentBackOnce_thenAcceptedWhenFixed() {
-        var service = groundedComputeService("Requested 50 GiB of 100 GiB (illustrative).", "The total is 40 GiB.");
-        var result = service.directChat(new ChatService.ChatRequest("c-cg2", "total memory?"), false);
-        assertEquals("The total is 40 GiB.", result.response());
-        verify(chatModel, times(3)).chat(any(ChatRequest.class));
-    }
-
-    @Test
-    void computeGrounding_inventedFigureKept_isWithheld() {
-        var service = groundedComputeService("Requested 50 GiB of 100 GiB.", "Requested 50 GiB of 100 GiB.");
-        var result = service.directChat(new ChatService.ChatRequest("c-cg3", "total memory?"), false);
-        assertTrue(result.response().startsWith("NO_DATA: could not compute"), result.response());
-        assertTrue(result.response().contains("50, 100"), result.response());
-        verify(chatModel, times(3)).chat(any(ChatRequest.class));
-    }
-
-    @Test
-    void computeGrounding_off_letsTheInventedFigureThrough() {
-        groundedComputeService("Requested 50 GiB of 100 GiB.");
-        var service = createService(10, "analyst", true, true, false);
-        var result = service.directChat(new ChatService.ChatRequest("c-cg4", "total memory?"), false);
-        assertEquals("Requested 50 GiB of 100 GiB.", result.response());
-    }
-
-    @Test
-    void computeGrounding_figureOfTheQuestion_isGrounded() {
-        var service = groundedComputeService("15% of 240 is 36, and 40 GiB were reported.");
-        var result = service.directChat(new ChatService.ChatRequest("c-cg5", "what is 15% of 240, 36 expected?"), false);
-        assertEquals("15% of 240 is 36, and 40 GiB were reported.", result.response());
-    }
-
     private ChatService createService(int maxToolIterations, String discussRole) {
-        return createService(maxToolIterations, discussRole, false);
-    }
-
-    private ChatService createService(int maxToolIterations, String discussRole, boolean computeContract) {
-        return createService(maxToolIterations, discussRole, computeContract, true);
-    }
-
-    private ChatService createService(int maxToolIterations, String discussRole,
-            boolean computeContract, boolean metricsDrillContract) {
-        return createService(maxToolIterations, discussRole, computeContract, metricsDrillContract, false);
-    }
-
-    private ChatService createService(int maxToolIterations, String discussRole,
-            boolean computeContract, boolean metricsDrillContract, boolean computeGrounding) {
         return new ChatService(
                 chatModel, ragClient, mcpClient, discussionOrchestrator,
-                stubProperties(maxToolIterations, discussRole, computeContract, metricsDrillContract,
-                        computeGrounding),
+                stubProperties(maxToolIterations, discussRole),
                 heartbeatService, objectMapper,
                 // JIT server selection is null in unit tests — the mulling
                 // path falls back to the Quarkus-injected static chatModel
@@ -1948,13 +1511,7 @@ class ChatServiceToolLoopTest {
         );
     }
 
-    static AgentProperties stubProperties(int maxToolIterations, String discussRole,
-            boolean computeContract, boolean metricsDrillContract) {
-        return stubProperties(maxToolIterations, discussRole, computeContract, metricsDrillContract, false);
-    }
-
-    static AgentProperties stubProperties(int maxToolIterations, String discussRole,
-            boolean computeContract, boolean metricsDrillContract, boolean computeGrounding) {
+    static AgentProperties stubProperties(int maxToolIterations, String discussRole) {
         return new AgentProperties() {
             @Override public ai.kubemoot.agent.config.AgentProperties.Scheduler scheduler() { return ai.kubemoot.agent.TestStubs.scheduler(); }
             @Override public Memory memory() { return ai.kubemoot.agent.TestStubs.memory(); }
@@ -1996,8 +1553,6 @@ class ChatServiceToolLoopTest {
                 @Override public int advisoryGraceSeconds() { return 5; }
                 @Override public String role() { return discussRole; }
                 @Override public boolean coordinator() { return false; }
-                @Override public boolean computeContract() { return computeContract; }
-                @Override public boolean computeGrounding() { return computeGrounding; }
                 @Override public Optional<String> alwaysCandidateAgents() { return Optional.empty(); }
                 @Override public int synthesisCompletenessRetries() { return 0; }
                 @Override public boolean answerDirectly() { return true; }
@@ -2086,7 +1641,7 @@ class ChatServiceToolLoopTest {
         var history = mock(ai.kubemoot.agent.modelserver.PerformanceHistory.class);
 
         var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator,
-                stubProperties(3, "tooler", false, false), heartbeatService, objectMapper,
+                stubProperties(3, "tooler"), heartbeatService, objectMapper,
                 null, null, null, null, null, null, null, null, history);
         service.directChat(new ChatService.ChatRequest("conv-static", "Which nodes have a GPU?"), true);
 
@@ -2107,7 +1662,7 @@ class ChatServiceToolLoopTest {
         when(memory.stripDirectives(anyString())).thenAnswer(inv -> inv.getArgument(0));
 
         var service = new ChatService(chatModel, ragClient, mcpClient, discussionOrchestrator,
-                stubProperties(3, "tooler", false, false), heartbeatService, objectMapper,
+                stubProperties(3, "tooler"), heartbeatService, objectMapper,
                 null, null, memory, null, null, null, null, null, null);
         service.directChat(new ChatService.ChatRequest("conv-mem", "You are in a discussion... [User Question] Which nodes have a GPU? [Response (x)] ...",
                 null, "thread-mem", "Which nodes have a GPU?"), false);
