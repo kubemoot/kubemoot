@@ -779,8 +779,8 @@ public class DiscussionSubscriber {
 
             The coordinator identified these relevant areas: {advisory_technologies}
 
-            Based on the conversation below, could your tools or expertise contribute
-            ANY useful data? Even partial data from your domain adds value.
+            Based on the conversation below, could your tools or expertise
+            contribute to answering it?
 
             Reply with EXACTLY one of:
             - CONTRIBUTE — if your tools or knowledge can help answer this question
@@ -791,10 +791,10 @@ public class DiscussionSubscriber {
     /**
      * Two-phase evaluation: triage (lightweight model) then mulling (full model).
      *
-     * Phase 1 — Triage: Quick "should I contribute?" on the smaller GPU (e.g., 4090/qwen3:14b).
-     *   ~80% of agents stand aside here, saving the expensive GPU for agents that matter.
+     * Phase 1 — Triage: Quick "should I contribute?" on the smaller model.
+     *   Most agents stand aside here, saving the larger model for agents that matter.
      *
-     * Phase 2 — Mulling: Full inference with tools on the larger GPU (e.g., 5090/qwen3:32b).
+     * Phase 2 — Mulling: Full inference with tools on the larger model.
      *   Only runs for agents that passed triage.
      */
     private void evaluateAndRespond(String subject, String threadId, String conversation,
@@ -1029,7 +1029,7 @@ public class DiscussionSubscriber {
 
         publishSignal(subject, threadId, SIGNAL_EVALUATING, "Running tool-calling evaluation",
                 SignalTiming.of(triageMs, triageStartMs), NOT_PLACED);
-        log.info("Agent {} passed triage ({}ms), running full evaluation for thread {} (gpu={})",
+        log.info("Agent {} passed triage ({}ms), running full evaluation for thread {} (accelerator={})",
                 properties.agentName(), triageMs, threadId, mullingGpuLabel);
 
         var heartbeat = startHeartbeat(subject, threadId);
@@ -1512,11 +1512,9 @@ public class DiscussionSubscriber {
      */
     private void publishFromReplyText(String subject, String threadId, ChatService.ChatResult result,
                                       SignalTiming timing, String gpuLabel, ai.kubemoot.agent.chat.ModelUse triageUse) {
-        // The GPU badge should reflect WHERE this inference actually ran — the
-        // JIT-selected server — not the agent's static reconcile-time
-        // endpoint. Without this, an agent that JIT-picked the 5090 still shows
-        // its static 4090 label (observed 2026-05-26, thread 0d310372:
-        // obs-metrics ran on rig0/5090 but the dashboard showed 4090). Fall
+        // The accelerator label should reflect WHERE this inference actually ran - the
+        // JIT-selected server - not the agent's static reconcile-time
+        // endpoint. Fall
         // back to the static label when no JIT pick was made (selector unwired
         // / static fallback). See [[Per-Call Server Attribution]].
         var ranOn = ModelAttribution.withEarlierCall(ranOn(result), triageUse);

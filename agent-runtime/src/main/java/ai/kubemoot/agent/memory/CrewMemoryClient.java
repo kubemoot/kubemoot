@@ -124,9 +124,8 @@ public class CrewMemoryClient {
         // storage — a GPU query surfaces GPU facts, not the whole memory.
         rankByRelevanceThenRecency(facts, tokens(query));
         var sb = new StringBuilder();
-        sb.append("## Crew Working Memory (learned on this cluster — prefer over re-discovery)\n");
-        sb.append("These facts were discovered by the crew on THIS cluster. Use them directly; ")
-          .append("re-verify only if a fact looks stale or a query using it returns nothing.\n");
+        sb.append("## Crew Working Memory\n");
+        sb.append("Facts the crew learned in earlier work. Re-verify a fact that looks stale.\n");
         appendInjectedFacts(sb, facts, kv);
         sb.append("\n");
         return sb.toString();

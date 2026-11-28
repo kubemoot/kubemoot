@@ -29,7 +29,7 @@ public interface AgentProperties {
     Optional<String> namespace();
 
     /**
-     * Crew this agent belongs to (e.g., "homelab-pilot"). Scopes NATS subjects and keys
+     * Crew this agent belongs to (e.g., "my-crew"). Scopes NATS subjects and keys
      * within the agent's namespace; see {@link ai.kubemoot.agent.nats.CrewScope}.
      */
     Optional<String> crew();
@@ -165,7 +165,7 @@ public interface AgentProperties {
         /**
          * Whether the coordinator may answer a turn DIRECTLY (selecting no toolers)
          * when its reasoning judges the question coordinator-answerable. On for
-         * general crews (pilot) where a coordinator-answerable question shouldn't wake
+         * general crews where a coordinator-answerable question shouldn't wake
          * the whole crew. MUST be off (KUBEMOOT_DISCUSS_ANSWER_DIRECTLY=false) for a
          * single-specialist crew like the fitness judge, whose coordinator must ALWAYS
          * delegate to its specialist: otherwise it answers a coordinator-answerable-

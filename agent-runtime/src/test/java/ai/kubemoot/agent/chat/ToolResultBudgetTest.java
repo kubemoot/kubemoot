@@ -100,8 +100,8 @@ class ToolResultBudgetTest {
 
         assertEquals("{\"error\": \"Tool result larger than the room left in the context window: resources_list"
                 + " returned about 100005 tokens and about 21672 tokens are left. The result was not kept."
-                + " Call resources_list again with a filter: a namespace, a label selector, a field selection,"
-                + " a limit, or a shorter time range.\"}", admission.text());
+                + " Call resources_list again with a filter,"
+                + " a limit, or a narrower range.\"}", admission.text());
     }
 
     @Test

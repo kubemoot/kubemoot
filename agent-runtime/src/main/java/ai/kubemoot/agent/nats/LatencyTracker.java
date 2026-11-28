@@ -23,7 +23,7 @@ import java.util.List;
  * Cold start: when fewer than 3 observations exist, returns KUBEMOOT_EVAL_DEFAULT_SECONDS
  * (default 90s) — generous on purpose to avoid cutting off agents early.
  *
- * Server-keyed: same agent on different hardware (ollama-gpu vs ollama-rig1) gets
+ * Server-keyed: same agent on different hardware (two model servers) gets
  * separate windows so scheduler migrations don't corrupt estimates.
  */
 @ApplicationScoped
@@ -55,7 +55,7 @@ public class LatencyTracker {
      * agent+server pair. Called by the orchestrator after each terminal signal.
      *
      * @param agentName  the contributing agent
-     * @param server   GPU/server label (e.g., "RTX 5090", "RTX 4090") from signal metadata
+     * @param server   accelerator or server label from signal metadata
      * @param durationMs wall-clock milliseconds from evaluation start to terminal signal
      */
     public void recordLatency(String agentName, String server, long durationMs) {

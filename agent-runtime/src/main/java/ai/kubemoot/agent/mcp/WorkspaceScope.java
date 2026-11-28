@@ -21,7 +21,6 @@ public final class WorkspaceScope {
     /** The {@code _meta} entry that carries the thread's key prefix; the MCP gateway and workspace-access read it. */
     public static final String META_KEY = "workspacePrefix";
 
-    private static final String EXECUTE_CODE = "execute_code";
 
     private static final ThreadLocal<String> CURRENT = new ThreadLocal<>();
 
@@ -41,7 +40,7 @@ public final class WorkspaceScope {
 
     /** True for the tools that read stored tool results by key. */
     static boolean readsStoredResults(String toolName) {
-        return WorkspaceTools.isWorkspace(toolName) || EXECUTE_CODE.equals(baseName(toolName));
+        return WorkspaceTools.isWorkspace(toolName) || WorkspaceTools.CODE_TOOL.equals(baseName(toolName));
     }
 
     /** The {@code _meta} entries that name the thread for {@code toolName}: empty for any other tool or outside a thread. */

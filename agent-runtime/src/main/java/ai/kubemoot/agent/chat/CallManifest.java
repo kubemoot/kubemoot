@@ -1,5 +1,6 @@
 package ai.kubemoot.agent.chat;
 
+import ai.kubemoot.agent.mcp.WorkspaceTools;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -53,7 +54,7 @@ public final class CallManifest {
     public static final String WORKING_UNAVAILABLE = "unavailable";
 
     /** What the closing line says of the workings, so a reader knows the call= key opens the call itself. */
-    public static final String WORKING_NOTE = "each call's full arguments (the program of execute_code, the query, "
+    public static final String WORKING_NOTE = "each call's full arguments (the program of " + WorkspaceTools.CODE_TOOL + ", the query, "
             + "the parameters) are stored under its key followed by " + WORKING_SUFFIX
             + " (the call= key), read like any result";
 

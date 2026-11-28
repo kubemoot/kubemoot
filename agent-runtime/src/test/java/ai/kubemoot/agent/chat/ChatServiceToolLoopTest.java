@@ -1108,7 +1108,7 @@ class ChatServiceToolLoopTest {
 
         var sent = toolResultsSentOnTurn(2);
         assertTrue(sent.get(0).startsWith(ERROR_PREFIX), sent.get(0));
-        assertTrue(sent.get(0).contains("label selector"), sent.get(0));
+        assertTrue(sent.get(0).contains("again with a filter"), sent.get(0));
         assertFalse(sent.get(0).contains("pod-0"), "no part of the oversized result is kept");
     }
 

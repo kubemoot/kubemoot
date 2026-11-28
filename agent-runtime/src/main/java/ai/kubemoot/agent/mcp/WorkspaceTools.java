@@ -7,8 +7,7 @@ import java.util.Set;
  * The one registry of the discussion workspace's tool names. The workspace server serves each read
  * tool under its current name and, for one release, under the name it had before the artifacts became
  * the workspace; {@link #canonical} maps an old name to the current one. Every place that must know
- * whether a tool reads the workspace (the thread scope sent to it, the compute contract's read check,
- * the oversize-result hint) asks here, and the prompt texts take their tool names from here, so the
+ * whether a tool reads the workspace (the thread scope sent to it, the oversize-result hint) asks here, and the prompt texts take their tool names from here, so the
  * names cannot drift apart.
  */
 public final class WorkspaceTools {
@@ -25,12 +24,15 @@ public final class WorkspaceTools {
     /** The mount the workspace had before it was named; mounted beside {@link #MOUNT} for one release. */
     public static final String LEGACY_MOUNT = "/artifacts";
 
+    /** The code-sandbox tool: it reads the workspace files at {@link #MOUNT}, so it is scoped like a workspace tool. */
+    public static final String CODE_TOOL = "execute_code";
+
     public static final String QUERY = "workspace_query";
     public static final String HEAD = "workspace_head";
     public static final String TAIL = "workspace_tail";
     public static final String GREP = "workspace_grep";
 
-    /** The tools that read stored data (not the catalog tools): the ones a compute agent may satisfy its read with. */
+    /** The tools that read stored data (not the catalog tools): the ones that return stored rows or lines. */
     private static final Set<String> DATA_TOOLS = Set.of(QUERY, HEAD, TAIL, GREP);
     /** Every workspace tool by its current name. */
     private static final Set<String> ALL = Set.of(LIST, DESCRIBE, QUERY, HEAD, TAIL, GREP);

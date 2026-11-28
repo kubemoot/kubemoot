@@ -33,7 +33,7 @@ final class ToolCallRepeatGuard {
     static String refusal(String toolName) {
         return ToolResultBudget.errorJson("You already called " + toolName + " " + MAX_IDENTICAL_CALLS
                 + " times with these exact arguments and the result will not change. Change the arguments"
-                + " (a namespace, a label selector, a field selection, a limit) or answer from what you have.");
+                + " or answer from what you have.");
     }
 
     /** The arguments as JSON with object keys sorted and no whitespace; the trimmed text when not JSON. */

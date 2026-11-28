@@ -18,7 +18,7 @@ public final class TurnContext {
 
     /**
      * The line, for example {@code Today is 2026-11-20 (America/New_York). You are in namespace
-     * crew-homelab-pilot, crew homelab-pilot.} A part that is not known is left out; empty when
+     * crew-my-crew, crew my-crew.} A part that is not known is left out; empty when
      * nothing is known. {@code callerShown} is the principal a crew chose to tell its agents about
      * (see {@link #callerSentence}), added at the end; null adds nothing.
      */

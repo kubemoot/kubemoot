@@ -38,7 +38,7 @@ public final class AcceleratorLabels {
 
     /**
      * Server label derived from an endpoint URL. Extracts the host's namespace
-     * component, e.g. "http://ollama.ollama-rig1:11434" -> "ollama-rig1". Returns
+     * component, e.g. "http://ollama.ollama-a:11434" -> "ollama-a". Returns
      * "server" when nothing usable can be extracted. No accelerator or model assumptions.
      */
     public static String fromEndpoint(String endpoint) {
