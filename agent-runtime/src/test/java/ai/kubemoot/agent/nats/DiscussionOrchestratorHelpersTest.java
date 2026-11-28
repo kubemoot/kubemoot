@@ -21,8 +21,7 @@ import static org.mockito.Mockito.when;
  * Tests for DiscussionOrchestrator helper methods extracted during CC refactoring.
  * Plain JUnit 5 (not @QuarkusTest) to avoid Ollama/NATS dependency in CI.
  *
- * Covers: resolveChannel, hasZeroSignals, classifyGap, buildFallbackResponse,
- * looksLikeGapReport, suggestsOnboarding.
+ * Covers: resolveChannel, hasZeroSignals, classifyGap, buildFallbackResponse.
  */
 class DiscussionOrchestratorHelpersTest {
 
@@ -144,7 +143,7 @@ class DiscussionOrchestratorHelpersTest {
     void classifyGap_toolGap_whenZeroAgreesWithConcerns() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         state.concernSignals.put("agent-a", "TOOL_GAP: missing rabbitmq tools");
-        var gap = orchestrator.classifyGap(state, 0, "unable to find information");
+        var gap = orchestrator.classifyGap(state, 0);
         assertEquals(DiscussionOrchestrator.GapType.TOOL_GAP, gap);
     }
 
@@ -153,7 +152,7 @@ class DiscussionOrchestratorHelpersTest {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         state.standAsideSignals.add("agent-a");
         state.standAsideSignals.add("agent-b");
-        var gap = orchestrator.classifyGap(state, 0, "could not find any information");
+        var gap = orchestrator.classifyGap(state, 0);
         assertEquals(DiscussionOrchestrator.GapType.TOOLER_GAP, gap);
     }
 
@@ -161,23 +160,14 @@ class DiscussionOrchestratorHelpersTest {
     void classifyGap_none_whenToolerAgreesPresent() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         state.agreeSignals.put("agent-a", "Here is what I found...");
-        var gap = orchestrator.classifyGap(state, 1, "Based on agent responses...");
+        var gap = orchestrator.classifyGap(state, 1);
         assertEquals(DiscussionOrchestrator.GapType.NONE, gap);
     }
 
     @Test
     void classifyGap_none_whenNoStandAsidesAndNoConcerns() {
         var state = new DiscussionOrchestrator.ThreadState("t1");
-        var gap = orchestrator.classifyGap(state, 0, "I can answer this directly.");
-        assertEquals(DiscussionOrchestrator.GapType.NONE, gap);
-    }
-
-    @Test
-    void classifyGap_suppressesGap_whenLlmAnsweredDirectly() {
-        var state = new DiscussionOrchestrator.ThreadState("t1");
-        state.standAsideSignals.add("agent-a");
-        // Response does NOT look like a gap report (direct answer)
-        var gap = orchestrator.classifyGap(state, 0, "Kubernetes uses etcd for state storage.");
+        var gap = orchestrator.classifyGap(state, 0);
         assertEquals(DiscussionOrchestrator.GapType.NONE, gap);
     }
 
@@ -186,15 +176,7 @@ class DiscussionOrchestratorHelpersTest {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         state.triageConfidence = 0.1;
         // No stand-asides but low triage confidence flags tooler gap
-        var gap = orchestrator.classifyGap(state, 0, "unable to find relevant toolers");
-        assertEquals(DiscussionOrchestrator.GapType.TOOLER_GAP, gap);
-    }
-
-    @Test
-    void classifyGap_toolerGap_whenResponseSuggestsOnboarding() {
-        var state = new DiscussionOrchestrator.ThreadState("t1");
-        state.standAsideSignals.add("agent-a");
-        var gap = orchestrator.classifyGap(state, 0, "You may want to onboard a new tooler");
+        var gap = orchestrator.classifyGap(state, 0);
         assertEquals(DiscussionOrchestrator.GapType.TOOLER_GAP, gap);
     }
 
@@ -207,7 +189,7 @@ class DiscussionOrchestratorHelpersTest {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         state.failureSignals.put("nvidia-gpu",
                 "Tool 'get_targets' failed 2 times in this evaluation");
-        var gap = orchestrator.classifyGap(state, 0, "could not retrieve GPU metrics");
+        var gap = orchestrator.classifyGap(state, 0);
         assertEquals(DiscussionOrchestrator.GapType.INFRASTRUCTURE_GAP, gap);
     }
 
@@ -219,7 +201,7 @@ class DiscussionOrchestratorHelpersTest {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         state.standAsideSignals.add("k8s-config");
         state.failureSignals.put("nvidia-gpu", "mcp_tool_timeout");
-        var gap = orchestrator.classifyGap(state, 0, "could not determine");
+        var gap = orchestrator.classifyGap(state, 0);
         assertEquals(DiscussionOrchestrator.GapType.INFRASTRUCTURE_GAP, gap);
     }
 
@@ -233,7 +215,7 @@ class DiscussionOrchestratorHelpersTest {
         var state = new DiscussionOrchestrator.ThreadState("t1");
         state.concernSignals.put("agent-a", "TOOL_GAP: missing rabbitmq tools");
         state.failureSignals.put("agent-b", "mcp_tool_timeout");
-        var gap = orchestrator.classifyGap(state, 0, "could not find information");
+        var gap = orchestrator.classifyGap(state, 0);
         assertEquals(DiscussionOrchestrator.GapType.TOOL_GAP, gap);
     }
 
@@ -260,60 +242,6 @@ class DiscussionOrchestratorHelpersTest {
         // not blame a "resource constraint" (the old wording was misleading).
         assertTrue(fallback.contains("No agent contributed"));
         assertFalse(fallback.contains("resource constraint"));
-    }
-
-    // --- looksLikeGapReport ---
-
-    @Test
-    void looksLikeGapReport_trueForUnableToFind() {
-        assertTrue(orchestrator.looksLikeGapReport("I was unable to find any data on RabbitMQ"));
-    }
-
-    @Test
-    void looksLikeGapReport_trueForCouldNotFind() {
-        assertTrue(orchestrator.looksLikeGapReport("Could not find relevant information"));
-    }
-
-    @Test
-    void looksLikeGapReport_trueForNoTooler() {
-        assertTrue(orchestrator.looksLikeGapReport("There is no tooler for this domain"));
-    }
-
-    @Test
-    void looksLikeGapReport_falseForDirectAnswer() {
-        assertFalse(orchestrator.looksLikeGapReport("Kubernetes uses etcd as its state store."));
-    }
-
-    @Test
-    void looksLikeGapReport_falseForNull() {
-        assertFalse(orchestrator.looksLikeGapReport(null));
-    }
-
-    // --- suggestsOnboarding ---
-
-    @Test
-    void suggestsOnboarding_trueForOnboardKeyword() {
-        assertTrue(orchestrator.suggestsOnboarding("You can onboard a RabbitMQ tooler"));
-    }
-
-    @Test
-    void suggestsOnboarding_trueForNewTooler() {
-        assertTrue(orchestrator.suggestsOnboarding("Consider adding a new tooler for this domain"));
-    }
-
-    @Test
-    void suggestsOnboarding_trueForNewMcp() {
-        assertTrue(orchestrator.suggestsOnboarding("A new MCP server could help"));
-    }
-
-    @Test
-    void suggestsOnboarding_falseForNormalResponse() {
-        assertFalse(orchestrator.suggestsOnboarding("Here are the Kubernetes namespaces"));
-    }
-
-    @Test
-    void suggestsOnboarding_falseForNull() {
-        assertFalse(orchestrator.suggestsOnboarding(null));
     }
 
     // --- hasSufficientConsensus (Coordinator Sufficient-Agrees Settle) ---
@@ -464,7 +392,7 @@ class DiscussionOrchestratorHelpersTest {
         state.concernSignals.put("k8s-agent", "needs a metrics tool");
         state.failureSignals.put("helm-agent", "mcp call failed");
         assertEquals(DiscussionOrchestrator.GapType.NONE,
-                orchestrator.classifyGap(state, 1, "Pods are healthy."));
+                orchestrator.classifyGap(state, 1));
     }
 
     @Test
@@ -504,18 +432,6 @@ class DiscussionOrchestratorHelpersTest {
         assertFalse(orchestrator.isToolerGapCandidate(state, 1), "0.3 is not below the threshold");
         state.triageConfidence = 0.0;
         assertTrue(orchestrator.isToolerGapCandidate(state, 1));
-    }
-
-    // --- looksLikeGapReport phrases ---
-
-    @Test
-    void looksLikeGapReport_everyPhraseMatchesCaseInsensitively() {
-        for (String phrase : DiscussionOrchestrator.GAP_REPORT_PHRASES) {
-            assertTrue(orchestrator.looksLikeGapReport("Sorry, I " + phrase.toUpperCase() + " here."), phrase);
-        }
-        assertEquals(8, DiscussionOrchestrator.GAP_REPORT_PHRASES.size());
-        assertFalse(orchestrator.looksLikeGapReport("The cluster has three nodes."));
-        assertFalse(orchestrator.looksLikeGapReport(null));
     }
 
     // --- recordSelectedSkills ---

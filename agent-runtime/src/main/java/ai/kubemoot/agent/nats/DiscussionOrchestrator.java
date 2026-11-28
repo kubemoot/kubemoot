@@ -3223,7 +3223,7 @@ public class DiscussionOrchestrator {
     // Visible for testing
     String detectAndAppendGapHint(ThreadState state, String response,
                                            long toolerAgrees, String channel) {
-        var gapType = classifyGap(state, toolerAgrees, response);
+        var gapType = classifyGap(state, toolerAgrees);
 
         if (gapType == GapType.TOOL_GAP) {
             metrics.toolGap();
@@ -3288,7 +3288,7 @@ public class DiscussionOrchestrator {
     enum GapType { NONE, TOOL_GAP, TOOLER_GAP, INFRASTRUCTURE_GAP }
 
     // Visible for testing
-    GapType classifyGap(ThreadState state, long toolerAgrees, String response) {
+    GapType classifyGap(ThreadState state, long toolerAgrees) {
         if (toolerAgrees == 0) {
             GapType noAgreeGap = classifyNoAgreeGap(state);
             if (noAgreeGap != GapType.NONE) {
@@ -3296,19 +3296,7 @@ public class DiscussionOrchestrator {
             }
         }
 
-        boolean isToolerGap = isToolerGapCandidate(state, toolerAgrees);
-
-        if (isToolerGap && !looksLikeGapReport(response)) {
-            log.info("Thread {} — LLM answered directly (general knowledge), suppressing gap hint",
-                    state.threadId);
-            isToolerGap = false;
-        }
-
-        if (isToolerGap || suggestsOnboarding(response)) {
-            return GapType.TOOLER_GAP;
-        }
-
-        return GapType.NONE;
+        return isToolerGapCandidate(state, toolerAgrees) ? GapType.TOOLER_GAP : GapType.NONE;
     }
 
     /**
@@ -4223,31 +4211,6 @@ public class DiscussionOrchestrator {
                 ? List.of(broadcastSubject(crew, threadId))
                 : List.of(broadcastSubject(crew, threadId), channelSubject(crew, channel, threadId));
     }
-
-    // Visible for testing
-    boolean suggestsOnboarding(String response) {
-        if (response == null) return false;
-        var lower = response.toLowerCase();
-        return lower.contains("onboard") || lower.contains("new tooler")
-                || lower.contains("new mcp") || lower.contains("no tooler");
-    }
-
-    /**
-     * Check if the LLM response looks like a gap report (unable to find info)
-     * vs a direct answer (general knowledge). Used to suppress onboarding hints
-     * when the coordinator answered directly via ADL decision rules.
-     */
-    // Visible for testing
-    boolean looksLikeGapReport(String response) {
-        if (response == null) return false;
-        var lower = response.toLowerCase();
-        return GAP_REPORT_PHRASES.stream().anyMatch(lower::contains);
-    }
-
-    /** Phrases that mark a synthesis as a report of missing information rather than an answer. */
-    static final List<String> GAP_REPORT_PHRASES = List.of(
-            "unable to find", "could not find", "no information", "not covered",
-            "no tooler", "isn't covered", "cannot determine", "don't have access");
 
     private void publishGapDetected(String threadId, String channel, String userQuery,
                                      Map<String, String> concerns, GapType gapType) {
