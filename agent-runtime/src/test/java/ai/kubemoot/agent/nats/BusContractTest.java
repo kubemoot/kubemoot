@@ -268,7 +268,7 @@ class BusContractTest {
         var refused = round.ask("t1/0", "workloads", "nobody", "and this?", 1, java.util.Set.of("metrics"));
         recorder.questionAsked(s, refused.question(), refused.refusal(), 0L);
         recorder.questionAnswered(s, round.answer(asked.question().id(), "metrics", "agree", "7 nodes"), 5_000L, "");
-        var phase = round.refuse("t1/0", "workloads", "metrics", "late?", RecheckState.Refusal.PHASE);
+        var phase = round.refuse("t1/0", "workloads", "metrics", "late?", "", RecheckState.Refusal.PHASE);
         recorder.questionAsked(s, phase.question(), phase.refusal(), 0L);
         var failed = new RecheckState().ask("t1/9", "metrics", "workloads", "and yours?", 1,
                 java.util.Set.of("workloads")).question();

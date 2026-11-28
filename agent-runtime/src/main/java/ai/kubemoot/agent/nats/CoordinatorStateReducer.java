@@ -323,8 +323,9 @@ final class CoordinatorStateReducer {
     private static RecheckState.Question question(JsonNode d, String asker) {
         String target = text(d, TARGET);
         String text = text(d, QUESTION);
+        String finding = text(d, FINDING);
         return new RecheckState.Question(text(d, QUESTION_ID), asker, target == null ? "" : target,
-                text == null ? "" : text, null, null);
+                text == null ? "" : text, finding == null ? "" : finding, null, null);
     }
 
     /** An answer: a failure leaves the question as the asker's concern; any other answer makes the asker pending. */
@@ -346,7 +347,7 @@ final class CoordinatorStateReducer {
 
     private static void questionAsConcern(CoordinatorThreadState s, String asker, JsonNode d) {
         s.recheck.settle(asker);
-        String concern = RecheckText.unansweredConcern(text(d, TARGET), text(d, QUESTION), text(d, REASON));
+        String concern = RecheckText.unansweredConcern(text(d, TARGET), text(d, QUESTION), text(d, FINDING), text(d, REASON));
         s.concern.merge(asker, concern, (earlier, added) -> earlier + "\n\n" + added);
         s.questionConcerns.merge(asker, concern, (earlier, added) -> earlier + "\n\n" + added);
         s.pending.remove(asker);

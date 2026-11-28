@@ -38,6 +38,8 @@ final class CoordinatorWire {
     static final String ASKER = "asker";
     static final String TARGET = "target";
     static final String QUESTION = "question";
+    /** On question_asked raised from a concern: the whole concern, which stands as the asker's concern when no recheck happens. */
+    static final String FINDING = "finding";
     static final String REFUSAL = "refusal";
     /** On signal_applied: the signal answers a clarifying question, so it replaces the agent's earlier verdict. */
     static final String REVISES = "revises";

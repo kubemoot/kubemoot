@@ -48,10 +48,21 @@ final class RecheckState {
         }
     }
 
-    /** One question: its id, who asked whom, the question, and the revised finding once answered. */
-    record Question(String id, String asker, String target, String text, String answer, String answerSignal) {
-        Question answered(String signal, String finding) {
-            return new Question(id, asker, target, text, finding, signal);
+    /**
+     * One question: its id, who asked whom, the question, and the revised finding once answered.
+     * {@code finding} is the whole concern the question was raised from (its reasoning and call
+     * lines), empty for a plain question; when the question is not relayed or not answered, the
+     * asker's concern is that finding rather than the bare question.
+     */
+    record Question(String id, String asker, String target, String text, String finding, String answer,
+                    String answerSignal) {
+        /** A question with no finding behind it, as a plain question is. */
+        Question(String id, String asker, String target, String text, String answer, String answerSignal) {
+            this(id, asker, target, text, "", answer, answerSignal);
+        }
+
+        Question answered(String signal, String revised) {
+            return new Question(id, asker, target, text, finding, revised, signal);
         }
 
         boolean isAnswered() {
@@ -81,17 +92,24 @@ final class RecheckState {
      */
     synchronized Decision ask(String idPrefix, String asker, String target, String text, int maxRounds,
                               Set<String> crew) {
+        return ask(idPrefix, asker, target, text, "", maxRounds, crew);
+    }
+
+    /** As {@link #ask(String, String, String, String, int, Set)}, for a question raised from the concern {@code finding}. */
+    synchronized Decision ask(String idPrefix, String asker, String target, String text, String finding,
+                              int maxRounds, Set<String> crew) {
         var question = new Question(idPrefix + "/q" + (asked + 1), asker, target == null ? "" : target,
-                text == null ? "" : text, null, null);
+                text == null ? "" : text, finding == null ? "" : finding, null, null);
         Refusal refusal = refusal(question, maxRounds, crew);
         register(question, refusal == null);
         return new Decision(question, refusal);
     }
 
     /** Records a question refused for {@code refusal} without checking it: kept for the synthesis, never open. */
-    synchronized Decision refuse(String idPrefix, String asker, String target, String text, Refusal refusal) {
+    synchronized Decision refuse(String idPrefix, String asker, String target, String text, String finding,
+                                 Refusal refusal) {
         var question = new Question(idPrefix + "/q" + (asked + 1), asker, target == null ? "" : target,
-                text == null ? "" : text, null, null);
+                text == null ? "" : text, finding == null ? "" : finding, null, null);
         register(question, false);
         return new Decision(question, refusal);
     }

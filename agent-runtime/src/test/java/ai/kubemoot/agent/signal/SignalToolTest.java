@@ -105,4 +105,14 @@ class SignalToolTest {
         assertTrue(named.accept("{\"kind\":\"question\",\"statement\":\"recheck?\"}").response().contains("error"),
                 "a question still needs to");
     }
+
+    @Test
+    void theConcernsToTextSaysARecheckOnlyWhenTheKindStartsOne() {
+        var starts = new SignalTool(SignalTestKinds.consent3ConcernRecheck()).spec().parameters().properties().get("to");
+        assertTrue(starts.description().contains("it is asked to recheck it"), starts.description());
+        var note = new SignalTool(DeclaredSignals.parse(
+                "[{\"name\":\"concern\",\"meaning\":\"x\",\"addressed\":true}]")).spec().parameters().properties().get("to");
+        assertFalse(note.description().contains("recheck"), note.description());
+        assertTrue(note.description().contains("you may name the agent"), note.description());
+    }
 }

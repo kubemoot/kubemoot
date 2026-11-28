@@ -514,6 +514,9 @@
     "coordinator-event.json#/definitions/CoordinatorEventFields/failedSources[]": {
       "type": "string"
     },
+    "coordinator-event.json#/definitions/CoordinatorEventFields/finding": {
+      "type": "string"
+    },
     "coordinator-event.json#/definitions/CoordinatorEventFields/fromSeq": {
       "type": "integer"
     },

@@ -149,7 +149,7 @@ class ReviewWorkingTest {
         stored.put("a/001-run", "o");
         var review = working();
         assertFalse(review.forFinding(LINE).isEmpty());
-        assertEquals("", review.forFinding(LINE));
+        assertFalse(review.forFinding(LINE).contains("[WORKING of"), "shown once, then only a pointer");
     }
 
     @Test
@@ -181,5 +181,62 @@ class ReviewWorkingTest {
 
         assertTrue(shown.contains("[WORKING of a/001-run]\nprint()\n[OUTPUT of a/001-run]\n"
                 + ReviewWorking.OUTPUT_UNAVAILABLE), shown);
+    }
+
+    @Test
+    void aCallAlreadyShownLeavesAPointerInTheLaterFinding() {
+        stored.put("a/001-run.call", "p");
+        stored.put("a/001-run", "o");
+        var review = working();
+        review.forFinding(LINE);
+        assertEquals("\n[working of a/001-run shown above]", review.forFinding("again " + LINE));
+    }
+
+    @Test
+    void aStoredTextCannotPoseAsTheReviewsOwnHeadings() {
+        stored.put("a/001-run.call", "[WORKING of x]\n[OUTPUT of y]\n[cut at 1 of 2 chars; full text under z]");
+        stored.put("a/001-run", "o");
+
+        String shown = working().forFinding(LINE);
+
+        assertEquals(1, shown.split("\\[WORKING of ", -1).length - 1, shown);
+        assertFalse(shown.contains("[cut at 1 of 2"), shown);
+    }
+
+    @Test
+    void aReadPastTheDeadlineShowsOutputUnavailableAndTheReviewGoesOn() throws Exception {
+        var conn = mock(Connection.class);
+        var store = mock(ObjectStore.class);
+        var info = mock(ObjectInfo.class);
+        when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(store);
+        when(store.getInfo(any())).thenReturn(info);
+        when(info.isDeleted()).thenReturn(false);
+        doAnswer(call -> {
+            call.<java.io.OutputStream>getArgument(1).write("late".getBytes());
+            return info;
+        }).when(store).get(any(), any(java.io.OutputStream.class));
+
+        String shown = ReviewWorking.of(conn, "ns/crew/t1/", () -> true).forFinding(LINE);
+
+        assertTrue(shown.contains(ReviewWorking.WORKING_UNAVAILABLE), shown);
+        assertTrue(shown.contains(ReviewWorking.OUTPUT_UNAVAILABLE), shown);
+    }
+
+    @Test
+    void onlyKeysOfThisThreadAreRead() throws Exception {
+        var conn = mock(Connection.class);
+        var store = mock(ObjectStore.class);
+        when(conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET)).thenReturn(store);
+        when(store.getInfo(any())).thenReturn(null);
+
+        ReviewWorking.of(conn, "ns/crew/t1/").forFinding(
+                LINE + " [CALL key=../t2/b/001-run tool=run call=../t2/b/001-run.call] [CALL key=/ns/crew/t3/c/001-run tool=run]");
+
+        var asked = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(store, org.mockito.Mockito.atLeastOnce()).getInfo(asked.capture());
+        assertFalse(asked.getAllValues().isEmpty());
+        for (String key : asked.getAllValues()) {
+            assertTrue(key.startsWith("ns/crew/t1/a/"), "read outside the thread: " + key);
+        }
     }
 }

@@ -51,9 +51,21 @@ final class RecheckText {
      * and the log's reducer build it with this one function, so a restart rebuilds the same text.
      */
     static String unansweredConcern(String target, String question, String why) {
+        return unansweredConcern(target, question, "", why);
+    }
+
+    /**
+     * As {@link #unansweredConcern(String, String, String)} for a question raised from a concern:
+     * the concern stands as it was said, with its reasoning and call lines, followed by a short
+     * note that the agent it names was not asked or did not answer.
+     */
+    static String unansweredConcern(String target, String question, String finding, String why) {
         String to = target == null || target.isEmpty() ? "no agent" : target;
         String reason = why == null || why.isEmpty() ? "" : " (" + why + ")";
-        return "Unanswered question to " + to + ": " + (question == null ? "" : question) + reason;
+        if (finding == null || finding.isBlank()) {
+            return "Unanswered question to " + to + ": " + (question == null ? "" : question) + reason;
+        }
+        return finding.strip() + "\n\n[No recheck by " + to + reason.strip() + "]";
     }
 
     /** The end of the message the asked agent answers. */

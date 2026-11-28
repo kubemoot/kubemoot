@@ -62,6 +62,7 @@
         "asker": { "type": "string", "description": "On question_asked and question_answered: the agent that asked." },
         "target": { "type": "string", "description": "On question_asked and question_answered: the agent asked to recheck." },
         "question": { "type": "string", "description": "On question_asked and question_answered: the question, as the asker stated it." },
+        "finding": { "type": "string", "description": "On question_asked and question_answered raised from a concern that names an agent: the whole concern, with its reasoning and call lines. It stands as the asker's concern when the agent is not asked or does not answer." },
         "relayed": { "type": "boolean", "description": "On question_asked: true when the question went to the agent asked; false when it became the asker's concern." },
         "refusal": { "type": "string", "enum": ["round_off", "round_limit", "unknown_agent", "self", "busy", "phase"], "description": "On question_asked that was not relayed: the archetype allows no rounds, the thread used its rounds, the question names no agent of the crew, it names the asker, an agent involved is already in a question, or the thread is not in EVALUATING or REVIEW." },
         "revises": { "type": "boolean", "description": "On signal_applied: the signal answers a clarifying question and replaces the agent's earlier verdict." },
