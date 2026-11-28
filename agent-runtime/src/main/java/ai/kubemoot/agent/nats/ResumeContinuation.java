@@ -75,6 +75,7 @@ final class ResumeContinuation {
     private static String evaluating(DiscussionOrchestrator orchestrator, ThreadState state, CoordinatorThreadState log) {
         if (log.reviewRosterWritten) {
             orchestrator.enterReview(state);
+            orchestrator.restoreReviewPasses(state);
             orchestrator.publishReviewReady(state, orchestrator.resumedReviewCircle(state));
             return ENTER_REVIEW;
         }
@@ -104,6 +105,7 @@ final class ResumeContinuation {
     }
 
     private static String review(DiscussionOrchestrator orchestrator, ThreadState state, CoordinatorThreadState log) {
+        orchestrator.restoreReviewPasses(state);
         if (log.rosterSignalled.isEmpty()) {
             orchestrator.publishReviewReady(state, orchestrator.resumedReviewCircle(state));
             return REPUBLISH_REVIEW_READY;

@@ -1726,6 +1726,8 @@ public class DiscussionOrchestrator {
         state.ratify.reset();
         state.recheck.reset();
         state.declaredSignals.clear();
+        state.reviewSecondPass = List.of();
+        state.reviewFirstPass = List.of();
         state.stopped = false;
         state.receipt.startRound(state.phaseStarted);
         events.get().reopened(state);
@@ -2835,24 +2837,60 @@ public class DiscussionOrchestrator {
         var analystCircle = plan.circle();
         log.info("Thread {} - review convened by {} ({}): {}", state.threadId, plan.basis(),
                 reviewPolicy.convene(), analystCircle.isEmpty() ? "every analyst" : analystCircle);
-        var passes = reviewPasses(reviewersFor(analystCircle, analysts));
+        var passes = reviewPasses(reviewersFor(analystCircle, analysts), state.threadId);
         state.reviewSecondPass = passes.second();
-        boolean logged = seedReviewRoster(state, passes.first(), System.currentTimeMillis());
+        state.reviewFirstPass = List.of();
+        startReviewPass(state, passes.first(), passes.second().isEmpty() ? analystCircle : passes.first());
+    }
+
+    /**
+     * Begins a review pass: {@code reviewers} are the roster, the phase is entered, and review_ready wakes
+     * {@code circle} (every analyst when empty). False, with a warning, when the roster's event could not
+     * be logged and so nobody was woken.
+     */
+    private boolean startReviewPass(ThreadState state, Collection<String> reviewers, List<String> circle) {
+        boolean logged = seedReviewRoster(state, reviewers, System.currentTimeMillis());
         enterReview(state);
-        if (!logged) return;
-        publishReviewReady(state, passes.second().isEmpty() ? analystCircle : passes.first());
+        if (!logged) {
+            log.warn("Thread {} - the review roster {} could not be logged; nobody was woken", state.threadId,
+                    reviewers);
+            return false;
+        }
+        publishReviewReady(state, circle);
+        return true;
+    }
+
+    /**
+     * A restarted coordinator in REVIEW: makes the passes again, and when the restored roster is the
+     * first pass sets the second to follow; when it is the second pass, remembers the first so its
+     * findings are shown again.
+     */
+    void restoreReviewPasses(ThreadState state) {
+        var members = state.phaseRoster.get().members();
+        var analysts = analystNamesFromResumes();
+        var passes = reviewPasses(reviewersFor(reviewPlan(state, analysts).circle(), analysts), state.threadId);
+        if (passes.second().isEmpty()) return;
+        if (members.equals(Set.copyOf(passes.first()))) {
+            state.reviewSecondPass = passes.second();
+        } else if (members.equals(Set.copyOf(passes.second()))) {
+            state.reviewFirstPass = passes.first();
+        }
     }
 
     /** The passes the archetype's review order makes of the convened reviewers (see {@link ReviewConvening#passes}). */
     // Visible for testing
     ReviewConvening.Passes reviewPasses(Collection<String> reviewers) {
+        return reviewPasses(reviewers, "");
+    }
+
+    private ReviewConvening.Passes reviewPasses(Collection<String> reviewers, String threadId) {
         try {
             String raw = loadCrewResumes();
             JsonNode resumes = raw == null || raw.isBlank() ? null : mapper.readTree(raw);
             return ReviewConvening.passes(reviewPolicy, reviewers, resumes);
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            log.warn("Thread - review order could not read the crew resumes ({}); reviewing together",
-                    e.getMessage());
+            log.warn("Thread {} - review order could not read the crew resumes ({}); reviewing together",
+                    threadId, e.getMessage());
             return new ReviewConvening.Passes(List.copyOf(reviewers), List.of());
         }
     }
@@ -2870,11 +2908,9 @@ public class DiscussionOrchestrator {
             return;
         }
         state.reviewSecondPass = List.of();
+        state.reviewFirstPass = List.copyOf(state.phaseRoster.get().members());
         log.info("Thread {} - first review pass done, convening {}", state.threadId, next);
-        boolean logged = seedReviewRoster(state, next, System.currentTimeMillis());
-        state.phaseStarted = Instant.now();
-        metrics.setPendingEvaluations(state.pendingEvaluations.size());
-        if (logged) publishReviewReady(state, List.copyOf(next));
+        startReviewPass(state, next, List.copyOf(next));
     }
 
     /** The thread moves to REVIEW: the roster is seeded, the phase begins. */
@@ -2902,18 +2938,47 @@ public class DiscussionOrchestrator {
 
     private final AtomicReference<ReviewCatalog> reviewCatalog = new AtomicReference<>();
 
-    /** What the evaluation found, as the first review shows it: each agree and concern, cut. */
+    /**
+     * What the evaluation found, as the review shows it: each agree and concern, cut, with the {@code [CALL ...]}
+     * lines of a cut finding kept. In the second pass the first pass's stand-asides, blocks and failures show too.
+     */
     private static String reviewSummary(ThreadState state) {
-        var responseSummary = new StringBuilder();
-        for (var agreeEntry : state.agreeSignals.entrySet()) {
-            responseSummary.append("[").append(agreeEntry.getKey()).append("] ")
-                    .append(truncate(agreeEntry.getValue(), REVIEW_SNIPPET_CHARS)).append("\n\n");
+        var out = new StringBuilder();
+        for (var agree : state.agreeSignals.entrySet()) {
+            out.append("[").append(agree.getKey()).append("] ").append(cutKeepingCalls(agree.getValue())).append("\n\n");
         }
-        for (var concernEntry : state.concernSignals.entrySet()) {
-            responseSummary.append("[CONCERN from ").append(concernEntry.getKey()).append("] ")
-                    .append(truncate(concernEntry.getValue(), REVIEW_SNIPPET_CHARS)).append("\n\n");
+        for (var concern : state.concernSignals.entrySet()) {
+            out.append("[CONCERN from ").append(concern.getKey()).append("] ")
+                    .append(cutKeepingCalls(concern.getValue())).append("\n\n");
         }
-        return responseSummary.toString();
+        for (String name : state.reviewFirstPass.stream().sorted().toList()) {
+            if (state.standAsideSignals.contains(name)) out.append("[STAND ASIDE from ").append(name).append("]\n\n");
+            appendFirstPassSignal(out, "BLOCK", name, state.blockSignals);
+            appendFirstPassSignal(out, "FAILURE", name, state.failureSignals);
+        }
+        return out.toString();
+    }
+
+    private static void appendFirstPassSignal(StringBuilder out, String label, String name,
+                                              Map<String, String> signals) {
+        String content = signals.get(name);
+        if (content != null) {
+            out.append("[").append(label).append(" from ").append(name).append("] ")
+                    .append(cutKeepingCalls(content)).append("\n\n");
+        }
+    }
+
+    private static final java.util.regex.Pattern CALL_LINE = java.util.regex.Pattern.compile("\\[CALL [^\\]]*+\\]");
+
+    /** {@code text} cut to the review's snippet size, with its {@code [CALL ...]} lines kept after the cut. */
+    // Visible for testing
+    static String cutKeepingCalls(String text) {
+        if (text == null || text.length() <= REVIEW_SNIPPET_CHARS) return text;
+        var calls = new StringBuilder();
+        var matcher = CALL_LINE.matcher(text);
+        while (matcher.find()) calls.append('\n').append(matcher.group());
+        if (calls.length() == 0) return truncate(text, REVIEW_SNIPPET_CHARS);
+        return truncate(CALL_LINE.matcher(text).replaceAll("").strip(), REVIEW_SNIPPET_CHARS) + calls;
     }
 
     /**
@@ -5875,6 +5940,8 @@ public class DiscussionOrchestrator {
         volatile String reviewBasis;
         /** The analysts convened once the first review pass has replied (see ReviewConvening.Order); empty when none. */
         volatile List<String> reviewSecondPass = List.of();
+        /** The analysts of the review pass before this one, whose blocks, stand-asides and failures the second pass is shown. */
+        volatile List<String> reviewFirstPass = List.of();
 
         // Agents that have published an evaluating signal but not yet a terminal signal.
         // Map: agentName → deadline epoch ms (P90 + grace). The settle timer must not fire
