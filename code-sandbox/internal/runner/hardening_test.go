@@ -111,7 +111,7 @@ func TestWorkspaceThatCannotBeExaminedStopsTheRun(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
 	r := newRunner(t)
-	r.Unconfined = false // this test is about the confined path, which needs no user namespaces here
+	r.Unconfined = false // the run stops on the workspace check, before any namespace is created
 	r.WorkspaceDirs = []string{filepath.Join(locked, "workspace")}
 	if _, err := r.Execute(context.Background(), "bash", "echo ran"); err == nil ||
 		!strings.Contains(err.Error(), "cannot be examined") {
@@ -125,8 +125,9 @@ func TestHelperFailureIsAToolErrorNotAProgramExit(t *testing.T) {
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	needsConfinement(t)
 	r := newRunner(t)
-	r.Unconfined = false // this test is about the confined path, which needs no user namespaces here
+	r.Unconfined = false
 	r.Self = fake
 	_, err := r.Execute(context.Background(), "bash", "echo ran")
 	if err == nil || !strings.Contains(err.Error(), "boom") || !strings.Contains(err.Error(), "SANDBOX_CONFINEMENT=off") {
@@ -231,8 +232,9 @@ func TestProcReportReachesTheServerOnce(t *testing.T) {
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	needsConfinement(t)
 	r := newRunner(t)
-	r.Unconfined = false // this test is about the confined path, which needs no user namespaces here
+	r.Unconfined = false
 	r.Self = fake
 	var logged []string
 	r.Logf = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }

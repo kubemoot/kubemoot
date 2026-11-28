@@ -49,6 +49,16 @@ func confined(t *testing.T, ws string) *Runner {
 	return r
 }
 
+// needsConfinement skips a test whose helper starts in new namespaces where the host refuses them,
+// even when the helper itself is a stand-in, and fails it where REQUIRE_CONFINEMENT is set.
+func needsConfinement(t *testing.T) {
+	t.Helper()
+	probe := &Runner{Timeout: 10 * time.Second, MaxOutput: 1024, TempDir: t.TempDir()}
+	if err := probe.ConfinementAvailable(context.Background()); err != nil {
+		skipOrFail(t, "this host does not allow the user namespaces the helper starts in: %v", err)
+	}
+}
+
 // skipOrFail skips a confinement test on a host without user namespaces, and fails it where
 // REQUIRE_CONFINEMENT says the host must have them (the pull request CI job sets it), so a missing
 // capability cannot pass silently there.
