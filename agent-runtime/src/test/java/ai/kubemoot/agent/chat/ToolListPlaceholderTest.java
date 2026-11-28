@@ -96,7 +96,7 @@ class ToolListPlaceholderTest {
         var file = java.nio.file.Files.createTempFile("system", ".txt");
         file.toFile().deleteOnExit();
         java.nio.file.Files.writeString(file, systemPrompt);
-        var base = ChatServiceToolLoopTest.stubProperties(3, "analyst", false, false);
+        var base = ChatServiceToolLoopTest.stubProperties(3, "analyst");
         var props = mock(AgentProperties.class, AdditionalAnswers.delegatesTo(base));
         doReturn(Optional.of(file.toString())).when(props).systemPromptFile();
         var rag = mock(RagClient.class);

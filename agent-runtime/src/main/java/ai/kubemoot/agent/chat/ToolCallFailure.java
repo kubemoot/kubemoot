@@ -44,12 +44,6 @@ public class ToolCallFailure extends RuntimeException {
          */
         LOOP_TIME_EXCEEDED,
         /**
-         * A compute-contract agent (KUBEMOOT_DISCUSS_COMPUTE_CONTRACT) answered
-         * without ever running execute_code and after re-prompting still would
-         * not - so it failed rather than publish an uncomputed (in-head) number.
-         */
-        COMPUTE_CONTRACT_UNSATISFIED,
-        /**
          * A tooler ran its tools but, by its OWN judgment, they errored or returned
          * no usable data, so it declared the gather failed (NO_DATA) rather than post
          * the error text as findings. This is a FAILED GATHER - distinct from a

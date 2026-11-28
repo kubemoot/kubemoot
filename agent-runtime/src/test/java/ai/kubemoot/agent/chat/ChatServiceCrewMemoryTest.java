@@ -56,7 +56,7 @@ class ChatServiceCrewMemoryTest {
 
     private ChatService service(int maxIterations, String role, CrewMemoryClient crewMemory) {
         return new ChatService(chatModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
-                ChatServiceToolLoopTest.stubProperties(maxIterations, role, false, false),
+                ChatServiceToolLoopTest.stubProperties(maxIterations, role),
                 mock(AgentHeartbeatService.class), new ObjectMapper(),
                 null, null, crewMemory, null, null, null, null, null, null);
     }

@@ -52,7 +52,7 @@ class ChatServiceAnalystWindowTest {
 
     private ChatService service() {
         return new ChatService(chatModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
-                ChatServiceToolLoopTest.stubProperties(8, "analyst", false, true),
+                ChatServiceToolLoopTest.stubProperties(8, "analyst"),
                 mock(AgentHeartbeatService.class), new ObjectMapper(),
                 null, null, null, null, null, null, null, null, null);
     }

@@ -55,7 +55,7 @@ class ChatServiceSignalToolTest {
 
     private ChatService service(String role) {
         return new ChatService(chatModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
-                ChatServiceToolLoopTest.stubProperties(8, role, false, false),
+                ChatServiceToolLoopTest.stubProperties(8, role),
                 mock(AgentHeartbeatService.class), new ObjectMapper(),
                 null, null, null, null, null, null, null, null, null);
     }

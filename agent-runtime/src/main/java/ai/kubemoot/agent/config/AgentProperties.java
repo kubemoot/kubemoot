@@ -176,26 +176,6 @@ public interface AgentProperties {
         boolean answerDirectly();
 
         /**
-         * Compute-role contract (KUBEMOOT_DISCUSS_COMPUTE_CONTRACT). When true, the
-         * tool loop REQUIRES this agent to produce its result by running a tool
-         * (execute_code): a no-tool-call answer is re-prompted and, if it still
-         * never runs code, fails rather than emitting an in-head (preview-counted)
-         * number. Set ONLY on the compute agent; default off for everyone else.
-         */
-        @WithDefault("false")
-        boolean computeContract();
-
-        /**
-         * Compute grounding (KUBEMOOT_DISCUSS_COMPUTE_GROUNDING). When true, a compute agent's
-         * answer may state only figures that occur in a result a tool returned to it or in the
-         * input it was given: a figure found in neither is sent back once, and when it stays the
-         * answer becomes a NO_DATA statement that reports no figure. Default off, so a crew
-         * turns it on for the agent that computes (the crews chart value compute.groundNumbers).
-         */
-        @WithDefault("false")
-        boolean computeGrounding();
-
-        /**
          * Cross-cutting analyst agents (comma-separated names) that must ALWAYS be a
          * candidate for reasoning-select, regardless of the domain RAG pre-filter rank.
          * A domain-agnostic capability (compute: counting, sorting, math) loses a domain

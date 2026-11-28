@@ -122,7 +122,7 @@ class ChatServiceCapacityTest {
         var policy = new CandidatePolicy(MAPPER, Optional.ofNullable(candidatesJson), Optional.empty(),
                 CandidatePolicy.DEFAULT_TOLERANCE, 0L, 0L);
         return new ChatService(staticModel, mock(RagClient.class), mcpClient, mock(DiscussionOrchestrator.class),
-                ChatServiceToolLoopTest.stubProperties(3, "tooler", false, false),
+                ChatServiceToolLoopTest.stubProperties(3, "tooler"),
                 mock(AgentHeartbeatService.class), MAPPER, selector, pool, null, tickets, null,
                 waiter, policy, planner, history);
     }

@@ -68,7 +68,7 @@ class ChatServiceCallWorkingTest {
     }
 
     private ChatService.ChatResult runAs(String role, CallArtifactStore withStore) {
-        var props = ChatServiceToolLoopTest.stubProperties(8, role, false, false);
+        var props = ChatServiceToolLoopTest.stubProperties(8, role);
         var rag = mock(RagClient.class);
         when(rag.queryForContext(org.mockito.ArgumentMatchers.anyString())).thenReturn("");
         var service = new ChatService(chatModel, rag, mcpClient, mock(DiscussionOrchestrator.class), props,

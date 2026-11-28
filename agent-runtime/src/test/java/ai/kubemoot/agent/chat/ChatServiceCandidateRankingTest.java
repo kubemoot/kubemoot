@@ -97,7 +97,7 @@ class ChatServiceCandidateRankingTest {
         var mcp = mock(McpClientService.class);
         when(mcp.getToolSpecifications()).thenReturn(Map.of());
         return new ChatService(mock(ChatModel.class), mock(RagClient.class), mcp, mock(DiscussionOrchestrator.class),
-                ChatServiceToolLoopTest.stubProperties(3, "tooler", false, false),
+                ChatServiceToolLoopTest.stubProperties(3, "tooler"),
                 mock(AgentHeartbeatService.class), MAPPER, selector, pool, null, tickets, null,
                 null, policy, null, null);
     }

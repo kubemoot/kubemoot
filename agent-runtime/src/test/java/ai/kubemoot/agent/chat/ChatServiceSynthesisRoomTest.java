@@ -31,7 +31,7 @@ class ChatServiceSynthesisRoomTest {
 
     private static ChatService service(ServerSelector selector) {
         return new ChatService(mock(ChatModel.class), mock(RagClient.class), mock(McpClientService.class),
-                mock(DiscussionOrchestrator.class), ChatServiceToolLoopTest.stubProperties(8, "coordinator", false, false),
+                mock(DiscussionOrchestrator.class), ChatServiceToolLoopTest.stubProperties(8, "coordinator"),
                 mock(AgentHeartbeatService.class), new ObjectMapper(),
                 selector, null, null, null, null, null, null, null, null);
     }
