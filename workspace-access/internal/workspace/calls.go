@@ -137,16 +137,11 @@ func (s *Service) callGroup(ctx context.Context, name, pattern, workDir string,
 			skipped = append(skipped, m.Key)
 			continue
 		}
-		_, data, err := s.readObject(ctx, m.Key, &total)
+		p, ok, err := s.prepareCall(ctx, fmt.Sprintf("%s__call%d", name, i+1), m, ci, workDir, &total)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", m.Key, err)
-		}
-		p, ok, err := prepareSection(fmt.Sprintf("%s__call%d", name, i+1), ci.section(data), workDir, ci.hint)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", m.Key, err)
+			return nil, nil, err
 		}
 		if ok {
-			p.call, p.args = m.Key, ci.args
 			items = append(items, p)
 		}
 	}
@@ -163,6 +158,21 @@ func (s *Service) callGroup(ctx context.Context, name, pattern, workDir string,
 
 // matching lists the objects whose key matches pattern, where * stands for any characters
 // except a slash. The part before the first * must name the namespace, crew and thread.
+// prepareCall reads one stored call's result and prepares it as a section of the group named label.
+func (s *Service) prepareCall(ctx context.Context, label string, m store.Meta, ci callInfo, workDir string,
+	total *int64) (prepared, bool, error) {
+	_, data, err := s.readObject(ctx, m.Key, total)
+	if err != nil {
+		return prepared{}, false, fmt.Errorf("%s: %w", m.Key, err)
+	}
+	p, ok, err := prepareSection(label, ci.section(data), workDir, ci.hint)
+	if err != nil {
+		return prepared{}, false, fmt.Errorf("%s: %w", m.Key, err)
+	}
+	p.call, p.args = m.Key, ci.args
+	return p, ok, nil
+}
+
 func (s *Service) matching(ctx context.Context, pattern string) ([]store.Meta, error) {
 	l, ok := s.Store.(store.Lister)
 	if !ok {

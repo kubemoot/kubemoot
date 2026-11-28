@@ -53,7 +53,7 @@ func TestEachOldNameAnswersLikeItsNewName(t *testing.T) {
 	}{
 		{toolArtifactHead, toolHead, map[string]any{keyArg: "k", argLines: 2}},
 		{toolArtifactTail, toolTail, map[string]any{keyArg: "k", argLines: 2}},
-		{toolArtifactGrep, toolGrep, map[string]any{keyArg: "k", "pattern": "a$"}},
+		{toolArtifactGrep, toolGrep, map[string]any{keyArg: "k", patternArg: "a$"}},
 	}
 	for _, c := range cases {
 		if o, n := call(t, cs, c.old, c.args), call(t, cs, c.current, c.args); o != n || o == "" {

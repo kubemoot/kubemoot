@@ -15,6 +15,7 @@ const (
 	scopeShort  = "k8s-workloads/001-resources_list"
 	scopeBody   = "NAME SCHEDULE\nbackup 0 2 * * *\nlog-cleanup @daily\n"
 	keyArg      = "key"
+	patternArg  = "pattern"
 	okRows      = "ok\n"
 	// the second failure of thread 0071d018: the thread id typed with one hyphen too many
 	mistypedThread = "crew-homelab-pilot/homelab-pilot/0071d018-24cb-45-32-a560-fc12a788e654/"
@@ -66,7 +67,7 @@ func TestShortKeyReadsInsideTheThread(t *testing.T) {
 			t.Fatalf("%s with a short key: %q, %v", tool, got, err)
 		}
 	}
-	got, err := callScoped(t, s, threadMeta(), toolArtifactGrep, map[string]any{keyArg: scopeShort, "pattern": "backup"})
+	got, err := callScoped(t, s, threadMeta(), toolArtifactGrep, map[string]any{keyArg: scopeShort, patternArg: "backup"})
 	if err != nil || !strings.Contains(got, "backup") {
 		t.Fatalf("artifact_grep with a short key: %q, %v", got, err)
 	}
@@ -170,7 +171,7 @@ func TestAnAgentOpensAnotherAgentsProgramByTheCallKey(t *testing.T) {
 			t.Fatalf("%s of the call key: %q, %v", tool, got, err)
 		}
 	}
-	got, err := callScoped(t, s, threadMeta(), toolGrep, map[string]any{keyArg: workingShort, "pattern": "csv"})
+	got, err := callScoped(t, s, threadMeta(), toolGrep, map[string]any{keyArg: workingShort, patternArg: "csv"})
 	if err != nil || !strings.Contains(got, "import csv") {
 		t.Fatalf("grep of the call key: %q, %v", got, err)
 	}
