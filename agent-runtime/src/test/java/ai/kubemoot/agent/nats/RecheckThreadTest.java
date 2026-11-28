@@ -375,8 +375,10 @@ class RecheckThreadTest extends CoordinatorThreadTestBase {
 
         assertFalse(state().recheck.inProgress(), "an asker that missed its deadline settles nothing open");
         assertTrue(state().failureSignals.containsKey(ANALYST));
-        settle(THREAD, REVIEW_TO_SYNTHESIS);
+        // The same check that expired the asker settles the review: the settle is in the log already,
+        // so nothing here waits for a second check or for the synthesis that follows.
         assertTrue(state().phase != DiscussionOrchestrator.Phase.REVIEW, "the review settled on state");
+        assertEquals("roster_signalled", events("settled").get(events("settled").size() - 1).data().path("basis").asText());
     }
 
     @Test
