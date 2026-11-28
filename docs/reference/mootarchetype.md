@@ -86,6 +86,7 @@ spec:
 | `convene` | `all` or `domain` | `all` | `all`: the analysts the coordinator itself selected, or every analyst when it selected none (the behavior before review was declared). `domain`: only the analysts whose declared [`domains`](../agent/#specdomains) touch the question or the data the toolers gathered. |
 | `fallback` | `primary` or `all` | `primary` | Applies when `convene` is `domain` and no analyst matches. `primary`: the one analyst that best matches the question's words and the gathering toolers' domains. `all`: every analyst. |
 | `generalists` | `always` or `selected` | `always` | Applies when `convene` is `domain`. `always`: an analyst that declares no `domains` (a generalist, such as the arithmetic analyst) reviews every discussion. `selected`: a generalist reviews only the discussions where the coordinator selected it for the question, so a question that needs no computation does not wait on it. |
+| `order` | `together` or `generalistsFirst` | `together` | `together`: every convened analyst reviews at once. `generalistsFirst`: the convened generalists review first; the convened analysts that declare `domains` review after every generalist has replied, and see the generalists' findings, with their `[CALL ...]` lines, as they see the toolers'. See [Review order](#review-order). |
 
 A crew that has analysts never reviews with none. With `generalists: always` (the default), an analyst that declares no `domains` is a generalist and reviews every discussion in `domain` mode. When `domain` matches nothing and nothing
 ranks the analysts either (no analyst declares a domain the question or the data touches), every
@@ -98,15 +99,35 @@ spec:
     convene: domain
     fallback: primary
     generalists: always
+    order: generalistsFirst
 ```
 
 The operator reads the block of the crew's archetype (the `archetypeRef` of the
 `CrewSchedulingPolicy` naming the crew, `consent-3` without one) and gives it to the crew's
-coordinator as `KUBEMOOT_DISCUSS_REVIEW_CONVENE`, `KUBEMOOT_DISCUSS_REVIEW_FALLBACK` and `KUBEMOOT_DISCUSS_REVIEW_GENERALISTS`. The
-`consent-3` archetype the operator installs sets `convene: domain`. An edit to the block
+coordinator as `KUBEMOOT_DISCUSS_REVIEW_CONVENE`, `KUBEMOOT_DISCUSS_REVIEW_FALLBACK`, `KUBEMOOT_DISCUSS_REVIEW_GENERALISTS` and `KUBEMOOT_DISCUSS_REVIEW_ORDER`. A coordinator that gets no `KUBEMOOT_DISCUSS_REVIEW_ORDER` (an older operator) reviews together. The
+`consent-3` archetype the operator installs sets `convene: domain` and `order: generalistsFirst`. An edit to the block
 re-reconciles the coordinators. An Agent's own `spec.deployment.env` wins over both.
 
 The CRD gains the `review` field, so apply the new CRDs before the operator chart that sets it. Flux installs use `crds: CreateReplace` on the HelmRelease; plain `helm` installs apply the CRDs first (`kubectl apply -f` the chart's `crds/` directory), because `helm upgrade` does not update CRDs.
+
+#### Review order
+
+A generalist (an analyst that declares no `domains`, such as one that computes over stored results)
+and a domain analyst (one that checks findings in its domains) are different reviewers. A domain
+analyst checks a number best when it can read the working behind it, and that working does not
+exist until the generalist has run. With `order: generalistsFirst` the review runs in two passes:
+
+1. The coordinator wakes the convened generalists alone.
+2. When every one of them has published a terminal signal (`agree`, `concern`, `stand_aside`,
+   `block`, `failure`), or its deadline has expired and counted as a `failure`, the coordinator wakes
+   the convened domain analysts. What it shows them includes the generalists' findings, with their
+   `[CALL ...]` lines, laid out as the toolers' findings are, so the stored working of each call
+   (under `<result key>.call`) can be read.
+3. The clarifying-question round (`recheck`) runs as before, inside either pass, and holds the
+   pass until the question is answered.
+
+A generalist that fails or misses its deadline does not hold the second pass back. When the
+convened analysts are all generalists or all domain analysts, there is one pass, as with `together`.
 
 ### Ratify
 
