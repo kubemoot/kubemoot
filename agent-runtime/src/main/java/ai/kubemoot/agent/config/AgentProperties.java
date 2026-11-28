@@ -259,18 +259,6 @@ public interface AgentProperties {
          */
         Optional<Integer> recheckMaxRounds();
 
-        /**
-         * Max re-prompts the synthesis makes when its draft under-enumerates an
-         * inventory answer (lists fewer entities than the gathered data contains).
-         * The completeness contract names the omitted entries and asks for the full
-         * list, up to this many times, then accepts the best draft. Default 0 (OFF) so
-         * it never misfires on a coordinator whose answers are not entity inventories
-         * (e.g. the fitness judge's structured verdicts); opt IN per crew by setting
-         * KUBEMOOT_DISCUSS_SYNTHESIS_COMPLETENESS_RETRIES on the coordinator.
-         */
-        @WithDefault("0")
-        int synthesisCompletenessRetries();
-
         @WithDefault("10")
         int advisoryTimeoutSeconds();
 

@@ -11,7 +11,6 @@ import ai.kubemoot.agent.config.AgentProperties;
 import ai.kubemoot.agent.mcp.McpClientService;
 import ai.kubemoot.agent.mcp.WorkspaceTools;
 import ai.kubemoot.agent.mcp.WorkspaceScope;
-import ai.kubemoot.agent.nats.AnswerGrounding;
 import ai.kubemoot.agent.nats.AgentHeartbeatService;
 import ai.kubemoot.agent.nats.DiscussionOrchestrator;
 import ai.kubemoot.agent.modelserver.ChatModelPool;
