@@ -27,6 +27,7 @@ const (
 	envReviewConvene     = "KUBEMOOT_DISCUSS_REVIEW_CONVENE"
 	envReviewFallback    = "KUBEMOOT_DISCUSS_REVIEW_FALLBACK"
 	envReviewGeneralists = "KUBEMOOT_DISCUSS_REVIEW_GENERALISTS"
+	envReviewOrder       = "KUBEMOOT_DISCUSS_REVIEW_ORDER"
 )
 
 // +kubebuilder:rbac:groups=kubemoot.ai,resources=mootarchetypes,verbs=get;list;watch
@@ -109,6 +110,9 @@ func reviewEnvVars(review *kubemootv1alpha1.ArchetypeReview) []corev1.EnvVar {
 	}
 	if review.Generalists != "" {
 		env = append(env, corev1.EnvVar{Name: envReviewGeneralists, Value: string(review.Generalists)})
+	}
+	if review.Order != "" {
+		env = append(env, corev1.EnvVar{Name: envReviewOrder, Value: string(review.Order)})
 	}
 	return env
 }

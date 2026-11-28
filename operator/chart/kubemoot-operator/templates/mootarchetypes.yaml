@@ -53,10 +53,14 @@ desired phases. The archetype is cluster-scoped.
     maxRounds: 1
   # Only the analysts whose declared domains touch the question or the gathered data
   # review. With no match, the best-matching analyst reviews alone. Set convene: all
-  # to have every analyst review.
+  # to have every analyst review. The analysts that declare no domain (a calculator
+  # that computes over stored results) review first; the analysts that declare a
+  # domain review after every one of them has replied, with their findings and the
+  # working behind them in front of them. Set order: together to review at once.
   review:
     convene: domain
     fallback: primary
+    order: generalistsFirst
   stateMachine:
     initial: triaging
     transitions:
