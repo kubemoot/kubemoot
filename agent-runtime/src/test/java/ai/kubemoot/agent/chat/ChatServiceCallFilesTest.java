@@ -301,6 +301,72 @@ class ChatServiceCallFilesTest {
                 "a small result is posted with the descriptions: " + files);
     }
 
+    /** The model asks for one more call each turn (never repeating one), with {@code text} beside it. */
+    private void modelNeverFinishes(String text) {
+        var turn = new java.util.concurrent.atomic.AtomicInteger();
+        when(chatModel.chat(any(ChatRequest.class))).thenAnswer(inv -> {
+            var response = mock(ChatResponse.class);
+            var request = call("c" + turn.incrementAndGet(), "pods_list", "{\"i\":" + turn.get() + "}");
+            when(response.aiMessage()).thenReturn(text == null
+                    ? AiMessage.from(List.of(request)) : AiMessage.from(text, List.of(request)));
+            when(response.tokenUsage()).thenReturn(new TokenUsage(100, 20));
+            return response;
+        });
+    }
+
+    @Test
+    void anAgentAtItsTurnLimitFailsAndKeepsItsCallLinesAndSaysItDidNotFinish() {
+        registerTools(r -> "{\"items\":[{\"a\":1}]}", "pods_list");
+        modelNeverFinishes(null);
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service().callWithToolLoop(question(), chatModel, "s", "test", false, 0L, ledger));
+
+        assertEquals(ToolCallFailure.FailureType.ITERATIONS_EXHAUSTED, failure.failureType());
+        String content = failure.postedContent();
+        assertTrue(content.contains("Did not finish within its turn limit of 8"), content);
+        assertTrue(content.contains("[CALL key=test-agent/001-pods_list"), content);
+        assertTrue(content.contains("[WORKSPACE agent=test-agent calls=8"), content);
+        assertFalse(content.contains("Unfinished text"), "no text was written, none is invented: " + content);
+    }
+
+    @Test
+    void textWrittenBeforeTheLimitIsKeptLabelledUnfinished() {
+        registerTools(r -> "{\"items\":[{\"a\":1}]}", "pods_list");
+        modelNeverFinishes("the count is 3");
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
+
+        var failure = assertThrows(ToolCallFailure.class,
+                () -> service().callWithToolLoop(question(), chatModel, "s", "test", false, 0L, ledger));
+
+        String content = failure.postedContent();
+        assertTrue(content.contains("Unfinished text from its last turn (not a final answer):\nthe count is 3"),
+                content);
+        assertTrue(content.indexOf("the count is 3") < content.indexOf("[CALL key="), content);
+    }
+
+    @Test
+    void anAgentAtItsTurnLimitWithNoCallsStillFailsWithTheStatementOnly() {
+        var failure = new ToolCallFailure(ToolCallFailure.FailureType.ITERATIONS_EXHAUSTED, null, null, 8,
+                "Did not finish within its turn limit of 8 tool-loop iterations; this is not a final answer.");
+
+        assertEquals("", failure.unfinishedWork());
+        assertEquals(failure.getMessage(), failure.postedContent());
+    }
+
+    @Test
+    void aFinishedAgentIsUnchangedByTheTurnLimitHandling() {
+        registerTools(r -> "{\"items\":[{\"a\":1}]}", "pods_list");
+        modelCalls(call("c1", "pods_list", "{}"));
+        var ledger = ToolCallLedger.forLoop(store, THREAD, AGENT, java.util.OptionalLong.empty());
+
+        var result = service().callWithToolLoop(question(), chatModel, "s", "test", false, 0L, ledger);
+
+        assertEquals("done", result.text());
+        assertFalse(ChatService.filesOf(result, ledger).contains("turn limit"));
+    }
+
     @Test
     void aToolersStatementLeadsAndTheDescriptionsOfItsFilesFollow() {
         registerTools(r -> "[{\"x\":1}]", "pods_list");

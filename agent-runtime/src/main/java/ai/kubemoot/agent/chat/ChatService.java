@@ -1627,8 +1627,29 @@ public class ChatService {
         throw new ToolCallFailure(
                 ToolCallFailure.FailureType.ITERATIONS_EXHAUSTED,
                 null, null, maxIterations,
-                "Tool loop did not converge to a final answer within "
-                        + maxIterations + " iterations");
+                "Did not finish within its turn limit of " + maxIterations
+                        + " tool-loop iterations; this is not a final answer.",
+                unfinishedWork(state));
+    }
+
+    /**
+     * What an agent that ran out of turns did: any text its last turn wrote, labelled unfinished,
+     * then the descriptions of its tool calls (the same ones a finished finding carries). Empty
+     * when it wrote nothing and made no call; nothing is summarized or invented.
+     */
+    private static String unfinishedWork(ToolLoopState state) {
+        var work = new StringBuilder();
+        String text = state.lastModelText();
+        if (!text.isEmpty()) {
+            work.append("Unfinished text from its last turn (not a final answer):\n").append(text);
+        }
+        if (state.ledger != null && state.ledger.holdsOutput()) {
+            if (work.length() > 0) {
+                work.append("\n\n");
+            }
+            work.append(state.ledger.manifest());
+        }
+        return work.toString();
     }
 
     /**
@@ -1730,6 +1751,16 @@ public class ChatService {
                 }
             }
             return sb.toString();
+        }
+
+        /** The text of the last assistant turn that wrote any, stripped; empty when none did. */
+        String lastModelText() {
+            for (int i = allMessages.size() - 1; i >= inputMessages; i--) {
+                if (allMessages.get(i) instanceof AiMessage ai && ai.text() != null && !ai.text().isBlank()) {
+                    return ai.text().strip();
+                }
+            }
+            return "";
         }
 
         /** Note one tool result; an error result (see isGatherErrorResult) is kept with its text. */
