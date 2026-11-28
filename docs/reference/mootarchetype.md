@@ -122,7 +122,9 @@ exist until the generalist has run. With `order: generalistsFirst` the review ru
    `block`, `failure`), or its deadline has expired and counted as a `failure`, the coordinator wakes
    the convened domain analysts. What it shows them includes the generalists' findings, with their
    `[CALL ...]` lines, laid out as the toolers' findings are, so the stored working of each call
-   (under `<result key>.call`) can be read.
+   (under `<result key>.call`) can be read. A finding's `[CALL ...]` lines are kept when a long finding is cut,
+   and a generalist's `stand_aside`, `block` or `failure` is shown too. A coordinator that restarts
+   mid-review picks the passes up again from the roster it restored.
 3. The clarifying-question round (`recheck`) runs as before, inside either pass, and holds the
    pass until the question is answered.
 
