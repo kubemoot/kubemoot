@@ -95,6 +95,7 @@ An agent that uses a model on a `vllm` ModelServer calls that model's own vLLM s
 
 | Field | Source | Description |
 |-------|--------|-------------|
+| `phase` | Operator | `Pending`, `Ready`, `Unavailable` or `Failed`; see [Phases and reasons](#phases-and-reasons) |
 | `ready` | Operator probe | Endpoint reachable + API responding (for `vllm`, at least one server answering) |
 | `vllmServers` | Operator, from `serviceRef` | For a `vllm` ModelServer with `serviceRef`: each server found, as its served name and URL. Empty with `servers`, where the spec says it. |
 | `capacity.acceleratorMemoryTotalMiB` | DCGM Prometheus | Total accelerator memory, in MiB |
@@ -115,6 +116,19 @@ An agent that uses a model on a `vllm` ModelServer calls that model's own vLLM s
 | `storage.modelBytes` | Ollama `/api/tags` | Sum of the sizes of the downloaded models |
 | `storage.partialBytes` | Operator | Disk held by downloads that have not finished: pulls in progress and the partial files a cancelled or failed pull left behind |
 | `storage.freeBytes` | Operator | `totalBytes` minus `modelBytes` and `partialBytes`, an estimate of the free disk |
+
+#### Phases and reasons
+
+For a `vllm` ModelServer with `serviceRef`, the operator reads the Service's EndpointSlices before it probes. The phase and the `Ready` condition's reason say what it found:
+
+| Phase | `Ready` reason | When |
+|-------|----------------|------|
+| `Ready` | `Ready` | A server behind the Service answers its probe |
+| `Unavailable` | `NoReadyEndpoints` | The Service has no ready endpoint, so nothing runs behind it. The message says what Kubernetes shows: the backing pods are `Pending`, or their node is not ready or is cordoned. This is a state, not a fault: the scheduler skips the server, and an alert should not fire on it |
+| `Failed` | `ProbeFailed` | An endpoint is ready but the probe fails or no server answers. This is the phase an alert fires on |
+| `Pending` | `Pending` | The Service has ready endpoints but no port reports a model yet |
+
+While the server is `Unavailable` or `Failed`, the status drops `capacity.loadedModels`, the memory those models hold and the agent counts, so no reader takes them as live. Calibration and the accelerator facts stay, since they are still true when the server returns. The next successful probe writes the capacity again.
 
 For a `vllm` ModelServer the operator publishes each served model's window in the server state from `max_model_len` on `/v1/models`, using the calibrated `contextLength` only for a server that could not be asked; agents use it to stop a prompt the server would reject.
 

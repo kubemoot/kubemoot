@@ -103,6 +103,14 @@ const (
 	phaseReady  = "Ready"
 	phaseError  = "Error"
 	phaseFailed = "Failed"
+	// phaseUnavailable is a ModelServer whose Service has no ready endpoint: nothing
+	// runs behind it, so there is nothing to probe. It is a state, not a fault.
+	phaseUnavailable = "Unavailable"
+	// reasonNoReadyEndpoints is the Ready condition's reason for phaseUnavailable.
+	reasonNoReadyEndpoints = "NoReadyEndpoints"
+	// reasonProbeFailed is the Ready condition's reason for a ModelServer whose
+	// endpoints are ready but whose probe fails.
+	reasonProbeFailed = "ProbeFailed"
 	// conditionTypeReady is the type of the Ready status condition.
 	conditionTypeReady = "Ready"
 	// conditionTypeCapacityAvailable is the Crew condition that says whether a model in the

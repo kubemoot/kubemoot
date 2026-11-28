@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+	isModelServerUnavailable,
 	NO_VALUE,
+	modelServerStatus,
 	phaseStatus,
 	readinessStatus,
 	readyCountStatus,
@@ -59,5 +61,30 @@ describe('yesNo', () => {
 		expect(yesNo(false)).toBe('No');
 		expect(yesNo(undefined)).toBe(NO_VALUE);
 		expect(NO_VALUE.codePointAt(0)).toBe(0x2014);
+	});
+});
+
+describe('modelServerStatus', () => {
+	it('shows Unavailable as neutral, not as an error', () => {
+		expect(modelServerStatus({ ready: false, phase: 'Unavailable' })).toBe('unknown');
+	});
+
+	it('shows Failed as an error and Ready as success', () => {
+		expect(modelServerStatus({ ready: false, phase: 'Failed' })).toBe('error');
+		expect(modelServerStatus({ ready: true, phase: 'Ready' })).toBe('success');
+	});
+
+	it('leaves any other phase pending', () => {
+		expect(modelServerStatus({ ready: false, phase: 'Pending' })).toBe('pending');
+		expect(modelServerStatus(undefined)).toBe('pending');
+	});
+});
+
+describe('isModelServerUnavailable', () => {
+	it('is true only for the Unavailable phase while not ready', () => {
+		expect(isModelServerUnavailable({ ready: false, phase: 'Unavailable' })).toBe(true);
+		expect(isModelServerUnavailable({ ready: true, phase: 'Unavailable' })).toBe(false);
+		expect(isModelServerUnavailable({ ready: false, phase: 'Failed' })).toBe(false);
+		expect(isModelServerUnavailable(undefined)).toBe(false);
 	});
 });

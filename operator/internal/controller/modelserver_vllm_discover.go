@@ -117,6 +117,12 @@ func readPort(ctx context.Context, adapter *vllm.Adapter, endpoint string, previ
 // servicesToServers maps a Service to the servers whose serviceRef names it, so
 // a Service that gains or loses ports is discovered again at once.
 func (r *ModelServerReconciler) servicesToServers(ctx context.Context, obj client.Object) []reconcile.Request {
+	return r.serversForService(ctx, client.ObjectKeyFromObject(obj))
+}
+
+// serversForService is the reconcile request of every server whose serviceRef names
+// the Service with this namespace and name.
+func (r *ModelServerReconciler) serversForService(ctx context.Context, service types.NamespacedName) []reconcile.Request {
 	servers := &aiv1alpha1.ModelServerList{}
 	if err := r.List(ctx, servers); err != nil {
 		return nil
@@ -124,7 +130,7 @@ func (r *ModelServerReconciler) servicesToServers(ctx context.Context, obj clien
 	var out []reconcile.Request
 	for i := range servers.Items {
 		p := &servers.Items[i]
-		if p.Spec.ServiceRef != nil && serviceKey(p) == client.ObjectKeyFromObject(obj) {
+		if p.Spec.ServiceRef != nil && serviceKey(p) == service {
 			out = append(out, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(p)})
 		}
 	}
