@@ -142,7 +142,7 @@ class DiscussionReceiptWiringTest {
         orch.handleMessage("{\"messageId\":\"m1\",\"threadId\":\"" + THREAD + "\",\"agentName\":\"human\","
                 + "\"messageType\":\"thread_start\",\"content\":\"\",\"channel\":\"kubernetes\"}");
 
-        orch.synthesizeWithCompleteness("sys", "conversation", THREAD);
+        orch.synthesize("sys", "conversation", THREAD);
 
         JsonNode calls = orch.receiptFor(orch.threadForTest(THREAD)).path("calls");
         assertEquals(1, calls.size());
@@ -164,8 +164,8 @@ class DiscussionReceiptWiringTest {
         orch.handleMessage("{\"messageId\":\"m1\",\"threadId\":\"" + THREAD + "\",\"agentName\":\"human\","
                 + "\"messageType\":\"thread_start\",\"content\":\"\",\"channel\":\"kubernetes\"}");
 
-        orch.synthesizeWithCompleteness("sys", "conversation", THREAD);
-        assertDoesNotThrow(() -> orch.synthesizeWithCompleteness("sys", "conversation", "no-such-thread"));
+        orch.synthesize("sys", "conversation", THREAD);
+        assertDoesNotThrow(() -> orch.synthesize("sys", "conversation", "no-such-thread"));
 
         assertFalse(orch.receiptFor(orch.threadForTest(THREAD)).has("calls"));
     }

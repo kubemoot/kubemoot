@@ -434,96 +434,6 @@ class DiscussionOrchestratorHelpersTest {
         assertFalse(DiscussionOrchestrator.isPromptTooLarge(null));
     }
 
-    // --- synthesis completeness retry ---
-
-    private static final String NAMESPACES = "[resources_list]\n"
-            + "APIVERSION   KIND        NAME          STATUS   AGE\n"
-            + "v1           Namespace   alpha         Active   1d\n"
-            + "v1           Namespace   bravo         Active   1d\n"
-            + "v1           Namespace   charlie       Active   1d\n"
-            + "v1           Namespace   delta         Active   1d\n"
-            + "v1           Namespace   echo          Active   1d\n"
-            + "v1           Namespace   foxtrot       Active   1d\n";
-
-    @Test
-    void completenessRetryTooLargeForEveryContext_keepsTheFirstSynthesis() {
-        var chat = mock(ChatService.class);
-        var first = new ChatService.SimpleLlmResult("alpha, bravo, charlie, delta, echo", 10, 5);
-        when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
-                .thenReturn(first)
-                .thenThrow(ai.kubemoot.agent.modelserver.NoFitException.promptTooLarge("m", "retry too large"));
-
-        var result = createOrchestrator("", chat, 2).synthesizeWithCompleteness("sys", NAMESPACES, "t-c");
-
-        assertSame(first, result);
-        verify(chat, times(2)).simpleLlmCallWithTokens(anyString(), anyString());
-    }
-
-    @Test
-    void completenessRetryFailingForAnotherReason_stillFails() {
-        var chat = mock(ChatService.class);
-        when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
-                .thenReturn(new ChatService.SimpleLlmResult("alpha, bravo, charlie, delta, echo", 10, 5))
-                .thenThrow(ai.kubemoot.agent.modelserver.NoFitException.acceleratorBusy("m", "busy"));
-
-        var retrying = createOrchestrator("", chat, 2);
-        assertThrows(ai.kubemoot.agent.modelserver.NoFitException.class,
-                () -> retrying.synthesizeWithCompleteness("sys", NAMESPACES, "t-c"));
-    }
-
-    // --- synthesis grounding: a name no tool returned never goes out as fact ---
-
-    private static final String POINTERS = "Are all the cluster nodes healthy right now?\n"
-            + "[CALL key=k8s-nodes/001 tool=resources_list rows=14 bytes=41928]";
-
-    @Test
-    void groundingInventedNames_rePromptsWithThemAndKeepsTheCleanRewrite() {
-        var chat = mock(ChatService.class);
-        when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
-                .thenReturn(new ChatService.SimpleLlmResult("All 15 nodes: crew-node-01, crew-node-02 Ready", 10, 5))
-                .thenReturn(new ChatService.SimpleLlmResult("The node list was not shown to me.", 12, 6));
-
-        var result = createOrchestrator("", chat, 1).synthesizeWithCompleteness("sys", POINTERS, "t-g");
-
-        assertEquals("The node list was not shown to me.", result.text());
-        verify(chat).simpleLlmCallWithTokens(anyString(), org.mockito.ArgumentMatchers.contains("crew-node-01, crew-node-02"));
-    }
-
-    @Test
-    void groundingInventedNamesThatStay_areFlaggedNotReleasedAsFact() {
-        var chat = mock(ChatService.class);
-        when(chat.simpleLlmCallWithTokens(anyString(), anyString()))
-                .thenReturn(new ChatService.SimpleLlmResult("crew-node-01 and crew-node-02 are Ready", 10, 5));
-
-        var result = createOrchestrator("", chat, 1).synthesizeWithCompleteness("sys", POINTERS, "t-g");
-
-        assertTrue(result.text().startsWith("crew-node-01 and crew-node-02 are Ready"), result.text());
-        assertTrue(result.text().contains("could not be matched to any data gathered"), result.text());
-        assertTrue(result.text().contains("crew-node-01, crew-node-02"), result.text());
-    }
-
-    @Test
-    void groundedNames_costNoExtraCallAndGetNoCaveat() {
-        var chat = mock(ChatService.class);
-        var answer = new ChatService.SimpleLlmResult("homelab-k8s-1-cp is Ready", 10, 5);
-        when(chat.simpleLlmCallWithTokens(anyString(), anyString())).thenReturn(answer);
-
-        var result = createOrchestrator("", chat, 1).synthesizeWithCompleteness("sys",
-                POINTERS + "\nhomelab-k8s-1-cp Ready", "t-g");
-
-        assertSame(answer, result);
-        verify(chat, times(1)).simpleLlmCallWithTokens(anyString(), anyString());
-    }
-
-    @Test
-    void groundingIsOffWithCompletenessRetriesOff() {
-        var chat = mock(ChatService.class);
-        var answer = new ChatService.SimpleLlmResult("crew-node-01 Ready", 10, 5);
-        when(chat.simpleLlmCallWithTokens(anyString(), anyString())).thenReturn(answer);
-
-        assertSame(answer, createOrchestrator("", chat, 0).synthesizeWithCompleteness("sys", POINTERS, "t-g"));
-    }
-
     // --- classifyNoAgreeGap / isToolerGapCandidate ---
 
     @Test
@@ -723,19 +633,19 @@ class DiscussionOrchestratorHelpersTest {
     // --- Helper ---
 
     private DiscussionOrchestrator createOrchestrator(String channels) {
-        return createOrchestrator(channels, mock(ChatService.class), 0);
+        return createOrchestrator(channels, mock(ChatService.class));
     }
 
-    private DiscussionOrchestrator createOrchestrator(String channels, ChatService chatService, int completenessRetries) {
+    private DiscussionOrchestrator createOrchestrator(String channels, ChatService chatService) {
         var natsProvider = mock(NatsConnectionProvider.class);
         var metrics = mock(DiscussionMetrics.class);
         var latencyTracker = mock(LatencyTracker.class);
         var resumeSearchClient = mock(ResumeSearchClient.class);
-        var properties = stubProperties(channels, completenessRetries);
+        var properties = stubProperties(channels);
         return new DiscussionOrchestrator(natsProvider, properties, chatService, metrics, latencyTracker, resumeSearchClient);
     }
 
-    private static AgentProperties stubProperties(String channels, int completenessRetries) {
+    private static AgentProperties stubProperties(String channels) {
         return new AgentProperties() {
             @Override public ai.kubemoot.agent.config.AgentProperties.Scheduler scheduler() { return ai.kubemoot.agent.TestStubs.scheduler(); }
             @Override public Memory memory() { return ai.kubemoot.agent.TestStubs.memory(); }
@@ -780,7 +690,6 @@ class DiscussionOrchestratorHelpersTest {
                 @Override public String role() { return "coordinator"; }
                 @Override public boolean coordinator() { return true; }
                 @Override public Optional<String> alwaysCandidateAgents() { return Optional.empty(); }
-                @Override public int synthesisCompletenessRetries() { return completenessRetries; }
                 @Override public boolean answerDirectly() { return true; }
                 @Override public boolean hasAnalysts() { return false; }
                 @Override public Optional<String> reviewConvene() { return Optional.empty(); }

@@ -1554,7 +1554,6 @@ class ChatServiceToolLoopTest {
                 @Override public String role() { return discussRole; }
                 @Override public boolean coordinator() { return false; }
                 @Override public Optional<String> alwaysCandidateAgents() { return Optional.empty(); }
-                @Override public int synthesisCompletenessRetries() { return 0; }
                 @Override public boolean answerDirectly() { return true; }
                 @Override public boolean hasAnalysts() { return false; }
                 @Override public Optional<String> reviewConvene() { return Optional.empty(); }
