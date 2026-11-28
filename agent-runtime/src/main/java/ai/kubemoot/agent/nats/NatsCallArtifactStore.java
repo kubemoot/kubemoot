@@ -20,7 +20,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Writes a tooler's tool results to the discussion workspace, one NATS object per call, in the
+ * Writes an agent's tool calls to the discussion workspace, one NATS object for each call's result and
+ * one for its working (its arguments, under the result's key with {@code .call}), in the
  * bucket {@link DiscussionArtifacts#WORKSPACE_BUCKET} under the thread's key prefix. Objects carry the call's
  * description as NATS object headers, so they expire with the bucket's TTL and are deleted with the
  * thread's other objects by prefix ({@link DiscussionArtifacts#deleteThreadArtifacts}). Each object
@@ -127,11 +128,12 @@ public class NatsCallArtifactStore implements CallArtifactStore {
                 return false;
             }
             ensureBucket(conn);
-            var meta = ObjectMeta.builder(key).description(tool + " result").headers(natsHeaders(headers)).build();
+            String part = headers.containsKey(CallHeaders.WORKING_OF) ? "call" : "result";
+            var meta = ObjectMeta.builder(key).description(tool + " " + part).headers(natsHeaders(headers)).build();
             conn.objectStore(DiscussionArtifacts.WORKSPACE_BUCKET).put(meta, new ByteArrayInputStream(body));
             conn.publish(natsProvider.scope().artifactSubject(threadId),
                     mapper.writeValueAsBytes(Map.of("artifact", reference(agent, tool, key, body.length, headers))));
-            log.info("Stored {} call result ({} bytes) as workspace artifact {}", tool, body.length, key);
+            log.info("Stored {} call {} ({} bytes) as workspace artifact {}", tool, part, body.length, key);
             return true;
         } catch (Exception e) {
             log.warn("Workspace artifact write failed for {} ({}): {} - the contribution carries the output",

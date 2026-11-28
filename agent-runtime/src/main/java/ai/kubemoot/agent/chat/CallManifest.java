@@ -20,7 +20,7 @@ public final class CallManifest {
     /** Opens the header line: {@code [WORKSPACE agent=... calls=N errors=E prefix=...]}. */
     public static final String HEADER_PREFIX = "[WORKSPACE ";
 
-    /** Opens a call line: {@code [CALL key=<key> tool=<tool> args=... bytes=... rows=... error=...]}. */
+    /** Opens a call line: {@code [CALL key=<key> tool=<tool> call=<key>.call args=... bytes=... rows=... error=...]}. */
     public static final String CALL_PREFIX = "[CALL key=";
 
     /** Opens the line of a call whose result could not be written: {@code [NOT STORED tool=<tool> ...]}. */
@@ -39,6 +39,28 @@ public final class CallManifest {
 
     /** What a {@code [NOT STORED ...]} line says of a call whose write failed. */
     public static final String WRITE_FAILED_NOTE = "the result could not be written to the workspace and is not available";
+
+    /**
+     * What is appended to a result's key to name the call's working: its arguments exactly as the
+     * model sent them (the program, the query, the parameters), stored beside the result.
+     */
+    public static final String WORKING_SUFFIX = ".call";
+
+    /** The field of a stored call line that names its working's key: {@code call=<agent>/<nnn>-<tool>.call}. */
+    public static final String WORKING_FIELD = "call=";
+
+    /** The value of {@link #WORKING_FIELD} when the result is stored and its working could not be written. */
+    public static final String WORKING_UNAVAILABLE = "unavailable";
+
+    /** What the closing line says of the workings, so a reader knows the call= key opens the call itself. */
+    public static final String WORKING_NOTE = "each call's full arguments (the program of execute_code, the query, "
+            + "the parameters) are stored under its key followed by " + WORKING_SUFFIX
+            + " (the call= key), read like any result";
+
+    /** The key of the working of the call whose result is stored under {@code resultKey}. */
+    public static String workingKeyOf(String resultKey) {
+        return resultKey + WORKING_SUFFIX;
+    }
 
     /** Opens the closing line that says where the results are. */
     public static final String FOOTER_PREFIX = "The results are stored under these keys";

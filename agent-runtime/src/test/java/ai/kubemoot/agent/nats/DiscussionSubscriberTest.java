@@ -279,7 +279,6 @@ class DiscussionSubscriberTest {
             @Override public Optional<List<McpServer>> mcpServers() { return Optional.empty(); }
             @Override public Optional<List<String>> enabledTools() { return Optional.empty(); }
             @Override public Optional<List<String>> disabledTools() { return Optional.empty(); }
-            @Override public Optional<String> workspaceAccess() { return Optional.empty(); }
             @Override public TriageModel triageModel() { return new TriageModel() {
                 @Override public Optional<String> modelId() { return Optional.empty(); }
                 @Override public Optional<String> endpoint() { return Optional.empty(); }

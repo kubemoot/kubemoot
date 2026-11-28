@@ -39,6 +39,12 @@ public final class CallHeaders {
     /** {@code true} only when the result was cut at the size cap; the body then ends with the cut marker. */
     public static final String TRUNCATED = "kubemoot.truncated";
 
+    /**
+     * On a call's working (its stored arguments) only: the key of the result it belongs to. A
+     * working has no {@link #OPERATION_NAME}, so no reader of results takes it for one.
+     */
+    public static final String WORKING_OF = "kubemoot.working_of";
+
     /** Most characters of the arguments kept in {@link #TOOL_CALL_ARGUMENTS}. */
     public static final int MAX_ARGUMENTS_CHARS = 1_000;
 

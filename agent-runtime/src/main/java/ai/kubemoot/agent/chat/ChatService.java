@@ -77,7 +77,6 @@ public class ChatService {
     CallArtifactStore callArtifactStore;
 
     private final AgentProperties properties;
-    private volatile WorkspaceAccess workspaceAccess;
     private final AgentHeartbeatService heartbeatService;
     private final ObjectMapper objectMapper;
     private final Map<String, Conversation> conversations = new ConcurrentHashMap<>();
@@ -440,26 +439,17 @@ public class ChatService {
 
     /**
      * The ledger that lists this agent's tool calls in its contribution, or null when it has none.
-     * An agent whose workspace access includes storing writes each result to the store. Any other
-     * agent (read or none) lists its calls the same way and posts the results that fit, but writes
-     * nothing; the loop still returns every result to the model under the tool result budget. A
-     * raw-output tooler without a store keeps gathering the whole text, which is its contribution.
+     * Every agent in a discussion stores every call, its result and its working (the arguments),
+     * whatever its declared workspace access: the access decides which workspace tools an agent
+     * has, not whether the other agents can review its calls. Without a store the agent lists its
+     * calls and posts the results that fit, and writes nothing; a raw-output tooler without a store
+     * keeps gathering the whole text, which is its contribution.
      */
     private ToolCallLedger loopLedger(String threadId, boolean toolerRawOutput, java.util.OptionalLong window) {
-        if (workspaceAccess().storesResults()) {
+        if (callArtifactStore != null) {
             return ToolCallLedger.forLoop(callArtifactStore, threadId, properties.agentName(), window);
         }
         return toolerRawOutput ? null : ToolCallLedger.unstoredForLoop(threadId, properties.agentName(), window);
-    }
-
-    /** The declared access, parsed on first use so a bad value is warned of once, not on every tool loop. */
-    private WorkspaceAccess workspaceAccess() {
-        WorkspaceAccess access = workspaceAccess;
-        if (access == null) {
-            access = WorkspaceAccess.of(properties.workspaceAccess());
-            workspaceAccess = access;
-        }
-        return access;
     }
 
     /** The key prefix of the discussion thread's stored results; null outside a thread or without a store. */
