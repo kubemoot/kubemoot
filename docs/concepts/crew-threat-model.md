@@ -128,8 +128,7 @@ the first two are off until you turn them on, and the table says which.
 How each one acts on the path above:
 
 **Workspace access declarations** shrink step 1. A Tooler declared `write` cannot read the
-workspace back, and an analyst declared `read` reads results but is offered no way to run
-the fetch. Splitting the roles means the agent that fetches untrusted text is not the agent
+workspace back. Splitting the roles means the agent that fetches untrusted text is not the agent
 that can run queries over everything the discussion gathered. Access limits only what an
 agent may read of others' stored results. An agent with `read` or `none` access still writes its
 own calls to the workspace (each result and its arguments), so nothing it did is hidden from the
