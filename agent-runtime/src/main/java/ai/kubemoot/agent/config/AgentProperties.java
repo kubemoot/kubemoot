@@ -196,20 +196,6 @@ public interface AgentProperties {
         boolean computeGrounding();
 
         /**
-         * Metrics drill contract (KUBEMOOT_DISCUSS_METRICS_DRILL_CONTRACT). When true,
-         * a tooler whose metric query (execute_query / execute_range_query) came back
-         * with no series - the usual symptom of a WRONG metric NAME, not a real gap -
-         * is re-prompted to run a discovery pass (list_metrics / get_metric_metadata)
-         * before it may conclude the metric is unavailable. Fires ONLY when a discovery
-         * tool is in this agent's tool set (so a query-only specialist that cannot drill
-         * is exempt) and the agent has not already drilled; on budget exhaustion the
-         * honest empty result is let through, never thrown. Default ON: it is a scoped
-         * correctness guard that no-ops for any non-metrics turn.
-         */
-        @WithDefault("true")
-        boolean metricsDrillContract();
-
-        /**
          * Cross-cutting analyst agents (comma-separated names) that must ALWAYS be a
          * candidate for reasoning-select, regardless of the domain RAG pre-filter rank.
          * A domain-agnostic capability (compute: counting, sorting, math) loses a domain
