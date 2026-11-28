@@ -57,4 +57,14 @@ class DeclaredSignalsTest {
         assertFalse(vote.addressed());
         assertEquals(SignalEffect.DECLARED, vote.effect(), "a kind outside the runtime's table");
     }
+
+    @Test
+    void startsRecheckIsOptionalAndOffByDefault() {
+        assertFalse(SignalTestKinds.consent3().startsRecheck("concern"), "today's behavior is the default");
+        assertFalse(SignalTestKinds.consent3().startsRecheck("vote"));
+        var shipped = SignalTestKinds.consent3ConcernRecheck();
+        assertTrue(shipped.startsRecheck("concern"));
+        assertTrue(shipped.find("concern").addressed());
+        assertFalse(shipped.startsRecheck("agree"));
+    }
 }

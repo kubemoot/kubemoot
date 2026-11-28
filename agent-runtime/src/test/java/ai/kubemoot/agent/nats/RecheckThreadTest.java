@@ -416,4 +416,53 @@ class RecheckThreadTest extends CoordinatorThreadTestBase {
         assertEquals(5, DiscussionOrchestrator.recheckRounds(Optional.of(9)));
         assertEquals(0, DiscussionOrchestrator.recheckRounds(Optional.of(-2)));
     }
+
+    /** A concern as the agent publishes it: the verdict the signal tool recorded, as the runtime sends it. */
+    private void concern(String asker, String to, boolean startsRecheck) throws Exception {
+        var call = new ai.kubemoot.agent.signal.SignalCall("concern", to, QUESTION, "", "");
+        var verdict = SignalVerdicts.of(call, new SignalVerdicts.Finding("", ""), true, startsRecheck);
+        var meta = MAPPER.createObjectNode().put("signal", verdict.signal());
+        verdict.metadata().forEach((k, v) -> meta.put(k, String.valueOf(v)));
+        send(THREAD, asker, verdict.signal(), verdict.content(), meta.toString());
+    }
+
+    @Test
+    void aConcernThatNamesAnAgentStartsItsRecheckAndTheAskerSignalsAgain() throws Exception {
+        toReview(WRONG);
+
+        concern(ANALYST, METRICS, true);
+
+        assertEquals(1, publishedOfType("question_asked").size(), "the doubted agent is asked to recheck");
+        assertTrue(state().pendingEvaluations.containsKey(METRICS));
+        assertFalse(state().phaseRoster.get().signalled().contains(ANALYST), "the asker waits for the answer");
+        answer(METRICS, "agree", REVISED);
+        assertEquals(REVISED, state().agreeSignals.get(METRICS));
+        assertTrue(state().pendingEvaluations.containsKey(ANALYST), "the asker is woken to signal again");
+        send(THREAD, ANALYST, "agree", "7 nodes checks out", null);
+        settle(THREAD, REVIEW_TO_SYNTHESIS);
+    }
+
+    @Test
+    void aConcernNamingNoAgentIsANoteAndStartsNothing() throws Exception {
+        toReview(WRONG);
+
+        concern(ANALYST, "", true);
+
+        assertTrue(publishedOfType("question_asked").isEmpty());
+        assertTrue(state().concernSignals.containsKey(ANALYST));
+        assertTrue(state().phaseRoster.get().signalled().contains(ANALYST), "the concern ends the turn");
+    }
+
+    @Test
+    void aSecondAddressedConcernPastMaxRoundsIsANote() throws Exception {
+        toReview(WRONG);
+        concern(ANALYST, METRICS, true);
+        answer(METRICS, "agree", REVISED);
+
+        concern(ANALYST, WORKLOADS, true);
+
+        assertEquals(1, publishedOfType("question_asked").size(), "maxRounds is 1");
+        assertEquals("round_limit", events("question_asked").get(1).data().path("refusal").asText());
+        assertTrue(state().concernSignals.containsKey(ANALYST));
+    }
 }

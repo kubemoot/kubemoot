@@ -13,7 +13,18 @@ public final class SignalTestKinds {
              {"name":"no_data","meaning":"the tools returned nothing usable","terminal":true,"addressed":false},
              {"name":"block","meaning":"a finding contradicts your results","terminal":true,"addressed":false}]""";
 
+    /** consent-3 as shipped: a concern names the agent it doubts and starts that agent's recheck. */
+    public static final String CONSENT_3_CONCERN_RECHECK = CONSENT_3.replace(
+            "{\"name\":\"concern\",\"meaning\":\"a finding is wrong or unverified\",\"terminal\":true,\"addressed\":false}",
+            "{\"name\":\"concern\",\"meaning\":\"a finding is wrong or unverified\",\"terminal\":true,"
+                    + "\"addressed\":true,\"startsRecheck\":true}");
+
     private SignalTestKinds() {
+    }
+
+    /** The consent-3 kinds with the addressed concern, parsed. */
+    public static DeclaredSignals consent3ConcernRecheck() {
+        return DeclaredSignals.parse(CONSENT_3_CONCERN_RECHECK);
     }
 
     /** The consent-3 kinds, parsed. */

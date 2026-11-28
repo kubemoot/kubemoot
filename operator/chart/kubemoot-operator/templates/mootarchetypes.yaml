@@ -34,7 +34,9 @@ desired phases. The archetype is cluster-scoped.
     - name: agree
       meaning: "Your finding stands: it answers your part of the question from what your tools returned."
     - name: concern
-      meaning: "A finding on the table, yours or another agent's, is wrong or unverified. Say which claim, why, and what shows it."
+      meaning: "A finding on the table, yours or another agent's, is wrong or unverified. Say which claim, why, and what shows it. Name in to the agent whose claim you doubt: it is asked to recheck, answers, and you then signal again."
+      addressed: true
+      startsRecheck: true
     - name: question
       meaning: "You doubt a finding and want the agent that made it to recheck. Name that agent in to and ask what to check; it re-runs its assessment and answers, then you signal again."
       terminal: false
@@ -47,8 +49,8 @@ desired phases. The archetype is cluster-scoped.
       meaning: "Your tools ran but returned errors or nothing usable, so you have no finding. Say what was missing."
     - name: block
       meaning: "A finding or the emerging answer contradicts what your tools returned and must not stand."
-  # One clarifying question per thread. 0 turns the round off: a question is then
-  # recorded as a concern.
+  # One clarifying question per thread, started by a question or by a concern that names
+  # the agent it doubts. 0 turns the round off: either is then recorded as a concern.
   recheck:
     maxRounds: 1
   # Only the analysts whose declared domains touch the question or the gathered data

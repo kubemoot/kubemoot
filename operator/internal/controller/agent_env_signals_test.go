@@ -79,7 +79,7 @@ func TestSignalEnvVars_NoneOrOnlyBareNamesSetsNothing(t *testing.T) {
 	if got := signalEnvVars(nil); len(got) != 0 {
 		t.Fatalf("no signals: want no variable, got %v", got)
 	}
-	bare := []kubemootv1alpha1.ArchetypeSignal{{Name: "agree"}, {Name: "concern"}}
+	bare := []kubemootv1alpha1.ArchetypeSignal{{Name: signalTestAgree}, {Name: sigConcern}}
 	if got := signalEnvVars(bare); len(got) != 0 {
 		t.Fatalf("names without a meaning are never offered: want no variable, got %v", got)
 	}
@@ -163,5 +163,30 @@ func TestArchetypeSignal_DecodesTheEarlierBareNameForm(t *testing.T) {
 	var bad kubemootv1alpha1.ArchetypeSignal
 	if err := json.Unmarshal([]byte(`42`), &bad); err == nil {
 		t.Fatal("a number is neither form: want an error")
+	}
+}
+
+func TestSignalEnvVars_StartsRecheckIsCarriedAndOffByDefault(t *testing.T) {
+	declared := append(signalTestDeclared(), kubemootv1alpha1.ArchetypeSignal{
+		Name: "concern", Meaning: "a finding is wrong", Addressed: true, StartsRecheck: true})
+	got := signalEnvVars(declared)
+	entries := decodeSignals(t, got[0].Value)
+	if entries[0][signalFieldStartsRecheck] != false || entries[1][signalFieldStartsRecheck] != false {
+		t.Errorf("a kind that does not say so must not start a recheck: %v", entries[:2])
+	}
+	c := entries[2]
+	if c[signalFieldStartsRecheck] != true || c[signalFieldAddressed] != true {
+		t.Errorf("concern: want addressed and startsRecheck, got %v", c)
+	}
+}
+
+func TestArchetypeSignal_StartsRecheckDecodesAndEarlierFormsKeepOff(t *testing.T) {
+	var spec kubemootv1alpha1.MootArchetypeSpec
+	raw := `{"phases":[{"name":"evaluating"}],"signals":[{"name":"concern","meaning":"x","addressed":true,"startsRecheck":true},{"name":"agree","meaning":"y"}]}`
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		t.Fatal(err)
+	}
+	if !spec.Signals[0].StartsRecheck || spec.Signals[1].StartsRecheck {
+		t.Fatalf("want only concern to start a recheck, got %+v", spec.Signals)
 	}
 }

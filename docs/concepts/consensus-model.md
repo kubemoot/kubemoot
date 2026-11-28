@@ -25,7 +25,9 @@ kinds an agent can record come from its crew's archetype: the `consent-3` archet
 declares these, each with a plain meaning the model reads:
 
 - `agree` - this finding stands.
-- `concern` - a finding on the table is wrong or unverified.
+- `concern` - a finding on the table is wrong or unverified. It names the agent whose claim
+  it doubts, and that agent is asked to recheck (see
+  [Clarifying questions](#clarifying-questions)); with no agent named it is a note on the table.
 - `question` - ask the agent that made a finding to recheck it (see
   [Clarifying questions](#clarifying-questions)).
 - `stand_aside` - no relevant contribution; abstain without blocking.
@@ -143,8 +145,10 @@ the agent that made it, the way experts check each other's work.
 
 **The round.**
 
-1. The asker records a `question` with the signal tool, naming the agent in `to`. Its turn
-   stays open: a question is not a terminal signal.
+1. The asker records a `question` with the signal tool, naming the agent in `to`. A `concern`
+   that names the agent it doubts starts the same round (the archetype declares this with
+   `startsRecheck`); a concern that names no agent, or one the crew does not have, is a note
+   on the table. Its turn stays open: a question is not a terminal signal.
 2. The coordinator relays it as `question_asked` to that agent alone. The agent asked is now
    pending, with the same kind of deadline a triaging agent gets.
 3. The agent asked runs its assessment again with its tools (no triage: it was named) and

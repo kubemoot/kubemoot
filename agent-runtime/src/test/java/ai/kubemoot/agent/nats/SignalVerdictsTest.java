@@ -81,4 +81,18 @@ class SignalVerdictsTest {
                 new SignalVerdicts.Finding("", FILES), true);
         assertEquals("the count is wrong\n\n" + FILES, v.content());
     }
+
+    @Test
+    void aConcernThatNamesAnAgentStartsItsRecheckWhenTheKindSaysSo() {
+        var call = new SignalCall("concern", "k8s-nodes", "100 nodes is wrong", "the list has 7", "");
+        var asked = SignalVerdicts.of(call, FINDING, true, true);
+        assertEquals(SignalVerdicts.MSG_QUESTION, asked.signal());
+        assertEquals("k8s-nodes", asked.metadata().get(SignalVerdicts.FIELD_TO));
+        assertTrue(asked.content().startsWith("100 nodes is wrong"));
+        assertEquals("concern", SignalVerdicts.of(call, FINDING, true, false).signal(),
+                "without the flag it stays a concern");
+        var unnamed = new SignalCall("concern", "", "100 nodes is wrong", "", "");
+        assertEquals("concern", SignalVerdicts.of(unnamed, FINDING, true, true).signal(),
+                "a concern naming no agent stays a note");
+    }
 }

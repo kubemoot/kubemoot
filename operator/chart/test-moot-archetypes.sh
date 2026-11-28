@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Render test for the MootArchetypes the operator chart ships: consent-3 turns ratification
 # off (it is opt-in), declares the signal kinds the runtime understands, each with a meaning,
-# one clarifying-question round and the generalists-first review order; the deprecated consent-3-unratified stays one release
+# one clarifying-question round (started by a question or a concern that names the agent it doubts) and the generalists-first review order; the deprecated consent-3-unratified stays one release
 # and is identical.
 # Needs helm and yq. Run from anywhere: operator/chart/test-moot-archetypes.sh
 set -euo pipefail
@@ -24,6 +24,10 @@ want_kinds='["agree","concern","question","stand_aside","tool_gap","no_data","bl
 [ "$(of_signals '[.[] | select((.meaning // "") == "")] | length')" = "0" ] || fail "every consent-3 signal needs a meaning"
 [ "$(of_signals '.[] | select(.name == "question") | [.terminal, .addressed]')" = '[false,true]' ] \
   || fail "question must be addressed and not terminal"
+[ "$(of_signals '.[] | select(.name == "concern") | [.terminal, .addressed, .startsRecheck]')" = '[true,true,true]' ] \
+  || fail "concern must be addressed and start the named agent's recheck"
+[ "$(of_signals '[.[] | select(.startsRecheck == true) | .name]')" = '["concern"]' ] \
+  || fail "only concern starts a recheck besides the question round itself"
 [ "$(spec consent-3 '.recheck.maxRounds')" = "1" ] || fail "consent-3 must allow one recheck round"
 [ "$(spec consent-3 '.review.order')" = '"generalistsFirst"' ] || fail "consent-3 must review generalistsFirst"
 [ "$(spec consent-3-unratified '.review.order')" = '"generalistsFirst"' ] || fail "consent-3-unratified must review generalistsFirst"

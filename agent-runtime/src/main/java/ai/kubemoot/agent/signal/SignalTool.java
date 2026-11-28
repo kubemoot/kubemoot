@@ -63,7 +63,7 @@ public final class SignalTool {
             return new Outcome(error("kind must be one of " + names() + ", not '" + kind + "'"), null);
         }
         String to = arg(args, TO);
-        if (declared.addressed() && to.isEmpty()) {
+        if (declared.addressed() && to.isEmpty() && declared.effect() != SignalEffect.CONCERN) {
             return new Outcome(error("a " + kind + " is said to one agent: name it in " + TO), null);
         }
         var call = new SignalCall(kind, declared.addressed() ? to : "", arg(args, STATEMENT), arg(args, REASON),
@@ -101,15 +101,29 @@ public final class SignalTool {
         return String.join(", ", signals.all().stream().map(DeclaredSignal::name).toList());
     }
 
+    /** What {@code to} says: required for the kinds that must name an agent, optional for the kinds that may. */
+    private static String toDescription(List<String> required, List<String> optional) {
+        var text = new StringBuilder("The agent the signal is said to, by name.");
+        if (!required.isEmpty()) {
+            text.append(" Required for: ").append(String.join(", ", required)).append('.');
+        }
+        if (!optional.isEmpty()) {
+            text.append(" For ").append(String.join(", ", optional))
+                    .append(", name the agent whose claim you doubt, and it is asked to recheck it.");
+        }
+        return text.toString();
+    }
+
     private static ToolSpecification buildSpec(DeclaredSignals signals) {
         List<String> kinds = new ArrayList<>();
         List<String> addressed = new ArrayList<>();
+        List<String> named = new ArrayList<>();
         var description = new StringBuilder("Record your verdict on the discussion. Call it when your work is done, "
                 + "with the kind that fits; your reply text stays your finding. Kinds:");
         for (DeclaredSignal s : signals.all()) {
             kinds.add(s.name());
             if (s.addressed()) {
-                addressed.add(s.name());
+                (s.effect() == SignalEffect.CONCERN ? named : addressed).add(s.name());
             }
             description.append("\n- ").append(s.name()).append(": ").append(s.meaning());
         }
@@ -118,9 +132,8 @@ public final class SignalTool {
                 .addStringProperty(STATEMENT, "The claim, concern or question, in a sentence or two.")
                 .addStringProperty(REASON, "Why, from your results.")
                 .addStringProperty(EVIDENCE, "Optional: a stored-result key, or a short quote from a result.");
-        if (!addressed.isEmpty()) {
-            parameters.addStringProperty(TO, "The agent the signal is said to, by name. Required for: "
-                    + String.join(", ", addressed) + ".");
+        if (!addressed.isEmpty() || !named.isEmpty()) {
+            parameters.addStringProperty(TO, toDescription(addressed, named));
         }
         return ToolSpecification.builder()
                 .name(NAME)
