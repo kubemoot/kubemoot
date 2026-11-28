@@ -23,6 +23,8 @@ const (
 	headerError          = "kubemoot.error"
 	headerTruncated      = "kubemoot.truncated"
 	headerRows           = "kubemoot.rows"
+	// headerWorkingOf marks the object that holds a call's arguments; it names the result's key.
+	headerWorkingOf = "kubemoot.working_of"
 	// flagSet is the value of a header that is on.
 	flagSet = "true"
 )
@@ -127,6 +129,9 @@ func (s *Service) callGroup(ctx context.Context, name, pattern, workDir string,
 	var skipped []string
 	var total int64
 	for i, m := range metas {
+		if _, isWorking := m.Headers[headerWorkingOf]; isWorking {
+			continue // a call's arguments are not a result; a broad pattern passes over them
+		}
 		ci, ok := callInfoOf(m)
 		if !ok || ci.failed {
 			skipped = append(skipped, m.Key)

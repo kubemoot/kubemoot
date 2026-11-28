@@ -153,9 +153,11 @@ its file, and a result is never cut. A call that succeeded and returned nothing 
 space) always has an `[EMPTY RESULT]` block, so an empty result is never mistaken for a result that
 is only in its file. Arguments longer than 60 characters are cut on the line and end with
 `... (args cut at 60 of N chars)`, N being the length of the one-line form; the stored call holds
-the arguments (up to 1,000 characters). An agent whose workspace access is `read` or `none` stores
-nothing but lists its calls the same way: `[CALL tool=... stored=no]` lines with no key, the
-results that fit, a `[NOT STORED ...]` line for a result that does not fit, and no closing line
+the arguments whole, under the call's key plus `.call` and named on the line as `call=<key>`, up
+to the same size cap as a result; the 1,000-character limit applies only to the copy of the
+arguments in the result object's header. Every agent keeps its calls this way whatever its workspace
+access. Only a runtime with no workspace store lists its calls as `[CALL tool=... stored=no]` lines with
+no key, the results that fit, a `[NOT STORED ...]` line for a result that does not fit, and no closing line
 about stored keys. See the
 [discussion artifact store](workspace.md#what-an-agent-posts-the-descriptions-of-its-files-and-its-small-results).
 Agents that read files add the facts they find to their own contribution; the synthesizer answers
