@@ -182,6 +182,26 @@ only as replaced, without its text, so a wrong value does not reach the answer.
 ([the coordinator log](../signals-and-protocol/#the-coordinator-log)), and the dashboard and
 transcripts show the `question`, `question_asked` and `question_answered` messages.
 
+## The review shows the working
+
+A reviewer checks a finding the way a developer checks a pull request: by reading the working, not
+only the result. Under each finding, `review_ready` shows each call the finding names: the call's
+stored working (the program, the query or the parameters) and the call's output, read from the
+discussion's workspace. Only the finding's own calls are shown, and each is capped so the message
+stays small:
+
+| Cap | Characters | Why |
+|-----|-----------:|-----|
+| One call's working | 1,500 | A program of about fifty lines; longer ones are rarely what a reviewer needs to see first. |
+| One call's output | 800 and 12 lines | Enough to see its shape and first rows. An output may be the data a call fetched, so only its first lines show. |
+| All calls under one finding | 6,000 | About three calls in full, so one finding cannot crowd out the rest. |
+| One review message | 24,000 | About 6,000 tokens, which leaves room for the findings and the file list in a small model's window. |
+
+A cut text ends with `[cut at N of M chars; full text under <key>]`: the reviewer opens that key
+to read the rest. A call whose working or output cannot be read shows `[working unavailable]` or
+`[output unavailable]`, and the review goes on. A finding with no calls shows nothing extra. Both
+review passes show it, and a call shown once in a message is not shown again.
+
 ## Ratification
 
 > **Opt-in and experimental.** Ratification is off by default. A crew turns it on with

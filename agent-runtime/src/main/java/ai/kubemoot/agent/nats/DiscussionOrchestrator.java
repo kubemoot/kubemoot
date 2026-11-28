@@ -2931,7 +2931,7 @@ public class DiscussionOrchestrator {
      * as a repeat.
      */
     void publishReviewReady(ThreadState state, List<String> analystCircle) {
-        String content = reviewSummary(state) + reviewCatalog().forReview(state.threadId);
+        String content = reviewSummary(state, reviewWorking(state)) + reviewCatalog().forReview(state.threadId);
         publishReviewReady(state, analystCircle, content);
     }
 
@@ -2946,30 +2946,44 @@ public class DiscussionOrchestrator {
      * What the evaluation found, as the review shows it: each agree and concern, cut, with the {@code [CALL ...]}
      * lines of a cut finding kept. In the second pass the first pass's stand-asides, blocks and failures show too.
      */
-    private static String reviewSummary(ThreadState state) {
+    private static String reviewSummary(ThreadState state, ReviewWorking working) {
         var out = new StringBuilder();
         for (var agree : state.agreeSignals.entrySet()) {
-            out.append("[").append(agree.getKey()).append("] ").append(cutKeepingCalls(agree.getValue())).append("\n\n");
+            out.append("[").append(agree.getKey()).append("] ").append(shown(agree.getValue(), working)).append("\n\n");
         }
         for (var concern : state.concernSignals.entrySet()) {
             out.append("[CONCERN from ").append(concern.getKey()).append("] ")
-                    .append(cutKeepingCalls(concern.getValue())).append("\n\n");
+                    .append(shown(concern.getValue(), working)).append("\n\n");
         }
         for (String name : state.reviewFirstPass.get().stream().sorted().toList()) {
             if (state.standAsideSignals.contains(name)) out.append("[STAND ASIDE from ").append(name).append("]\n\n");
-            appendFirstPassSignal(out, "BLOCK", name, state.blockSignals);
-            appendFirstPassSignal(out, "FAILURE", name, state.failureSignals);
+            appendFirstPassSignal(out, "BLOCK", name, state.blockSignals, working);
+            appendFirstPassSignal(out, "FAILURE", name, state.failureSignals, working);
         }
         return out.toString();
     }
 
     private static void appendFirstPassSignal(StringBuilder out, String label, String name,
-                                              Map<String, String> signals) {
+                                              Map<String, String> signals, ReviewWorking working) {
         String content = signals.get(name);
         if (content != null) {
             out.append("[").append(label).append(" from ").append(name).append("] ")
-                    .append(cutKeepingCalls(content)).append("\n\n");
+                    .append(shown(content, working)).append("\n\n");
         }
+    }
+
+    /** A finding as the review shows it: cut, with the working and output of the calls it names below it. */
+    private static String shown(String finding, ReviewWorking working) {
+        return cutKeepingCalls(finding) + working.forFinding(finding);
+    }
+
+    /** What the review shows of the calls' working: read from the thread's stored files, nothing without a bus. */
+    private ReviewWorking reviewWorking(ThreadState state) {
+        var conn = natsProvider.getConnection();
+        if (conn == null) {
+            return ReviewWorking.none();
+        }
+        return ReviewWorking.of(conn, DiscussionArtifacts.threadPrefix(natsProvider.scope(), state.threadId));
     }
 
     private static final java.util.regex.Pattern CALL_LINE = java.util.regex.Pattern.compile("\\[CALL [^\\]]*+\\]");
