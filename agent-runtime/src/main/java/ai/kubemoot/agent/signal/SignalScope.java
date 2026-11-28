@@ -55,7 +55,7 @@ public final class SignalScope implements AutoCloseable {
 
     /** Runs one call: a valid call replaces the verdict recorded before it. Returns the model's answer. */
     public String handle(String arguments) {
-        var outcome = tool.record(arguments);
+        var outcome = tool.accept(arguments);
         if (outcome.recorded()) {
             last.set(outcome.call());
         }

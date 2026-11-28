@@ -84,7 +84,7 @@ final class RecheckState {
         var question = new Question(idPrefix + "/q" + (asked + 1), asker, target == null ? "" : target,
                 text == null ? "" : text, null, null);
         Refusal refusal = refusal(question, maxRounds, crew);
-        record(question, refusal == null);
+        register(question, refusal == null);
         return new Decision(question, refusal);
     }
 
@@ -92,7 +92,7 @@ final class RecheckState {
     synchronized Decision refuse(String idPrefix, String asker, String target, String text, Refusal refusal) {
         var question = new Question(idPrefix + "/q" + (asked + 1), asker, target == null ? "" : target,
                 text == null ? "" : text, null, null);
-        record(question, false);
+        register(question, false);
         return new Decision(question, refusal);
     }
 
@@ -107,10 +107,10 @@ final class RecheckState {
      * refused, it is only kept for the synthesis. A restarted coordinator calls this.
      */
     synchronized void restore(Question question, boolean relayed) {
-        record(question, relayed);
+        register(question, relayed);
     }
 
-    private void record(Question question, boolean relayed) {
+    private void register(Question question, boolean relayed) {
         asked++;
         if (relayed) {
             rounds++;
@@ -122,15 +122,24 @@ final class RecheckState {
     }
 
     /** Takes over {@code other}'s questions and rounds: the round as a restarted coordinator's log left it. */
-    synchronized void copyFrom(RecheckState other) {
-        synchronized (other) {
+    void copyFrom(RecheckState other) {
+        var taken = other.snapshot();
+        synchronized (this) {
             openById.clear();
-            openById.putAll(other.openById);
+            openById.putAll(taken.open());
             history.clear();
-            history.addAll(other.history);
-            rounds = other.rounds;
-            asked = other.asked;
+            history.addAll(taken.history());
+            rounds = taken.rounds();
+            asked = taken.asked();
         }
+    }
+
+    /** One consistent copy of the round, taken under this state's lock. */
+    private record Snapshot(Map<String, Question> open, List<Question> history, int rounds, int asked) {
+    }
+
+    private synchronized Snapshot snapshot() {
+        return new Snapshot(new HashMap<>(openById), new ArrayList<>(history), rounds, asked);
     }
 
     private Refusal refusal(Question q, int maxRounds, Set<String> crew) {

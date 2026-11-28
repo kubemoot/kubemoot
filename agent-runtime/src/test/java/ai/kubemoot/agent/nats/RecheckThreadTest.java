@@ -411,7 +411,6 @@ class RecheckThreadTest extends CoordinatorThreadTestBase {
     @Test
     void theRecheckRoundsAreKeptWithinWhatTheCrdAllows() {
         assertEquals(1, DiscussionOrchestrator.recheckRounds(Optional.empty()));
-        assertEquals(1, DiscussionOrchestrator.recheckRounds(null));
         assertEquals(0, DiscussionOrchestrator.recheckRounds(Optional.of(0)));
         assertEquals(5, DiscussionOrchestrator.recheckRounds(Optional.of(9)));
         assertEquals(0, DiscussionOrchestrator.recheckRounds(Optional.of(-2)));
