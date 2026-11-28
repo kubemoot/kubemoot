@@ -577,32 +577,6 @@ public class ChatService {
             + "preview. Call execute_code now. If there is genuinely no data to compute over, "
             + "reply with exactly NO_DATA.";
 
-    // Metrics drill contract: how many times to re-prompt a metrics tooler that
-    // queried a metric, got no series back, and concluded WITHOUT a discovery
-    // pass. An empty result vector is almost always a wrong metric NAME, so the
-    // fix is to make it call list_metrics before declaring "unavailable". See
-    // AgentProperties.Discuss.metricsDrillContract() and [[Metrics Tooler Drills
-    // Before Declaring Unavailable]].
-    static final int MAX_METRICS_DRILL_RETRIES = 2;
-    // Prometheus MCP tool names: the query tools whose empty result triggers the
-    // drill, and the discovery tools that satisfy it. Kept separate because a
-    // query-only specialist (has execute_query but no discovery tool) cannot drill
-    // and must be exempt - discovery lives in a different agent for those crews.
-    private static final java.util.Set<String> METRIC_QUERY_TOOLS = java.util.Set.of(
-            "execute_query", "execute_range_query");
-    private static final java.util.Set<String> METRIC_DISCOVERY_TOOLS = java.util.Set.of(
-            "list_metrics", "get_metric_metadata");
-    private static final String METRICS_DRILL_REPROMPT =
-            "Your metric query returned NO series (an empty result). This almost always means the "
-            + "metric NAME is wrong, not that the data is missing. Before concluding the metric is "
-            + "unavailable you MUST discover the real name with list_metrics (or get_metric_metadata). "
-            + "Search with a SHORT, BROAD substring - a single core word (e.g. \"apiserver\", \"request\") "
-            + "- NOT your full guessed name and NOT a prefix you assumed (drop guesses like a leading "
-            + "\"kube_\"). If a filtered list comes back empty or clearly unrelated, broaden the filter or "
-            + "drop it entirely and scan the results. Then re-run your query with the real name you found. "
-            + "Only report the metric as genuinely unavailable if a broad discovery search still shows no "
-            + "such series exists.";
-
     /**
      * Backwards-compat overload — pickMullingChatModel call is hoisted to
      * the caller (directLlmCall) so observed latency can be recorded in a
@@ -773,9 +747,7 @@ public class ChatService {
      * whose tools already ran stops here with the raw output it gathered: that
      * output is its contribution, and another model turn would add nothing to it;
      * when every tool call failed, the gather failed (GATHER_FAILED) rather than
-     * posting error text as data. The metrics drill re-prompt needs another turn,
-     * so it does not run here; an empty metric result is small, so a full window
-     * almost always holds real data. Any other agent needs the question in the
+     * posting error text as data. Any other agent needs the question in the
      * next turn, so it fails visibly with CONTEXT_EXCEEDED. A tooler already holding output
      * stops earlier, once less than the reply reserve is left: its stand-ins for large results
      * keep each result small, so the window fills with them rather than with one big result.
@@ -998,14 +970,6 @@ public class ChatService {
     private java.util.Optional<ToolLoopResult> resolveNoToolResult(
             AiMessage aiMessage, ToolLoopState state, boolean toolerRawOutput,
             String serverName, String pickReason) {
-        // Metrics drill contract runs BEFORE the tooler raw-output return: the
-        // metrics toolers post raw output, so their empty-query "unavailable" would
-        // otherwise ship without ever trying a discovery pass. A re-prompt returns
-        // empty (caller continues the loop); a satisfied/inapplicable contract falls
-        // through. Honest escapes (NO_DATA / TOOL_GAP) are handled just below.
-        if (metricsDrillNeedsRetry(state)) {
-            return java.util.Optional.empty();
-        }
         if (toolerRawOutput && state.toolsExecuted) {
             return java.util.Optional.of(toolerRawOutputResult(aiMessage, state, serverName, pickReason));
         }
@@ -1174,87 +1138,6 @@ public class ChatService {
         log.info("compute-grounding: agent {} kept {} figure(s) no result holds ({}) - answer withheld",
                 properties.agentName(), ungrounded.size(), AnswerGrounding.list(ungrounded));
         return java.util.Optional.of(AiMessage.from(NumberGrounding.withheld(ungrounded)));
-    }
-
-    /**
-     * Enforce the metrics drill contract on a concluding no-tool turn. Returns true
-     * when a re-prompt was queued (caller continues the loop), false when the
-     * contract is satisfied or inapplicable. NEVER throws: once the re-prompt budget
-     * is spent the honest empty result is let through as the contribution, because a
-     * model that still will not drill is a tier problem, not a hard failure. Fires
-     * only when the last metric query returned no series, no discovery pass has run,
-     * and a discovery tool is in this agent's set (a query-only specialist cannot
-     * drill and is exempt). Placed before the honest NO_DATA escape on purpose: an
-     * empty-query "unavailable" is exactly the mis-query this contract corrects, so
-     * discovery must be attempted before the agent is allowed to declare a gap.
-     */
-    private boolean metricsDrillNeedsRetry(ToolLoopState state) {
-        if (!properties.discuss().metricsDrillContract()) {
-            return false;
-        }
-        // Short-circuits on the empty-query flag first, so discoveryToolAvailable()
-        // (a small linear scan) only runs for an agent that actually made an empty
-        // metric query - never on a generic no-tool turn.
-        if (!state.metricQueryReturnedEmpty || state.discoveredMetrics || !discoveryToolAvailable()) {
-            return false;
-        }
-        // Same guard shape as computeContractNeedsRetry (< MAX re-prompts, else stop),
-        // but on exhaustion this contract lets the honest empty result through rather
-        // than throwing: a model that still will not drill is a tier problem.
-        if (state.metricsDrillRetries < MAX_METRICS_DRILL_RETRIES) {
-            state.metricsDrillRetries++;
-            state.allMessages.add(new UserMessage(METRICS_DRILL_REPROMPT));
-            log.info("metrics-drill: agent {} queried a metric that returned no series and did not discover - re-prompt {}/{}",
-                    properties.agentName(), state.metricsDrillRetries, MAX_METRICS_DRILL_RETRIES);
-            return true;
-        }
-        log.info("metrics-drill: agent {} did not discover after {} prompts - accepting the empty result",
-                properties.agentName(), MAX_METRICS_DRILL_RETRIES);
-        return false;
-    }
-
-    /** True when a Prometheus discovery tool (list_metrics / get_metric_metadata) is
-     *  in this agent's tool set, so it CAN resolve a wrong metric name. A query-only
-     *  specialist without one is exempt from the drill contract. */
-    private boolean discoveryToolAvailable() {
-        for (var spec : tools().specs()) {
-            if (METRIC_DISCOVERY_TOOLS.contains(spec.name())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** True when a Prometheus query tool result carries no series - a tool-error
-     *  wrapper or a success response with an empty result set ("result":[]). An empty
-     *  result almost always means a wrong metric name rather than a real gap, which is
-     *  what the drill contract exists to correct. Relies on the Prometheus API
-     *  invariant that data.result is the only "result" key and a populated response
-     *  always has an object between the brackets, so "result":[] cannot appear in a
-     *  non-empty response. Package-private for unit testing. */
-    static boolean isEmptyMetricResult(String result) {
-        if (result == null || isToolErrorResult(result)) {
-            return true;
-        }
-        return result.replaceAll("\\s", "").contains("\"result\":[]");
-    }
-
-    // Empty-discovery markers across the shapes list_metrics/get_metric_metadata may
-    // return: a zero count, or an empty names/metrics/data array, whitespace-stripped.
-    private static final java.util.regex.Pattern EMPTY_DISCOVERY = java.util.regex.Pattern.compile(
-            "\"total_count\":0|\"returned_count\":0|\"(metrics|metric_names|names|data|result)\":\\[\\]");
-
-    /** True when a discovery tool (list_metrics / get_metric_metadata) returned NO
-     *  metrics - a tool error, a bare empty array, a zero count, or an empty
-     *  names/metrics array. A wrong-stem filter yields an empty discovery, which must
-     *  NOT satisfy the drill contract (the agent has to broaden and try again).
-     *  Package-private for unit testing. */
-    static boolean isEmptyDiscoveryResult(String result) {
-        if (result == null || isToolErrorResult(result)) {
-            return true;
-        }
-        String compact = result.replaceAll("\\s", "");
-        return compact.equals("[]") || EMPTY_DISCOVERY.matcher(compact).find();
     }
 
     /** True when any input message carries a file description, i.e. the data the
@@ -1451,7 +1334,7 @@ public class ChatService {
             state.recordGatherResult(toolRequest.name(), kept);
             return;
         }
-        recordReadAndMetricSignals(toolRequest.name(), toolRequest.arguments(), raw, state);
+        recordReadSignals(toolRequest.name(), toolRequest.arguments(), raw, state);
         appendToolOutput(state, toolRequest.name(), kept);
         state.recordGatherResult(toolRequest.name(), raw);
         recordToolFailure(toolRequest.name(), toolRequest.arguments(), raw, false, state);
@@ -1524,11 +1407,9 @@ public class ChatService {
     }
 
     /**
-     * Update the compute and metrics-drill contract flags from one tool call: a
-     * successful read of the spilled artifact, an empty metric query, and a metric
-     * discovery that returned metrics.
+     * Note whether one tool call was a successful read of the spilled artifact.
      */
-    private void recordReadAndMetricSignals(String toolName, String arguments, String result,
+    private void recordReadSignals(String toolName, String arguments, String result,
                                             ToolLoopState state) {
         // Two ways the compute agent legitimately reads the spilled FILE:
         //   (1) execute_code whose code opens /kubemoot/workspace/<key>, or
@@ -1544,19 +1425,6 @@ public class ChatService {
         // read-ops or execute_code call must not let the agent answer from nothing.
         if ((readViaCode || readViaReadOps) && !isToolErrorResult(result)) {
             state.codeReferencedArtifact = true;
-        }
-        // Metrics drill contract signals: a metric query that returns no series
-        // (empty vector) or errors arms the drill; a discovery call that actually
-        // RETURNED metrics satisfies it.
-        if (METRIC_QUERY_TOOLS.contains(toolName)) {
-            state.metricQueryReturnedEmpty = isEmptyMetricResult(result);
-        }
-        // Only a discovery that RETURNED metrics counts. A zero-result list_metrics
-        // (the model filtered on a wrong stem, e.g. "kube_apiserver_request_total")
-        // must keep re-prompting so the agent broadens the filter, not conclude
-        // "unavailable" off an empty discovery.
-        if (METRIC_DISCOVERY_TOOLS.contains(toolName) && !isEmptyDiscoveryResult(result)) {
-            state.discoveredMetrics = true;
         }
     }
 
@@ -1700,19 +1568,6 @@ public class ChatService {
         // (/kubemoot/workspace/...), i.e. the agent read the materialized FILE rather than
         // computing over the inline preview. Drives the compute contract.
         boolean codeReferencedArtifact = false;
-        // Metrics drill contract signals. metricQueryReturnedEmpty tracks the LAST
-        // metric query's emptiness (reset when a later query returns series), so a
-        // successful re-query clears the trigger. It is last-writer-wins within a
-        // single multi-tool batch turn: a batch mixing a populated and an empty query
-        // arms the drill on the empty one even though partial data was gathered - an
-        // accepted edge, since a re-prompt to discover the missing metric is harmless.
-        // discoveredMetrics latches once a discovery tool returns METRICS (a non-empty
-        // list), satisfying the contract even if the re-query is still empty (a
-        // genuinely absent metric, honestly reported). A zero-result discovery (wrong
-        // filter stem) does NOT latch, so the drill keeps re-prompting to broaden.
-        boolean metricQueryReturnedEmpty = false;
-        boolean discoveredMetrics = false;
-        int metricsDrillRetries = 0;
 
         // The engine's reported prompt and reply sizes for the last turn, and the
         // message count right after its reply, so the next prompt's size can be

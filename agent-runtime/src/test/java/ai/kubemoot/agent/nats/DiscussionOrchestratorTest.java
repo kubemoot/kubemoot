@@ -266,7 +266,6 @@ class DiscussionOrchestratorTest {
                 @Override public boolean coordinator() { return true; }
                 @Override public boolean computeContract() { return false; }
                 @Override public boolean computeGrounding() { return false; }
-                @Override public boolean metricsDrillContract() { return false; }
                 @Override public Optional<String> alwaysCandidateAgents() { return Optional.empty(); }
                 @Override public int synthesisCompletenessRetries() { return 0; }
                 @Override public boolean answerDirectly() { return true; }
