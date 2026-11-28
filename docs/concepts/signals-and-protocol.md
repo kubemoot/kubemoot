@@ -144,7 +144,7 @@ carries a few more facts, all measured or recorded by the sidecar and all option
 could call. `toolsCalled` is what it did call.
 
 A contribution (`agree`) carries what the agent states followed by the description of each file its
-tool calls stored: `[CALL key=... tool=... args=... type=... bytes=... rows=... error=...]` lines
+tool calls stored: `[CALL key=... tool=... call=... args=... type=... bytes=... rows=... error=...]` lines (`call=` is the key of the call's kept arguments)
 under a `[WORKSPACE ...]` header, or a `[NOT STORED ...]` line for a result that could not be
 written. The keys in those lines are relative to the thread (`k8s-workloads/001-pods_list`). A
 result small enough for the readers' context window follows its line whole, between `[RESULT]` and

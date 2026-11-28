@@ -45,7 +45,8 @@ func (i Identity) Permissions() Permissions { return i.PermissionsFor(true) }
 //     coordinator whatever the access.
 //
 // Nothing provisions a NATS user from these yet, so they are a contract for that work and are
-// not enforced in 0.94; the agent-runtime enforces write by not storing (see KUBEMOOT_WORKSPACE_ACCESS).
+// not enforced in 0.94. The agent-runtime keeps every agent's calls whatever the access, so a grant
+// withheld here would also withhold the calls other agents review.
 func (i Identity) PermissionsFor(workspaceWrite bool) Permissions {
 	publish := []string{
 		i.DiscussWildcard(),
