@@ -338,3 +338,18 @@ func TestACutCallIgnoresTheTypeRecordedForTheWholeResult(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestABroadPatternPassesOverTheCallsWorkingsWithoutANote(t *testing.T) {
+	s := callService(t, map[string]object{
+		callPods1:           call(toolPods, podsA, HeaderContentType, "application/json"),
+		callPods1 + ".call": {body: `{"namespace":"x"}`, headers: map[string]string{headerWorkingOf: callPods1, headerTool: toolPods}},
+		callPods2:           call(toolPods, podsB, HeaderContentType, "application/json"),
+		callPods2 + ".call": {body: `{}`, headers: map[string]string{headerWorkingOf: callPods2, headerTool: toolPods}},
+	})
+
+	got := query(t, s, map[string]string{tblPods: callPrefix + "*"}, countPodsSQL)
+
+	if !strings.HasPrefix(got, "n\n3\n") || strings.Contains(got, "left out") {
+		t.Fatalf("got %q", got)
+	}
+}

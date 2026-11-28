@@ -124,17 +124,17 @@ instead, which counts against the 4,000 characters.
 Pod a-1 uses the most CPU, 0.9 cores (workspace_query over 001-pods_list).
 
 [WORKSPACE agent=k8s-workloads calls=4 errors=0 prefix=k8s-workloads/]
-[CALL key=k8s-workloads/001-pods_list tool=pods_list args={"namespace":"kube-system"} type=text/plain; profile=kubectl-table bytes=15210 rows=64 error=false columns=name,ready,status,restarts,age]
-[CALL key=k8s-workloads/002-nodes_list tool=nodes_list args={} type=application/json bytes=2210 rows=3 error=false fields=metadata,spec,status]
-[CALL key=k8s-workloads/003-events_list tool=events_list args={} type=text/plain bytes=15 rows=unknown error=false]
+[CALL key=k8s-workloads/001-pods_list tool=pods_list call=k8s-workloads/001-pods_list.call args={"namespace":"kube-system"} type=text/plain; profile=kubectl-table bytes=15210 rows=64 error=false columns=name,ready,status,restarts,age]
+[CALL key=k8s-workloads/002-nodes_list tool=nodes_list call=k8s-workloads/002-nodes_list.call args={} type=application/json bytes=2210 rows=3 error=false fields=metadata,spec,status]
+[CALL key=k8s-workloads/003-events_list tool=events_list call=k8s-workloads/003-events_list.call args={} type=text/plain bytes=15 rows=unknown error=false]
 [RESULT]
 No events found
 [END RESULT]
-[CALL key=k8s-workloads/004-workspace_grep tool=workspace_grep args={"key": "k8s-nodes/001-resources_list", "pattern": "DiskPres... (args cut at 60 of 91 chars) type=text/plain bytes=0 rows=unknown error=false]
+[CALL key=k8s-workloads/004-workspace_grep tool=workspace_grep call=k8s-workloads/004-workspace_grep.call args={"key": "k8s-nodes/001-resources_list", "pattern": "DiskPres... (args cut at 60 of 91 chars) type=text/plain bytes=0 rows=unknown error=false]
 [EMPTY RESULT]
 (empty: the call succeeded and returned nothing)
 [END RESULT]
-The results are stored under these keys; a result not shown above is only in its file. Read a key with workspace_query (SQL; the columns are listed on the call line, and workspace_describe lists every one), the artifact_* tools, or execute_code over the file /kubemoot/workspace/<key>; the key k8s-workloads/*-<tool> reads every call of one tool as one table.
+The results are stored under these keys; a result not shown above is only in its file, and each call's full arguments (the program of execute_code, the query, the parameters) are stored under its key followed by .call (the call= key), read like any result. Read a key with workspace_query (SQL; the columns are listed on the call line, and workspace_describe lists every one), the artifact_* tools, or execute_code over the file /kubemoot/workspace/<key>; the key k8s-workloads/*-<tool> reads every call of one tool as one table.
 ```
 
 The keys in the lines are relative to the thread: `{agent}/{nnn}-{tool}` ([Short

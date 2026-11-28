@@ -115,7 +115,7 @@ the first two are off until you turn them on, and the table says which.
 
 | Defense | What it limits | Default |
 |---------|----------------|---------|
-| [Workspace access declarations](../discussion-artifact-store/#workspace-access) | Which agents store results and which have the read tools. A tooler that fetches and hands off declares `write` and gets no read tools. | Not declared: every result is stored and read tools follow `enabledTools` |
+| [Workspace access declarations](../discussion-artifact-store/#workspace-access) | Which agents have the read tools for other agents' stored results. A tooler that fetches and hands off declares `write` and gets no read tools. Every agent's own calls are kept whatever it declares. | Not declared: read tools follow `enabledTools` |
 | `enabledTools` and `disabledTools` | The tools an agent is offered. An injected instruction can only call what the agent has. | Every tool of the gateway the agent does not exclude |
 | [Gateway argument rules](../../reference/mcpgateway-guide/#tool-argument-rules) | A call whose string argument matches a rule is refused before the tool server sees it. | No rules |
 | Redaction of harness failures | A credential-shaped string (a bearer token, an API key, a token or password assignment, a JWT) in a harness's error text is replaced before it is logged or published as a `failure` reason. | On |
@@ -127,11 +127,14 @@ the first two are off until you turn them on, and the table says which.
 
 How each one acts on the path above:
 
-**Workspace access declarations** shrink step 1. An analyst declared `read` stores
-nothing; a Tooler declared `write` cannot read the workspace back. Splitting the roles
-means the agent that fetches untrusted text is not the agent that can run queries over
-everything the discussion gathered. Read is enforced through the agent's tool list and
-write by the agent runtime; the declarations are not yet enforced at the message bus.
+**Workspace access declarations** shrink step 1. A Tooler declared `write` cannot read the
+workspace back, and an analyst declared `read` reads results but is offered no way to run
+the fetch. Splitting the roles means the agent that fetches untrusted text is not the agent
+that can run queries over everything the discussion gathered. Access limits only what an
+agent may read of others' stored results. An agent with `read` or `none` access still writes its
+own calls to the workspace (each result and its arguments), so nothing it did is hidden from the
+other agents; this adds data to the workspace, never a way to read more of it. Read is enforced
+through the agent's tool list; the declarations are not yet enforced at the message bus.
 
 **Gateway argument rules** limit what an injected call can ask for. A rule is a regular
 expression and a message: a string argument that matches is refused and the model gets the
