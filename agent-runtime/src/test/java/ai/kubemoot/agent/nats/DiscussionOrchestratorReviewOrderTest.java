@@ -106,7 +106,8 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
 
         send("t1", ADVISOR, AGREE, "checked", null);
         settle("t1", REVIEW_TO_SYNTHESIS);
-        assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING.ordinal() <= phase("t1").ordinal(), true);
+        await(() -> !publishedOfType("thread_close").isEmpty(), "the thread did not close: " + timeline);
+        assertEquals(DiscussionOrchestrator.Phase.CLOSED, phase("t1"));
         assertEquals(2, publishedOfType(REVIEW_READY).size(), "no third wake");
     }
 
@@ -172,6 +173,8 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
         var ready = publishedOfType(REVIEW_READY);
         assertEquals(2, ready.size());
         assertEquals(List.of(ADVISOR), circle(ready.get(1)));
+        assertTrue(ready.get(1).body().path("content").asText().contains("[FAILURE from compute] the program crashed"),
+                "the domain analyst is shown that the generalist failed");
     }
 
     @Test
@@ -192,6 +195,147 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
         assertTrue(state.failureSignals.containsKey(COMPUTE), "the silent generalist is a failure, not a wait");
         assertEquals(1, advanced.get());
         assertEquals(Set.of(ADVISOR), state.phaseRoster.get().members());
+    }
+
+    private void ask(String t, String asker, String to) throws Exception {
+        String q = "can you recheck that count?";
+        send(t, asker, "question", q, "{\"signal\":\"question\",\"signalKind\":\"question\",\"signalTo\":\""
+                + to + "\",\"signalStatement\":\"" + q + "\"}");
+    }
+
+    private String questionId(int index) {
+        return publishedOfType("question_asked").get(index).body().path("metadata").path("questionId").asText();
+    }
+
+    private void check(String t) {
+        orchestrator.checkThreadTransition(orchestrator.threadForTest(t), Instant.now().plusSeconds(60));
+    }
+
+    @Test
+    void generalistsFirst_aDomainAnalystsEarlySignalDoesNotEndPassOneAndItsFindingIsShownInPassTwo() throws Exception {
+        rebuild("generalistsFirst");
+        evaluate("t8");
+
+        send("t8", ADVISOR, AGREE, "early note", null);
+        check("t8");
+        assertEquals(1, publishedOfType(REVIEW_READY).size(), "a signal from outside the roster ends nothing");
+        assertEquals(Set.of(COMPUTE), orchestrator.threadForTest("t8").phaseRoster.get().members());
+
+        send("t8", COMPUTE, AGREE, "ok", null);
+        settle("t8", REVIEW_TO_SYNTHESIS);
+        var second = publishedOfType(REVIEW_READY).get(1);
+        assertTrue(second.body().path("content").asText().contains("[" + ADVISOR + "] early note"),
+                "the finding is on the table, so the summary shows it");
+        assertFalse(DiscussionOrchestrator.rosterSignalled(orchestrator.threadForTest("t8")),
+                "the earlier note is not the advisor's reply in its own pass");
+    }
+
+    @Test
+    void generalistsFirst_aPassTwoAnalystMayAskAPassOneGeneralistToRecheck() throws Exception {
+        rebuild("generalistsFirst");
+        evaluate("t9");
+        send("t9", COMPUTE, AGREE, "11 rows", null);
+        settle("t9", REVIEW_TO_SYNTHESIS);
+
+        ask("t9", ADVISOR, COMPUTE);
+        assertEquals(1, publishedOfType("question_asked").size());
+        assertTrue(orchestrator.threadForTest("t9").pendingEvaluations.containsKey(COMPUTE));
+        check("t9");
+        assertEquals(DiscussionOrchestrator.Phase.REVIEW, phase("t9"), "the question holds the phase");
+
+        send("t9", COMPUTE, AGREE, "12 rows after recheck", "{\"answers\":\"" + questionId(0) + "\"}");
+        send("t9", ADVISOR, AGREE, "12 checks out", null);
+        settle("t9", REVIEW_TO_SYNTHESIS);
+        await(() -> !publishedOfType("thread_close").isEmpty(), "the thread did not close: " + timeline);
+    }
+
+    @Test
+    void generalistsFirst_aQuestionOpenAtThePassBoundaryHoldsPassTwo() throws Exception {
+        rebuild("generalistsFirst");
+        evaluate("t10");
+
+        ask("t10", COMPUTE, METRICS);
+        check("t10");
+        assertEquals(1, publishedOfType(REVIEW_READY).size(), "pass two waits while the question is open");
+
+        send("t10", METRICS, AGREE, "12 rows, rechecked", "{\"answers\":\"" + questionId(0) + "\"}");
+        send("t10", COMPUTE, AGREE, "ok", null);
+        settle("t10", REVIEW_TO_SYNTHESIS);
+        assertEquals(2, publishedOfType(REVIEW_READY).size());
+    }
+
+    @Test
+    void generalistsFirst_aReopenedThreadStartsItsReviewAgain() throws Exception {
+        rebuild("generalistsFirst");
+        evaluate("t11");
+        send("t11", COMPUTE, AGREE, "ok", null);
+        settle("t11", REVIEW_TO_SYNTHESIS);
+        send("t11", ADVISOR, AGREE, "ok", null);
+        settle("t11", REVIEW_TO_SYNTHESIS);
+        await(() -> phase("t11") == DiscussionOrchestrator.Phase.CLOSED, "not closed: " + timeline);
+
+        send("t11", "human", "reply", "And the pods?", null);
+
+        var state = orchestrator.threadForTest("t11");
+        assertEquals(DiscussionOrchestrator.Phase.EVALUATING, state.phase);
+        assertTrue(state.reviewSecondPass.isEmpty());
+        assertTrue(state.reviewFirstPass.isEmpty());
+    }
+
+    @Test
+    void aRestartInPassOneStillRunsPassTwo() {
+        var state = restartedThread("r1", Set.of(COMPUTE));
+
+        String action = ResumeContinuation.run(orchestrator, state, new CoordinatorThreadState());
+
+        assertEquals(ResumeContinuation.REPUBLISH_REVIEW_READY, action);
+        assertEquals(List.of(ADVISOR), state.reviewSecondPass);
+        assertEquals(List.of(COMPUTE), circle(publishedOfType(REVIEW_READY).get(0)));
+        state.phaseRoster.get().recordTerminalSignal(COMPUTE);
+        state.pendingEvaluations.clear();
+        orchestrator.finishReviewPass(state);
+        assertEquals(2, publishedOfType(REVIEW_READY).size());
+        assertEquals(List.of(ADVISOR), circle(publishedOfType(REVIEW_READY).get(1)));
+    }
+
+    @Test
+    void aRestartInPassTwoWakesTheDomainAnalystsAndGoesToSynthesisAfterThem() {
+        var state = restartedThread("r2", Set.of(ADVISOR));
+
+        String action = ResumeContinuation.run(orchestrator, state, new CoordinatorThreadState());
+
+        assertEquals(ResumeContinuation.REPUBLISH_REVIEW_READY, action);
+        assertTrue(state.reviewSecondPass.isEmpty(), "no third pass");
+        assertEquals(List.of(COMPUTE), state.reviewFirstPass);
+        assertEquals(List.of(ADVISOR), circle(publishedOfType(REVIEW_READY).get(0)));
+        orchestrator.finishReviewPass(state);
+        assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
+    }
+
+    private DiscussionOrchestrator.ThreadState restartedThread(String id, Set<String> roster) {
+        var state = new DiscussionOrchestrator.ThreadState(id);
+        state.crew = "crew";
+        state.userQuery = "How many rows?";
+        state.advisoryTechnologies = new java.util.concurrent.CopyOnWriteArrayList<>(List.of("kubernetes"));
+        state.agreeSignals.put(METRICS, "12 rows");
+        state.agreeSignals.put(WORKLOADS, "11 pods");
+        state.phase = DiscussionOrchestrator.Phase.REVIEW;
+        state.phaseRoster.set(PhaseRoster.of(roster));
+        return state;
+    }
+
+    @Test
+    void aLongFindingKeepsItsCallLinesPastTheCut() {
+        String call = "[CALL key=r9 tool=execute_code call=r9.call args=print(1) bytes=1]";
+        String finding = "x".repeat(3000) + "\n" + call;
+
+        String cut = DiscussionOrchestrator.cutKeepingCalls(finding);
+
+        assertTrue(cut.endsWith(call), cut.substring(cut.length() - 80));
+        assertTrue(cut.length() < 1200);
+        assertEquals("short", DiscussionOrchestrator.cutKeepingCalls("short"));
+        assertEquals(1003, DiscussionOrchestrator.cutKeepingCalls("y".repeat(3000)).length(),
+                "a long finding with no call line is cut as before");
     }
 
     @Test
