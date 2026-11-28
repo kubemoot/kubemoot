@@ -403,4 +403,17 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
         orchestrator.finishReviewPass(state);
         assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
     }
+
+    @Test
+    void theReviewShowsTheWorkingUnderAFindingAndProceedsWhenItCannotBeRead() throws Exception {
+        rebuild("generalistsFirst");
+        evaluate("t20");
+
+        String first = publishedOfType(REVIEW_READY).get(0).body().path("content").asText();
+        assertTrue(first.contains("[" + METRICS + "] 12 rows " + CALL_LINE + "\n[WORKING of r1]\n"
+                + ReviewWorking.WORKING_UNAVAILABLE), first);
+        assertTrue(first.contains("[OUTPUT of r1]\n" + ReviewWorking.OUTPUT_UNAVAILABLE), first);
+        assertFalse(first.contains("[WORKING of 11 pods"), "a finding without calls shows nothing");
+        assertEquals(DiscussionOrchestrator.Phase.REVIEW, phase("t20"), "an unreadable working never blocks the review");
+    }
 }

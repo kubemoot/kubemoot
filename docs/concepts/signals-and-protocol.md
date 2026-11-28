@@ -218,6 +218,14 @@ In plain terms, the flow is:
    [Ratification](../consensus-model/#ratification)).
 6. **CLOSED** - the answer has been delivered and the thread is clean.
 
+### What `review_ready` carries
+
+The content of `review_ready` is each finding, cut to 1,000 characters with its call lines kept,
+and under it the stored working and output of the calls the finding names, each capped (see
+[The review shows the working](../consensus-model/#the-review-shows-the-working)), then the list
+of the thread's stored files. A reviewer that doubts a result reads the working, then asks the
+agent that made it to recheck (a `question`, or a `concern` that names it).
+
 ### The question round
 
 A `question` from agent A to agent X, in EVALUATING or REVIEW, is relayed rather than settled. So is a `concern` from A that names X in `to`, when the archetype declares `concern` as starting a recheck (`startsRecheck`): the agent publishes it as the same `question` message, with the concern's statement as the question.
