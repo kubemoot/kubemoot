@@ -1344,7 +1344,7 @@ public class DiscussionSubscriber {
         log.warn("Agent {} publishing failure signal for thread {}: {} (tool={}, count={})",
                 properties.agentName(), threadId, tcf.failureType(),
                 tcf.toolName(), tcf.failureCount());
-        publishSignal(subject, threadId, SIGNAL_FAILURE, tcf.getMessage(),
+        publishSignal(subject, threadId, SIGNAL_FAILURE, tcf.postedContent(),
                 SignalTiming.of(totalMs, triageStartMs), gpuLabel, failureMeta);
     }
 

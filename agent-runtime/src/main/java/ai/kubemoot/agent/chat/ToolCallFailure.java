@@ -81,10 +81,21 @@ public class ToolCallFailure extends RuntimeException {
     private final String toolName;
     private final String lastErrorContent;
     private final int failureCount;
+    private final String unfinishedWork;
 
     public ToolCallFailure(FailureType failureType, String toolName, String lastErrorContent,
                            int failureCount, String message) {
+        this(failureType, toolName, lastErrorContent, failureCount, message, "");
+    }
+
+    /**
+     * A failure that carries the work done before it: the descriptions of the agent's tool calls
+     * and any text it had written, posted with the failure so a reviewer can open them.
+     */
+    public ToolCallFailure(FailureType failureType, String toolName, String lastErrorContent,
+                           int failureCount, String message, String unfinishedWork) {
         super(message);
+        this.unfinishedWork = unfinishedWork == null ? "" : unfinishedWork;
         this.failureType = failureType;
         this.toolName = toolName;
         this.lastErrorContent = lastErrorContent;
@@ -95,4 +106,12 @@ public class ToolCallFailure extends RuntimeException {
     public String toolName() { return toolName; }
     public String lastErrorContent() { return lastErrorContent; }
     public int failureCount() { return failureCount; }
+
+    /** What the failure signal posts: the message, then the work done before the failure when any was kept. */
+    public String postedContent() {
+        return unfinishedWork.isEmpty() ? getMessage() : getMessage() + "\n\n" + unfinishedWork;
+    }
+
+    /** The work done before the failure (call descriptions, unfinished text); empty when there is none. */
+    public String unfinishedWork() { return unfinishedWork; }
 }
