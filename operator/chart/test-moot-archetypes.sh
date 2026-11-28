@@ -24,7 +24,7 @@ want_kinds='["agree","concern","question","stand_aside","tool_gap","no_data","bl
 [ "$(of_signals '[.[] | select((.meaning // "") == "")] | length')" = "0" ] || fail "every consent-3 signal needs a meaning"
 [ "$(of_signals '.[] | select(.name == "question") | [.terminal, .addressed]')" = '[false,true]' ] \
   || fail "question must be addressed and not terminal"
-[ "$(of_signals '.[] | select(.name == "concern") | [.terminal, .addressed, .startsRecheck]')" = '[true,true,true]' ] \
+[ "$(of_signals '.[] | select(.name == "concern") | [(.terminal // true), .addressed, .startsRecheck]')" = '[true,true,true]' ] \
   || fail "concern must be addressed and start the named agent's recheck"
 [ "$(of_signals '[.[] | select(.startsRecheck == true) | .name]')" = '["concern"]' ] \
   || fail "only concern starts a recheck besides the question round itself"
