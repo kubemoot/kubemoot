@@ -181,12 +181,12 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
     void aGeneralistThatNeverRepliesExpiresAsAFailureAndTheSecondPassFollows() {
         var state = new DiscussionOrchestrator.ThreadState("t6");
         state.phase = DiscussionOrchestrator.Phase.REVIEW;
-        state.reviewSecondPass = List.of(ADVISOR);
+        state.reviewSecondPass.set(List.of(ADVISOR));
         orchestrator.seedReviewRoster(state, List.of(COMPUTE), System.currentTimeMillis() - 200_000L);
         var advanced = new AtomicInteger();
         var cfg = new DiscussionOrchestrator.PhaseSettle(10, 0, false, false, () -> {
             advanced.incrementAndGet();
-            state.reviewSecondPass = List.of();
+            state.reviewSecondPass.set(List.of());
             orchestrator.seedReviewRoster(state, List.of(ADVISOR), System.currentTimeMillis());
         });
 
@@ -278,8 +278,8 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
 
         var state = orchestrator.threadForTest("t11");
         assertEquals(DiscussionOrchestrator.Phase.EVALUATING, state.phase);
-        assertTrue(state.reviewSecondPass.isEmpty());
-        assertTrue(state.reviewFirstPass.isEmpty());
+        assertTrue(state.reviewSecondPass.get().isEmpty());
+        assertTrue(state.reviewFirstPass.get().isEmpty());
     }
 
     @Test
@@ -289,7 +289,7 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
         String action = ResumeContinuation.run(orchestrator, state, new CoordinatorThreadState());
 
         assertEquals(ResumeContinuation.REPUBLISH_REVIEW_READY, action);
-        assertEquals(List.of(ADVISOR), state.reviewSecondPass);
+        assertEquals(List.of(ADVISOR), state.reviewSecondPass.get());
         assertEquals(List.of(COMPUTE), circle(publishedOfType(REVIEW_READY).get(0)));
         state.phaseRoster.get().recordTerminalSignal(COMPUTE);
         state.pendingEvaluations.clear();
@@ -305,8 +305,8 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
         String action = ResumeContinuation.run(orchestrator, state, new CoordinatorThreadState());
 
         assertEquals(ResumeContinuation.REPUBLISH_REVIEW_READY, action);
-        assertTrue(state.reviewSecondPass.isEmpty(), "no third pass");
-        assertEquals(List.of(COMPUTE), state.reviewFirstPass);
+        assertTrue(state.reviewSecondPass.get().isEmpty(), "no third pass");
+        assertEquals(List.of(COMPUTE), state.reviewFirstPass.get());
         assertEquals(List.of(ADVISOR), circle(publishedOfType(REVIEW_READY).get(0)));
         orchestrator.finishReviewPass(state);
         assertEquals(DiscussionOrchestrator.Phase.SYNTHESIZING, state.phase);
@@ -323,8 +323,8 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
             assertTrue(logged.contains("[some-other-analyst]") && logged.contains("[compute]")
                     && logged.contains("[k8s-advisor]"), logged);
         }
-        assertTrue(state.reviewSecondPass.isEmpty());
-        assertTrue(state.reviewFirstPass.isEmpty());
+        assertTrue(state.reviewSecondPass.get().isEmpty());
+        assertTrue(state.reviewFirstPass.get().isEmpty());
     }
 
     @Test
@@ -343,7 +343,7 @@ class DiscussionOrchestratorReviewOrderTest extends CoordinatorThreadTestBase {
             assertTrue(logged.contains("Thread r4") && logged.contains("no second pass"), logged);
             assertTrue(logged.contains("[compute]"), logged);
         }
-        assertTrue(state.reviewSecondPass.isEmpty());
+        assertTrue(state.reviewSecondPass.get().isEmpty());
     }
 
     @Test

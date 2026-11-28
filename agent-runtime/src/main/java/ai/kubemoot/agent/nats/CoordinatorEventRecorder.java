@@ -48,6 +48,8 @@ import static ai.kubemoot.agent.nats.CoordinatorWire.*;
  */
 final class CoordinatorEventRecorder {
 
+    private static final String FIELD_METADATA = "metadata";
+
     /** The setting that turns the log on: environment variable {@code KUBEMOOT_COORDINATOR_EVENT_LOG}. */
     static final String CONFIG_KEY = "kubemoot.coordinator.event-log";
 
@@ -480,7 +482,7 @@ final class CoordinatorEventRecorder {
             d.put(DEADLINE_AT, deadline);
         }
         signalDetails(d, s, agent, signal, msg);
-        if (!msg.path("metadata").path(RecheckText.FIELD_ANSWERS).asText("").isEmpty()) {
+        if (!msg.path(FIELD_METADATA).path(RecheckText.FIELD_ANSWERS).asText("").isEmpty()) {
             d.put(REVISES, true);
         }
         return emit(s, SIGNAL_APPLIED, keyed(s, "signal/" + agent + "/" + messageKey(s, agent, messageId, msg)), d);
@@ -515,10 +517,10 @@ final class CoordinatorEventRecorder {
             d.put(RESEARCHER, s.researcherAgents.contains(agent));
         }
         if (WAITING.equals(signal)) {
-            d.put(MODEL, msg.path("metadata").path(MODEL).asText(""));
+            d.put(MODEL, msg.path(FIELD_METADATA).path(MODEL).asText(""));
         }
         if (STAND_ASIDE.equals(signal)) {
-            capacityDetails(d, msg.path("metadata"));
+            capacityDetails(d, msg.path(FIELD_METADATA));
         }
         if (isTerminal(signal)) {
             putTime(d, LAST_SIGNAL_AT, s.lastSignalReceived);

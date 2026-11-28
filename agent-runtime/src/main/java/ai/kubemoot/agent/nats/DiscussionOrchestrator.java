@@ -1475,7 +1475,7 @@ public class DiscussionOrchestrator {
 
     /** The archetype's recheck rounds, 1 when it sets none, kept between 0 and 5 as the CRD allows. */
     static int recheckRounds(Optional<Integer> declared) {
-        int rounds = declared == null ? 1 : declared.orElse(1);
+        int rounds = declared.orElse(1);
         return Math.max(0, Math.min(5, rounds));
     }
 
@@ -1721,8 +1721,8 @@ public class DiscussionOrchestrator {
         state.ratify.reset();
         state.recheck.reset();
         state.declaredSignals.clear();
-        state.reviewSecondPass = List.of();
-        state.reviewFirstPass = List.of();
+        state.reviewSecondPass.set(List.of());
+        state.reviewFirstPass.set(List.of());
         state.stopped = false;
         state.receipt.startRound(state.phaseStarted);
         events.get().reopened(state);
@@ -2833,8 +2833,8 @@ public class DiscussionOrchestrator {
         log.info("Thread {} - review convened by {} ({}): {}", state.threadId, plan.basis(),
                 reviewPolicy.convene(), analystCircle.isEmpty() ? "every analyst" : analystCircle);
         var passes = reviewPasses(reviewersFor(analystCircle, analysts), state.threadId);
-        state.reviewSecondPass = passes.second();
-        state.reviewFirstPass = List.of();
+        state.reviewSecondPass.set(passes.second());
+        state.reviewFirstPass.set(List.of());
         startReviewPass(state, passes.first(), passes.second().isEmpty() ? analystCircle : passes.first());
     }
 
@@ -2868,9 +2868,9 @@ public class DiscussionOrchestrator {
         if (passes.second().isEmpty()) {
             if (ordered) warnSinglePass(state, members, passes, "the recomputed review has no second pass");
         } else if (members.equals(Set.copyOf(passes.first()))) {
-            state.reviewSecondPass = passes.second();
+            state.reviewSecondPass.set(passes.second());
         } else if (members.equals(Set.copyOf(passes.second()))) {
-            state.reviewFirstPass = passes.first();
+            state.reviewFirstPass.set(passes.first());
         } else {
             warnSinglePass(state, members, passes, "the restored roster matches neither recomputed pass");
         }
@@ -2906,13 +2906,13 @@ public class DiscussionOrchestrator {
      */
     // Visible for testing
     void finishReviewPass(ThreadState state) {
-        var next = state.reviewSecondPass;
+        var next = state.reviewSecondPass.get();
         if (next.isEmpty()) {
             transitionToSynthesis(state);
             return;
         }
-        state.reviewSecondPass = List.of();
-        state.reviewFirstPass = List.copyOf(state.phaseRoster.get().members());
+        state.reviewSecondPass.set(List.of());
+        state.reviewFirstPass.set(List.copyOf(state.phaseRoster.get().members()));
         log.info("Thread {} - first review pass done, convening {}", state.threadId, next);
         startReviewPass(state, next, List.copyOf(next));
     }
@@ -2955,7 +2955,7 @@ public class DiscussionOrchestrator {
             out.append("[CONCERN from ").append(concern.getKey()).append("] ")
                     .append(cutKeepingCalls(concern.getValue())).append("\n\n");
         }
-        for (String name : state.reviewFirstPass.stream().sorted().toList()) {
+        for (String name : state.reviewFirstPass.get().stream().sorted().toList()) {
             if (state.standAsideSignals.contains(name)) out.append("[STAND ASIDE from ").append(name).append("]\n\n");
             appendFirstPassSignal(out, "BLOCK", name, state.blockSignals);
             appendFirstPassSignal(out, "FAILURE", name, state.failureSignals);
@@ -5586,9 +5586,9 @@ public class DiscussionOrchestrator {
         /** Why these analysts were convened for review (see ReviewConvening); null before review. */
         volatile String reviewBasis;
         /** The analysts convened once the first review pass has replied (see ReviewConvening.Order); empty when none. */
-        volatile List<String> reviewSecondPass = List.of();
+        final AtomicReference<List<String>> reviewSecondPass = new AtomicReference<>(List.of());
         /** The analysts of the review pass before this one, whose blocks, stand-asides and failures the second pass is shown. */
-        volatile List<String> reviewFirstPass = List.of();
+        final AtomicReference<List<String>> reviewFirstPass = new AtomicReference<>(List.of());
 
         // Agents that have published an evaluating signal but not yet a terminal signal.
         // Map: agentName → deadline epoch ms (P90 + grace). The settle timer must not fire

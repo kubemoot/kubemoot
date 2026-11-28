@@ -55,7 +55,7 @@ public final class SignalTool {
      * Reads one call's arguments. A call with an undeclared kind, or an addressed kind without
      * {@code to}, is answered with what to fix and records nothing, so the model can call again.
      */
-    public Outcome record(String arguments) {
+    public Outcome accept(String arguments) {
         JsonNode args = parse(arguments);
         String kind = arg(args, KIND);
         DeclaredSignal declared = signals.find(kind);

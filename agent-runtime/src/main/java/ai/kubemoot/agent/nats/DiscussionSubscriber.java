@@ -252,7 +252,7 @@ public class DiscussionSubscriber {
         this.jetstreamConsumer = properties.discuss().jetstreamConsumer().orElse(null);
         this.triggerTypes = triggerTypesFor(properties.discuss().role());
         var declared = properties.discuss().signals();
-        this.declaredSignals = DeclaredSignals.parse(declared == null ? java.util.Optional.empty() : declared);
+        this.declaredSignals = DeclaredSignals.parse(declared);
         this.rateLimiter = new DiscussionRateLimiter(
                 properties.discuss().maxInferencesPerMinute(),
                 properties.discuss().maxContributionsPerThread()
@@ -805,7 +805,7 @@ public class DiscussionSubscriber {
     /** The work of one turn; it may throw, and {@link #runTurn} turns that into the turn's failure. */
     @FunctionalInterface
     interface TurnBody {
-        void run() throws Exception;
+        void run() throws java.io.IOException;
     }
 
     /**
