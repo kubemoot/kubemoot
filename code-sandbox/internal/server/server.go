@@ -65,6 +65,9 @@ const executeCodeDescription = "Run a short program and return its stdout, stder
 	"not over rows you copied from a slice; a result in a format the file has (CSV text inside YAML, JSON) " +
 	"is parsed by the program itself. Only this discussion's results can be named; a key of another " +
 	"discussion or one that does not exist is refused. " +
+	"The call itself, this program included, is kept in the discussion too: its key is the result's key " +
+	"followed by .call (the call= key on its [CALL ...] line), and naming it in inputs opens the program " +
+	"a colleague ran. " +
 	"It cannot fetch data: no network, no cluster API, no kubectl, and no credentials. " +
 	"Nothing arrives on stdin."
 

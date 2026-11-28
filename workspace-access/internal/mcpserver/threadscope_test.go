@@ -156,3 +156,31 @@ func TestQueryRefusesAKeyOfAnotherThread(t *testing.T) {
 		t.Fatal("the query must not run when a key is refused")
 	}
 }
+
+const (
+	workingShort = "k8s-workloads/001-execute_code.call"
+	workingBody  = "{\"language\":\"python\",\"code\":\"import csv\\nprint(len(rows))\\n\"}"
+)
+
+func TestAnAgentOpensAnotherAgentsProgramByTheCallKey(t *testing.T) {
+	s := newServer(map[string]string{scopeThread + workingShort: workingBody})
+	for _, tool := range []string{toolHead, toolTail} {
+		got, err := callScoped(t, s, threadMeta(), tool, map[string]any{keyArg: workingShort})
+		if err != nil || !strings.Contains(got, "import csv") || !strings.Contains(got, "print(len(rows))") {
+			t.Fatalf("%s of the call key: %q, %v", tool, got, err)
+		}
+	}
+	got, err := callScoped(t, s, threadMeta(), toolGrep, map[string]any{keyArg: workingShort, "pattern": "csv"})
+	if err != nil || !strings.Contains(got, "import csv") {
+		t.Fatalf("grep of the call key: %q, %v", got, err)
+	}
+}
+
+func TestTheCallKeyOfAnotherDiscussionIsRefused(t *testing.T) {
+	other := "crew-homelab-pilot/homelab-pilot/11111111-2222-3333-4444-555555555555/" + workingShort
+	s := newServer(map[string]string{other: workingBody})
+	_, err := callScoped(t, s, threadMeta(), toolHead, map[string]any{keyArg: other})
+	if err == nil || !strings.Contains(err.Error(), "another thread") {
+		t.Fatalf("want a refusal, got %v", err)
+	}
+}

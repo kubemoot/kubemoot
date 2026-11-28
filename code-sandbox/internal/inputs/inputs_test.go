@@ -210,3 +210,28 @@ func TestOpenDirRefusesALinkAnywhereInThePath(t *testing.T) {
 		t.Errorf("a missing folder is not a link: %v", err)
 	}
 }
+
+func TestAProgramIsOpenedByItsCallKeyAndOnlyInItsOwnThread(t *testing.T) {
+	root := t.TempDir()
+	for ns, body := range map[string]string{mine: "print(1)", other: "print(2)"} {
+		path := filepath.Join(root, ns+"k8s-config/001-execute_code.call")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := Resolver{Roots: []string{root}}
+	got, err := r.Resolve(mine, []string{"k8s-config/001-execute_code.call"})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	defer Close(got)
+	if b, _ := io.ReadAll(got[0].File); string(b) != "print(1)" {
+		t.Fatalf("read %q, want the program of this thread", b)
+	}
+	if _, err := r.Resolve(mine, []string{other + "k8s-config/001-execute_code.call"}); err == nil {
+		t.Fatal("the program of another discussion must be refused")
+	}
+}

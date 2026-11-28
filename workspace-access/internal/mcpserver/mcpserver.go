@@ -105,13 +105,18 @@ const (
 	argLines         = "lines"
 )
 
+// callsKeptNote is said on every tool that reads a key: a finding's calls are kept with their results.
+const callsKeptNote = "Every call of a finding is kept: its result under the key on its [CALL ...] line, and the " +
+	"call itself (the program of execute_code, the query, the parameters) under that key followed by .call " +
+	"(the call= key); read both like any result."
+
 // The text read tools are served under both names while the old names are retired: the
 // workspace_* tool is the one to use, and the artifact_* tool is the same handler and says so.
 const (
 	headDescription = "First N lines of a stored result, by object key, ending with a " +
-		"position line that gives its total line count."
-	tailDescription = "Last N lines of a stored result, by object key."
-	grepDescription = "Lines of a stored result matching an RE2 regex (capped)."
+		"position line that gives its total line count. " + callsKeptNote
+	tailDescription = "Last N lines of a stored result, by object key. " + callsKeptNote
+	grepDescription = "Lines of a stored result matching an RE2 regex (capped). " + callsKeptNote
 )
 
 // addTextTools registers workspace_head, workspace_tail and workspace_grep and, beside them,
@@ -205,7 +210,7 @@ func (s *Server) addCatalogTools(srv *mcp.Server) {
 const listDescription = "List what this discussion has stored: one line per tool call with its key, tool, " +
 	"arguments, content type, rows, bytes, whether it failed and when it started. Only this thread's " +
 	"calls are listed. Pass tool to list the calls of one tool. Read a call by its key with " +
-	"workspace_query, workspace_head, workspace_tail or workspace_grep."
+	"workspace_query, workspace_head, workspace_tail or workspace_grep. " + callsKeptNote
 
 const describeDescription = "Say what the tables of named artifacts hold, before writing a query: for each " +
 	"table its columns, the type the query engine gives each, how many values are null, and a few example " +
@@ -232,6 +237,8 @@ const queryDescription = "Run one read-only SQL SELECT over artifacts. Give arti
 	"is node_selector, UP-TO-DATE is up_to_date. A table's real column names are on the [CALL ...] line of " +
 	"its call (columns= for a table, fields= for JSON) and in workspace_describe; a query that names a " +
 	"column the table lacks fails with the table's columns listed, so use those names and never a guess. " +
+	"A call's own arguments, the program of an execute_code call included, are the key plus .call " +
+	"(the call= key on its [CALL ...] line); read it with workspace_head. " +
 	"No writes, no files outside the named artifacts, no network."
 
 // --- tool inputs ---
