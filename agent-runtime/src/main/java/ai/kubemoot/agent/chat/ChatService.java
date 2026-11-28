@@ -233,8 +233,7 @@ public class ChatService {
         log.info("Triage model: {} @ {}", triageModelId, triageEndpoint);
 
         // Register MCP tools. Tools are discovered via the MCPGateway/McpClientService
-        // and exposed uniformly to the agent — scheduling, kubernetes, proxmox, etc.
-        // all use the same MCP path. No built-in tools live in agent-runtime.
+        // and exposed uniformly to the agent; every tool uses the same MCP path. No built-in tools live in agent-runtime.
         this.mcpClient = mcpClient;
         toolSet.set(ToolSet.of(mcpClient.getToolSpecifications()));
 
@@ -340,7 +339,7 @@ public class ChatService {
         log.info("Discussion timed out for coordinator {}, returning async notice", properties.agentName());
         return new ChatResult(request.conversationId(),
             "The tooler agents are still working on your question but haven't finished yet. " +
-            "This can happen when many agents are queued on shared GPU resources. " +
+            "This can happen when many agents are queued on shared accelerator capacity. " +
             "Please try asking again in a moment.",
             properties.model().model(), threadId);
     }
@@ -373,10 +372,8 @@ public class ChatService {
         // for the failure path. Previous version only recorded on success,
         // so slow-and-failed calls (the most important signal to capture)
         // were never observed, defeating the self-correcting purpose of
-        // the feedback loop. Observed concretely 2026-05-26 in discussion
-        // 506ed2d1 where nvidia-gpu landed on rig1 a SECOND time despite
-        // rig1 having failed a 7-minute LOOP_TIME_EXCEEDED on the
-        // previous test — the prior failure had not been recorded.
+        // the feedback loop. A failed call that goes unrecorded lets the
+        // scheduler pick the same server again.
         // Phase D: estimate this call's KV-cache need from the prompt's
         // char count so the predictor can gate against in-flight + this-call
         // KV pressure. Crude chars/4 with a safety pad; tighter accuracy
@@ -387,8 +384,7 @@ public class ChatService {
         String serverName = pick.serverName();
         // Outbound wire trace: the exact model + endpoint this call will send to
         // Ollama. Pair with OLLAMA_DEBUG on the server to confirm the wire model
-        // matches what the scheduler intended (the 2026-06-11 spill: an 8B agent's
-        // request to the 4090 loaded 32B - this line records what we believe we sent).
+        // matches what the scheduler intended (this line records what the runtime believes it sent).
         log.info("OUTBOUND inference (tool-loop): agent={} endpoint={} model={} server={} reason={}",
                 properties.agentName(), pick.endpoint(), pick.modelName(),
                 serverName.isEmpty() ? "static" : serverName, pick.pickReason());
@@ -520,22 +516,16 @@ public class ChatService {
     /**
      * Wall-clock cap on the entire mulling loop. Bounds total elapsed
      * time across successful-but-slow iterations — the case that
-     * iteration-count and per-call-timeout caps miss. Observed
-     * 2026-05-26 in discussion dccdb33f: nvidia-gpu's ServerSelector
-     * landed on a cold-model rig1 because rig0 was momentarily
-     * saturated; each iteration took ~30-60s; the user waited 10
-     * minutes before the final per-call timeout fired. With this cap,
-     * the same case fails cleanly at 5 minutes with a LOOP_TIME_EXCEEDED
-     * failure signal — coordinator settles fast, synthesis is honest.
+     * iteration-count and per-call-timeout caps miss. When the loop
+     * runs past this cap it fails with a LOOP_TIME_EXCEEDED failure
+     * signal, so the coordinator settles and the synthesis is honest.
      */
     static final long MAX_LOOP_WALL_CLOCK_MS = 5L * 60L * 1000L; // 5 minutes
 
     // Max retries for an empty-AND-no-tools turn before the forced-answer
-    // fallback. A flaky small model (qwen3:8b) intermittently returns an empty
-    // turn WITHOUT calling any tool - it never engaged. One retry (the old
-    // behaviour) was not enough: reproduced 2026-06-11, nvidia-gpu-now emptied
-    // twice and stood aside, producing a non-answer the judge scored 0. More
-    // attempts give the model more chances to actually call its tools.
+    // fallback. A small model can return an empty
+    // turn WITHOUT calling any tool - it never engaged. One retry was not
+    // enough; more attempts give the model more chances to call its tools.
     // See [[Tooler Empty-Mulling and Single-Agent Selection Cause Non-Answers]].
     static final int EMPTY_NO_TOOLS_MAX_RETRIES = 3;
 
@@ -1550,8 +1540,8 @@ public class ChatService {
      *   <li>Direct HTTP self-fetch ({@link OllamaDirectProber}): when NATS returns
      *       nothing (stalled, operator restart window), probe each server's
      *       /api/ps and /api/tags directly at decision time. This makes the
-     *       fit-gate NATS-INDEPENDENT — the 2026-06-14 failure mode (NATS stalled
-     *       -> degraded gate -> 32b spilled onto 4090) cannot recur. Prefers an
+     *       fit-gate NATS-INDEPENDENT — a stalled NATS cannot
+     *       degrade the gate into a spill. Prefers an
      *       observed warm footprint (/api/ps) over the on-disk proxy (/api/tags).
      *       See [[JIT Fit-Gate Degraded Mode Can Spill]].</li>
      *   <li>Parameter-count estimate (KvCacheEstimator): when even direct probes
@@ -2350,7 +2340,7 @@ public class ChatService {
      * Triage inference — lightweight "should I contribute?" check using the triage model.
      * No tools, no RAG, just a quick assessment. Returns the raw response text.
      * Uses direct HTTP to Ollama API to avoid LangChain4j/Quarkus named model issues in native builds.
-     * The triage model runs on the smaller GPU (e.g., 4090 with qwen3:8b).
+     * The triage model is the smaller, faster model.
      */
     public String triageChat(String systemPrompt, String conversation) {
         return triageChatWithTokens(systemPrompt, conversation).text();
@@ -2358,10 +2348,10 @@ public class ChatService {
 
     /**
      * Triage-model variant of {@link #simpleLlmCallWithTokens} — runs the call on
-     * the fast triage model (e.g. qwen3:8b on the 4090) instead of the coordinator's
+     * the fast triage model instead of the coordinator's
      * reasoning-tier model, and returns the token counts. Used for the coordinator's
      * CLASSIFICATION sub-tasks (advisory generation, subcommittee triage selection),
-     * which are JSON-classification, not reasoning — keeping them off the 32B model
+     * which are JSON-classification, not reasoning — keeping them off the larger model
      * cuts the per-call prefill cost. Synthesis stays on the reasoning model.
      * See the "Coordinator Model Tiering" card / agentic-consensus.md.
      */

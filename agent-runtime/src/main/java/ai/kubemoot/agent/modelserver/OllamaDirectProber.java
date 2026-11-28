@@ -26,9 +26,7 @@ import java.util.Map;
  * bucket {@code kubemoot_server_state}. When NATS is stalled or the operator
  * has just restarted (before its first capacity probe), the KV entries are
  * absent and {@code resolveOccupancyMiB} returns 0 - which causes a static
- * fallback with NO fit check. On 2026-06-14, NATS JetStream stalled under
- * heavy write load, and qwen3:32b spilled onto the 4090 (CPU spill, 91%
- * scenario failure). This class removes that hard NATS dependency.
+ * fallback with NO fit check. A stalled NATS then lets a large model spill to CPU. This class removes that hard NATS dependency.
  *
  * <h3>Resolution order</h3>
  * <ol>
@@ -119,7 +117,7 @@ public class OllamaDirectProber {
      * either endpoint failing independently is tolerated (returns partial data).
      * Returns EMPTY on total failure (server unreachable).
      *
-     * @param serverEndpoint base URL of the Ollama instance, e.g. "http://ollama.ollama-rig1:11434"
+     * @param serverEndpoint base URL of the Ollama instance, e.g. "http://ollama.ollama-a:11434"
      */
     public ProbeResult probe(String serverEndpoint) {
         if (serverEndpoint == null || serverEndpoint.isBlank()) return ProbeResult.EMPTY;

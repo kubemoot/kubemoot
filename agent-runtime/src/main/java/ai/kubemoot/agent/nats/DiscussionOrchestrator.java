@@ -244,7 +244,7 @@ public class DiscussionOrchestrator {
     // NATS subject prefix
 
     // Configurable timing constants for phase transitions.
-    // Defaults tuned for mixed GPU cluster: RTX 5090 (~20s tool-calling) + RTX 4090 (~60s tool-calling).
+    // Defaults suit a mix of fast and slow accelerators.
     private final int settleSeconds;
     private final int minEvalSeconds;
     private final int minReviewSeconds;
@@ -1352,8 +1352,7 @@ public class DiscussionOrchestrator {
     // agent that is slow THIS round (e.g. an empty-first-turn retry that doubles
     // inference) still heartbeats, but if P90+grace were shorter than the heartbeat
     // interval the deadline would expire in the gap between beats and the agent be
-    // wrongly failed (observed: k8s-workloads on threads 642f732b / 7d5626c3 — it
-    // heartbeated, then was failed ~9s before its next beat). Flooring guarantees a
+    // wrongly failed. Flooring guarantees a
     // heartbeating agent always survives to its next beat.
     static long deadlineWindowMs(int expectedSeconds, long graceMs) {
         return Math.max(expectedSeconds * 1000L, HEARTBEAT_INTERVAL_MS) + graceMs;
@@ -3152,7 +3151,7 @@ public class DiscussionOrchestrator {
             // ADL-FIRST: Before adding behavioral logic here, consider whether it can
             // be expressed as an ADL rule in a PromptModule CR instead. Hardcoded Java
             // is a safety net for LLM non-compliance, the primary fix belongs in ADL.
-            // See: homelab-pilot/charts/.../promptmodule-coordinator.yaml
+            // See: the crew's coordinator PromptModule
             response = handleWaitResponse(state, response);
             if (response == null) return;
 
@@ -3212,7 +3211,7 @@ public class DiscussionOrchestrator {
         }
         log.info("Thread {} — WAIT overridden, {} stand-asides present, running gap detection",
                 state.threadId, state.standAsideSignals.size());
-        return "The toolers could not find information about this topic in the current environment.";
+        return "No agent found information about this topic.";
     }
 
     /**
@@ -3518,8 +3517,8 @@ public class DiscussionOrchestrator {
 
     static final String PROMPT_TOO_LARGE_MESSAGE = "The question and the evidence gathered for it are larger "
             + "than the context window any accelerator in this cluster gives the agents' models, so they could not "
-            + "answer without losing part of it. Ask a narrower question, or give the Ollama server a larger "
-            + "per-request context (OLLAMA_CONTEXT_LENGTH).";
+            + "answer without losing part of it. Ask a narrower question, or give the model server a larger "
+            + "per-request context window.";
 
     static final String ACCELERATOR_BUSY_MESSAGE = "The crew's agents could not get an accelerator: every accelerator was busy "
             + "with other work, so none of them could answer in time. This is the cluster's capacity, "
@@ -4115,7 +4114,7 @@ public class DiscussionOrchestrator {
      */
     private String buildLegacyAdvisoryPrompt(String userQuery, ThreadState state) {
         var sb = new StringBuilder();
-        sb.append("Given this user query about a homelab/cloud-native environment, provide a brief advisory.\n\n");
+        sb.append("Given this user query provide a brief advisory.\n\n");
 
         // Include conversation context so advisory understands follow-up references
         var context = buildConversationContext(state.conversationId);
@@ -4521,7 +4520,7 @@ public class DiscussionOrchestrator {
         sb.append("Select agents whose tools or expertise match the question. ");
         sb.append("Respond in JSON only, no markdown fences:\n");
         sb.append("{\"agents\": [{\"name\": \"agent-name\", \"confidence\": 0.9, ");
-        sb.append("\"reason\": \"Has resources_list for Namespace\"}], \"overallConfidence\": 0.85}");
+        sb.append("\"reason\": \"Has tool X for topic Y\"}], \"overallConfidence\": 0.85}");
 
         return sb.toString();
     }

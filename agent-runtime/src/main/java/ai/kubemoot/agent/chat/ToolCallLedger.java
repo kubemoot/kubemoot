@@ -244,7 +244,7 @@ final class ToolCallLedger {
                 + WorkspaceTools.QUERY + " (SQL; the columns are listed on the call line, and "
                 + WorkspaceTools.DESCRIBE + " lists every one), "
                 + WorkspaceTools.HEAD + ", " + WorkspaceTools.TAIL + ", " + WorkspaceTools.GREP + ", or "
-                + "execute_code over the file " + WorkspaceTools.MOUNT + "/<key>"
+                + WorkspaceTools.CODE_TOOL + " over the file " + WorkspaceTools.MOUNT + "/<key>"
                 + keyHint;
         int room = MAX_MANIFEST_CHARS - head.length() - foot.length();
         return head + lines(room) + foot;

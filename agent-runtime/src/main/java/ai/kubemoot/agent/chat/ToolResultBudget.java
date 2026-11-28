@@ -125,8 +125,8 @@ final class ToolResultBudget {
     static String fullError(String toolName, long tokens, long available, String preview) {
         return errorJson("Tool result larger than the room left in the context window: " + toolName
                 + " returned about " + tokens + " tokens and about " + available + " tokens are left."
-                + " The result was not kept. Call " + toolName + " again with a filter: a namespace,"
-                + " a label selector, a field selection, a limit, or a shorter time range." + aggregateHint(toolName)
+                + " The result was not kept. Call " + toolName + " again with a filter,"
+                + " a limit, or a narrower range." + aggregateHint(toolName)
                 + (preview == null ? "" : " Table preview: " + preview));
     }
 
